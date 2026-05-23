@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,15 +26,18 @@ const (
 	dbSubcommandStop   = "stop"
 	dbSubcommandStatus = "status"
 
-	dbListenHost        = "127.0.0.1"
-	dbDefaultPort       = 3306
-	dbPollInterval      = 200 * time.Millisecond
-	dbStartupTimeout    = 10 * time.Second
-	dbShutdownTimeout   = 5 * time.Second
-	dbStateDirectory    = "run"
-	dbStateSubdirectory = "db"
-	dbDataDirectory     = "data"
-	dbDataSubdirectory  = "db"
+	dbListenHost         = "127.0.0.1"
+	dbDefaultPort        = 3306
+	dbPollInterval       = 200 * time.Millisecond
+	dbStartupTimeout     = 10 * time.Second
+	dbShutdownTimeout    = 5 * time.Second
+	dbStateDirectory     = "run"
+	dbStateSubdirectory  = "db"
+	dbDataDirectory      = "data"
+	dbDataSubdirectory   = "db"
+	dbSecretDirectory    = "secrets"
+	dbSecretSubdirectory = "db"
+	dbManagedUserName    = "polka"
 )
 
 var (
@@ -49,18 +54,30 @@ type dbResolvedEnvironment struct {
 }
 
 type dbServerSpec struct {
-	EnvironmentName string
-	Engine          string
-	Version         string
-	InstallDir      string
-	Target          string
-	DataDir         string
-	LogPath         string
-	Port            int
+	EnvironmentName  string
+	Engine           string
+	Version          string
+	InstallDir       string
+	Target           string
+	AdminTarget      string
+	DataDir          string
+	LogPath          string
+	DefaultsFile     string
+	BootstrapSQLFile string
+	Port             int
 }
 
 type dbStartResult struct {
 	PID int
+}
+
+type dbManagedCredentials struct {
+	EnvironmentName string `json:"environment"`
+	Engine          string `json:"engine"`
+	Version         string `json:"version"`
+	User            string `json:"user"`
+	Password        string `json:"password"`
+	Port            int    `json:"port"`
 }
 
 type dbRuntimeState struct {
@@ -71,6 +88,8 @@ type dbRuntimeState struct {
 	PID             int       `json:"pid"`
 	DataDir         string    `json:"data_dir"`
 	LogPath         string    `json:"log_path"`
+	AdminTarget     string    `json:"admin_target,omitempty"`
+	DefaultsFile    string    `json:"defaults_file,omitempty"`
 	StartedAt       time.Time `json:"started_at"`
 }
 
@@ -183,6 +202,19 @@ func runDBStop(stdout, stderr io.Writer, store backend.Store, resolved dbResolve
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
+	if strings.TrimSpace(state.AdminTarget) == "" || strings.TrimSpace(state.DefaultsFile) == "" {
+		spec, specErr := buildDBServerSpec(store, resolved)
+		if specErr != nil {
+			fmt.Fprintf(stderr, "error: %v\n", specErr)
+			return 1
+		}
+		if strings.TrimSpace(state.AdminTarget) == "" {
+			state.AdminTarget = spec.AdminTarget
+		}
+		if strings.TrimSpace(state.DefaultsFile) == "" {
+			state.DefaultsFile = spec.DefaultsFile
+		}
+	}
 
 	if err := stopDatabaseServerFunc(*state); err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
@@ -221,21 +253,33 @@ func runDBStatus(stdout, stderr io.Writer, store backend.Store, resolved dbResol
 }
 
 func buildDBServerSpec(store backend.Store, resolved dbResolvedEnvironment) (dbServerSpec, error) {
+	credentials, err := ensureDatabaseCredentialAssets(store.RootDir, resolved)
+	if err != nil {
+		return dbServerSpec{}, err
+	}
+
 	installDir := filepath.Join(store.EnvsDir, resolved.Database.Engine, resolved.Database.Version)
 	target, err := resolveDatabaseServerTarget(store.EnvsDir, resolved.Database.Engine, resolved.Database.Version)
 	if err != nil {
 		return dbServerSpec{}, err
 	}
+	adminTarget, err := resolveDatabaseAdminTarget(store.EnvsDir, resolved.Database.Engine, resolved.Database.Version)
+	if err != nil {
+		return dbServerSpec{}, err
+	}
 
 	return dbServerSpec{
-		EnvironmentName: resolved.Environment.Name,
-		Engine:          resolved.Database.Engine,
-		Version:         resolved.Database.Version,
-		InstallDir:      installDir,
-		Target:          target,
-		DataDir:         databaseDataPath(store.RootDir, resolved.Environment.Name),
-		LogPath:         databaseLogPath(store.RootDir, resolved.Environment.Name),
-		Port:            effectiveDatabasePort(resolved.Database),
+		EnvironmentName:  resolved.Environment.Name,
+		Engine:           resolved.Database.Engine,
+		Version:          resolved.Database.Version,
+		InstallDir:       installDir,
+		Target:           target,
+		AdminTarget:      adminTarget,
+		DataDir:          databaseDataPath(store.RootDir, resolved.Environment.Name),
+		LogPath:          databaseLogPath(store.RootDir, resolved.Environment.Name),
+		DefaultsFile:     databaseDefaultsFilePath(store.RootDir, resolved.Environment.Name),
+		BootstrapSQLFile: databaseBootstrapSQLPath(store.RootDir, resolved.Environment.Name),
+		Port:             credentials.Port,
 	}, nil
 }
 
@@ -270,6 +314,8 @@ func ensureManagedDatabaseStarted(store backend.Store, resolved dbResolvedEnviro
 		PID:             result.PID,
 		DataDir:         spec.DataDir,
 		LogPath:         spec.LogPath,
+		AdminTarget:     spec.AdminTarget,
+		DefaultsFile:    spec.DefaultsFile,
 		StartedAt:       dbNowFunc().UTC(),
 	}
 	if err := writeDatabaseState(statePath, startedState); err != nil {
@@ -281,8 +327,8 @@ func ensureManagedDatabaseStarted(store backend.Store, resolved dbResolvedEnviro
 }
 
 func injectDatabaseConnectionArgs(rootDir string, resolved dbResolvedEnvironment, args []string) ([]string, error) {
-	hasHost, hasPort, hasSocket, hasProtocol, protocol := databaseConnectionOverrides(args)
-	if hasSocket {
+	hasDefaultsFile, hasHost, hasPort, hasSocket, hasProtocol, protocol := databaseConnectionOverrides(args)
+	if hasDefaultsFile || hasSocket {
 		return args, nil
 	}
 	if hasProtocol && protocol != "" && !strings.EqualFold(protocol, "tcp") {
@@ -293,12 +339,30 @@ func injectDatabaseConnectionArgs(rootDir string, resolved dbResolvedEnvironment
 	if err != nil {
 		return nil, err
 	}
+	if state != nil {
+		credentials, credentialsErr := loadDatabaseCredentials(databaseCredentialStatePath(rootDir, resolved.Environment.Name))
+		if errors.Is(credentialsErr, os.ErrNotExist) {
+			return nil, fmt.Errorf("database credentials for environment %q are missing under %s; stop and restart the database to re-bootstrap them", resolved.Environment.Name, filepath.Join(rootDir, dbSecretDirectory, dbSecretSubdirectory))
+		}
+		if credentialsErr != nil {
+			return nil, credentialsErr
+		}
+		if strings.TrimSpace(credentials.User) == "" || strings.TrimSpace(credentials.Password) == "" {
+			return nil, fmt.Errorf("database credentials for environment %q are incomplete under %s; stop and restart the database to re-bootstrap them", resolved.Environment.Name, filepath.Join(rootDir, dbSecretDirectory, dbSecretSubdirectory))
+		}
+	} else {
+		if _, credentialsErr := ensureDatabaseCredentialAssets(rootDir, resolved); credentialsErr != nil {
+			return nil, credentialsErr
+		}
+	}
+
 	port := effectiveDatabasePort(resolved.Database)
 	if state != nil && state.Port != 0 {
 		port = state.Port
 	}
 
-	injected := make([]string, 0, len(args)+3)
+	injected := make([]string, 0, len(args)+4)
+	injected = append(injected, "--defaults-extra-file="+databaseDefaultsFilePath(rootDir, resolved.Environment.Name))
 	if !hasProtocol {
 		injected = append(injected, "--protocol=tcp")
 	}
@@ -312,10 +376,21 @@ func injectDatabaseConnectionArgs(rootDir string, resolved dbResolvedEnvironment
 	return append(injected, args...), nil
 }
 
-func databaseConnectionOverrides(args []string) (hasHost, hasPort, hasSocket, hasProtocol bool, protocol string) {
+func databaseConnectionOverrides(args []string) (hasDefaultsFile, hasHost, hasPort, hasSocket, hasProtocol bool, protocol string) {
 	for index := 0; index < len(args); index++ {
 		argument := strings.TrimSpace(args[index])
 		switch {
+		case argument == "--no-defaults":
+			hasDefaultsFile = true
+		case argument == "--defaults-file" || argument == "--defaults-extra-file":
+			hasDefaultsFile = true
+			if index+1 < len(args) {
+				index++
+			}
+		case strings.HasPrefix(argument, "--defaults-file="):
+			hasDefaultsFile = true
+		case strings.HasPrefix(argument, "--defaults-extra-file="):
+			hasDefaultsFile = true
 		case argument == "--host" || argument == "-h":
 			hasHost = true
 			if index+1 < len(args) {
@@ -355,7 +430,7 @@ func databaseConnectionOverrides(args []string) (hasHost, hasPort, hasSocket, ha
 		}
 	}
 
-	return hasHost, hasPort, hasSocket, hasProtocol, protocol
+	return hasDefaultsFile, hasHost, hasPort, hasSocket, hasProtocol, protocol
 }
 
 func resolveDatabaseServerTarget(envsDir, engine, version string) (string, error) {
@@ -375,6 +450,25 @@ func resolveDatabaseServerTarget(envsDir, engine, version string) (string, error
 	}
 
 	return "", fmt.Errorf("%s server version %q is not installed under %s", engine, version, filepath.Join(envsDir, engine, version))
+}
+
+func resolveDatabaseAdminTarget(envsDir, engine, version string) (string, error) {
+	installDir := filepath.Join(envsDir, engine, version)
+	for _, candidate := range databaseAdminCandidates(installDir, engine) {
+		fileInfo, err := os.Stat(candidate)
+		if err == nil {
+			if fileInfo.IsDir() {
+				continue
+			}
+
+			return candidate, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("stat %s: %w", candidate, err)
+		}
+	}
+
+	return "", fmt.Errorf("%s admin client version %q is not installed under %s", engine, version, filepath.Join(envsDir, engine, version))
 }
 
 func databaseServerCandidates(installDir, engine string) []string {
@@ -423,6 +517,102 @@ func databaseServerCandidates(installDir, engine string) []string {
 	default:
 		return nil
 	}
+}
+
+func databaseAdminCandidates(installDir, engine string) []string {
+	if runtime.GOOS == "windows" {
+		switch engine {
+		case "mysql":
+			return []string{
+				filepath.Join(installDir, "bin", "mysqladmin.exe"),
+				filepath.Join(installDir, "bin", "mysqladmin.cmd"),
+				filepath.Join(installDir, "bin", "mysqladmin.bat"),
+				filepath.Join(installDir, "mysqladmin.exe"),
+				filepath.Join(installDir, "mysqladmin.cmd"),
+				filepath.Join(installDir, "mysqladmin.bat"),
+			}
+		case "mariadb":
+			return []string{
+				filepath.Join(installDir, "bin", "mariadb-admin.exe"),
+				filepath.Join(installDir, "bin", "mariadb-admin.cmd"),
+				filepath.Join(installDir, "bin", "mariadb-admin.bat"),
+				filepath.Join(installDir, "bin", "mysqladmin.exe"),
+				filepath.Join(installDir, "bin", "mysqladmin.cmd"),
+				filepath.Join(installDir, "bin", "mysqladmin.bat"),
+				filepath.Join(installDir, "mariadb-admin.exe"),
+				filepath.Join(installDir, "mariadb-admin.cmd"),
+				filepath.Join(installDir, "mariadb-admin.bat"),
+				filepath.Join(installDir, "mysqladmin.exe"),
+				filepath.Join(installDir, "mysqladmin.cmd"),
+				filepath.Join(installDir, "mysqladmin.bat"),
+			}
+		}
+	}
+
+	switch engine {
+	case "mysql":
+		return []string{
+			filepath.Join(installDir, "bin", "mysqladmin"),
+			filepath.Join(installDir, "mysqladmin"),
+		}
+	case "mariadb":
+		return []string{
+			filepath.Join(installDir, "bin", "mariadb-admin"),
+			filepath.Join(installDir, "bin", "mysqladmin"),
+			filepath.Join(installDir, "mariadb-admin"),
+			filepath.Join(installDir, "mysqladmin"),
+		}
+	default:
+		return nil
+	}
+}
+
+func ensureDatabaseCredentialAssets(rootDir string, resolved dbResolvedEnvironment) (dbManagedCredentials, error) {
+	path := databaseCredentialStatePath(rootDir, resolved.Environment.Name)
+	credentials, err := loadDatabaseCredentials(path)
+	if errors.Is(err, os.ErrNotExist) {
+		password, passwordErr := generateDatabasePassword()
+		if passwordErr != nil {
+			return dbManagedCredentials{}, passwordErr
+		}
+		credentials = dbManagedCredentials{
+			EnvironmentName: resolved.Environment.Name,
+			Engine:          resolved.Database.Engine,
+			Version:         resolved.Database.Version,
+			User:            dbManagedUserName,
+			Password:        password,
+			Port:            effectiveDatabasePort(resolved.Database),
+		}
+	} else if err != nil {
+		return dbManagedCredentials{}, err
+	}
+
+	if strings.TrimSpace(credentials.User) == "" {
+		credentials.User = dbManagedUserName
+	}
+	if strings.TrimSpace(credentials.Password) == "" {
+		password, passwordErr := generateDatabasePassword()
+		if passwordErr != nil {
+			return dbManagedCredentials{}, passwordErr
+		}
+		credentials.Password = password
+	}
+	credentials.EnvironmentName = resolved.Environment.Name
+	credentials.Engine = resolved.Database.Engine
+	credentials.Version = resolved.Database.Version
+	credentials.Port = effectiveDatabasePort(resolved.Database)
+
+	if err := writeDatabaseCredentials(path, credentials); err != nil {
+		return dbManagedCredentials{}, err
+	}
+	if err := writeDatabaseDefaultsFile(databaseDefaultsFilePath(rootDir, resolved.Environment.Name), credentials); err != nil {
+		return dbManagedCredentials{}, err
+	}
+	if err := writeDatabaseBootstrapSQLFile(databaseBootstrapSQLPath(rootDir, resolved.Environment.Name), credentials); err != nil {
+		return dbManagedCredentials{}, err
+	}
+
+	return credentials, nil
 }
 
 func initializeDatabaseServer(spec dbServerSpec) error {
@@ -503,30 +693,40 @@ func stopDatabaseServer(state dbRuntimeState) error {
 	if !pingDatabaseAddressFunc(address) {
 		return nil
 	}
-	if state.PID == 0 {
-		return fmt.Errorf("database state for %q does not include a pid", state.EnvironmentName)
+	if strings.TrimSpace(state.AdminTarget) == "" {
+		return fmt.Errorf("database state for %q does not include an admin target", state.EnvironmentName)
+	}
+	if strings.TrimSpace(state.DefaultsFile) == "" {
+		return fmt.Errorf("database state for %q does not include a defaults file", state.EnvironmentName)
 	}
 
-	process, err := os.FindProcess(state.PID)
+	logFile, err := openDatabaseLog(state.LogPath)
 	if err != nil {
-		return fmt.Errorf("find database process %d: %w", state.PID, err)
+		return err
 	}
-	if err := process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return fmt.Errorf("stop database process %d: %w", state.PID, err)
+	defer logFile.Close()
+
+	command, err := prepareCommand(state.AdminTarget, []string{"--defaults-extra-file=" + state.DefaultsFile, "shutdown"})
+	if err != nil {
+		return err
+	}
+	command.Stdout = logFile
+	command.Stderr = logFile
+
+	if err := command.Run(); err != nil {
+		return fmt.Errorf("shutdown %s server: %w (see %s)", state.Engine, err, state.LogPath)
 	}
 
 	deadline := time.Now().Add(dbShutdownTimeout)
 	for time.Now().Before(deadline) {
 		if !pingDatabaseAddressFunc(address) {
-			_ = process.Release()
 			return nil
 		}
 
 		time.Sleep(dbPollInterval)
 	}
 
-	_ = process.Release()
-	return nil
+	return fmt.Errorf("%s server did not stop listening on %s within %s", state.Engine, address, dbShutdownTimeout)
 }
 
 func databaseInitializeArgs(spec dbServerSpec) []string {
@@ -549,6 +749,7 @@ func databaseStartArgs(spec dbServerSpec) []string {
 		"--datadir=" + spec.DataDir,
 		"--port=" + strconv.Itoa(spec.Port),
 		"--bind-address=" + dbListenHost,
+		"--init-file=" + spec.BootstrapSQLFile,
 		"--log-error=" + spec.LogPath,
 	}
 
@@ -618,6 +819,18 @@ func databaseDataPath(rootDir, environmentName string) string {
 	return filepath.Join(rootDir, dbDataDirectory, dbDataSubdirectory, environmentName)
 }
 
+func databaseCredentialStatePath(rootDir, environmentName string) string {
+	return filepath.Join(rootDir, dbSecretDirectory, dbSecretSubdirectory, environmentName+".json")
+}
+
+func databaseDefaultsFilePath(rootDir, environmentName string) string {
+	return filepath.Join(rootDir, dbSecretDirectory, dbSecretSubdirectory, environmentName+".defaults.cnf")
+}
+
+func databaseBootstrapSQLPath(rootDir, environmentName string) string {
+	return filepath.Join(rootDir, dbSecretDirectory, dbSecretSubdirectory, environmentName+".bootstrap.sql")
+}
+
 func loadLiveDatabaseState(rootDir, environmentName string) (*dbRuntimeState, error) {
 	statePath := databaseStatePath(rootDir, environmentName)
 	state, err := loadDatabaseState(statePath)
@@ -651,6 +864,20 @@ func loadDatabaseState(path string) (*dbRuntimeState, error) {
 	return &state, nil
 }
 
+func loadDatabaseCredentials(path string) (dbManagedCredentials, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return dbManagedCredentials{}, err
+	}
+
+	var credentials dbManagedCredentials
+	if err := json.Unmarshal(data, &credentials); err != nil {
+		return dbManagedCredentials{}, fmt.Errorf("decode database credentials %s: %w", path, err)
+	}
+
+	return credentials, nil
+}
+
 func writeDatabaseState(path string, state dbRuntimeState) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create database state directory: %w", err)
@@ -667,4 +894,109 @@ func writeDatabaseState(path string, state dbRuntimeState) error {
 	}
 
 	return nil
+}
+
+func writeDatabaseCredentials(path string, credentials dbManagedCredentials) error {
+	data, err := json.MarshalIndent(credentials, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode database credentials: %w", err)
+	}
+	data = append(data, '\n')
+
+	if err := writeDatabaseSecretFile(path, data); err != nil {
+		return fmt.Errorf("write database credentials %s: %w", path, err)
+	}
+
+	return nil
+}
+
+func writeDatabaseDefaultsFile(path string, credentials dbManagedCredentials) error {
+	defaults := []byte(renderDatabaseDefaultsFile(credentials))
+	if err := writeDatabaseSecretFile(path, defaults); err != nil {
+		return fmt.Errorf("write database defaults file %s: %w", path, err)
+	}
+
+	return nil
+}
+
+func writeDatabaseBootstrapSQLFile(path string, credentials dbManagedCredentials) error {
+	bootstrap := []byte(renderDatabaseBootstrapSQL(credentials))
+	if err := writeDatabaseSecretFile(path, bootstrap); err != nil {
+		return fmt.Errorf("write database bootstrap SQL %s: %w", path, err)
+	}
+
+	return nil
+}
+
+func writeDatabaseSecretFile(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create database secret directory: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func renderDatabaseDefaultsFile(credentials dbManagedCredentials) string {
+	var builder strings.Builder
+	builder.WriteString("[client]\n")
+	builder.WriteString("user=")
+	builder.WriteString(credentials.User)
+	builder.WriteByte('\n')
+	builder.WriteString("password=")
+	builder.WriteString(credentials.Password)
+	builder.WriteByte('\n')
+	builder.WriteString("host=")
+	builder.WriteString(dbListenHost)
+	builder.WriteByte('\n')
+	builder.WriteString("port=")
+	builder.WriteString(strconv.Itoa(credentials.Port))
+	builder.WriteByte('\n')
+	builder.WriteString("protocol=tcp\n")
+
+	return builder.String()
+}
+
+func renderDatabaseBootstrapSQL(credentials dbManagedCredentials) string {
+	var builder strings.Builder
+	builder.WriteString("CREATE USER IF NOT EXISTS '")
+	builder.WriteString(credentials.User)
+	builder.WriteString("'@'localhost' IDENTIFIED BY '")
+	builder.WriteString(credentials.Password)
+	builder.WriteString("';\n")
+	builder.WriteString("ALTER USER '")
+	builder.WriteString(credentials.User)
+	builder.WriteString("'@'localhost' IDENTIFIED BY '")
+	builder.WriteString(credentials.Password)
+	builder.WriteString("';\n")
+	builder.WriteString("GRANT ALL PRIVILEGES ON *.* TO '")
+	builder.WriteString(credentials.User)
+	builder.WriteString("'@'localhost' WITH GRANT OPTION;\n")
+	builder.WriteString("CREATE USER IF NOT EXISTS '")
+	builder.WriteString(credentials.User)
+	builder.WriteString("'@'127.0.0.1' IDENTIFIED BY '")
+	builder.WriteString(credentials.Password)
+	builder.WriteString("';\n")
+	builder.WriteString("ALTER USER '")
+	builder.WriteString(credentials.User)
+	builder.WriteString("'@'127.0.0.1' IDENTIFIED BY '")
+	builder.WriteString(credentials.Password)
+	builder.WriteString("';\n")
+	builder.WriteString("GRANT ALL PRIVILEGES ON *.* TO '")
+	builder.WriteString(credentials.User)
+	builder.WriteString("'@'127.0.0.1' WITH GRANT OPTION;\n")
+	builder.WriteString("FLUSH PRIVILEGES;\n")
+
+	return builder.String()
+}
+
+func generateDatabasePassword() (string, error) {
+	buffer := make([]byte, 24)
+	if _, err := rand.Read(buffer); err != nil {
+		return "", fmt.Errorf("generate database password: %w", err)
+	}
+
+	return hex.EncodeToString(buffer), nil
 }

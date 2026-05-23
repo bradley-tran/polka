@@ -249,8 +249,8 @@ func TestRunDBDispatchesConfiguredDatabaseTool(t *testing.T) {
 	}
 
 	output := stdout.String()
-	if !strings.Contains(output, "fake-mysql") || !strings.Contains(output, "--version") || !strings.Contains(output, "--protocol=tcp") || !strings.Contains(output, "--host=127.0.0.1") || !strings.Contains(output, "--port=3306") {
-		t.Fatalf("Run(db) output = %q, want injected managed database connection arguments", output)
+	if !strings.Contains(output, "fake-mysql") || !strings.Contains(output, "--version") || !strings.Contains(output, "--defaults-extra-file=") || !strings.Contains(output, "--protocol=tcp") || !strings.Contains(output, "--host=127.0.0.1") || !strings.Contains(output, "--port=3306") {
+		t.Fatalf("Run(db) output = %q, want managed credential defaults and TCP connection arguments", output)
 	}
 }
 
@@ -293,8 +293,8 @@ func TestRunDBPreservesExplicitConnectionArguments(t *testing.T) {
 	}
 
 	output := stdout.String()
-	if !strings.Contains(output, "--host=db.internal") || !strings.Contains(output, "--port=4406") || !strings.Contains(output, "--protocol=tcp") {
-		t.Fatalf("Run(db explicit connection) output = %q, want explicit connection arguments forwarded", output)
+	if !strings.Contains(output, "--defaults-extra-file=") || !strings.Contains(output, "--host=db.internal") || !strings.Contains(output, "--port=4406") || !strings.Contains(output, "--protocol=tcp") {
+		t.Fatalf("Run(db explicit connection) output = %q, want explicit connection arguments forwarded with managed credential defaults", output)
 	}
 	if strings.Contains(output, "--host=127.0.0.1") || strings.Contains(output, "--port=3307") {
 		t.Fatalf("Run(db explicit connection) output = %q, want injected defaults suppressed", output)
@@ -340,8 +340,8 @@ func TestRunDBClientSubcommandDispatchesReservedWord(t *testing.T) {
 	}
 
 	output := stdout.String()
-	if !strings.Contains(output, "fake-mysql") || !strings.Contains(output, " status") || !strings.Contains(output, "--host=127.0.0.1") || !strings.Contains(output, "--port=3306") {
-		t.Fatalf("Run(db client) output = %q, want reserved word forwarded with managed connection defaults", output)
+	if !strings.Contains(output, "fake-mysql") || !strings.Contains(output, " status") || !strings.Contains(output, "--defaults-extra-file=") || !strings.Contains(output, "--host=127.0.0.1") || !strings.Contains(output, "--port=3306") {
+		t.Fatalf("Run(db client) output = %q, want reserved word forwarded with managed credential defaults", output)
 	}
 }
 
@@ -366,6 +366,13 @@ func TestRunDBLifecycleSubcommandsManageState(t *testing.T) {
 	}
 	if err := os.WriteFile(fakeMySQLServer, fakeDatabaseScript("mysqld"), 0o755); err != nil {
 		t.Fatalf("WriteFile(cache mysqld) error = %v", err)
+	}
+	fakeMySQLAdmin := cachedDatabaseAdminPath(cacheDir, "mysql", "8.4")
+	if err := os.MkdirAll(filepath.Dir(fakeMySQLAdmin), 0o755); err != nil {
+		t.Fatalf("MkdirAll(cache mysqladmin) error = %v", err)
+	}
+	if err := os.WriteFile(fakeMySQLAdmin, fakeDatabaseScript("mysqladmin"), 0o755); err != nil {
+		t.Fatalf("WriteFile(cache mysqladmin) error = %v", err)
 	}
 
 	if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--db-engine", "mysql", "--db-version", "8.4", "--db-port", "3307"}); code != 0 {
@@ -441,6 +448,9 @@ func TestRunDBLifecycleSubcommandsManageState(t *testing.T) {
 	if startedSpec.Port != 3307 {
 		t.Fatalf("started port = %d, want 3307", startedSpec.Port)
 	}
+	if startedSpec.AdminTarget == "" || startedSpec.DefaultsFile == "" || startedSpec.BootstrapSQLFile == "" {
+		t.Fatalf("started spec = %#v, want admin target and credential/bootstrap assets", startedSpec)
+	}
 	if !strings.Contains(stdout.String(), "Started mysql") {
 		t.Fatalf("Run(db start) stdout = %q, want start summary", stdout.String())
 	}
@@ -451,6 +461,31 @@ func TestRunDBLifecycleSubcommandsManageState(t *testing.T) {
 	}
 	if state.PID != 4242 || state.Port != 3307 || state.Engine != "mysql" {
 		t.Fatalf("database state = %#v, want mysql pid 4242 on port 3307", state)
+	}
+	if state.AdminTarget == "" || state.DefaultsFile == "" {
+		t.Fatalf("database state = %#v, want native shutdown fields", state)
+	}
+
+	credentials, err := loadDatabaseCredentials(databaseCredentialStatePath(root, "demo"))
+	if err != nil {
+		t.Fatalf("loadDatabaseCredentials() error = %v", err)
+	}
+	if credentials.User != dbManagedUserName || credentials.Password == "" || credentials.Port != 3307 {
+		t.Fatalf("credentials = %#v, want managed user with generated password on port 3307", credentials)
+	}
+	defaultsData, err := os.ReadFile(databaseDefaultsFilePath(root, "demo"))
+	if err != nil {
+		t.Fatalf("ReadFile(defaults) error = %v", err)
+	}
+	if !strings.Contains(string(defaultsData), "user="+dbManagedUserName) || !strings.Contains(string(defaultsData), "protocol=tcp") {
+		t.Fatalf("defaults file = %q, want managed client config", string(defaultsData))
+	}
+	bootstrapData, err := os.ReadFile(databaseBootstrapSQLPath(root, "demo"))
+	if err != nil {
+		t.Fatalf("ReadFile(bootstrap sql) error = %v", err)
+	}
+	if !strings.Contains(string(bootstrapData), "CREATE USER IF NOT EXISTS '"+dbManagedUserName+"'") || !strings.Contains(string(bootstrapData), credentials.Password) {
+		t.Fatalf("bootstrap sql = %q, want managed bootstrap statements", string(bootstrapData))
 	}
 
 	stdout.Reset()
@@ -470,8 +505,8 @@ func TestRunDBLifecycleSubcommandsManageState(t *testing.T) {
 	if stopped != 1 {
 		t.Fatalf("stop count = %d, want 1", stopped)
 	}
-	if stoppedState.PID != 4242 {
-		t.Fatalf("stopped state pid = %d, want 4242", stoppedState.PID)
+	if stoppedState.AdminTarget == "" || stoppedState.DefaultsFile == "" {
+		t.Fatalf("stopped state = %#v, want native shutdown target and defaults file", stoppedState)
 	}
 	if !strings.Contains(stdout.String(), "Stopped mysql") {
 		t.Fatalf("Run(db stop) stdout = %q, want stop summary", stdout.String())
@@ -779,6 +814,13 @@ func TestRunServeStartsConfiguredDatabaseBeforePhp(t *testing.T) {
 	if err := os.WriteFile(fakeMySQLServer, fakeDatabaseScript("mysqld"), 0o755); err != nil {
 		t.Fatalf("WriteFile(cache mysqld) error = %v", err)
 	}
+	fakeMySQLAdmin := cachedDatabaseAdminPath(cacheDir, "mysql", "8.4")
+	if err := os.MkdirAll(filepath.Dir(fakeMySQLAdmin), 0o755); err != nil {
+		t.Fatalf("MkdirAll(cache mysqladmin) error = %v", err)
+	}
+	if err := os.WriteFile(fakeMySQLAdmin, fakeDatabaseScript("mysqladmin"), 0o755); err != nil {
+		t.Fatalf("WriteFile(cache mysqladmin) error = %v", err)
+	}
 	docroot := filepath.Join(projectDir, "site", "public")
 	if err := os.MkdirAll(docroot, 0o755); err != nil {
 		t.Fatalf("MkdirAll(docroot) error = %v", err)
@@ -847,6 +889,9 @@ func TestRunServeStartsConfiguredDatabaseBeforePhp(t *testing.T) {
 	if startedSpec.Port != 3307 {
 		t.Fatalf("started port = %d, want 3307", startedSpec.Port)
 	}
+	if startedSpec.AdminTarget == "" || startedSpec.DefaultsFile == "" || startedSpec.BootstrapSQLFile == "" {
+		t.Fatalf("started spec = %#v, want credential/bootstrap assets for serve", startedSpec)
+	}
 	output := stdout.String()
 	if !strings.Contains(output, "fake-php") || !strings.Contains(output, "-t "+docroot) {
 		t.Fatalf("Run(serve with db) output = %q, want php command output after database start", output)
@@ -906,6 +951,18 @@ func cachedDatabaseServerPath(root, tool, version string) string {
 	}
 
 	return filepath.Join(root, tool, version, "bin", serverName)
+}
+
+func cachedDatabaseAdminPath(root, tool, version string) string {
+	adminName := "mysqladmin"
+	if tool == "mariadb" {
+		adminName = "mariadb-admin"
+	}
+	if runtime.GOOS == "windows" {
+		return filepath.Join(root, tool, version, "bin", adminName+".exe")
+	}
+
+	return filepath.Join(root, tool, version, "bin", adminName)
 }
 
 func projectInstalledPHPPath(root, version string) string {
