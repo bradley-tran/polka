@@ -64,6 +64,24 @@ type InstallResult struct {
 	Downloaded bool
 }
 
+type InstallProgressStage string
+
+const (
+	InstallProgressUsingCache  InstallProgressStage = "using cache"
+	InstallProgressDownloading InstallProgressStage = "downloading"
+	InstallProgressInstalling  InstallProgressStage = "installing"
+	InstallProgressConfiguring InstallProgressStage = "configuring"
+	InstallProgressInstalled   InstallProgressStage = "installed"
+)
+
+type InstallProgress struct {
+	Index   int
+	Total   int
+	Tool    string
+	Version string
+	Stage   InstallProgressStage
+}
+
 type Config struct {
 	Version      int                    `yaml:"version"`
 	Root         string                 `yaml:"root"`
@@ -219,6 +237,14 @@ func (s Store) writeEnvironment(name, phpVersion, composerVersion string, databa
 }
 
 func (s Store) Install(name string) ([]InstallResult, error) {
+	return s.install(name, nil)
+}
+
+func (s Store) InstallWithProgress(name string, report func(InstallProgress)) ([]InstallResult, error) {
+	return s.install(name, report)
+}
+
+func (s Store) install(name string, report func(InstallProgress)) ([]InstallResult, error) {
 	if err := s.Init(); err != nil {
 		return nil, err
 	}
@@ -258,12 +284,22 @@ func (s Store) Install(name string) ([]InstallResult, error) {
 	}
 
 	results := make([]InstallResult, 0, len(requests))
-	for _, request := range requests {
-		cachedToolPath, downloaded, err := s.ensureCachedTool(request.Tool, request.Version)
+	for index, request := range requests {
+		baseProgress := InstallProgress{
+			Index:   index + 1,
+			Total:   len(requests),
+			Tool:    request.Tool,
+			Version: request.Version,
+		}
+
+		cachedToolPath, downloaded, err := s.ensureCachedTool(request.Tool, request.Version, func(stage InstallProgressStage) {
+			emitInstallProgress(report, baseProgress, stage)
+		})
 		if err != nil {
 			return nil, err
 		}
 
+		emitInstallProgress(report, baseProgress, InstallProgressInstalling)
 		targetPath, err := s.installToolFromCache(request.Tool, request.Version)
 		if err != nil {
 			return nil, err
@@ -278,10 +314,15 @@ func (s Store) Install(name string) ([]InstallResult, error) {
 		})
 
 		if request.Tool == toolPHP {
+			if len(installPHPExtensions) > 0 {
+				emitInstallProgress(report, baseProgress, InstallProgressConfiguring)
+			}
 			if err := s.configureInstalledPHPExtensions(request.Version, installPHPExtensions); err != nil {
 				return nil, err
 			}
 		}
+
+		emitInstallProgress(report, baseProgress, InstallProgressInstalled)
 	}
 
 	return results, nil
@@ -306,9 +347,12 @@ func (s Store) installToolFromCache(tool, version string) (string, error) {
 	return targetPath, nil
 }
 
-func (s Store) ensureCachedTool(tool, version string) (string, bool, error) {
+func (s Store) ensureCachedTool(tool, version string, report func(InstallProgressStage)) (string, bool, error) {
 	cacheToolPath, err := s.resolveInstalledToolIn(s.CacheDir, tool, version)
 	if err == nil {
+		if report != nil {
+			report(InstallProgressUsingCache)
+		}
 		return cacheToolPath, false, nil
 	}
 	if !isMissingInstall(err) {
@@ -320,6 +364,9 @@ func (s Store) ensureCachedTool(tool, version string) (string, bool, error) {
 		downloader = HTTPToolDownloader{}
 	}
 
+	if report != nil {
+		report(InstallProgressDownloading)
+	}
 	if err := downloader.Download(s.CacheDir, tool, version); err != nil {
 		return "", false, err
 	}
@@ -330,6 +377,15 @@ func (s Store) ensureCachedTool(tool, version string) (string, bool, error) {
 	}
 
 	return cacheToolPath, true, nil
+}
+
+func emitInstallProgress(report func(InstallProgress), progress InstallProgress, stage InstallProgressStage) {
+	if report == nil {
+		return
+	}
+
+	progress.Stage = stage
+	report(progress)
 }
 
 func (s Store) Use(name string) error {

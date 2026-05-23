@@ -247,7 +247,9 @@ func runInstall(stdout io.Writer, store backend.Store, input installCommandInput
 	}
 	input.Name = resolvedName
 
-	results, err := store.Install(input.Name)
+	results, err := store.InstallWithProgress(input.Name, func(progress backend.InstallProgress) {
+		_, _ = fmt.Fprintf(stdout, "[%d/%d] %s %s: %s\n", progress.Index, progress.Total, progress.Tool, progress.Version, progress.Stage)
+	})
 	if err != nil {
 		return err
 	}
@@ -256,13 +258,13 @@ func runInstall(stdout io.Writer, store backend.Store, input installCommandInput
 			return err
 		}
 	}
-	_, _ = fmt.Fprintf(stdout, "Installed %s\n", input.Name)
+	_, _ = fmt.Fprintf(stdout, "Installed '%s' environment\n", input.Name)
 	for _, result := range results {
-		sourceKind := "cache"
 		if result.Downloaded {
-			sourceKind = "download"
+			_, _ = fmt.Fprintf(stdout, "%s %s\n", result.Tool, result.Version)
+		} else {
+			_, _ = fmt.Fprintf(stdout, "%s %s\t(cached)\n", result.Tool, result.Version)
 		}
-		_, _ = fmt.Fprintf(stdout, "%s %s\tfrom=%s\tcache=%s\ttarget=%s\n", result.Tool, result.Version, sourceKind, result.CachePath, result.TargetPath)
 	}
 
 	return nil

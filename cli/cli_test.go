@@ -93,8 +93,27 @@ func TestRunConfigSetsVersionLabelsAndDispatchesPhp(t *testing.T) {
 	if _, err := os.Stat(projectInstalledPHPPath(root, "8.4")); err != nil {
 		t.Fatalf("Stat(installed php) error = %v", err)
 	}
-	if !strings.Contains(stdout.String(), "Installed demo") {
-		t.Fatalf("Run(install) stdout = %q, want install summary", stdout.String())
+	installOutput := stdout.String()
+	expectedProgress := []string{
+		"[1/2] php 8.4: using cache",
+		"[1/2] php 8.4: installing",
+		"[1/2] php 8.4: configuring",
+		"[1/2] php 8.4: installed",
+		"[2/2] composer 2.8: using cache",
+		"[2/2] composer 2.8: installing",
+		"[2/2] composer 2.8: installed",
+		"Installed 'demo' environment",
+	}
+	previousIndex := -1
+	for _, expected := range expectedProgress {
+		currentIndex := strings.Index(installOutput, expected)
+		if currentIndex < 0 {
+			t.Fatalf("Run(install) stdout = %q, want %q", installOutput, expected)
+		}
+		if currentIndex < previousIndex {
+			t.Fatalf("Run(install) stdout = %q, want ordered progress lines %#v", installOutput, expectedProgress)
+		}
+		previousIndex = currentIndex
 	}
 
 	stdout.Reset()
@@ -197,7 +216,7 @@ func TestRunInstallUsesCurrentEnvironmentWhenNameOmitted(t *testing.T) {
 	if !strings.Contains(output, "Installing demo environment") {
 		t.Fatalf("Run(install current) stdout = %q, want current environment banner", output)
 	}
-	if !strings.Contains(output, "Installed demo") {
+	if !strings.Contains(output, "Installed 'demo' environment") {
 		t.Fatalf("Run(install current) stdout = %q, want install summary", output)
 	}
 }
@@ -330,7 +349,7 @@ func TestRunInstallUsesDefaultEnvironmentWhenCurrentMissing(t *testing.T) {
 	if !strings.Contains(output, "Installing default environment") {
 		t.Fatalf("Run(install default) stdout = %q, want default environment banner", output)
 	}
-	if !strings.Contains(output, "Installed default") {
+	if !strings.Contains(output, "Installed 'default' environment") {
 		t.Fatalf("Run(install default) stdout = %q, want install summary", output)
 	}
 
@@ -779,7 +798,7 @@ func TestRunInstallAppliesPHPExtensionsFromConfigFile(t *testing.T) {
 	if !strings.Contains(phpIni, ";extension=xdebug") {
 		t.Fatalf("php.ini = %q, want disabled xdebug extension", phpIni)
 	}
-	if !strings.Contains(stdout.String(), "Installed demo") {
+	if !strings.Contains(stdout.String(), "Installed 'demo' environment") {
 		t.Fatalf("Run(install) stdout = %q, want install summary", stdout.String())
 	}
 }

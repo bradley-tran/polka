@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -145,6 +146,45 @@ func TestStoreInstallDownloadsWhenCacheMissing(t *testing.T) {
 			t.Fatalf("Install(demo) result = %#v, want downloaded=true after cache miss", result)
 		}
 		assertPathExists(t, result.TargetPath)
+	}
+}
+
+func TestStoreInstallWithProgressReportsStages(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+	writeCachedTool(t, store.CacheDir, toolPHP, "8.4")
+	store.Downloader = fakeDownloader(func(cacheDir, tool, version string) error {
+		_ = writeCachedTool(t, cacheDir, tool, version)
+		return nil
+	})
+
+	if _, err := store.Configure("demo", "8.4", "", &DatabaseConfig{Engine: toolMySQL, Version: "8.4"}); err != nil {
+		t.Fatalf("Configure(demo) error = %v", err)
+	}
+
+	progressEvents := make([]string, 0, 6)
+	if _, err := store.InstallWithProgress("demo", func(progress InstallProgress) {
+		progressEvents = append(progressEvents, fmt.Sprintf("%d/%d %s %s %s", progress.Index, progress.Total, progress.Tool, progress.Version, progress.Stage))
+	}); err != nil {
+		t.Fatalf("InstallWithProgress(demo) error = %v", err)
+	}
+
+	want := []string{
+		"1/2 php 8.4 using cache",
+		"1/2 php 8.4 installing",
+		"1/2 php 8.4 installed",
+		"2/2 mysql 8.4 downloading",
+		"2/2 mysql 8.4 installing",
+		"2/2 mysql 8.4 installed",
+	}
+	if len(progressEvents) != len(want) {
+		t.Fatalf("InstallWithProgress(demo) events = %#v, want %#v", progressEvents, want)
+	}
+	for index, expected := range want {
+		if progressEvents[index] != expected {
+			t.Fatalf("InstallWithProgress(demo) events = %#v, want %#v", progressEvents, want)
+		}
 	}
 }
 
