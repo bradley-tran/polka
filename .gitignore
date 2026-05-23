@@ -4,6 +4,7 @@
 /build/
 *.test
 *.exe
+*.exe~
 
 # Local test folder
 /samples

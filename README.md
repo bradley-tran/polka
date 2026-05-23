@@ -6,7 +6,7 @@ Polka is a CLI tool for PHP virtual environment management. It uses `polka.yaml`
 
 - A lean Go module with a runnable CLI entrypoint.
 - A project-local layout built around `polka.yaml` and `.polka/`.
-- Starter commands for `init`, `new`, `install`, `serve`, `config`, `list`, `use`, `current`, and `remove`.
+- Starter commands for `init`, `new`, `install`, `serve`, `sh`, `config`, `list`, `use`, `current`, and `remove`.
 - Real dispatch shims in `.polka/bin` for `php` and `composer`.
 - A global tool cache used to avoid re-downloading versions across projects.
 - A small test covering the basic environment lifecycle.
@@ -31,6 +31,7 @@ go run . init
 go run . new blog
 go run . install blog
 go run . serve public
+go run . sh
 go run . list
 go run . use blog
 go run . current
@@ -44,6 +45,8 @@ Use `polka new <name> [--php VERSION] [--composer VERSION]` to create a new envi
 Use `polka install [name]` to install every configured tool version for an environment. When `name` is omitted, Polka installs the current environment and prints which one it selected. If no current environment is selected, Polka uses `default` and marks it current after a successful install. Polka first checks the global cache, then downloads any missing versions into that cache, and finally copies the cached payloads into the project-local `.polka/envs` layout.
 
 The shims in `.polka/bin` mirror the active environment's configured tools. If the current environment does not define `composer`, Polka removes the local `composer` shim instead of leaving a dispatcher that would fail at runtime.
+
+Use `polka sh` to open an interactive shell that resolves commands in this order: `.polka/bin`, then `vendor/bin`, then the inherited system `PATH`. That means a local Polka-managed `composer` shim wins over a globally installed `composer`, while still falling back to project-local Composer plugins in `vendor/bin` and finally to whatever the system shell already exposes. On Windows, Polka also generates temporary `.cmd` wrappers for extensionless Composer PHP proxies and for shell launchers that have a matching `.php` source in `vendor/bin`, so commands such as `drush` run through the local PHP CLI instead of relying on `sh`.
 
 Use `polka serve <docroot> [--server HOST:PORT]` to start the active environment's web server. When the current environment defines `nginx`, Polka starts `php-cgi` on an internal loopback port and runs nginx in the foreground with a generated FastCGI config; otherwise it falls back to PHP's built-in web server. Polka reads `server.hostname` and `server.port` from the current environment in `polka.yaml`, and falls back to `localhost:8000` when that config is absent. Automatic nginx downloads are currently implemented on Windows amd64.
 

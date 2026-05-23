@@ -12,6 +12,7 @@ Commands:
   install [name]       install all tools for an environment
   db [args...]         run the active environment's database client or manage its local server
 	serve <docroot>      start the PHP local server for the active environment
+	sh                   open an interactive shell with local binaries first
   list                 list environments
   use <name>           mark an environment as current
   current              show the active environment
@@ -28,6 +29,7 @@ Examples:
   polka db status
   polka db --version
 	polka serve public
+	polka sh
   polka list
   polka use api
   polka current
@@ -89,6 +91,19 @@ const serveUsage = `Usage:
 Start the PHP local server for the active environment.
 When --server is omitted, Polka uses the current environment's server.hostname and server.port from polka.yaml, defaulting to localhost:8000.
 When the current environment defines a database, Polka starts that managed local database first.
+`
+
+const shUsage = `Usage:
+  polka sh
+
+Open an interactive shell with command resolution in this order:
+1. <root>/bin
+2. vendor/bin
+3. system PATH
+
+On Windows, Polka launches PowerShell.
+When vendor/bin contains extensionless Composer PHP proxies or shell launchers with a matching .php source, Polka generates temporary .cmd wrappers for those commands on Windows and runs the PHP target under the local php CLI.
+On POSIX systems, Polka launches $SHELL when it is set, otherwise /bin/sh.
 `
 
 const listUsage = `Usage:

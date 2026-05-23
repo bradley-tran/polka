@@ -692,6 +692,76 @@ func TestDefaultStoreUsesDotPolkaInWorkingDirectory(t *testing.T) {
 	}
 }
 
+func TestDefaultStoreDiscoversParentProjectFromNestedDirectory(t *testing.T) {
+	projectDir := t.TempDir()
+	nestedDir := filepath.Join(projectDir, "web", "modules")
+	if err := os.MkdirAll(nestedDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(nested) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), []byte("version: 1\nroot: .polka\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+
+	originalWorkingDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(originalWorkingDir)
+	})
+
+	if err := os.Chdir(nestedDir); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+
+	store, err := DefaultStore()
+	if err != nil {
+		t.Fatalf("DefaultStore() error = %v", err)
+	}
+
+	if store.RootDir != filepath.Join(projectDir, ".polka") {
+		t.Fatalf("DefaultStore() RootDir = %q, want %q", store.RootDir, filepath.Join(projectDir, ".polka"))
+	}
+	if store.ConfigFile != filepath.Join(projectDir, "polka.yaml") {
+		t.Fatalf("DefaultStore() ConfigFile = %q, want %q", store.ConfigFile, filepath.Join(projectDir, "polka.yaml"))
+	}
+}
+
+func TestDefaultStoreIgnoresNestedRuntimeDotPolkaWhenParentHasProjectConfig(t *testing.T) {
+	projectDir := t.TempDir()
+	nestedDir := filepath.Join(projectDir, "drupal")
+	if err := os.MkdirAll(filepath.Join(nestedDir, ".polka", "run"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(nested runtime) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), []byte("version: 1\nroot: .polka\ncurrent: default\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+
+	originalWorkingDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(originalWorkingDir)
+	})
+
+	if err := os.Chdir(nestedDir); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+
+	store, err := DefaultStore()
+	if err != nil {
+		t.Fatalf("DefaultStore() error = %v", err)
+	}
+
+	if store.ProjectDir != projectDir {
+		t.Fatalf("DefaultStore() ProjectDir = %q, want %q", store.ProjectDir, projectDir)
+	}
+	if store.RootDir != filepath.Join(projectDir, ".polka") {
+		t.Fatalf("DefaultStore() RootDir = %q, want %q", store.RootDir, filepath.Join(projectDir, ".polka"))
+	}
+}
+
 func writeCachedTool(t *testing.T, cacheDir, tool, version string) string {
 	t.Helper()
 

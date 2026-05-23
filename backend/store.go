@@ -105,7 +105,40 @@ func DefaultStore() (Store, error) {
 		return Store{}, fmt.Errorf("resolve current working directory: %w", err)
 	}
 
-	return NewProjectStore(workingDir), nil
+	projectDir, err := discoverProjectDir(workingDir)
+	if err != nil {
+		return Store{}, err
+	}
+
+	return NewProjectStore(projectDir), nil
+}
+
+func discoverProjectDir(workingDir string) (string, error) {
+	currentDir, err := filepath.Abs(workingDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve project directory: %w", err)
+	}
+	originalDir := currentDir
+
+	for {
+		configPath := filepath.Join(currentDir, configFileName)
+		fileInfo, statErr := os.Stat(configPath)
+		switch {
+		case statErr == nil && !fileInfo.IsDir():
+			return currentDir, nil
+		case statErr == nil && fileInfo.IsDir():
+			// Ignore directories named polka.yaml and keep walking upward.
+		case !errors.Is(statErr, os.ErrNotExist):
+			return "", fmt.Errorf("stat %s: %w", configPath, statErr)
+		}
+
+		parentDir := filepath.Dir(currentDir)
+		if parentDir == currentDir {
+			return originalDir, nil
+		}
+
+		currentDir = parentDir
+	}
 }
 
 func NewProjectStore(projectDir string) Store {

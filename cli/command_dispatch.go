@@ -70,6 +70,10 @@ func runDispatch(stdout, stderr io.Writer, args []string, store backend.Store) i
 }
 
 func executeTarget(stdout, stderr io.Writer, target string, args []string) (int, error) {
+	return executeTargetWithEnv(stdout, stderr, nil, target, args)
+}
+
+func executeTargetWithEnv(stdout, stderr io.Writer, env []string, target string, args []string) (int, error) {
 	command, err := prepareCommand(target, args)
 	if err != nil {
 		return 0, err
@@ -77,6 +81,9 @@ func executeTarget(stdout, stderr io.Writer, target string, args []string) (int,
 	command.Stdout = stdout
 	command.Stderr = stderr
 	command.Stdin = os.Stdin
+	if env != nil {
+		command.Env = env
+	}
 
 	if err := command.Run(); err != nil {
 		var exitError *exec.ExitError
