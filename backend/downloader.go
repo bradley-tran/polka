@@ -1,23 +1,32 @@
 package backend
 
 import (
+	"archive/tar"
 	"archive/zip"
+	"compress/gzip"
+	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ulikunitz/xz"
 )
 
 const (
 	composerDownloadBaseURL = "https://getcomposer.org/download"
+	mysqlDownloadBaseURL    = "https://dev.mysql.com/get/Downloads"
+	mariadbArchiveBaseURL   = "https://archive.mariadb.org"
 	phpWindowsReleaseURL    = "https://windows.php.net/downloads/releases/releases.json"
 	phpWindowsBaseURL       = "https://windows.php.net/downloads/releases"
 )
@@ -48,6 +57,70 @@ type phpWindowsAsset struct {
 	SHA256 string `json:"sha256"`
 }
 
+type checksumAlgorithm string
+
+const (
+	checksumAlgorithmMD5    checksumAlgorithm = "md5"
+	checksumAlgorithmSHA256 checksumAlgorithm = "sha256"
+)
+
+type archiveFormat string
+
+const (
+	archiveFormatZip   archiveFormat = "zip"
+	archiveFormatTarGz archiveFormat = "tar.gz"
+	archiveFormatTarXz archiveFormat = "tar.xz"
+)
+
+type databaseDownloadAsset struct {
+	FileName          string
+	URL               string
+	Checksum          string
+	ChecksumAlgorithm checksumAlgorithm
+	ArchiveFormat     archiveFormat
+}
+
+// Keep the initial database downloader deterministic by pinning exact assets
+// for the first supported release lines.
+var databaseDownloadCatalog = map[string]map[string]map[string]databaseDownloadAsset{
+	toolMySQL: {
+		"8.4.9": {
+			"windows-amd64": {
+				FileName:          "mysql-8.4.9-winx64.zip",
+				URL:               mysqlDownloadBaseURL + "/MySQL-8.4/mysql-8.4.9-winx64.zip",
+				Checksum:          "fe14853279d1704e0f0eb253ea8c8d33",
+				ChecksumAlgorithm: checksumAlgorithmMD5,
+				ArchiveFormat:     archiveFormatZip,
+			},
+			"linux-amd64": {
+				FileName:          "mysql-8.4.9-linux-glibc2.17-x86_64.tar.xz",
+				URL:               mysqlDownloadBaseURL + "/MySQL-8.4/mysql-8.4.9-linux-glibc2.17-x86_64.tar.xz",
+				Checksum:          "9d88f7a1b06d6620a92f88b7f5a6050f",
+				ChecksumAlgorithm: checksumAlgorithmMD5,
+				ArchiveFormat:     archiveFormatTarXz,
+			},
+		},
+	},
+	toolMariaDB: {
+		"11.4.11": {
+			"windows-amd64": {
+				FileName:          "mariadb-11.4.11-winx64.zip",
+				URL:               mariadbArchiveBaseURL + "/mariadb-11.4.11/winx64-packages/mariadb-11.4.11-winx64.zip",
+				Checksum:          "dc8b121a2c0c34a12bd8f4aec37592e00734468aee578030a7f5c971adf68255",
+				ChecksumAlgorithm: checksumAlgorithmSHA256,
+				ArchiveFormat:     archiveFormatZip,
+			},
+			"linux-amd64": {
+				FileName:          "mariadb-11.4.11-linux-systemd-x86_64.tar.gz",
+				URL:               mariadbArchiveBaseURL + "/mariadb-11.4.11/bintar-linux-systemd-x86_64/mariadb-11.4.11-linux-systemd-x86_64.tar.gz",
+				Checksum:          "aceffff76d478d462ceb6f4e5f7807c83cf3087f6953c75e0473f9d5aa3cf63e",
+				ChecksumAlgorithm: checksumAlgorithmSHA256,
+				ArchiveFormat:     archiveFormatTarGz,
+			},
+		},
+	},
+}
+
 func (d HTTPToolDownloader) Download(cacheDir, tool, version string) error {
 	client := d.Client
 	if client == nil {
@@ -59,9 +132,169 @@ func (d HTTPToolDownloader) Download(cacheDir, tool, version string) error {
 		return downloadComposer(client, cacheDir, version)
 	case toolPHP:
 		return downloadPHP(client, cacheDir, version)
+	case toolMySQL:
+		return downloadMySQL(client, cacheDir, version)
+	case toolMariaDB:
+		return downloadMariaDB(client, cacheDir, version)
 	default:
 		return fmt.Errorf("unsupported tool %q", tool)
 	}
+}
+
+func downloadMySQL(client *http.Client, cacheDir, version string) error {
+	return downloadDatabaseTool(client, cacheDir, toolMySQL, version)
+}
+
+func downloadMariaDB(client *http.Client, cacheDir, version string) error {
+	return downloadDatabaseTool(client, cacheDir, toolMariaDB, version)
+}
+
+func downloadDatabaseTool(client *http.Client, cacheDir, tool, version string) error {
+	_, asset, err := resolveDatabaseDownloadAsset(tool, version, runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		return err
+	}
+
+	return downloadDatabaseAsset(client, cacheDir, tool, version, asset)
+}
+
+func resolveDatabaseDownloadAsset(tool, requestedVersion, goos, goarch string) (string, databaseDownloadAsset, error) {
+	requestedVersion = strings.TrimSpace(requestedVersion)
+	if requestedVersion == "" {
+		return "", databaseDownloadAsset{}, fmt.Errorf("%s version cannot be empty", tool)
+	}
+
+	platformKey, err := databasePlatformKey(goos, goarch)
+	if err != nil {
+		return "", databaseDownloadAsset{}, err
+	}
+
+	toolCatalog, ok := databaseDownloadCatalog[tool]
+	if !ok {
+		return "", databaseDownloadAsset{}, fmt.Errorf("unsupported tool %q", tool)
+	}
+
+	resolvedVersion, err := resolveDatabaseCatalogVersion(toolCatalog, requestedVersion)
+	if err != nil {
+		return "", databaseDownloadAsset{}, fmt.Errorf("resolve %s version %q: %w", tool, requestedVersion, err)
+	}
+
+	platformAssets := toolCatalog[resolvedVersion]
+	asset, ok := platformAssets[platformKey]
+	if !ok {
+		return "", databaseDownloadAsset{}, fmt.Errorf("%s version %q is not available for %s/%s", tool, resolvedVersion, goos, goarch)
+	}
+
+	return resolvedVersion, asset, nil
+}
+
+func databasePlatformKey(goos, goarch string) (string, error) {
+	switch {
+	case goos == "windows" && goarch == "amd64":
+		return "windows-amd64", nil
+	case goos == "linux" && goarch == "amd64":
+		return "linux-amd64", nil
+	default:
+		return "", fmt.Errorf("automatic database downloads are only implemented for Windows amd64 and Linux amd64")
+	}
+}
+
+func resolveDatabaseCatalogVersion(catalog map[string]map[string]databaseDownloadAsset, requested string) (string, error) {
+	if _, ok := catalog[requested]; ok {
+		return requested, nil
+	}
+
+	candidates := make([]string, 0, len(catalog))
+	for version := range catalog {
+		if strings.HasPrefix(version, requested+".") {
+			candidates = append(candidates, version)
+		}
+	}
+	if len(candidates) == 0 {
+		return "", fmt.Errorf("no matching release found")
+	}
+
+	best := candidates[0]
+	for _, candidate := range candidates[1:] {
+		if compareCatalogVersions(candidate, best) > 0 {
+			best = candidate
+		}
+	}
+
+	return best, nil
+}
+
+func compareCatalogVersions(left, right string) int {
+	leftParts := strings.Split(strings.TrimSpace(left), ".")
+	rightParts := strings.Split(strings.TrimSpace(right), ".")
+	count := len(leftParts)
+	if len(rightParts) > count {
+		count = len(rightParts)
+	}
+
+	for index := 0; index < count; index++ {
+		leftPart := "0"
+		if index < len(leftParts) {
+			leftPart = leftParts[index]
+		}
+		rightPart := "0"
+		if index < len(rightParts) {
+			rightPart = rightParts[index]
+		}
+
+		leftValue, leftErr := strconv.Atoi(leftPart)
+		rightValue, rightErr := strconv.Atoi(rightPart)
+		switch {
+		case leftErr == nil && rightErr == nil:
+			if leftValue > rightValue {
+				return 1
+			}
+			if leftValue < rightValue {
+				return -1
+			}
+		default:
+			comparison := strings.Compare(leftPart, rightPart)
+			if comparison != 0 {
+				return comparison
+			}
+		}
+	}
+
+	return 0
+}
+
+func downloadDatabaseAsset(client *http.Client, cacheDir, tool, version string, asset databaseDownloadAsset) error {
+	if err := os.MkdirAll(filepath.Join(cacheDir, tool), 0o755); err != nil {
+		return fmt.Errorf("create %s cache dir: %w", tool, err)
+	}
+
+	cacheVersionDir := filepath.Join(cacheDir, tool, version)
+	stagingDir, err := os.MkdirTemp(filepath.Join(cacheDir, tool), version+"-tmp-")
+	if err != nil {
+		return fmt.Errorf("create %s staging dir: %w", tool, err)
+	}
+	defer os.RemoveAll(stagingDir)
+
+	payloadDir := filepath.Join(stagingDir, "payload")
+	if err := os.MkdirAll(payloadDir, 0o755); err != nil {
+		return fmt.Errorf("create %s payload dir: %w", tool, err)
+	}
+
+	archivePath := filepath.Join(stagingDir, asset.FileName)
+	if err := downloadFile(client, asset.URL, archivePath); err != nil {
+		return err
+	}
+	if err := verifyFileChecksum(asset.ChecksumAlgorithm, asset.Checksum, archivePath); err != nil {
+		return err
+	}
+	if err := extractArchive(archivePath, payloadDir, asset.ArchiveFormat); err != nil {
+		return err
+	}
+	if err := collapseSingleDirectory(payloadDir); err != nil {
+		return err
+	}
+
+	return finalizeCacheVersion(cacheVersionDir, payloadDir)
 }
 
 func downloadComposer(client *http.Client, cacheDir, version string) error {
@@ -314,6 +547,159 @@ func finalizeCacheVersion(targetDir, stagingDir string) error {
 	return nil
 }
 
+func extractArchive(archivePath, targetDir string, format archiveFormat) error {
+	switch format {
+	case archiveFormatZip:
+		return extractZipArchive(archivePath, targetDir)
+	case archiveFormatTarGz:
+		return extractTarGzipArchive(archivePath, targetDir)
+	case archiveFormatTarXz:
+		return extractTarXZArchive(archivePath, targetDir)
+	default:
+		return fmt.Errorf("unsupported archive format %q", format)
+	}
+}
+
+func extractTarGzipArchive(archivePath, targetDir string) error {
+	file, err := os.Open(archivePath)
+	if err != nil {
+		return fmt.Errorf("open tar.gz archive %s: %w", archivePath, err)
+	}
+	defer file.Close()
+
+	gzipReader, err := gzip.NewReader(file)
+	if err != nil {
+		return fmt.Errorf("open gzip archive %s: %w", archivePath, err)
+	}
+	defer gzipReader.Close()
+
+	return extractTarStream(tar.NewReader(gzipReader), targetDir)
+}
+
+func extractTarXZArchive(archivePath, targetDir string) error {
+	file, err := os.Open(archivePath)
+	if err != nil {
+		return fmt.Errorf("open tar.xz archive %s: %w", archivePath, err)
+	}
+	defer file.Close()
+
+	xzReader, err := xz.NewReader(file)
+	if err != nil {
+		return fmt.Errorf("open xz archive %s: %w", archivePath, err)
+	}
+
+	return extractTarStream(tar.NewReader(xzReader), targetDir)
+}
+
+func extractTarStream(reader *tar.Reader, targetDir string) error {
+	cleanTarget := filepath.Clean(targetDir)
+	if err := os.MkdirAll(cleanTarget, 0o755); err != nil {
+		return fmt.Errorf("create target dir %s: %w", cleanTarget, err)
+	}
+
+	for {
+		header, err := reader.Next()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("read tar archive: %w", err)
+		}
+
+		destinationPath, err := archiveDestinationPath(cleanTarget, header.Name)
+		if err != nil {
+			return err
+		}
+
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(destinationPath, header.FileInfo().Mode()); err != nil {
+				return fmt.Errorf("create directory %s: %w", destinationPath, err)
+			}
+		case tar.TypeReg, tar.TypeRegA:
+			if err := os.MkdirAll(filepath.Dir(destinationPath), 0o755); err != nil {
+				return fmt.Errorf("create parent dir for %s: %w", destinationPath, err)
+			}
+
+			target, err := os.OpenFile(destinationPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, header.FileInfo().Mode())
+			if err != nil {
+				return fmt.Errorf("create extracted file %s: %w", destinationPath, err)
+			}
+
+			_, copyErr := io.Copy(target, reader)
+			target.Close()
+			if copyErr != nil {
+				return fmt.Errorf("extract tar entry %s: %w", header.Name, copyErr)
+			}
+		case tar.TypeSymlink:
+			if err := os.MkdirAll(filepath.Dir(destinationPath), 0o755); err != nil {
+				return fmt.Errorf("create parent dir for %s: %w", destinationPath, err)
+			}
+
+			linkTarget := filepath.Clean(filepath.Join(filepath.Dir(destinationPath), header.Linkname))
+			if linkTarget != cleanTarget && !strings.HasPrefix(linkTarget, cleanTarget+string(os.PathSeparator)) {
+				return fmt.Errorf("tar symlink %s escapes target directory", header.Name)
+			}
+			if err := os.Symlink(header.Linkname, destinationPath); err != nil {
+				return fmt.Errorf("create symlink %s: %w", destinationPath, err)
+			}
+		case tar.TypeLink:
+			if err := os.MkdirAll(filepath.Dir(destinationPath), 0o755); err != nil {
+				return fmt.Errorf("create parent dir for %s: %w", destinationPath, err)
+			}
+
+			linkTarget, err := archiveDestinationPath(cleanTarget, header.Linkname)
+			if err != nil {
+				return err
+			}
+			if err := os.Link(linkTarget, destinationPath); err != nil {
+				return fmt.Errorf("create hard link %s: %w", destinationPath, err)
+			}
+		default:
+			return fmt.Errorf("unsupported tar entry %s with type %d", header.Name, header.Typeflag)
+		}
+	}
+}
+
+func archiveDestinationPath(targetDir, entryName string) (string, error) {
+	cleanTarget := filepath.Clean(targetDir)
+	destinationPath := filepath.Join(cleanTarget, entryName)
+	cleanDestination := filepath.Clean(destinationPath)
+	if cleanDestination != cleanTarget && !strings.HasPrefix(cleanDestination, cleanTarget+string(os.PathSeparator)) {
+		return "", fmt.Errorf("archive entry %s escapes target directory", entryName)
+	}
+
+	return cleanDestination, nil
+}
+
+func collapseSingleDirectory(root string) error {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return fmt.Errorf("read extracted root %s: %w", root, err)
+	}
+	if len(entries) != 1 || !entries[0].IsDir() {
+		return nil
+	}
+
+	nestedRoot := filepath.Join(root, entries[0].Name())
+	nestedEntries, err := os.ReadDir(nestedRoot)
+	if err != nil {
+		return fmt.Errorf("read nested archive root %s: %w", nestedRoot, err)
+	}
+
+	for _, entry := range nestedEntries {
+		if err := os.Rename(filepath.Join(nestedRoot, entry.Name()), filepath.Join(root, entry.Name())); err != nil {
+			return fmt.Errorf("flatten archive root %s: %w", nestedRoot, err)
+		}
+	}
+
+	if err := os.Remove(nestedRoot); err != nil {
+		return fmt.Errorf("remove nested archive root %s: %w", nestedRoot, err)
+	}
+
+	return nil
+}
+
 func downloadFile(client *http.Client, url, targetPath string) error {
 	response, err := client.Get(url)
 	if err != nil {
@@ -383,13 +769,30 @@ func parseChecksumValue(value string) (string, error) {
 }
 
 func verifyChecksum(expected, filePath string) error {
+	return verifyFileChecksum(checksumAlgorithmSHA256, expected, filePath)
+}
+
+func verifyFileChecksum(algorithm checksumAlgorithm, expected, filePath string) error {
+	newHasher, checksumSize, err := checksumHasher(algorithm)
+	if err != nil {
+		return err
+	}
+
+	expected = strings.TrimSpace(expected)
+	if len(expected) != checksumSize*2 {
+		return fmt.Errorf("invalid %s checksum length %d", algorithm, len(expected))
+	}
+	if _, err := hex.DecodeString(expected); err != nil {
+		return fmt.Errorf("invalid %s checksum encoding: %w", algorithm, err)
+	}
+
 	file, err := os.Open(filePath)
 	if err != nil {
 		return fmt.Errorf("open %s for checksum: %w", filePath, err)
 	}
 	defer file.Close()
 
-	hasher := sha256.New()
+	hasher := newHasher()
 	if _, err := io.Copy(hasher, file); err != nil {
 		return fmt.Errorf("checksum %s: %w", filePath, err)
 	}
@@ -400,6 +803,17 @@ func verifyChecksum(expected, filePath string) error {
 	}
 
 	return nil
+}
+
+func checksumHasher(algorithm checksumAlgorithm) (func() hash.Hash, int, error) {
+	switch algorithm {
+	case checksumAlgorithmMD5:
+		return md5.New, md5.Size, nil
+	case checksumAlgorithmSHA256:
+		return sha256.New, sha256.Size, nil
+	default:
+		return nil, 0, fmt.Errorf("unsupported checksum algorithm %q", algorithm)
+	}
 }
 
 func extractZipArchive(archivePath, targetDir string) error {

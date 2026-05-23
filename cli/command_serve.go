@@ -79,6 +79,13 @@ func runServe(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
+	if current.Database != nil && strings.TrimSpace(current.Database.Engine) != "" {
+		resolved := dbResolvedEnvironment{Environment: *current, Database: current.Database}
+		if _, _, err := ensureManagedDatabaseStarted(store, resolved); err != nil {
+			fmt.Fprintf(stderr, "error: %v\n", err)
+			return 1
+		}
+	}
 
 	serveArgs := []string{"-S", serverAddress, "-t", docroot}
 	exitCode, err := executeTarget(stdout, stderr, phpTarget, serveArgs)

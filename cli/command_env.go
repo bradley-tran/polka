@@ -55,12 +55,26 @@ func newNewCommand(ctx *commandContext) *cobra.Command {
 			if strings.TrimSpace(input.ComposerVersion) == "" {
 				return &statusError{code: 1, err: fmt.Errorf("--composer requires a non-empty value")}
 			}
+			input.Database, err = buildDatabaseInput(
+				cmd.Flags().Changed("db-engine"),
+				cmd.Flags().Changed("db-version"),
+				cmd.Flags().Changed("db-port"),
+				input.DatabaseEngine,
+				input.DatabaseVersion,
+				input.DatabasePort,
+			)
+			if err != nil {
+				return &statusError{code: 1, err: err}
+			}
 
 			return runNew(cmd.OutOrStdout(), store, input)
 		},
 	}
 	cmd.Flags().StringVar(&input.PHPVersion, "php", defaultNewPHPVersion, "PHP version")
 	cmd.Flags().StringVar(&input.ComposerVersion, "composer", defaultNewComposerVersion, "Composer version")
+	cmd.Flags().StringVar(&input.DatabaseEngine, "db-engine", "", "database engine (mysql or mariadb)")
+	cmd.Flags().StringVar(&input.DatabaseVersion, "db-version", "", "database version")
+	cmd.Flags().IntVar(&input.DatabasePort, "db-port", 0, "database port")
 	configureCommand(cmd, newUsage)
 
 	return cmd
@@ -81,10 +95,11 @@ func newConfigCommand(ctx *commandContext) *cobra.Command {
 			input.Name = strings.TrimSpace(args[0])
 			input.HasPHP = cmd.Flags().Changed("php")
 			input.HasComposer = cmd.Flags().Changed("composer")
+			input.HasDatabase = cmd.Flags().Changed("db-engine") || cmd.Flags().Changed("db-version") || cmd.Flags().Changed("db-port")
 			input.PHPVersion = strings.TrimSpace(input.PHPVersion)
 			input.ComposerVersion = strings.TrimSpace(input.ComposerVersion)
-			if !input.HasPHP && !input.HasComposer {
-				return &statusError{code: 1, err: fmt.Errorf("config requires at least one of --php or --composer")}
+			if !input.HasPHP && !input.HasComposer && !input.HasDatabase {
+				return &statusError{code: 1, err: fmt.Errorf("config requires at least one of --php, --composer, or --db-engine/--db-version")}
 			}
 			if input.HasPHP && input.PHPVersion == "" {
 				return &statusError{code: 1, err: fmt.Errorf("--php requires a non-empty value")}
@@ -92,12 +107,26 @@ func newConfigCommand(ctx *commandContext) *cobra.Command {
 			if input.HasComposer && input.ComposerVersion == "" {
 				return &statusError{code: 1, err: fmt.Errorf("--composer requires a non-empty value")}
 			}
+			input.Database, err = buildDatabaseInput(
+				cmd.Flags().Changed("db-engine"),
+				cmd.Flags().Changed("db-version"),
+				cmd.Flags().Changed("db-port"),
+				input.DatabaseEngine,
+				input.DatabaseVersion,
+				input.DatabasePort,
+			)
+			if err != nil {
+				return &statusError{code: 1, err: err}
+			}
 
 			return runConfig(cmd.OutOrStdout(), store, input)
 		},
 	}
 	cmd.Flags().StringVar(&input.PHPVersion, "php", "", "PHP version")
 	cmd.Flags().StringVar(&input.ComposerVersion, "composer", "", "Composer version")
+	cmd.Flags().StringVar(&input.DatabaseEngine, "db-engine", "", "database engine (mysql or mariadb)")
+	cmd.Flags().StringVar(&input.DatabaseVersion, "db-version", "", "database version")
+	cmd.Flags().IntVar(&input.DatabasePort, "db-port", 0, "database port")
 	configureCommand(cmd, configUsage)
 
 	return cmd
@@ -220,22 +249,22 @@ func runInstall(stdout io.Writer, store backend.Store, input installCommandInput
 }
 
 func runNew(stdout io.Writer, store backend.Store, input newCommandInput) error {
-	environment, err := store.Create(input.Name, input.PHPVersion, input.ComposerVersion)
+	environment, err := store.Create(input.Name, input.PHPVersion, input.ComposerVersion, input.Database)
 	if err != nil {
 		return err
 	}
 
-	_, _ = fmt.Fprintf(stdout, "Created %s\tphp=%s\tcomposer=%s\n", environment.Name, environment.PHPVersion, environment.ComposerVersion)
+	_, _ = fmt.Fprintf(stdout, "Created %s\tphp=%s\tcomposer=%s\tdb=%s\n", environment.Name, labelOrUnset(environment.PHPVersion), labelOrUnset(environment.ComposerVersion), labelDatabase(environment.Database))
 	return nil
 }
 
 func runConfig(stdout io.Writer, store backend.Store, input configCommandInput) error {
-	environment, err := store.Configure(input.Name, input.PHPVersion, input.ComposerVersion)
+	environment, err := store.Configure(input.Name, input.PHPVersion, input.ComposerVersion, input.Database)
 	if err != nil {
 		return err
 	}
 
-	_, _ = fmt.Fprintf(stdout, "Configured %s\tphp=%s\tcomposer=%s\n", environment.Name, labelOrUnset(environment.PHPVersion), labelOrUnset(environment.ComposerVersion))
+	_, _ = fmt.Fprintf(stdout, "Configured %s\tphp=%s\tcomposer=%s\tdb=%s\n", environment.Name, labelOrUnset(environment.PHPVersion), labelOrUnset(environment.ComposerVersion), labelDatabase(environment.Database))
 	return nil
 }
 
@@ -260,7 +289,7 @@ func runList(stdout io.Writer, store backend.Store) error {
 			marker = "*"
 		}
 
-		_, _ = fmt.Fprintf(stdout, "%s %s\tphp=%s\tcomposer=%s\n", marker, environment.Name, labelOrUnset(environment.PHPVersion), labelOrUnset(environment.ComposerVersion))
+		_, _ = fmt.Fprintf(stdout, "%s %s\tphp=%s\tcomposer=%s\tdb=%s\n", marker, environment.Name, labelOrUnset(environment.PHPVersion), labelOrUnset(environment.ComposerVersion), labelDatabase(environment.Database))
 	}
 
 	return nil
@@ -285,7 +314,7 @@ func runCurrent(stdout io.Writer, store backend.Store) error {
 		return nil
 	}
 
-	_, _ = fmt.Fprintf(stdout, "%s\tphp=%s\tcomposer=%s\n", current.Name, labelOrUnset(current.PHPVersion), labelOrUnset(current.ComposerVersion))
+	_, _ = fmt.Fprintf(stdout, "%s\tphp=%s\tcomposer=%s\tdb=%s\n", current.Name, labelOrUnset(current.PHPVersion), labelOrUnset(current.ComposerVersion), labelDatabase(current.Database))
 	return nil
 }
 
@@ -302,14 +331,23 @@ type configCommandInput struct {
 	Name            string
 	PHPVersion      string
 	ComposerVersion string
+	Database        *backend.DatabaseConfig
+	DatabaseEngine  string
+	DatabaseVersion string
+	DatabasePort    int
 	HasPHP          bool
 	HasComposer     bool
+	HasDatabase     bool
 }
 
 type newCommandInput struct {
 	Name            string
 	PHPVersion      string
 	ComposerVersion string
+	Database        *backend.DatabaseConfig
+	DatabaseEngine  string
+	DatabaseVersion string
+	DatabasePort    int
 }
 
 type installCommandInput struct {
@@ -322,4 +360,41 @@ func labelOrUnset(value string) string {
 	}
 
 	return value
+}
+
+func labelDatabase(database *backend.DatabaseConfig) string {
+	if database == nil {
+		return "unset"
+	}
+
+	label := fmt.Sprintf("%s:%s", database.Engine, database.Version)
+	if database.Port != 0 {
+		label = fmt.Sprintf("%s@%d", label, database.Port)
+	}
+
+	return label
+}
+
+func buildDatabaseInput(engineChanged, versionChanged, portChanged bool, engine, version string, port int) (*backend.DatabaseConfig, error) {
+	if !engineChanged && !versionChanged && !portChanged {
+		return nil, nil
+	}
+	if engineChanged && strings.TrimSpace(engine) == "" {
+		return nil, fmt.Errorf("--db-engine requires a non-empty value")
+	}
+	if versionChanged && strings.TrimSpace(version) == "" {
+		return nil, fmt.Errorf("--db-version requires a non-empty value")
+	}
+	if engineChanged != versionChanged {
+		return nil, fmt.Errorf("--db-engine and --db-version must be provided together")
+	}
+	if portChanged && (port < 1 || port > 65535) {
+		return nil, fmt.Errorf("--db-port must be between 1 and 65535")
+	}
+
+	return &backend.DatabaseConfig{
+		Engine:  strings.TrimSpace(engine),
+		Version: strings.TrimSpace(version),
+		Port:    port,
+	}, nil
 }

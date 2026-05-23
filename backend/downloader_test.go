@@ -1,8 +1,22 @@
 package backend
 
 import (
+	"archive/tar"
+	"archive/zip"
+	"bytes"
+	"compress/gzip"
+	"crypto/md5"
+	"crypto/sha256"
+	"encoding/hex"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ulikunitz/xz"
 )
 
 func TestSelectComposerReleaseVersionPrefersStablePatchForMinorLabel(t *testing.T) {
@@ -39,5 +53,235 @@ func TestParseChecksumValueAcceptsSha256sumFormat(t *testing.T) {
 	}
 	if value != expected {
 		t.Fatalf("parseChecksumValue(sha256sum) = %q, want %q", value, expected)
+	}
+}
+
+func TestResolveDatabaseDownloadAssetSupportsSeriesLabels(t *testing.T) {
+	tests := []struct {
+		name                string
+		tool                string
+		version             string
+		goos                string
+		goarch              string
+		wantResolvedVersion string
+		wantFileName        string
+		wantAlgorithm       checksumAlgorithm
+	}{
+		{
+			name:                "mysql windows",
+			tool:                toolMySQL,
+			version:             "8.4",
+			goos:                "windows",
+			goarch:              "amd64",
+			wantResolvedVersion: "8.4.9",
+			wantFileName:        "mysql-8.4.9-winx64.zip",
+			wantAlgorithm:       checksumAlgorithmMD5,
+		},
+		{
+			name:                "mysql linux",
+			tool:                toolMySQL,
+			version:             "8.4",
+			goos:                "linux",
+			goarch:              "amd64",
+			wantResolvedVersion: "8.4.9",
+			wantFileName:        "mysql-8.4.9-linux-glibc2.17-x86_64.tar.xz",
+			wantAlgorithm:       checksumAlgorithmMD5,
+		},
+		{
+			name:                "mariadb windows",
+			tool:                toolMariaDB,
+			version:             "11.4",
+			goos:                "windows",
+			goarch:              "amd64",
+			wantResolvedVersion: "11.4.11",
+			wantFileName:        "mariadb-11.4.11-winx64.zip",
+			wantAlgorithm:       checksumAlgorithmSHA256,
+		},
+		{
+			name:                "mariadb linux",
+			tool:                toolMariaDB,
+			version:             "11.4",
+			goos:                "linux",
+			goarch:              "amd64",
+			wantResolvedVersion: "11.4.11",
+			wantFileName:        "mariadb-11.4.11-linux-systemd-x86_64.tar.gz",
+			wantAlgorithm:       checksumAlgorithmSHA256,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resolvedVersion, asset, err := resolveDatabaseDownloadAsset(test.tool, test.version, test.goos, test.goarch)
+			if err != nil {
+				t.Fatalf("resolveDatabaseDownloadAsset(%s, %s) error = %v", test.tool, test.version, err)
+			}
+			if resolvedVersion != test.wantResolvedVersion {
+				t.Fatalf("resolveDatabaseDownloadAsset(%s, %s) resolved version = %q, want %q", test.tool, test.version, resolvedVersion, test.wantResolvedVersion)
+			}
+			if asset.FileName != test.wantFileName {
+				t.Fatalf("resolveDatabaseDownloadAsset(%s, %s) file = %q, want %q", test.tool, test.version, asset.FileName, test.wantFileName)
+			}
+			if asset.ChecksumAlgorithm != test.wantAlgorithm {
+				t.Fatalf("resolveDatabaseDownloadAsset(%s, %s) checksum algorithm = %q, want %q", test.tool, test.version, asset.ChecksumAlgorithm, test.wantAlgorithm)
+			}
+		})
+	}
+}
+
+func TestDownloadDatabaseAssetExtractsSupportedArchives(t *testing.T) {
+	tests := []struct {
+		name             string
+		requestedVersion string
+		fileName         string
+		format           archiveFormat
+		algorithm        checksumAlgorithm
+		archiveData      func(t *testing.T) []byte
+		expectedPath     string
+	}{
+		{
+			name:             "zip md5",
+			requestedVersion: "8.4",
+			fileName:         "mysql-8.4.9-winx64.zip",
+			format:           archiveFormatZip,
+			algorithm:        checksumAlgorithmMD5,
+			archiveData: func(t *testing.T) []byte {
+				return buildZipArchive(t, "mysql-8.4.9-winx64", "bin/mysql.exe", []byte("mysql"))
+			},
+			expectedPath: filepath.Join("bin", "mysql.exe"),
+		},
+		{
+			name:             "tar.gz sha256",
+			requestedVersion: "11.4",
+			fileName:         "mariadb-11.4.11-linux-systemd-x86_64.tar.gz",
+			format:           archiveFormatTarGz,
+			algorithm:        checksumAlgorithmSHA256,
+			archiveData: func(t *testing.T) []byte {
+				return buildTarGzipArchive(t, "mariadb-11.4.11-linux-systemd-x86_64", "bin/mariadb", []byte("mariadb"))
+			},
+			expectedPath: filepath.Join("bin", "mariadb"),
+		},
+		{
+			name:             "tar.xz md5",
+			requestedVersion: "8.4",
+			fileName:         "mysql-8.4.9-linux-glibc2.17-x86_64.tar.xz",
+			format:           archiveFormatTarXz,
+			algorithm:        checksumAlgorithmMD5,
+			archiveData: func(t *testing.T) []byte {
+				return buildTarXZArchive(t, "mysql-8.4.9-linux-glibc2.17-x86_64", "bin/mysql", []byte("mysql"))
+			},
+			expectedPath: filepath.Join("bin", "mysql"),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			archiveData := test.archiveData(t)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write(archiveData)
+			}))
+			defer server.Close()
+
+			cacheDir := t.TempDir()
+			asset := databaseDownloadAsset{
+				FileName:          test.fileName,
+				URL:               server.URL + "/" + test.fileName,
+				Checksum:          checksumForBytes(t, test.algorithm, archiveData),
+				ChecksumAlgorithm: test.algorithm,
+				ArchiveFormat:     test.format,
+			}
+
+			if err := downloadDatabaseAsset(server.Client(), cacheDir, toolMySQL, test.requestedVersion, asset); err != nil {
+				t.Fatalf("downloadDatabaseAsset(%s) error = %v", test.fileName, err)
+			}
+
+			installedPath := filepath.Join(cacheDir, toolMySQL, test.requestedVersion, test.expectedPath)
+			if _, err := os.Stat(installedPath); err != nil {
+				t.Fatalf("Stat(%s) error = %v", installedPath, err)
+			}
+		})
+	}
+}
+
+func buildZipArchive(t *testing.T, rootDir, filePath string, contents []byte) []byte {
+	t.Helper()
+
+	buffer := &bytes.Buffer{}
+	writer := zip.NewWriter(buffer)
+	fileWriter, err := writer.Create(filepath.ToSlash(filepath.Join(rootDir, filePath)))
+	if err != nil {
+		t.Fatalf("Create(zip entry) error = %v", err)
+	}
+	if _, err := fileWriter.Write(contents); err != nil {
+		t.Fatalf("Write(zip entry) error = %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close(zip writer) error = %v", err)
+	}
+
+	return buffer.Bytes()
+}
+
+func buildTarGzipArchive(t *testing.T, rootDir, filePath string, contents []byte) []byte {
+	t.Helper()
+
+	buffer := &bytes.Buffer{}
+	gzipWriter := gzip.NewWriter(buffer)
+	writeTarArchive(t, gzipWriter, rootDir, filePath, contents)
+	if err := gzipWriter.Close(); err != nil {
+		t.Fatalf("Close(gzip writer) error = %v", err)
+	}
+
+	return buffer.Bytes()
+}
+
+func buildTarXZArchive(t *testing.T, rootDir, filePath string, contents []byte) []byte {
+	t.Helper()
+
+	buffer := &bytes.Buffer{}
+	xzWriter, err := xz.NewWriter(buffer)
+	if err != nil {
+		t.Fatalf("NewWriter(xz) error = %v", err)
+	}
+	writeTarArchive(t, xzWriter, rootDir, filePath, contents)
+	if err := xzWriter.Close(); err != nil {
+		t.Fatalf("Close(xz writer) error = %v", err)
+	}
+
+	return buffer.Bytes()
+}
+
+func writeTarArchive(t *testing.T, writer io.Writer, rootDir, filePath string, contents []byte) {
+	t.Helper()
+
+	tarWriter := tar.NewWriter(writer)
+	fullPath := filepath.ToSlash(filepath.Join(rootDir, filePath))
+	if err := tarWriter.WriteHeader(&tar.Header{
+		Name: fullPath,
+		Mode: 0o755,
+		Size: int64(len(contents)),
+	}); err != nil {
+		t.Fatalf("WriteHeader(tar) error = %v", err)
+	}
+	if _, err := tarWriter.Write(contents); err != nil {
+		t.Fatalf("Write(tar) error = %v", err)
+	}
+	if err := tarWriter.Close(); err != nil {
+		t.Fatalf("Close(tar writer) error = %v", err)
+	}
+}
+
+func checksumForBytes(t *testing.T, algorithm checksumAlgorithm, data []byte) string {
+	t.Helper()
+
+	switch algorithm {
+	case checksumAlgorithmMD5:
+		sum := md5.Sum(data)
+		return hex.EncodeToString(sum[:])
+	case checksumAlgorithmSHA256:
+		sum := sha256.Sum256(data)
+		return hex.EncodeToString(sum[:])
+	default:
+		t.Fatalf("unsupported checksum algorithm %q", algorithm)
+		return ""
 	}
 }

@@ -22,6 +22,8 @@ const (
 	configVersion            = 1
 	toolPHP                  = "php"
 	toolComposer             = "composer"
+	toolMySQL                = "mysql"
+	toolMariaDB              = "mariadb"
 	dispatcherBinaryName     = "polka"
 	dispatcherBinaryWindows  = "polka.exe"
 )
@@ -36,6 +38,7 @@ type Environment struct {
 	Name            string          `yaml:"-"`
 	PHPVersion      string          `yaml:"php,omitempty"`
 	ComposerVersion string          `yaml:"composer,omitempty"`
+	Database        *DatabaseConfig `yaml:"database,omitempty"`
 	PHPExtensions   map[string]bool `yaml:"php-extensions,omitempty"`
 	Server          *ServerConfig   `yaml:"server,omitempty"`
 }
@@ -43,6 +46,12 @@ type Environment struct {
 type ServerConfig struct {
 	Hostname string `yaml:"hostname,omitempty"`
 	Port     int    `yaml:"port,omitempty"`
+}
+
+type DatabaseConfig struct {
+	Engine  string `yaml:"engine,omitempty"`
+	Version string `yaml:"version,omitempty"`
+	Port    int    `yaml:"port,omitempty"`
 }
 
 type InstallResult struct {
@@ -139,15 +148,15 @@ func (s Store) List() ([]Environment, error) {
 	return environments, nil
 }
 
-func (s Store) Create(name, phpVersion, composerVersion string) (Environment, error) {
-	return s.writeEnvironment(name, phpVersion, composerVersion, false)
+func (s Store) Create(name, phpVersion, composerVersion string, database *DatabaseConfig) (Environment, error) {
+	return s.writeEnvironment(name, phpVersion, composerVersion, database, false)
 }
 
-func (s Store) Configure(name, phpVersion, composerVersion string) (Environment, error) {
-	return s.writeEnvironment(name, phpVersion, composerVersion, true)
+func (s Store) Configure(name, phpVersion, composerVersion string, database *DatabaseConfig) (Environment, error) {
+	return s.writeEnvironment(name, phpVersion, composerVersion, database, true)
 }
 
-func (s Store) writeEnvironment(name, phpVersion, composerVersion string, allowUpdate bool) (Environment, error) {
+func (s Store) writeEnvironment(name, phpVersion, composerVersion string, database *DatabaseConfig, allowUpdate bool) (Environment, error) {
 	if err := s.Init(); err != nil {
 		return Environment{}, err
 	}
@@ -157,8 +166,9 @@ func (s Store) writeEnvironment(name, phpVersion, composerVersion string, allowU
 
 	phpVersion = strings.TrimSpace(phpVersion)
 	composerVersion = strings.TrimSpace(composerVersion)
-	if phpVersion == "" && composerVersion == "" {
-		return Environment{}, fmt.Errorf("config requires at least one of --php or --composer")
+	database = normalizeDatabaseConfig(database)
+	if phpVersion == "" && composerVersion == "" && database == nil {
+		return Environment{}, fmt.Errorf("environment requires at least one of php, composer, or database")
 	}
 	if phpVersion != "" {
 		if err := validateVersion(toolPHP, phpVersion); err != nil {
@@ -187,6 +197,15 @@ func (s Store) writeEnvironment(name, phpVersion, composerVersion string, allowU
 	}
 	if composerVersion != "" {
 		environment.ComposerVersion = composerVersion
+	}
+	if database != nil {
+		environment.Database = mergeDatabaseConfig(environment.Database, database)
+	}
+	if environment.PHPVersion == "" && environment.ComposerVersion == "" && environment.Database == nil {
+		return Environment{}, fmt.Errorf("environment requires at least one of php, composer, or database")
+	}
+	if err := validateDatabaseConfig(environment.Database); err != nil {
+		return Environment{}, err
 	}
 
 	config.Environments[name] = environment
@@ -226,8 +245,11 @@ func (s Store) Install(name string) ([]InstallResult, error) {
 	if normalized.ComposerVersion != "" {
 		requests = append(requests, InstallResult{Tool: toolComposer, Version: normalized.ComposerVersion})
 	}
+	if normalized.Database != nil {
+		requests = append(requests, InstallResult{Tool: normalized.Database.Engine, Version: normalized.Database.Version})
+	}
 	if len(requests) == 0 {
-		return nil, fmt.Errorf("environment %q does not define any tool versions", name)
+		return nil, fmt.Errorf("environment %q does not define any installable tool versions", name)
 	}
 
 	results := make([]InstallResult, 0, len(requests))
@@ -466,8 +488,84 @@ func (s Store) normalizeEnvironment(name string, environment Environment) Enviro
 		Name:            name,
 		PHPVersion:      strings.TrimSpace(environment.PHPVersion),
 		ComposerVersion: strings.TrimSpace(environment.ComposerVersion),
+		Database:        normalizeDatabaseConfig(environment.Database),
 		PHPExtensions:   normalizePHPExtensions(environment.PHPExtensions),
 		Server:          normalizeServerConfig(environment.Server),
+	}
+}
+
+func mergeDatabaseConfig(existing, override *DatabaseConfig) *DatabaseConfig {
+	if existing == nil && override == nil {
+		return nil
+	}
+
+	merged := &DatabaseConfig{}
+	if existing != nil {
+		*merged = *existing
+	}
+	if override != nil {
+		if override.Engine != "" {
+			merged.Engine = override.Engine
+		}
+		if override.Version != "" {
+			merged.Version = override.Version
+		}
+		if override.Port != 0 {
+			merged.Port = override.Port
+		}
+	}
+
+	return normalizeDatabaseConfig(merged)
+}
+
+func normalizeDatabaseConfig(database *DatabaseConfig) *DatabaseConfig {
+	if database == nil {
+		return nil
+	}
+
+	normalized := &DatabaseConfig{
+		Engine:  strings.ToLower(strings.TrimSpace(database.Engine)),
+		Version: strings.TrimSpace(database.Version),
+		Port:    database.Port,
+	}
+	if normalized.Engine == "" && normalized.Version == "" && normalized.Port == 0 {
+		return nil
+	}
+
+	return normalized
+}
+
+func validateDatabaseConfig(database *DatabaseConfig) error {
+	if database == nil {
+		return nil
+	}
+
+	engine, err := normalizeDatabaseEngine(database.Engine)
+	if err != nil {
+		return err
+	}
+	if engine == "" || database.Version == "" {
+		return fmt.Errorf("database configuration requires both engine and version")
+	}
+	if err := validateVersion(engine, database.Version); err != nil {
+		return err
+	}
+	if database.Port != 0 && (database.Port < 1 || database.Port > 65535) {
+		return fmt.Errorf("database port must be between 1 and 65535")
+	}
+
+	return nil
+}
+
+func normalizeDatabaseEngine(engine string) (string, error) {
+	trimmed := strings.ToLower(strings.TrimSpace(engine))
+	switch trimmed {
+	case "":
+		return "", nil
+	case toolMySQL, toolMariaDB:
+		return trimmed, nil
+	default:
+		return "", fmt.Errorf("unsupported database engine %q", engine)
 	}
 }
 
@@ -656,6 +754,46 @@ func toolInstallCandidatesIn(root, tool, version string) []string {
 			filepath.Join(installDir, "composer"),
 			filepath.Join(installDir, "composer.phar"),
 		}
+	case toolMySQL:
+		if runtime.GOOS == "windows" {
+			return []string{
+				filepath.Join(installDir, "bin", "mysql.cmd"),
+				filepath.Join(installDir, "bin", "mysql.bat"),
+				filepath.Join(installDir, "bin", "mysql.exe"),
+				filepath.Join(installDir, "mysql.cmd"),
+				filepath.Join(installDir, "mysql.bat"),
+				filepath.Join(installDir, "mysql.exe"),
+			}
+		}
+
+		return []string{
+			filepath.Join(installDir, "bin", "mysql"),
+			filepath.Join(installDir, "mysql"),
+		}
+	case toolMariaDB:
+		if runtime.GOOS == "windows" {
+			return []string{
+				filepath.Join(installDir, "bin", "mariadb.cmd"),
+				filepath.Join(installDir, "bin", "mariadb.bat"),
+				filepath.Join(installDir, "bin", "mariadb.exe"),
+				filepath.Join(installDir, "bin", "mysql.cmd"),
+				filepath.Join(installDir, "bin", "mysql.bat"),
+				filepath.Join(installDir, "bin", "mysql.exe"),
+				filepath.Join(installDir, "mariadb.cmd"),
+				filepath.Join(installDir, "mariadb.bat"),
+				filepath.Join(installDir, "mariadb.exe"),
+				filepath.Join(installDir, "mysql.cmd"),
+				filepath.Join(installDir, "mysql.bat"),
+				filepath.Join(installDir, "mysql.exe"),
+			}
+		}
+
+		return []string{
+			filepath.Join(installDir, "bin", "mariadb"),
+			filepath.Join(installDir, "bin", "mysql"),
+			filepath.Join(installDir, "mariadb"),
+			filepath.Join(installDir, "mysql"),
+		}
 	default:
 		return nil
 	}
@@ -697,60 +835,47 @@ func (s Store) installDispatcherBinary() error {
 
 func (s Store) managedBinaries() []installedBinary {
 	return []installedBinary{
-		{
-			Name: "php",
-			Mode: 0o755,
-			Contents: "#!/usr/bin/env sh\n" +
-				"set -eu\n" +
-				"SCRIPT_DIR=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\n" +
-				"ROOT_DIR=$(CDPATH= cd -- \"$SCRIPT_DIR/..\" && pwd)\n" +
-				"if [ -x \"$SCRIPT_DIR/polka\" ]; then\n" +
-				"  DISPATCHER=\"$SCRIPT_DIR/polka\"\n" +
-				"elif [ -f \"$SCRIPT_DIR/polka.exe\" ]; then\n" +
-				"  DISPATCHER=\"$SCRIPT_DIR/polka.exe\"\n" +
-				"else\n" +
-				"  printf '%s\\n' 'Polka dispatcher binary not found in .polka/bin.' >&2\n" +
-				"  exit 1\n" +
-				"fi\n" +
-				"exec \"$DISPATCHER\" --root \"$ROOT_DIR\" dispatch php \"$@\"\n",
-		},
-		{
-			Name: "composer",
-			Mode: 0o755,
-			Contents: "#!/usr/bin/env sh\n" +
-				"set -eu\n" +
-				"SCRIPT_DIR=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\n" +
-				"ROOT_DIR=$(CDPATH= cd -- \"$SCRIPT_DIR/..\" && pwd)\n" +
-				"if [ -x \"$SCRIPT_DIR/polka\" ]; then\n" +
-				"  DISPATCHER=\"$SCRIPT_DIR/polka\"\n" +
-				"elif [ -f \"$SCRIPT_DIR/polka.exe\" ]; then\n" +
-				"  DISPATCHER=\"$SCRIPT_DIR/polka.exe\"\n" +
-				"else\n" +
-				"  printf '%s\\n' 'Polka dispatcher binary not found in .polka/bin.' >&2\n" +
-				"  exit 1\n" +
-				"fi\n" +
-				"exec \"$DISPATCHER\" --root \"$ROOT_DIR\" dispatch composer \"$@\"\n",
-		},
-		{
-			Name: "php.cmd",
-			Mode: 0o755,
-			Contents: "@echo off\r\n" +
-				"setlocal\r\n" +
-				"set \"SCRIPT_DIR=%~dp0\"\r\n" +
-				"set \"ROOT_DIR=%SCRIPT_DIR%..\"\r\n" +
-				"\"%SCRIPT_DIR%polka.exe\" --root \"%ROOT_DIR%\" dispatch php %*\r\n" +
-				"exit /b %ERRORLEVEL%\r\n",
-		},
-		{
-			Name: "composer.cmd",
-			Mode: 0o755,
-			Contents: "@echo off\r\n" +
-				"setlocal\r\n" +
-				"set \"SCRIPT_DIR=%~dp0\"\r\n" +
-				"set \"ROOT_DIR=%SCRIPT_DIR%..\"\r\n" +
-				"\"%SCRIPT_DIR%polka.exe\" --root \"%ROOT_DIR%\" dispatch composer %*\r\n" +
-				"exit /b %ERRORLEVEL%\r\n",
-		},
+		shellDispatchBinary("php"),
+		shellDispatchBinary("composer"),
+		shellDispatchBinary(toolMySQL),
+		shellDispatchBinary(toolMariaDB),
+		windowsDispatchBinary("php"),
+		windowsDispatchBinary("composer"),
+		windowsDispatchBinary(toolMySQL),
+		windowsDispatchBinary(toolMariaDB),
+	}
+}
+
+func shellDispatchBinary(tool string) installedBinary {
+	return installedBinary{
+		Name: tool,
+		Mode: 0o755,
+		Contents: "#!/usr/bin/env sh\n" +
+			"set -eu\n" +
+			"SCRIPT_DIR=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\n" +
+			"ROOT_DIR=$(CDPATH= cd -- \"$SCRIPT_DIR/..\" && pwd)\n" +
+			"if [ -x \"$SCRIPT_DIR/polka\" ]; then\n" +
+			"  DISPATCHER=\"$SCRIPT_DIR/polka\"\n" +
+			"elif [ -f \"$SCRIPT_DIR/polka.exe\" ]; then\n" +
+			"  DISPATCHER=\"$SCRIPT_DIR/polka.exe\"\n" +
+			"else\n" +
+			"  printf '%s\\n' 'Polka dispatcher binary not found in .polka/bin.' >&2\n" +
+			"  exit 1\n" +
+			"fi\n" +
+			"exec \"$DISPATCHER\" --root \"$ROOT_DIR\" dispatch " + tool + " \"$@\"\n",
+	}
+}
+
+func windowsDispatchBinary(tool string) installedBinary {
+	return installedBinary{
+		Name: tool + ".cmd",
+		Mode: 0o755,
+		Contents: "@echo off\r\n" +
+			"setlocal\r\n" +
+			"set \"SCRIPT_DIR=%~dp0\"\r\n" +
+			"set \"ROOT_DIR=%SCRIPT_DIR%..\"\r\n" +
+			"\"%SCRIPT_DIR%polka.exe\" --root \"%ROOT_DIR%\" dispatch " + tool + " %*\r\n" +
+			"exit /b %ERRORLEVEL%\r\n",
 	}
 }
 
@@ -838,6 +963,11 @@ func (e Environment) toolVersion(tool string) string {
 		return e.PHPVersion
 	case toolComposer:
 		return e.ComposerVersion
+	case toolMySQL, toolMariaDB:
+		if e.Database != nil && e.Database.Engine == tool {
+			return e.Database.Version
+		}
+		return ""
 	default:
 		return ""
 	}
@@ -876,7 +1006,7 @@ func validateVersion(tool, version string) error {
 func normalizeTool(tool string) (string, error) {
 	trimmed := strings.ToLower(strings.TrimSpace(tool))
 	switch trimmed {
-	case toolPHP, toolComposer:
+	case toolPHP, toolComposer, toolMySQL, toolMariaDB:
 		return trimmed, nil
 	default:
 		return "", fmt.Errorf("unsupported tool %q", tool)
