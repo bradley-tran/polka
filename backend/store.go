@@ -26,7 +26,7 @@ const (
 	toolMySQL                = "mysql"
 	toolMariaDB              = "mariadb"
 	dispatcherBinaryName     = "polka"
-	dispatcherBinaryWindows  = "polka.exe"
+	dispatcherBatchFileName  = "polka.cmd"
 )
 
 var (
@@ -824,7 +824,7 @@ func toolInstallCandidatesIn(root, tool, version string) []string {
 }
 
 func (s Store) installBinaries() error {
-	if err := s.installDispatcherBinary(); err != nil {
+	if err := s.installDispatcherBinaries(); err != nil {
 		return err
 	}
 	config, err := s.loadConfig()
@@ -856,23 +856,62 @@ func (s Store) syncManagedBinaries(config Config) error {
 	return nil
 }
 
-func (s Store) installDispatcherBinary() error {
+func (s Store) installDispatcherBinaries() error {
 	selfPath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("resolve executable: %w", err)
 	}
 
-	fileInfo, err := os.Stat(selfPath)
-	if err != nil {
-		return fmt.Errorf("stat executable: %w", err)
-	}
-
-	targetPath := filepath.Join(s.BinDir, dispatcherBinaryFileName())
-	if err := copyFile(selfPath, targetPath, fileInfo.Mode()); err != nil {
-		return fmt.Errorf("copy dispatcher binary: %w", err)
+	for _, binary := range dispatcherBinaries(selfPath) {
+		targetPath := filepath.Join(s.BinDir, binary.Name)
+		if err := os.WriteFile(targetPath, []byte(binary.Contents), binary.Mode); err != nil {
+			return fmt.Errorf("write dispatcher shim %q: %w", binary.Name, err)
+		}
 	}
 
 	return nil
+}
+
+func dispatcherBinaries(selfPath string) []installedBinary {
+	return []installedBinary{
+		shellDispatcherBinary(selfPath),
+		windowsDispatcherBinary(selfPath),
+	}
+}
+
+func shellDispatcherBinary(selfPath string) installedBinary {
+	return installedBinary{
+		Name: dispatcherBinaryName,
+		Mode: 0o755,
+		Contents: "#!/usr/bin/env sh\n" +
+			"set -eu\n" +
+			"POLKA_EXE=${POLKA_DISPATCHER:-}\n" +
+			"if [ -z \"$POLKA_EXE\" ]; then\n" +
+			"  POLKA_EXE=" + shellLiteral(filepath.ToSlash(selfPath)) + "\n" +
+			"fi\n" +
+			"if [ ! -f \"$POLKA_EXE\" ]; then\n" +
+			"  printf '%s\\n' 'Polka executable not found. Re-run \"polka init\" or set POLKA_DISPATCHER.' >&2\n" +
+			"  exit 1\n" +
+			"fi\n" +
+			"exec \"$POLKA_EXE\" \"$@\"\n",
+	}
+}
+
+func windowsDispatcherBinary(selfPath string) installedBinary {
+	return installedBinary{
+		Name: dispatcherBatchFileName,
+		Mode: 0o755,
+		Contents: "@echo off\r\n" +
+			"setlocal\r\n" +
+			"set \"POLKA_EXE=%POLKA_DISPATCHER%\"\r\n" +
+			"if not defined POLKA_EXE set \"POLKA_EXE=" + escapeWindowsBatchValue(selfPath) + "\"\r\n" +
+			"if not exist \"%POLKA_EXE%\" (\r\n" +
+			"  >&2 echo Polka executable not found. Re-run polka init or set POLKA_DISPATCHER.\r\n" +
+			"  exit /b 1\r\n" +
+			")\r\n" +
+			"\"%POLKA_EXE%\" %*\r\n" +
+			"exit /b %ERRORLEVEL%\r\n",
+	}
 }
 
 func (s Store) managedBinaries() []installedBinary {
@@ -944,12 +983,9 @@ func shellDispatchBinary(tool string) installedBinary {
 			"set -eu\n" +
 			"SCRIPT_DIR=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\n" +
 			"ROOT_DIR=$(CDPATH= cd -- \"$SCRIPT_DIR/..\" && pwd)\n" +
-			"if [ -x \"$SCRIPT_DIR/polka\" ]; then\n" +
-			"  DISPATCHER=\"$SCRIPT_DIR/polka\"\n" +
-			"elif [ -f \"$SCRIPT_DIR/polka.exe\" ]; then\n" +
-			"  DISPATCHER=\"$SCRIPT_DIR/polka.exe\"\n" +
-			"else\n" +
-			"  printf '%s\\n' 'Polka dispatcher binary not found in .polka/bin.' >&2\n" +
+			"DISPATCHER=\"$SCRIPT_DIR/" + dispatcherBinaryName + "\"\n" +
+			"if [ ! -f \"$DISPATCHER\" ]; then\n" +
+			"  printf '%s\\n' 'Polka dispatcher shim not found in .polka/bin. Re-run \"polka init\".' >&2\n" +
 			"  exit 1\n" +
 			"fi\n" +
 			"exec \"$DISPATCHER\" --root \"$ROOT_DIR\" dispatch " + tool + " \"$@\"\n",
@@ -964,9 +1000,21 @@ func windowsDispatchBinary(tool string) installedBinary {
 			"setlocal\r\n" +
 			"set \"SCRIPT_DIR=%~dp0\"\r\n" +
 			"set \"ROOT_DIR=%SCRIPT_DIR%..\"\r\n" +
-			"\"%SCRIPT_DIR%polka.exe\" --root \"%ROOT_DIR%\" dispatch " + tool + " %*\r\n" +
+			"if not exist \"%SCRIPT_DIR%" + dispatcherBatchFileName + "\" (\r\n" +
+			"  >&2 echo Polka dispatcher shim not found in .polka\\bin. Re-run polka init.\r\n" +
+			"  exit /b 1\r\n" +
+			")\r\n" +
+			"call \"%SCRIPT_DIR%" + dispatcherBatchFileName + "\" --root \"%ROOT_DIR%\" dispatch " + tool + " %*\r\n" +
 			"exit /b %ERRORLEVEL%\r\n",
 	}
+}
+
+func shellLiteral(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
+func escapeWindowsBatchValue(value string) string {
+	return strings.ReplaceAll(value, "%", "%%")
 }
 
 func writeYAML(path string, value any) error {
@@ -1041,7 +1089,7 @@ func copyDir(sourcePath, targetPath string) error {
 
 func dispatcherBinaryFileName() string {
 	if runtime.GOOS == "windows" {
-		return dispatcherBinaryWindows
+		return dispatcherBatchFileName
 	}
 
 	return dispatcherBinaryName

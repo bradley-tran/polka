@@ -150,8 +150,8 @@ func TestRunInitUsesDotPolkaByDefault(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(projectDir, ".polka", "bin", "mariadb.cmd")); !os.IsNotExist(err) {
 		t.Fatalf("Stat(.polka/bin/mariadb.cmd) error = %v, want missing shim without active environment", err)
 	}
-	if _, err := os.Stat(filepath.Join(projectDir, ".polka", "bin", "polka.exe")); err != nil {
-		t.Fatalf("Stat(.polka/bin/polka.exe) error = %v", err)
+	if _, err := os.Stat(filepath.Join(projectDir, ".polka", "bin", "polka.cmd")); err != nil {
+		t.Fatalf("Stat(.polka/bin/polka.cmd) error = %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(projectDir, "polka.yaml")); err != nil {
 		t.Fatalf("Stat(polka.yaml) error = %v", err)

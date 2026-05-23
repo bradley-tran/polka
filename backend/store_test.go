@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestStoreInitInstallsDispatcherBinaryWithoutToolShims(t *testing.T) {
+func TestStoreInitInstallsDispatcherShimsWithoutToolShims(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
 	store.CacheDir = filepath.Join(projectDir, "global-cache")
@@ -18,7 +18,8 @@ func TestStoreInitInstallsDispatcherBinaryWithoutToolShims(t *testing.T) {
 	assertPathExists(t, store.RootDir)
 	assertPathExists(t, store.BinDir)
 	assertPathExists(t, store.ConfigFile)
-	assertPathExists(t, filepath.Join(store.BinDir, dispatcherBinaryFileName()))
+	assertPathExists(t, filepath.Join(store.BinDir, dispatcherBinaryName))
+	assertPathExists(t, filepath.Join(store.BinDir, dispatcherBatchFileName))
 	assertPathMissing(t, filepath.Join(store.BinDir, "php"))
 	assertPathMissing(t, filepath.Join(store.BinDir, "php.cmd"))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolComposer))
@@ -35,12 +36,19 @@ func TestStoreInitInstallsDispatcherBinaryWithoutToolShims(t *testing.T) {
 	if !strings.Contains(string(configData), "root: .polka") {
 		t.Fatalf("config contents = %q, want root entry for .polka", string(configData))
 	}
-	phpShim, err := os.ReadFile(filepath.Join(store.BinDir, dispatcherBinaryFileName()))
+	dispatcherShim, err := os.ReadFile(filepath.Join(store.BinDir, dispatcherBinaryName))
 	if err != nil {
-		t.Fatalf("ReadFile(dispatcher) error = %v", err)
+		t.Fatalf("ReadFile(dispatcher shim) error = %v", err)
 	}
-	if len(phpShim) == 0 {
-		t.Fatal("dispatcher binary is empty, want copied executable")
+	selfPath, err := os.Executable()
+	if err != nil {
+		t.Fatalf("Executable() error = %v", err)
+	}
+	if !strings.Contains(string(dispatcherShim), "POLKA_DISPATCHER") {
+		t.Fatalf("dispatcher shim = %q, want POLKA_DISPATCHER override support", string(dispatcherShim))
+	}
+	if !strings.Contains(string(dispatcherShim), filepath.ToSlash(selfPath)) {
+		t.Fatalf("dispatcher shim = %q, want current executable path %q", string(dispatcherShim), filepath.ToSlash(selfPath))
 	}
 }
 

@@ -37,7 +37,7 @@ go run . current
 ./.polka/bin/php -v
 ```
 
-`polka init` creates a local `.polka/` directory, copies the current `polka` executable into `.polka/bin`, syncs the active environment's dispatch shims in `.polka/bin`, and writes `polka.yaml` if it does not exist.
+`polka init` creates a local `.polka/` directory, writes dispatcher shims in `.polka/bin` that forward to the current `polka` executable, syncs the active environment's dispatch shims in `.polka/bin`, and writes `polka.yaml` if it does not exist.
 
 Use `polka new <name> [--php VERSION] [--composer VERSION]` to create a new environment definition. When the flags are omitted, Polka currently defaults to `php=8.4` and `composer=2.8`.
 
@@ -111,5 +111,5 @@ go run . --root ./.polka-dev init
 ## Next implementation steps
 
 1. Add cache metadata and eviction so old downloaded versions can be pruned safely.
-2. Allow empty enviroment name (use default) for applicable commands
-3. Generate activation scripts or shell hooks.
+2. Generate activation scripts or shell hooks.
+3. Add config schema validation.
