@@ -134,14 +134,17 @@ func TestRunInitUsesDotPolkaByDefault(t *testing.T) {
 		t.Fatalf("Run(init) code = %d, stderr = %q", code, stderr.String())
 	}
 
-	if _, err := os.Stat(filepath.Join(projectDir, ".polka", "bin", "php.cmd")); err != nil {
-		t.Fatalf("Stat(.polka/bin/php.cmd) error = %v", err)
+	if _, err := os.Stat(filepath.Join(projectDir, ".polka", "bin", "php.cmd")); !os.IsNotExist(err) {
+		t.Fatalf("Stat(.polka/bin/php.cmd) error = %v, want missing shim without active environment", err)
 	}
-	if _, err := os.Stat(filepath.Join(projectDir, ".polka", "bin", "mysql.cmd")); err != nil {
-		t.Fatalf("Stat(.polka/bin/mysql.cmd) error = %v", err)
+	if _, err := os.Stat(filepath.Join(projectDir, ".polka", "bin", "composer.cmd")); !os.IsNotExist(err) {
+		t.Fatalf("Stat(.polka/bin/composer.cmd) error = %v, want missing shim without active environment", err)
 	}
-	if _, err := os.Stat(filepath.Join(projectDir, ".polka", "bin", "mariadb.cmd")); err != nil {
-		t.Fatalf("Stat(.polka/bin/mariadb.cmd) error = %v", err)
+	if _, err := os.Stat(filepath.Join(projectDir, ".polka", "bin", "mysql.cmd")); !os.IsNotExist(err) {
+		t.Fatalf("Stat(.polka/bin/mysql.cmd) error = %v, want missing shim without active environment", err)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, ".polka", "bin", "mariadb.cmd")); !os.IsNotExist(err) {
+		t.Fatalf("Stat(.polka/bin/mariadb.cmd) error = %v, want missing shim without active environment", err)
 	}
 	if _, err := os.Stat(filepath.Join(projectDir, ".polka", "bin", "polka.exe")); err != nil {
 		t.Fatalf("Stat(.polka/bin/polka.exe) error = %v", err)
@@ -151,6 +154,191 @@ func TestRunInitUsesDotPolkaByDefault(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), filepath.Join(projectDir, ".polka")) {
 		t.Fatalf("Run(init) stdout = %q, want .polka path", stdout.String())
+	}
+}
+
+func TestRunInstallUsesCurrentEnvironmentWhenNameOmitted(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	cacheDir := filepath.Join(projectDir, "global-cache")
+	t.Setenv("Polka_CACHE_DIR", cacheDir)
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	fakePHP := cachedPHPPath(cacheDir, "8.4")
+	if err := os.MkdirAll(filepath.Dir(fakePHP), 0o755); err != nil {
+		t.Fatalf("MkdirAll(cache php) error = %v", err)
+	}
+	if err := os.WriteFile(fakePHP, fakePHPScript(), 0o755); err != nil {
+		t.Fatalf("WriteFile(cache php) error = %v", err)
+	}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--php", "8.4"}); code != 0 {
+		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run(stdout, stderr, []string{"--root", root, "use", "demo"}); code != 0 {
+		t.Fatalf("Run(use) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run(stdout, stderr, []string{"--root", root, "install"}); code != 0 {
+		t.Fatalf("Run(install current) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "Installing demo environment") {
+		t.Fatalf("Run(install current) stdout = %q, want current environment banner", output)
+	}
+	if !strings.Contains(output, "Installed demo") {
+		t.Fatalf("Run(install current) stdout = %q, want install summary", output)
+	}
+}
+
+func TestRunConfigUsesCurrentEnvironmentWhenNameOmitted(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--php", "8.4"}); code != 0 {
+		t.Fatalf("Run(config demo) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run(stdout, stderr, []string{"--root", root, "use", "demo"}); code != 0 {
+		t.Fatalf("Run(use demo) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run(stdout, stderr, []string{"--root", root, "config", "--composer", "2.8"}); code != 0 {
+		t.Fatalf("Run(config current) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "Configuring demo environment") {
+		t.Fatalf("Run(config current) stdout = %q, want current environment banner", output)
+	}
+	if !strings.Contains(output, "Configured demo") {
+		t.Fatalf("Run(config current) stdout = %q, want configured summary", output)
+	}
+
+	configData, err := os.ReadFile(filepath.Join(projectDir, "polka.yaml"))
+	if err != nil {
+		t.Fatalf("ReadFile(config) error = %v", err)
+	}
+	var config testConfigFile
+	if err := yaml.Unmarshal(configData, &config); err != nil {
+		t.Fatalf("yaml.Unmarshal(config) error = %v", err)
+	}
+	if config.Environments["demo"].Composer != "2.8" {
+		t.Fatalf("config = %#v, want composer set on current environment", config)
+	}
+	if config.Current != "demo" {
+		t.Fatalf("config current = %q, want demo", config.Current)
+	}
+}
+
+func TestRunConfigUsesDefaultEnvironmentWhenCurrentMissing(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "config", "--php", "8.4"}); code != 0 {
+		t.Fatalf("Run(config default) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "Configuring default environment") {
+		t.Fatalf("Run(config default) stdout = %q, want default environment banner", output)
+	}
+	if !strings.Contains(output, "Configured default") {
+		t.Fatalf("Run(config default) stdout = %q, want configured summary", output)
+	}
+
+	configData, err := os.ReadFile(filepath.Join(projectDir, "polka.yaml"))
+	if err != nil {
+		t.Fatalf("ReadFile(config) error = %v", err)
+	}
+	var config testConfigFile
+	if err := yaml.Unmarshal(configData, &config); err != nil {
+		t.Fatalf("yaml.Unmarshal(config) error = %v", err)
+	}
+	if config.Current != defaultEnvironmentName {
+		t.Fatalf("config current = %q, want %q", config.Current, defaultEnvironmentName)
+	}
+	if config.Environments[defaultEnvironmentName].PHP != "8.4" {
+		t.Fatalf("config = %#v, want php configured on default environment", config)
+	}
+}
+
+func TestRunInstallUsesDefaultEnvironmentWhenCurrentMissing(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	cacheDir := filepath.Join(projectDir, "global-cache")
+	t.Setenv("Polka_CACHE_DIR", cacheDir)
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	fakePHP := cachedPHPPath(cacheDir, "8.4")
+	if err := os.MkdirAll(filepath.Dir(fakePHP), 0o755); err != nil {
+		t.Fatalf("MkdirAll(cache php) error = %v", err)
+	}
+	if err := os.WriteFile(fakePHP, fakePHPScript(), 0o755); err != nil {
+		t.Fatalf("WriteFile(cache php) error = %v", err)
+	}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "config", defaultEnvironmentName, "--php", "8.4"}); code != 0 {
+		t.Fatalf("Run(config default) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	configData, err := os.ReadFile(filepath.Join(projectDir, "polka.yaml"))
+	if err != nil {
+		t.Fatalf("ReadFile(config before install) error = %v", err)
+	}
+	var config testConfigFile
+	if err := yaml.Unmarshal(configData, &config); err != nil {
+		t.Fatalf("yaml.Unmarshal(config before install) error = %v", err)
+	}
+	config.Current = ""
+	updatedConfigData, err := yaml.Marshal(config)
+	if err != nil {
+		t.Fatalf("yaml.Marshal(config before install) error = %v", err)
+	}
+	updatedConfigData = append(updatedConfigData, '\n')
+	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), updatedConfigData, 0o644); err != nil {
+		t.Fatalf("WriteFile(config before install) error = %v", err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run(stdout, stderr, []string{"--root", root, "install"}); code != 0 {
+		t.Fatalf("Run(install default) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "Installing default environment") {
+		t.Fatalf("Run(install default) stdout = %q, want default environment banner", output)
+	}
+	if !strings.Contains(output, "Installed default") {
+		t.Fatalf("Run(install default) stdout = %q, want install summary", output)
+	}
+
+	configData, err = os.ReadFile(filepath.Join(projectDir, "polka.yaml"))
+	if err != nil {
+		t.Fatalf("ReadFile(config after install) error = %v", err)
+	}
+	if err := yaml.Unmarshal(configData, &config); err != nil {
+		t.Fatalf("yaml.Unmarshal(config after install) error = %v", err)
+	}
+	if config.Current != defaultEnvironmentName {
+		t.Fatalf("config current after install = %q, want %q", config.Current, defaultEnvironmentName)
 	}
 }
 

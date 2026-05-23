@@ -212,6 +212,9 @@ func (s Store) writeEnvironment(name, phpVersion, composerVersion string, databa
 	if err := s.writeConfig(config); err != nil {
 		return Environment{}, fmt.Errorf("write config file: %w", err)
 	}
+	if err := s.syncManagedBinaries(config); err != nil {
+		return Environment{}, fmt.Errorf("sync managed binaries: %w", err)
+	}
 
 	return environment, nil
 }
@@ -345,6 +348,9 @@ func (s Store) Use(name string) error {
 	if err := s.writeConfig(config); err != nil {
 		return fmt.Errorf("write current environment: %w", err)
 	}
+	if err := s.syncManagedBinaries(config); err != nil {
+		return fmt.Errorf("sync managed binaries: %w", err)
+	}
 
 	return nil
 }
@@ -388,6 +394,9 @@ func (s Store) Remove(name string) error {
 
 	if err := s.writeConfig(config); err != nil {
 		return fmt.Errorf("write config file: %w", err)
+	}
+	if err := s.syncManagedBinaries(config); err != nil {
+		return fmt.Errorf("sync managed binaries: %w", err)
 	}
 
 	return nil
@@ -803,8 +812,26 @@ func (s Store) installBinaries() error {
 	if err := s.installDispatcherBinary(); err != nil {
 		return err
 	}
+	config, err := s.loadConfig()
+	if err != nil {
+		return err
+	}
+	if err := s.syncManagedBinaries(config); err != nil {
+		return err
+	}
 
+	return nil
+}
+
+func (s Store) syncManagedBinaries(config Config) error {
 	for _, binary := range s.managedBinaries() {
+		binaryPath := filepath.Join(s.BinDir, binary.Name)
+		if err := os.Remove(binaryPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove binary %q: %w", binary.Name, err)
+		}
+	}
+
+	for _, binary := range s.managedBinariesForEnvironment(s.currentEnvironmentFromConfig(config)) {
 		binaryPath := filepath.Join(s.BinDir, binary.Name)
 		if err := os.WriteFile(binaryPath, []byte(binary.Contents), binary.Mode); err != nil {
 			return fmt.Errorf("write binary %q: %w", binary.Name, err)
@@ -844,6 +871,49 @@ func (s Store) managedBinaries() []installedBinary {
 		windowsDispatchBinary(toolMySQL),
 		windowsDispatchBinary(toolMariaDB),
 	}
+}
+
+func (s Store) managedBinariesForEnvironment(environment *Environment) []installedBinary {
+	tools := managedToolsForEnvironment(environment)
+	binaries := make([]installedBinary, 0, len(tools)*2)
+	for _, tool := range tools {
+		binaries = append(binaries, shellDispatchBinary(tool), windowsDispatchBinary(tool))
+	}
+
+	return binaries
+}
+
+func (s Store) currentEnvironmentFromConfig(config Config) *Environment {
+	if config.Current == "" {
+		return nil
+	}
+
+	environment, ok := config.Environments[config.Current]
+	if !ok {
+		return nil
+	}
+
+	normalized := s.normalizeEnvironment(config.Current, environment)
+	return &normalized
+}
+
+func managedToolsForEnvironment(environment *Environment) []string {
+	if environment == nil {
+		return nil
+	}
+
+	tools := make([]string, 0, 3)
+	if environment.PHPVersion != "" {
+		tools = append(tools, toolPHP)
+	}
+	if environment.ComposerVersion != "" {
+		tools = append(tools, toolComposer)
+	}
+	if environment.Database != nil && environment.Database.Engine != "" {
+		tools = append(tools, environment.Database.Engine)
+	}
+
+	return tools
 }
 
 func shellDispatchBinary(tool string) installedBinary {

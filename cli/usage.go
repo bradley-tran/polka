@@ -6,10 +6,10 @@ Usage:
   polka [--root PATH] <command> [options]
 
 Commands:
-	init                 create the local .polka directory and shims
+  init                 create the local .polka directory and sync the active shims
 	new <name>           create an environment with default or explicit versions
-  config <name>        set php, composer, and database settings for an environment
-	install <name>       install all tools for an environment
+  config [name]        set php, composer, and database settings for an environment
+  install [name]       install all tools for an environment
   db [args...]         run the active environment's database client or manage its local server
 	serve <docroot>      start the PHP local server for the active environment
   list                 list environments
@@ -39,7 +39,7 @@ Flags:
 const initUsage = `Usage:
   polka init
 
-Create the local .polka directory, bootstrap polka.yaml, and install dispatch shims into .polka/bin.
+Create the local .polka directory, bootstrap polka.yaml, and sync the active environment's dispatch shims into .polka/bin.
 `
 
 const newUsage = `Usage:
@@ -50,15 +50,17 @@ When omitted, --php defaults to 8.4 and --composer defaults to 2.8.
 `
 
 const configUsage = `Usage:
-  polka config <name> [--php VERSION] [--composer VERSION] [--db-engine mysql|mariadb --db-version VERSION [--db-port PORT]]
+  polka config [name] [--php VERSION] [--composer VERSION] [--db-engine mysql|mariadb --db-version VERSION [--db-port PORT]]
 
 Create or update an environment definition in polka.yaml.
+When name is omitted, Polka updates the current environment. If no current environment is selected, Polka uses default and marks it current after a successful config.
 `
 
 const installUsage = `Usage:
-	 polka install <name>
+   polka install [name]
 
 Install all configured tool versions for an environment.
+When name is omitted, Polka installs the current environment. If no current environment is selected, Polka uses default and marks it current after a successful install.
 Polka copies them from the global cache when available, otherwise downloads them into the cache first.
 `
 

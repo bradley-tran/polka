@@ -37,17 +37,19 @@ go run . current
 ./.polka/bin/php -v
 ```
 
-`polka init` creates a local `.polka/` directory, copies the current `polka` executable into `.polka/bin`, installs dispatch shims in `.polka/bin`, and writes `polka.yaml` if it does not exist.
+`polka init` creates a local `.polka/` directory, copies the current `polka` executable into `.polka/bin`, syncs the active environment's dispatch shims in `.polka/bin`, and writes `polka.yaml` if it does not exist.
 
 Use `polka new <name> [--php VERSION] [--composer VERSION]` to create a new environment definition. When the flags are omitted, Polka currently defaults to `php=8.4` and `composer=2.8`.
 
-Use `polka install <name>` to install every configured tool version for an environment. Polka first checks the global cache, then downloads any missing versions into that cache, and finally copies the cached payloads into the project-local `.polka/envs` layout.
+Use `polka install [name]` to install every configured tool version for an environment. When `name` is omitted, Polka installs the current environment and prints which one it selected. If no current environment is selected, Polka uses `default` and marks it current after a successful install. Polka first checks the global cache, then downloads any missing versions into that cache, and finally copies the cached payloads into the project-local `.polka/envs` layout.
+
+The shims in `.polka/bin` mirror the active environment's configured tools. If the current environment does not define `composer`, Polka removes the local `composer` shim instead of leaving a dispatcher that would fail at runtime.
 
 Use `polka serve <docroot> [--server HOST:PORT]` to start PHP's built-in web server with the active environment. Polka reads `server.hostname` and `server.port` from the current environment in `polka.yaml`, and falls back to `localhost:8000` when that config is absent.
 
 When an environment defines `php-extensions`, `polka install` also writes a generated `php.ini` next to the installed PHP executable so those extensions are explicitly enabled or disabled for that environment. If `composer` is configured for that environment, `openssl` and `zip` are enabled by default unless `php-extensions` explicitly sets either one to `false`.
 
-Use `polka config <name> --php <version> --composer <version>` to update an existing environment definition. The config file stores version labels, not machine-specific executable paths:
+Use `polka config [name] --php <version> --composer <version>` to update an existing environment definition. When `name` is omitted, Polka updates the current environment, or `default` when no environment is selected yet. The config file stores version labels, not machine-specific executable paths:
 
 ```yaml
 version: 1

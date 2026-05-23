@@ -11,6 +11,7 @@ import (
 )
 
 const (
+	defaultEnvironmentName    = "default"
 	defaultNewPHPVersion      = "8.4"
 	defaultNewComposerVersion = "2.8"
 )
@@ -84,15 +85,18 @@ func newConfigCommand(ctx *commandContext) *cobra.Command {
 	var input configCommandInput
 
 	cmd := &cobra.Command{
-		Use:  "config <name>",
-		Args: exactArgsError("config requires exactly one environment name", 1),
+		Use:  "config [name]",
+		Args: maximumArgsError("config accepts at most one environment name", 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store, err := ctx.store()
 			if err != nil {
 				return &statusError{code: 1, err: err}
 			}
 
-			input.Name = strings.TrimSpace(args[0])
+			input.Name = ""
+			if len(args) > 0 {
+				input.Name = strings.TrimSpace(args[0])
+			}
 			input.HasPHP = cmd.Flags().Changed("php")
 			input.HasComposer = cmd.Flags().Changed("composer")
 			input.HasDatabase = cmd.Flags().Changed("db-engine") || cmd.Flags().Changed("db-version") || cmd.Flags().Changed("db-port")
@@ -134,15 +138,20 @@ func newConfigCommand(ctx *commandContext) *cobra.Command {
 
 func newInstallCommand(ctx *commandContext) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:  "install <name>",
-		Args: exactArgsError("install requires exactly one environment name", 1),
+		Use:  "install [name]",
+		Args: maximumArgsError("install accepts at most one environment name", 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store, err := ctx.store()
 			if err != nil {
 				return &statusError{code: 1, err: err}
 			}
 
-			return runInstall(cmd.OutOrStdout(), store, installCommandInput{Name: strings.TrimSpace(args[0])})
+			input := installCommandInput{}
+			if len(args) > 0 {
+				input.Name = strings.TrimSpace(args[0])
+			}
+
+			return runInstall(cmd.OutOrStdout(), store, input)
 		},
 	}
 	configureCommand(cmd, installUsage)
@@ -232,9 +241,20 @@ func runInit(stdout io.Writer, store backend.Store) error {
 }
 
 func runInstall(stdout io.Writer, store backend.Store, input installCommandInput) error {
+	resolvedName, setCurrent, err := resolveCommandEnvironmentName(stdout, store, input.Name, "Installing")
+	if err != nil {
+		return err
+	}
+	input.Name = resolvedName
+
 	results, err := store.Install(input.Name)
 	if err != nil {
 		return err
+	}
+	if setCurrent {
+		if err := store.Use(input.Name); err != nil {
+			return err
+		}
 	}
 	_, _ = fmt.Fprintf(stdout, "Installed %s\n", input.Name)
 	for _, result := range results {
@@ -259,13 +279,43 @@ func runNew(stdout io.Writer, store backend.Store, input newCommandInput) error 
 }
 
 func runConfig(stdout io.Writer, store backend.Store, input configCommandInput) error {
+	resolvedName, setCurrent, err := resolveCommandEnvironmentName(stdout, store, input.Name, "Configuring")
+	if err != nil {
+		return err
+	}
+	input.Name = resolvedName
+
 	environment, err := store.Configure(input.Name, input.PHPVersion, input.ComposerVersion, input.Database)
 	if err != nil {
 		return err
 	}
+	if setCurrent {
+		if err := store.Use(input.Name); err != nil {
+			return err
+		}
+	}
 
 	_, _ = fmt.Fprintf(stdout, "Configured %s\tphp=%s\tcomposer=%s\tdb=%s\n", environment.Name, labelOrUnset(environment.PHPVersion), labelOrUnset(environment.ComposerVersion), labelDatabase(environment.Database))
 	return nil
+}
+
+func resolveCommandEnvironmentName(stdout io.Writer, store backend.Store, name, action string) (string, bool, error) {
+	trimmedName := strings.TrimSpace(name)
+	if trimmedName != "" {
+		return trimmedName, false, nil
+	}
+
+	current, err := store.Current()
+	if err != nil {
+		return "", false, err
+	}
+	if current != nil {
+		_, _ = fmt.Fprintf(stdout, "%s %s environment\n", action, current.Name)
+		return current.Name, false, nil
+	}
+
+	_, _ = fmt.Fprintf(stdout, "%s %s environment\n", action, defaultEnvironmentName)
+	return defaultEnvironmentName, true, nil
 }
 
 func runList(stdout io.Writer, store backend.Store) error {

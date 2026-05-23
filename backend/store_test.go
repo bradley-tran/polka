@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestStoreInitInstallsDispatchBinaries(t *testing.T) {
+func TestStoreInitInstallsDispatcherBinaryWithoutToolShims(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
 	store.CacheDir = filepath.Join(projectDir, "global-cache")
@@ -18,13 +18,15 @@ func TestStoreInitInstallsDispatchBinaries(t *testing.T) {
 	assertPathExists(t, store.RootDir)
 	assertPathExists(t, store.BinDir)
 	assertPathExists(t, store.ConfigFile)
-	assertPathExists(t, filepath.Join(store.BinDir, "php"))
-	assertPathExists(t, filepath.Join(store.BinDir, "php.cmd"))
-	assertPathExists(t, filepath.Join(store.BinDir, toolMySQL))
-	assertPathExists(t, filepath.Join(store.BinDir, toolMySQL+".cmd"))
-	assertPathExists(t, filepath.Join(store.BinDir, toolMariaDB))
-	assertPathExists(t, filepath.Join(store.BinDir, toolMariaDB+".cmd"))
 	assertPathExists(t, filepath.Join(store.BinDir, dispatcherBinaryFileName()))
+	assertPathMissing(t, filepath.Join(store.BinDir, "php"))
+	assertPathMissing(t, filepath.Join(store.BinDir, "php.cmd"))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolComposer))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolComposer+".cmd"))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolMySQL))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolMySQL+".cmd"))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolMariaDB))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolMariaDB+".cmd"))
 
 	configData, err := os.ReadFile(store.ConfigFile)
 	if err != nil {
@@ -33,27 +35,48 @@ func TestStoreInitInstallsDispatchBinaries(t *testing.T) {
 	if !strings.Contains(string(configData), "root: .polka") {
 		t.Fatalf("config contents = %q, want root entry for .polka", string(configData))
 	}
-	phpShim, err := os.ReadFile(filepath.Join(store.BinDir, "php.cmd"))
+	phpShim, err := os.ReadFile(filepath.Join(store.BinDir, dispatcherBinaryFileName()))
 	if err != nil {
-		t.Fatalf("ReadFile(php.cmd) error = %v", err)
+		t.Fatalf("ReadFile(dispatcher) error = %v", err)
 	}
-	if !strings.Contains(string(phpShim), "dispatch php") {
-		t.Fatalf("php.cmd contents = %q, want dispatch command", string(phpShim))
+	if len(phpShim) == 0 {
+		t.Fatal("dispatcher binary is empty, want copied executable")
 	}
-	mysqlShim, err := os.ReadFile(filepath.Join(store.BinDir, toolMySQL+".cmd"))
-	if err != nil {
-		t.Fatalf("ReadFile(mysql.cmd) error = %v", err)
+}
+
+func TestStoreUseSyncsManagedBinariesForCurrentEnvironment(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+
+	if _, err := store.Configure("php-only", "8.4", "", nil); err != nil {
+		t.Fatalf("Configure(php-only) error = %v", err)
 	}
-	if !strings.Contains(string(mysqlShim), "dispatch mysql") {
-		t.Fatalf("mysql.cmd contents = %q, want dispatch command", string(mysqlShim))
+	if _, err := store.Configure("db-only", "", "", &DatabaseConfig{Engine: toolMariaDB, Version: "11.4"}); err != nil {
+		t.Fatalf("Configure(db-only) error = %v", err)
 	}
-	mariadbShim, err := os.ReadFile(filepath.Join(store.BinDir, toolMariaDB+".cmd"))
-	if err != nil {
-		t.Fatalf("ReadFile(mariadb.cmd) error = %v", err)
+
+	if err := store.Use("php-only"); err != nil {
+		t.Fatalf("Use(php-only) error = %v", err)
 	}
-	if !strings.Contains(string(mariadbShim), "dispatch mariadb") {
-		t.Fatalf("mariadb.cmd contents = %q, want dispatch command", string(mariadbShim))
+	assertPathExists(t, filepath.Join(store.BinDir, toolPHP))
+	assertPathExists(t, filepath.Join(store.BinDir, toolPHP+".cmd"))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolComposer))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolComposer+".cmd"))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolMySQL))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolMySQL+".cmd"))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolMariaDB))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolMariaDB+".cmd"))
+
+	if err := store.Use("db-only"); err != nil {
+		t.Fatalf("Use(db-only) error = %v", err)
 	}
+	assertPathMissing(t, filepath.Join(store.BinDir, toolPHP))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolPHP+".cmd"))
+	assertPathExists(t, filepath.Join(store.BinDir, toolMariaDB))
+	assertPathExists(t, filepath.Join(store.BinDir, toolMariaDB+".cmd"))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolMySQL))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolMySQL+".cmd"))
 }
 
 func TestStoreInstallCopiesToolIntoVersionedLayout(t *testing.T) {
@@ -162,6 +185,15 @@ func TestStoreInstallDownloadsConfiguredDatabase(t *testing.T) {
 	}
 	if resolvedPath != result.TargetPath {
 		t.Fatalf("ResolveTool(mysql) = %q, want %q", resolvedPath, result.TargetPath)
+	}
+}
+
+func assertPathMissing(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); err == nil {
+		t.Fatalf("Stat(%s) error = nil, want path to be missing", path)
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("Stat(%s) error = %v, want not exists", path, err)
 	}
 }
 
