@@ -188,6 +188,54 @@ func TestStoreInstallDownloadsConfiguredDatabase(t *testing.T) {
 	}
 }
 
+func TestStoreInstallDownloadsConfiguredNginx(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+	store.Downloader = fakeDownloader(func(cacheDir, tool, version string) error {
+		_ = writeCachedTool(t, cacheDir, tool, version)
+		return nil
+	})
+
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{NginxVersion: "1.30"}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	results, err := store.Install("demo")
+	if err != nil {
+		t.Fatalf("Install(demo) error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("Install(demo) length = %d, want 1", len(results))
+	}
+	result := results[0]
+	if result.Tool != toolNginx || result.Version != "1.30" {
+		t.Fatalf("Install(demo) result = %#v, want nginx 1.30", result)
+	}
+	if !result.Downloaded {
+		t.Fatalf("Install(demo) Downloaded = false, want true after cache miss")
+	}
+	assertPathExists(t, result.TargetPath)
+	if !strings.Contains(result.TargetPath, filepath.Join("envs", toolNginx, "1.30")) {
+		t.Fatalf("Install(demo) target = %q, want versioned nginx env path", result.TargetPath)
+	}
+
+	if err := store.Use("demo"); err != nil {
+		t.Fatalf("Use(demo) error = %v", err)
+	}
+	resolvedPath, err := store.ResolveTool(toolNginx)
+	if err != nil {
+		t.Fatalf("ResolveTool(nginx) error = %v", err)
+	}
+	if resolvedPath != result.TargetPath {
+		t.Fatalf("ResolveTool(nginx) = %q, want %q", resolvedPath, result.TargetPath)
+	}
+	assertPathExists(t, filepath.Join(store.BinDir, toolNginx))
+	assertPathExists(t, filepath.Join(store.BinDir, toolNginx+".cmd"))
+}
+
 func assertPathMissing(t *testing.T, path string) {
 	t.Helper()
 	if _, err := os.Stat(path); err == nil {

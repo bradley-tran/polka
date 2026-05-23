@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -10,6 +11,8 @@ import (
 	"time"
 
 	"github.com/goccy/go-yaml"
+
+	"polka/backend"
 )
 
 type testConfigFile struct {
@@ -22,6 +25,7 @@ type testConfigFile struct {
 type testEnvironmentConfig struct {
 	PHP           string              `yaml:"php"`
 	Composer      string              `yaml:"composer"`
+	Nginx         string              `yaml:"nginx,omitempty"`
 	Database      *testDatabaseConfig `yaml:"database,omitempty"`
 	PHPExtensions map[string]bool     `yaml:"php-extensions,omitempty"`
 	Server        *testServerConfig   `yaml:"server,omitempty"`
@@ -970,6 +974,146 @@ func TestRunServeAllowsServerOverride(t *testing.T) {
 	}
 	if !strings.Contains(output, "-t "+docroot) {
 		t.Fatalf("Run(serve) output = %q, want resolved docroot", output)
+	}
+}
+
+func TestRunServeUsesNginxWhenConfigured(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	docroot := filepath.Join(projectDir, "site", "public")
+	if err := os.MkdirAll(docroot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(docroot) error = %v", err)
+	}
+
+	config := testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Current: "demo",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {
+				PHP:    "8.4",
+				Nginx:  "1.30",
+				Server: &testServerConfig{Hostname: "localhost", Port: 8080},
+			},
+		},
+	}
+	configData, err := yaml.Marshal(config)
+	if err != nil {
+		t.Fatalf("yaml.Marshal(config) error = %v", err)
+	}
+	configData = append(configData, '\n')
+	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+
+	oldPHPServe := runPHPRuntimeServeFunc
+	oldNginxServe := runNginxServeFunc
+	t.Cleanup(func() {
+		runPHPRuntimeServeFunc = oldPHPServe
+		runNginxServeFunc = oldNginxServe
+	})
+
+	phpCalls := 0
+	nginxCalls := 0
+	gotAddress := ""
+	gotDocroot := ""
+	runPHPRuntimeServeFunc = func(stdout, stderr io.Writer, store backend.Store, serverAddress, docroot string) (int, error) {
+		phpCalls++
+		return 0, nil
+	}
+	runNginxServeFunc = func(stdout, stderr io.Writer, store backend.Store, environment backend.Environment, serverAddress, docroot string) (int, error) {
+		nginxCalls++
+		gotAddress = serverAddress
+		gotDocroot = docroot
+		_, _ = io.WriteString(stdout, "fake-nginx "+serverAddress+" -t "+docroot+"\n")
+		return 0, nil
+	}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "serve", filepath.Join("site", "public")}); code != 0 {
+		t.Fatalf("Run(serve with nginx) code = %d, stderr = %q", code, stderr.String())
+	}
+	if phpCalls != 0 {
+		t.Fatalf("php serve calls = %d, want nginx branch only", phpCalls)
+	}
+	if nginxCalls != 1 {
+		t.Fatalf("nginx serve calls = %d, want 1", nginxCalls)
+	}
+	if gotAddress != "localhost:8080" {
+		t.Fatalf("nginx serve address = %q, want %q", gotAddress, "localhost:8080")
+	}
+	if gotDocroot != docroot {
+		t.Fatalf("nginx docroot = %q, want %q", gotDocroot, docroot)
+	}
+	if !strings.Contains(stdout.String(), "fake-nginx localhost:8080 -t "+docroot) {
+		t.Fatalf("Run(serve with nginx) output = %q, want nginx serve output", stdout.String())
+	}
+}
+
+func TestPrepareNginxServeRuntimeCreatesLogsPath(t *testing.T) {
+	runtimeDir := filepath.Join(t.TempDir(), "run", "serve", "demo")
+	configPath, phpLogPath, err := prepareNginxServeRuntime(runtimeDir, "localhost:8080", filepath.Join(runtimeDir, "docroot"), "127.0.0.1:9000")
+	if err != nil {
+		t.Fatalf("prepareNginxServeRuntime() error = %v", err)
+	}
+	if configPath != filepath.Join(runtimeDir, "nginx.conf") {
+		t.Fatalf("config path = %q, want %q", configPath, filepath.Join(runtimeDir, "nginx.conf"))
+	}
+	if phpLogPath != filepath.Join(runtimeDir, "php.log") {
+		t.Fatalf("php log path = %q, want %q", phpLogPath, filepath.Join(runtimeDir, "php.log"))
+	}
+	if info, err := os.Stat(filepath.Join(runtimeDir, "logs")); err != nil {
+		t.Fatalf("Stat(logs dir) error = %v", err)
+	} else if !info.IsDir() {
+		t.Fatalf("logs path mode = %v, want directory", info.Mode())
+	}
+	configData, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile(config) error = %v", err)
+	}
+	config := string(configData)
+	if !strings.Contains(config, "fastcgi_pass 127.0.0.1:9000;") {
+		t.Fatalf("nginx config = %q, want fastcgi upstream", config)
+	}
+	if !strings.Contains(config, "text/css css;") {
+		t.Fatalf("nginx config = %q, want css mime type mapping", config)
+	}
+	if !strings.Contains(config, "application/javascript js mjs;") {
+		t.Fatalf("nginx config = %q, want js mime type mapping", config)
+	}
+	if !strings.Contains(config, "fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;") {
+		t.Fatalf("nginx config = %q, want script filename fastcgi param", config)
+	}
+	if strings.Contains(config, "proxy_pass") {
+		t.Fatalf("nginx config = %q, want no proxy_pass", config)
+	}
+}
+
+func TestResolvePHPCGITargetUsesSiblingBinary(t *testing.T) {
+	phpDir := filepath.Join(t.TempDir(), "php")
+	phpTarget := filepath.Join(phpDir, "php")
+	phpCGITarget := filepath.Join(phpDir, "php-cgi")
+	if runtime.GOOS == "windows" {
+		phpTarget += ".exe"
+		phpCGITarget += ".exe"
+	}
+	if err := os.MkdirAll(filepath.Dir(phpTarget), 0o755); err != nil {
+		t.Fatalf("MkdirAll(php dir) error = %v", err)
+	}
+	if err := os.WriteFile(phpTarget, []byte("php\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile(php target) error = %v", err)
+	}
+	if err := os.WriteFile(phpCGITarget, []byte("php-cgi\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile(php-cgi target) error = %v", err)
+	}
+
+	resolved, err := resolvePHPCGITarget(phpTarget)
+	if err != nil {
+		t.Fatalf("resolvePHPCGITarget() error = %v", err)
+	}
+	if resolved != phpCGITarget {
+		t.Fatalf("resolvePHPCGITarget() = %q, want %q", resolved, phpCGITarget)
 	}
 }
 

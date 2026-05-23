@@ -45,7 +45,7 @@ Use `polka install [name]` to install every configured tool version for an envir
 
 The shims in `.polka/bin` mirror the active environment's configured tools. If the current environment does not define `composer`, Polka removes the local `composer` shim instead of leaving a dispatcher that would fail at runtime.
 
-Use `polka serve <docroot> [--server HOST:PORT]` to start PHP's built-in web server with the active environment. Polka reads `server.hostname` and `server.port` from the current environment in `polka.yaml`, and falls back to `localhost:8000` when that config is absent.
+Use `polka serve <docroot> [--server HOST:PORT]` to start the active environment's web server. When the current environment defines `nginx`, Polka starts `php-cgi` on an internal loopback port and runs nginx in the foreground with a generated FastCGI config; otherwise it falls back to PHP's built-in web server. Polka reads `server.hostname` and `server.port` from the current environment in `polka.yaml`, and falls back to `localhost:8000` when that config is absent. Automatic nginx downloads are currently implemented on Windows amd64.
 
 When an environment defines `php-extensions`, `polka install` also writes a generated `php.ini` next to the installed PHP executable so those extensions are explicitly enabled or disabled for that environment. If `composer` is configured for that environment, `openssl` and `zip` are enabled by default unless `php-extensions` explicitly sets either one to `false`.
 
@@ -59,6 +59,7 @@ environments:
   blog:
     php: 8.4
     composer: 2.8
+    nginx: 1.30
     server:
       hostname: localhost
       port: 8080

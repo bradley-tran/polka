@@ -128,6 +128,46 @@ func TestResolveDatabaseDownloadAssetSupportsSeriesLabels(t *testing.T) {
 	}
 }
 
+func TestResolveNginxDownloadAssetSupportsSeriesLabels(t *testing.T) {
+	tests := []struct {
+		name                string
+		version             string
+		wantResolvedVersion string
+		wantFileName        string
+	}{
+		{
+			name:                "stable series",
+			version:             "1.30",
+			wantResolvedVersion: "1.30.2",
+			wantFileName:        "nginx-1.30.2.zip",
+		},
+		{
+			name:                "legacy series",
+			version:             "1.28",
+			wantResolvedVersion: "1.28.3",
+			wantFileName:        "nginx-1.28.3.zip",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resolvedVersion, asset, err := resolveNginxDownloadAsset(test.version, "windows", "amd64")
+			if err != nil {
+				t.Fatalf("resolveNginxDownloadAsset(%s) error = %v", test.version, err)
+			}
+			if resolvedVersion != test.wantResolvedVersion {
+				t.Fatalf("resolveNginxDownloadAsset(%s) resolved version = %q, want %q", test.version, resolvedVersion, test.wantResolvedVersion)
+			}
+			if asset.FileName != test.wantFileName {
+				t.Fatalf("resolveNginxDownloadAsset(%s) file = %q, want %q", test.version, asset.FileName, test.wantFileName)
+			}
+			if asset.ChecksumAlgorithm != checksumAlgorithmNone {
+				t.Fatalf("resolveNginxDownloadAsset(%s) checksum algorithm = %q, want none", test.version, asset.ChecksumAlgorithm)
+			}
+		})
+	}
+}
+
 func TestDownloadDatabaseAssetExtractsSupportedArchives(t *testing.T) {
 	tests := []struct {
 		name             string

@@ -27,6 +27,7 @@ const (
 	composerDownloadBaseURL = "https://getcomposer.org/download"
 	mysqlDownloadBaseURL    = "https://dev.mysql.com/get/Downloads"
 	mariadbArchiveBaseURL   = "https://archive.mariadb.org"
+	nginxDownloadBaseURL    = "https://nginx.org/download"
 	phpWindowsReleaseURL    = "https://windows.php.net/downloads/releases/releases.json"
 	phpWindowsBaseURL       = "https://windows.php.net/downloads/releases"
 )
@@ -60,6 +61,7 @@ type phpWindowsAsset struct {
 type checksumAlgorithm string
 
 const (
+	checksumAlgorithmNone   checksumAlgorithm = ""
 	checksumAlgorithmMD5    checksumAlgorithm = "md5"
 	checksumAlgorithmSHA256 checksumAlgorithm = "sha256"
 )
@@ -121,6 +123,25 @@ var databaseDownloadCatalog = map[string]map[string]map[string]databaseDownloadA
 	},
 }
 
+var nginxDownloadCatalog = map[string]map[string]databaseDownloadAsset{
+	"1.30.2": {
+		"windows-amd64": {
+			FileName:          "nginx-1.30.2.zip",
+			URL:               nginxDownloadBaseURL + "/nginx-1.30.2.zip",
+			ChecksumAlgorithm: checksumAlgorithmNone,
+			ArchiveFormat:     archiveFormatZip,
+		},
+	},
+	"1.28.3": {
+		"windows-amd64": {
+			FileName:          "nginx-1.28.3.zip",
+			URL:               nginxDownloadBaseURL + "/nginx-1.28.3.zip",
+			ChecksumAlgorithm: checksumAlgorithmNone,
+			ArchiveFormat:     archiveFormatZip,
+		},
+	},
+}
+
 func (d HTTPToolDownloader) Download(cacheDir, tool, version string) error {
 	client := d.Client
 	if client == nil {
@@ -132,6 +153,8 @@ func (d HTTPToolDownloader) Download(cacheDir, tool, version string) error {
 		return downloadComposer(client, cacheDir, version)
 	case toolPHP:
 		return downloadPHP(client, cacheDir, version)
+	case toolNginx:
+		return downloadNginx(client, cacheDir, version)
 	case toolMySQL:
 		return downloadMySQL(client, cacheDir, version)
 	case toolMariaDB:
@@ -147,6 +170,15 @@ func downloadMySQL(client *http.Client, cacheDir, version string) error {
 
 func downloadMariaDB(client *http.Client, cacheDir, version string) error {
 	return downloadDatabaseTool(client, cacheDir, toolMariaDB, version)
+}
+
+func downloadNginx(client *http.Client, cacheDir, version string) error {
+	_, asset, err := resolveNginxDownloadAsset(version, runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		return err
+	}
+
+	return downloadDatabaseAsset(client, cacheDir, toolNginx, version, asset)
 }
 
 func downloadDatabaseTool(client *http.Client, cacheDir, tool, version string) error {
@@ -188,6 +220,31 @@ func resolveDatabaseDownloadAsset(tool, requestedVersion, goos, goarch string) (
 	return resolvedVersion, asset, nil
 }
 
+func resolveNginxDownloadAsset(requestedVersion, goos, goarch string) (string, databaseDownloadAsset, error) {
+	requestedVersion = strings.TrimSpace(requestedVersion)
+	if requestedVersion == "" {
+		return "", databaseDownloadAsset{}, fmt.Errorf("%s version cannot be empty", toolNginx)
+	}
+
+	platformKey, err := nginxPlatformKey(goos, goarch)
+	if err != nil {
+		return "", databaseDownloadAsset{}, err
+	}
+
+	resolvedVersion, err := resolveDatabaseCatalogVersion(nginxDownloadCatalog, requestedVersion)
+	if err != nil {
+		return "", databaseDownloadAsset{}, fmt.Errorf("resolve %s version %q: %w", toolNginx, requestedVersion, err)
+	}
+
+	platformAssets := nginxDownloadCatalog[resolvedVersion]
+	asset, ok := platformAssets[platformKey]
+	if !ok {
+		return "", databaseDownloadAsset{}, fmt.Errorf("%s version %q is not available for %s/%s", toolNginx, resolvedVersion, goos, goarch)
+	}
+
+	return resolvedVersion, asset, nil
+}
+
 func databasePlatformKey(goos, goarch string) (string, error) {
 	switch {
 	case goos == "windows" && goarch == "amd64":
@@ -197,6 +254,14 @@ func databasePlatformKey(goos, goarch string) (string, error) {
 	default:
 		return "", fmt.Errorf("automatic database downloads are only implemented for Windows amd64 and Linux amd64")
 	}
+}
+
+func nginxPlatformKey(goos, goarch string) (string, error) {
+	if goos == "windows" && goarch == "amd64" {
+		return "windows-amd64", nil
+	}
+
+	return "", fmt.Errorf("automatic nginx downloads are only implemented on Windows amd64")
 }
 
 func resolveDatabaseCatalogVersion(catalog map[string]map[string]databaseDownloadAsset, requested string) (string, error) {
@@ -773,6 +838,10 @@ func verifyChecksum(expected, filePath string) error {
 }
 
 func verifyFileChecksum(algorithm checksumAlgorithm, expected, filePath string) error {
+	if algorithm == checksumAlgorithmNone {
+		return nil
+	}
+
 	newHasher, checksumSize, err := checksumHasher(algorithm)
 	if err != nil {
 		return err

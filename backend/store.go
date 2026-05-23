@@ -22,6 +22,7 @@ const (
 	configVersion            = 1
 	toolPHP                  = "php"
 	toolComposer             = "composer"
+	toolNginx                = "nginx"
 	toolMySQL                = "mysql"
 	toolMariaDB              = "mariadb"
 	dispatcherBinaryName     = "polka"
@@ -38,6 +39,7 @@ type Environment struct {
 	Name            string          `yaml:"-"`
 	PHPVersion      string          `yaml:"php,omitempty"`
 	ComposerVersion string          `yaml:"composer,omitempty"`
+	NginxVersion    string          `yaml:"nginx,omitempty"`
 	Database        *DatabaseConfig `yaml:"database,omitempty"`
 	PHPExtensions   map[string]bool `yaml:"php-extensions,omitempty"`
 	Server          *ServerConfig   `yaml:"server,omitempty"`
@@ -167,9 +169,6 @@ func (s Store) writeEnvironment(name, phpVersion, composerVersion string, databa
 	phpVersion = strings.TrimSpace(phpVersion)
 	composerVersion = strings.TrimSpace(composerVersion)
 	database = normalizeDatabaseConfig(database)
-	if phpVersion == "" && composerVersion == "" && database == nil {
-		return Environment{}, fmt.Errorf("environment requires at least one of php, composer, or database")
-	}
 	if phpVersion != "" {
 		if err := validateVersion(toolPHP, phpVersion); err != nil {
 			return Environment{}, err
@@ -201,8 +200,8 @@ func (s Store) writeEnvironment(name, phpVersion, composerVersion string, databa
 	if database != nil {
 		environment.Database = mergeDatabaseConfig(environment.Database, database)
 	}
-	if environment.PHPVersion == "" && environment.ComposerVersion == "" && environment.Database == nil {
-		return Environment{}, fmt.Errorf("environment requires at least one of php, composer, or database")
+	if environment.PHPVersion == "" && environment.ComposerVersion == "" && environment.NginxVersion == "" && environment.Database == nil {
+		return Environment{}, fmt.Errorf("environment requires at least one of php, composer, nginx, or database")
 	}
 	if err := validateDatabaseConfig(environment.Database); err != nil {
 		return Environment{}, err
@@ -247,6 +246,9 @@ func (s Store) Install(name string) ([]InstallResult, error) {
 	}
 	if normalized.ComposerVersion != "" {
 		requests = append(requests, InstallResult{Tool: toolComposer, Version: normalized.ComposerVersion})
+	}
+	if normalized.NginxVersion != "" {
+		requests = append(requests, InstallResult{Tool: toolNginx, Version: normalized.NginxVersion})
 	}
 	if normalized.Database != nil {
 		requests = append(requests, InstallResult{Tool: normalized.Database.Engine, Version: normalized.Database.Version})
@@ -497,6 +499,7 @@ func (s Store) normalizeEnvironment(name string, environment Environment) Enviro
 		Name:            name,
 		PHPVersion:      strings.TrimSpace(environment.PHPVersion),
 		ComposerVersion: strings.TrimSpace(environment.ComposerVersion),
+		NginxVersion:    strings.TrimSpace(environment.NginxVersion),
 		Database:        normalizeDatabaseConfig(environment.Database),
 		PHPExtensions:   normalizePHPExtensions(environment.PHPExtensions),
 		Server:          normalizeServerConfig(environment.Server),
@@ -763,6 +766,18 @@ func toolInstallCandidatesIn(root, tool, version string) []string {
 			filepath.Join(installDir, "composer"),
 			filepath.Join(installDir, "composer.phar"),
 		}
+	case toolNginx:
+		if runtime.GOOS == "windows" {
+			return []string{
+				filepath.Join(installDir, "nginx.exe"),
+				filepath.Join(installDir, "sbin", "nginx.exe"),
+			}
+		}
+
+		return []string{
+			filepath.Join(installDir, "sbin", "nginx"),
+			filepath.Join(installDir, "nginx"),
+		}
 	case toolMySQL:
 		if runtime.GOOS == "windows" {
 			return []string{
@@ -864,10 +879,12 @@ func (s Store) managedBinaries() []installedBinary {
 	return []installedBinary{
 		shellDispatchBinary("php"),
 		shellDispatchBinary("composer"),
+		shellDispatchBinary(toolNginx),
 		shellDispatchBinary(toolMySQL),
 		shellDispatchBinary(toolMariaDB),
 		windowsDispatchBinary("php"),
 		windowsDispatchBinary("composer"),
+		windowsDispatchBinary(toolNginx),
 		windowsDispatchBinary(toolMySQL),
 		windowsDispatchBinary(toolMariaDB),
 	}
@@ -902,12 +919,15 @@ func managedToolsForEnvironment(environment *Environment) []string {
 		return nil
 	}
 
-	tools := make([]string, 0, 3)
+	tools := make([]string, 0, 4)
 	if environment.PHPVersion != "" {
 		tools = append(tools, toolPHP)
 	}
 	if environment.ComposerVersion != "" {
 		tools = append(tools, toolComposer)
+	}
+	if environment.NginxVersion != "" {
+		tools = append(tools, toolNginx)
 	}
 	if environment.Database != nil && environment.Database.Engine != "" {
 		tools = append(tools, environment.Database.Engine)
@@ -1033,6 +1053,8 @@ func (e Environment) toolVersion(tool string) string {
 		return e.PHPVersion
 	case toolComposer:
 		return e.ComposerVersion
+	case toolNginx:
+		return e.NginxVersion
 	case toolMySQL, toolMariaDB:
 		if e.Database != nil && e.Database.Engine == tool {
 			return e.Database.Version
@@ -1076,7 +1098,7 @@ func validateVersion(tool, version string) error {
 func normalizeTool(tool string) (string, error) {
 	trimmed := strings.ToLower(strings.TrimSpace(tool))
 	switch trimmed {
-	case toolPHP, toolComposer, toolMySQL, toolMariaDB:
+	case toolPHP, toolComposer, toolNginx, toolMySQL, toolMariaDB:
 		return trimmed, nil
 	default:
 		return "", fmt.Errorf("unsupported tool %q", tool)

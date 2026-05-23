@@ -6,8 +6,10 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -17,6 +19,16 @@ import (
 const (
 	defaultServeHostname = "localhost"
 	defaultServePort     = 8000
+	servePollInterval    = 100 * time.Millisecond
+	serveStartupTimeout  = 5 * time.Second
+	serveRuntimeRoot     = "run"
+	serveRuntimeSubdir   = "serve"
+	serveProxyHost       = "127.0.0.1"
+)
+
+var (
+	runPHPRuntimeServeFunc = runPHPRuntimeServe
+	runNginxServeFunc      = runNginxServe
 )
 
 type serveCommandInput struct {
@@ -63,12 +75,6 @@ func runServe(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 		return 1
 	}
 
-	phpTarget, err := store.ResolveTool("php")
-	if err != nil {
-		fmt.Fprintf(stderr, "error: %v\n", err)
-		return 1
-	}
-
 	serverAddress, err := resolveServeAddress(current.Server, input.Server)
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
@@ -87,14 +93,127 @@ func runServe(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 		}
 	}
 
-	serveArgs := []string{"-S", serverAddress, "-t", docroot}
-	exitCode, err := executeTarget(stdout, stderr, phpTarget, serveArgs)
+	var exitCode int
+	if current.NginxVersion != "" {
+		exitCode, err = runNginxServeFunc(stdout, stderr, store, *current, serverAddress, docroot)
+	} else {
+		exitCode, err = runPHPRuntimeServeFunc(stdout, stderr, store, serverAddress, docroot)
+	}
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
 
 	return exitCode
+}
+
+func runPHPRuntimeServe(stdout, stderr io.Writer, store backend.Store, serverAddress, docroot string) (int, error) {
+	phpTarget, err := store.ResolveTool("php")
+	if err != nil {
+		return 0, err
+	}
+
+	return executeTarget(stdout, stderr, phpTarget, []string{"-S", serverAddress, "-t", docroot})
+}
+
+func runNginxServe(stdout, stderr io.Writer, store backend.Store, environment backend.Environment, serverAddress, docroot string) (int, error) {
+	if strings.TrimSpace(environment.PHPVersion) == "" {
+		return 0, fmt.Errorf("environment %q defines nginx but does not define a php version", environment.Name)
+	}
+
+	phpTarget, err := store.ResolveTool("php")
+	if err != nil {
+		return 0, err
+	}
+	phpCGITarget, err := resolvePHPCGITarget(phpTarget)
+	if err != nil {
+		return 0, err
+	}
+	nginxTarget, err := store.ResolveTool("nginx")
+	if err != nil {
+		return 0, err
+	}
+
+	backendAddress, err := reserveServeBackendAddress()
+	if err != nil {
+		return 0, err
+	}
+
+	runtimeDir := serveRuntimeDir(store.RootDir, environment.Name)
+	configPath, phpLogPath, err := prepareNginxServeRuntime(runtimeDir, serverAddress, docroot, backendAddress)
+	if err != nil {
+		return 0, err
+	}
+
+	phpLogFile, err := os.OpenFile(phpLogPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		return 0, fmt.Errorf("open php serve log: %w", err)
+	}
+	defer phpLogFile.Close()
+
+	phpCommand, err := prepareCommand(phpCGITarget, []string{"-b", backendAddress})
+	if err != nil {
+		return 0, err
+	}
+	phpCommand.Stdout = phpLogFile
+	phpCommand.Stderr = phpLogFile
+
+	if err := phpCommand.Start(); err != nil {
+		return 0, fmt.Errorf("start php-cgi upstream: %w", err)
+	}
+	defer stopServeProcess(phpCommand.Process)
+
+	if err := waitForServeAddress(backendAddress, serveStartupTimeout); err != nil {
+		return 0, fmt.Errorf("start php-cgi upstream on %s: %w (see %s)", backendAddress, err, phpLogPath)
+	}
+
+	nginxArgs := []string{"-p", ensureServePrefix(runtimeDir), "-c", filepath.Base(configPath), "-g", "daemon off;"}
+	return executeTarget(stdout, stderr, nginxTarget, nginxArgs)
+}
+
+func resolvePHPCGITarget(phpTarget string) (string, error) {
+	trimmed := strings.TrimSpace(phpTarget)
+	if trimmed == "" {
+		return "", fmt.Errorf("php target cannot be empty")
+	}
+
+	searchDirs := []string{filepath.Dir(trimmed)}
+	if strings.EqualFold(filepath.Base(searchDirs[0]), "bin") {
+		searchDirs = append(searchDirs, filepath.Dir(searchDirs[0]))
+	}
+
+	candidates := make([]string, 0, len(searchDirs)*3)
+	for _, dir := range searchDirs {
+		if runtime.GOOS == "windows" {
+			candidates = append(candidates,
+				filepath.Join(dir, "php-cgi.exe"),
+				filepath.Join(dir, "php-cgi.cmd"),
+				filepath.Join(dir, "php-cgi.bat"),
+			)
+			continue
+		}
+
+		candidates = append(candidates,
+			filepath.Join(dir, "php-cgi"),
+			filepath.Join(dir, "bin", "php-cgi"),
+		)
+	}
+
+	for _, candidate := range candidates {
+		fileInfo, err := os.Stat(candidate)
+		switch {
+		case err == nil && !fileInfo.IsDir():
+			return candidate, nil
+		case err == nil && fileInfo.IsDir():
+			continue
+		case os.IsNotExist(err):
+			continue
+		case err != nil:
+			return "", fmt.Errorf("stat php-cgi candidate %s: %w", candidate, err)
+		}
+	}
+
+	return "", fmt.Errorf("php-cgi executable was not found next to %s", phpTarget)
 }
 
 func resolveServeAddress(config *backend.ServerConfig, override string) (string, error) {
@@ -122,6 +241,224 @@ func resolveServeAddress(config *backend.ServerConfig, override string) (string,
 	}
 
 	return net.JoinHostPort(host, strconv.Itoa(port)), nil
+}
+
+func reserveServeBackendAddress() (string, error) {
+	listener, err := net.Listen("tcp", net.JoinHostPort(serveProxyHost, "0"))
+	if err != nil {
+		return "", fmt.Errorf("reserve php upstream address: %w", err)
+	}
+	address := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		return "", fmt.Errorf("release php upstream address: %w", err)
+	}
+
+	return address, nil
+}
+
+func serveRuntimeDir(rootDir, environmentName string) string {
+	name := strings.TrimSpace(environmentName)
+	if name == "" {
+		name = "current"
+	}
+
+	return filepath.Join(rootDir, serveRuntimeRoot, serveRuntimeSubdir, name)
+}
+
+func prepareNginxServeRuntime(runtimeDir, serverAddress, docroot, backendAddress string) (string, string, error) {
+	tempRoot := filepath.Join(runtimeDir, "temp")
+	logsDir := filepath.Join(runtimeDir, "logs")
+	tempDirs := []string{
+		filepath.Join(tempRoot, "client_body"),
+		filepath.Join(tempRoot, "proxy"),
+		filepath.Join(tempRoot, "fastcgi"),
+		filepath.Join(tempRoot, "uwsgi"),
+		filepath.Join(tempRoot, "scgi"),
+	}
+	for _, path := range append([]string{runtimeDir, logsDir}, tempDirs...) {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			return "", "", fmt.Errorf("create serve runtime directory: %w", err)
+		}
+	}
+
+	host, portText, err := net.SplitHostPort(serverAddress)
+	if err != nil {
+		return "", "", fmt.Errorf("parse serve address %q: %w", serverAddress, err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		return "", "", fmt.Errorf("parse serve port %q: %w", portText, err)
+	}
+
+	configPath := filepath.Join(runtimeDir, "nginx.conf")
+	phpLogPath := filepath.Join(runtimeDir, "php.log")
+	config := renderNginxServeConfig(host, port, docroot, backendAddress)
+	if err := os.WriteFile(configPath, config, 0o644); err != nil {
+		return "", "", fmt.Errorf("write nginx config: %w", err)
+	}
+
+	return configPath, phpLogPath, nil
+}
+
+func renderNginxServeConfig(host string, port int, docroot, backendAddress string) []byte {
+	listenAddress := renderNginxListenAddress(host, port)
+	serverName := strings.TrimSpace(host)
+	if serverName == "" {
+		serverName = "_"
+	}
+
+	var builder strings.Builder
+	builder.WriteString("worker_processes 1;\n")
+	builder.WriteString("pid nginx.pid;\n")
+	builder.WriteString("events {\n")
+	builder.WriteString("    worker_connections 1024;\n")
+	builder.WriteString("}\n")
+	builder.WriteString("http {\n")
+	builder.WriteString("    access_log logs/access.log;\n")
+	builder.WriteString("    error_log logs/error.log notice;\n")
+	builder.WriteString("    types {\n")
+	builder.WriteString("        text/html html htm shtml;\n")
+	builder.WriteString("        text/css css;\n")
+	builder.WriteString("        text/xml xml;\n")
+	builder.WriteString("        image/gif gif;\n")
+	builder.WriteString("        image/jpeg jpeg jpg;\n")
+	builder.WriteString("        application/javascript js mjs;\n")
+	builder.WriteString("        application/atom+xml atom;\n")
+	builder.WriteString("        application/rss+xml rss;\n")
+	builder.WriteString("        text/mathml mml;\n")
+	builder.WriteString("        text/plain txt;\n")
+	builder.WriteString("        text/vnd.sun.j2me.app-descriptor jad;\n")
+	builder.WriteString("        text/vnd.wap.wml wml;\n")
+	builder.WriteString("        text/x-component htc;\n")
+	builder.WriteString("        image/avif avif;\n")
+	builder.WriteString("        image/png png;\n")
+	builder.WriteString("        image/svg+xml svg svgz;\n")
+	builder.WriteString("        image/tiff tif tiff;\n")
+	builder.WriteString("        image/webp webp;\n")
+	builder.WriteString("        image/x-icon ico;\n")
+	builder.WriteString("        font/woff woff;\n")
+	builder.WriteString("        font/woff2 woff2;\n")
+	builder.WriteString("        application/json json map;\n")
+	builder.WriteString("        application/pdf pdf;\n")
+	builder.WriteString("        application/wasm wasm;\n")
+	builder.WriteString("        application/xml xsl xslt;\n")
+	builder.WriteString("        application/zip zip;\n")
+	builder.WriteString("        application/octet-stream bin exe dll;\n")
+	builder.WriteString("    }\n")
+	builder.WriteString("    default_type application/octet-stream;\n")
+	builder.WriteString("    client_body_temp_path temp/client_body;\n")
+	builder.WriteString("    proxy_temp_path temp/proxy;\n")
+	builder.WriteString("    fastcgi_temp_path temp/fastcgi;\n")
+	builder.WriteString("    uwsgi_temp_path temp/uwsgi;\n")
+	builder.WriteString("    scgi_temp_path temp/scgi;\n")
+	builder.WriteString("    server {\n")
+	builder.WriteString("        listen ")
+	builder.WriteString(listenAddress)
+	builder.WriteString(";\n")
+	builder.WriteString("        server_name ")
+	builder.WriteString(serverName)
+	builder.WriteString(";\n")
+	builder.WriteString("        index index.php index.html;\n")
+	builder.WriteString("        root ")
+	builder.WriteString(quoteNginxPath(docroot))
+	builder.WriteString(";\n")
+	builder.WriteString("        location / {\n")
+	builder.WriteString("            try_files $uri $uri/ /index.php$is_args$args;\n")
+	builder.WriteString("        }\n")
+	builder.WriteString("        location ~ \\.php(?:$|/) {\n")
+	builder.WriteString("            fastcgi_split_path_info ^(.+?\\.php)(/.*)$;\n")
+	builder.WriteString("            try_files $fastcgi_script_name =404;\n")
+	builder.WriteString("            fastcgi_pass ")
+	builder.WriteString(backendAddress)
+	builder.WriteString(";\n")
+	builder.WriteString("            fastcgi_index index.php;\n")
+	builder.WriteString("            fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;\n")
+	builder.WriteString("            fastcgi_param SCRIPT_NAME $fastcgi_script_name;\n")
+	builder.WriteString("            fastcgi_param DOCUMENT_ROOT $document_root;\n")
+	builder.WriteString("            fastcgi_param QUERY_STRING $query_string;\n")
+	builder.WriteString("            fastcgi_param REQUEST_METHOD $request_method;\n")
+	builder.WriteString("            fastcgi_param CONTENT_TYPE $content_type;\n")
+	builder.WriteString("            fastcgi_param CONTENT_LENGTH $content_length;\n")
+	builder.WriteString("            fastcgi_param REQUEST_URI $request_uri;\n")
+	builder.WriteString("            fastcgi_param DOCUMENT_URI $document_uri;\n")
+	builder.WriteString("            fastcgi_param SERVER_PROTOCOL $server_protocol;\n")
+	builder.WriteString("            fastcgi_param REQUEST_SCHEME $scheme;\n")
+	builder.WriteString("            fastcgi_param HTTPS $https if_not_empty;\n")
+	builder.WriteString("            fastcgi_param GATEWAY_INTERFACE CGI/1.1;\n")
+	builder.WriteString("            fastcgi_param SERVER_SOFTWARE nginx/$nginx_version;\n")
+	builder.WriteString("            fastcgi_param REMOTE_ADDR $remote_addr;\n")
+	builder.WriteString("            fastcgi_param REMOTE_PORT $remote_port;\n")
+	builder.WriteString("            fastcgi_param REMOTE_USER $remote_user;\n")
+	builder.WriteString("            fastcgi_param SERVER_ADDR $server_addr;\n")
+	builder.WriteString("            fastcgi_param SERVER_PORT $server_port;\n")
+	builder.WriteString("            fastcgi_param SERVER_NAME $server_name;\n")
+	builder.WriteString("            fastcgi_param PATH_INFO $fastcgi_path_info;\n")
+	builder.WriteString("            fastcgi_param PATH_TRANSLATED $document_root$fastcgi_path_info;\n")
+	builder.WriteString("            fastcgi_param REDIRECT_STATUS 200;\n")
+	builder.WriteString("        }\n")
+	builder.WriteString("        location ~ /\\.ht {\n")
+	builder.WriteString("            deny all;\n")
+	builder.WriteString("        }\n")
+	builder.WriteString("    }\n")
+	builder.WriteString("}\n")
+
+	return []byte(builder.String())
+}
+
+func renderNginxListenAddress(host string, port int) string {
+	trimmed := strings.TrimSpace(host)
+	if strings.EqualFold(trimmed, defaultServeHostname) {
+		return net.JoinHostPort(serveProxyHost, strconv.Itoa(port))
+	}
+	if ip := net.ParseIP(trimmed); ip != nil {
+		return net.JoinHostPort(trimmed, strconv.Itoa(port))
+	}
+
+	return strconv.Itoa(port)
+}
+
+func quoteNginxPath(path string) string {
+	return strconv.Quote(filepath.ToSlash(path))
+}
+
+func ensureServePrefix(path string) string {
+	if strings.HasSuffix(path, string(os.PathSeparator)) {
+		return path
+	}
+
+	return path + string(os.PathSeparator)
+}
+
+func waitForServeAddress(address string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if pingServeAddress(address) {
+			return nil
+		}
+
+		time.Sleep(servePollInterval)
+	}
+
+	return fmt.Errorf("server did not start listening within %s", timeout)
+}
+
+func pingServeAddress(address string) bool {
+	connection, err := net.DialTimeout("tcp", address, servePollInterval)
+	if err != nil {
+		return false
+	}
+	_ = connection.Close()
+
+	return true
+}
+
+func stopServeProcess(process *os.Process) {
+	if process == nil {
+		return
+	}
+
+	_ = process.Kill()
+	_ = process.Release()
 }
 
 func splitServerAddress(value string) (string, int, error) {
