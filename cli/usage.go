@@ -16,7 +16,7 @@ Commands:
 	session [start|stop] generate shell scripts that activate or deactivate local binaries
   list                 list environments
   use <name>           mark an environment as current
-  current              show the active environment
+  status               show the active environment status
   remove <name>        remove an environment
   help                 show this help
 
@@ -34,7 +34,7 @@ Examples:
 	polka session start
   polka list
   polka use api
-  polka current
+  polka status
 
 Flags:
 	--root PATH          override the state directory (defaults to ./.polka)
@@ -146,10 +146,10 @@ const useUsage = `Usage:
 Select one of the environments defined in polka.yaml.
 `
 
-const currentUsage = `Usage:
-  polka current
+const statusUsage = `Usage:
+  polka status
 
-Show the active environment from polka.yaml, if one has been selected.
+Show the active environment from polka.yaml, including one line per configured tool and the resolved server address.
 `
 
 const removeUsage = `Usage:

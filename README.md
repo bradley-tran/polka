@@ -6,7 +6,7 @@ Polka is a CLI tool for PHP virtual environment management. It uses `polka.yaml`
 
 - A lean Go module with a runnable CLI entrypoint.
 - A project-local layout built around `polka.yaml` and `.polka/`.
-- Starter commands for `init`, `new`, `install`, `serve`, `sh`, `session`, `config`, `list`, `use`, `current`, and `remove`.
+- Starter commands for `init`, `new`, `install`, `serve`, `sh`, `session`, `config`, `list`, `use`, `status`, and `remove`.
 - Real dispatch shims in `.polka/bin` for `php` and `composer`.
 - A global tool cache used to avoid re-downloading versions across projects.
 - A small test covering the basic environment lifecycle.
@@ -34,9 +34,11 @@ go run . serve public
 go run . sh
 go run . list
 go run . use blog
-go run . current
+go run . status
 ./.polka/bin/php -v
 ```
+
+`polka status` shows the active environment, prints each configured tool on its own line, and includes the resolved web server address.
 
 `polka init` creates a local `.polka/` directory, writes dispatcher shims in `.polka/bin` that forward to the current `polka` executable, syncs the active environment's dispatch shims in `.polka/bin`, and writes `polka.yaml` if it does not exist.
 

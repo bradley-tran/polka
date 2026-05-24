@@ -295,6 +295,84 @@ func TestRunConfigPersistsDatabaseSettings(t *testing.T) {
 	}
 }
 
+func TestRunStatusShowsToolsEachOnOwnLine(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	config := testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Current: "demo",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {
+				PHP:      "8.4",
+				Composer: "2.8",
+				Nginx:    "1.30",
+				Database: &testDatabaseConfig{Engine: "mysql", Version: "8.0", Port: 3306},
+				Server:   &testServerConfig{Hostname: "localhost", Port: 8080},
+			},
+		},
+	}
+	configData, err := yaml.Marshal(config)
+	if err != nil {
+		t.Fatalf("yaml.Marshal(config) error = %v", err)
+	}
+	configData = append(configData, '\n')
+	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "status"}); code != 0 {
+		t.Fatalf("Run(status) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	output := stdout.String()
+	for _, expected := range []string{
+		"environment demo\n",
+		"php 8.4\n",
+		"composer 2.8\n",
+		"nginx 1.30\n",
+		"database mysql:8.0@3306\n",
+		"server localhost:8080\n",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("Run(status) stdout = %q, want %q", output, expected)
+		}
+	}
+}
+
+func TestRunStatusUsesDefaultServerAddress(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--php", "8.4"}); code != 0 {
+		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run(stdout, stderr, []string{"--root", root, "use", "demo"}); code != 0 {
+		t.Fatalf("Run(use) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run(stdout, stderr, []string{"--root", root, "status"}); code != 0 {
+		t.Fatalf("Run(status) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "server localhost:8000\n") {
+		t.Fatalf("Run(status) stdout = %q, want default server address", output)
+	}
+	if !strings.Contains(output, "nginx unset\n") {
+		t.Fatalf("Run(status) stdout = %q, want nginx unset line", output)
+	}
+}
+
 func TestRunInstallAppliesPHPExtensionsFromConfigFile(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")

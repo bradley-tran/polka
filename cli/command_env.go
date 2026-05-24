@@ -195,20 +195,20 @@ func newUseCommand(ctx *commandContext) *cobra.Command {
 	return cmd
 }
 
-func newCurrentCommand(ctx *commandContext) *cobra.Command {
+func newStatusCommand(ctx *commandContext) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:  "current",
-		Args: exactArgsError("current does not take arguments", 0),
+		Use:  "status",
+		Args: exactArgsError("status does not take arguments", 0),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store, err := ctx.store()
 			if err != nil {
 				return &statusError{code: 1, err: err}
 			}
 
-			return runCurrent(cmd.OutOrStdout(), store)
+			return runStatus(cmd.OutOrStdout(), store)
 		},
 	}
-	configureCommand(cmd, currentUsage)
+	configureCommand(cmd, statusUsage)
 
 	return cmd
 }
@@ -356,7 +356,7 @@ func runUse(stdout io.Writer, store backend.Store, name string) error {
 	return nil
 }
 
-func runCurrent(stdout io.Writer, store backend.Store) error {
+func runStatus(stdout io.Writer, store backend.Store) error {
 	current, err := store.Current()
 	if err != nil {
 		return err
@@ -365,8 +365,17 @@ func runCurrent(stdout io.Writer, store backend.Store) error {
 		_, _ = fmt.Fprintln(stdout, "No active environment selected.")
 		return nil
 	}
+	serverAddress, err := resolveServeAddress(current.Server, "")
+	if err != nil {
+		return err
+	}
 
-	_, _ = fmt.Fprintf(stdout, "%s\tphp=%s\tcomposer=%s\tdb=%s\n", current.Name, labelOrUnset(current.PHPVersion), labelOrUnset(current.ComposerVersion), labelDatabase(current.Database))
+	_, _ = fmt.Fprintf(stdout, "environment%s\n", current.Name)
+	_, _ = fmt.Fprintf(stdout, "php %s\n", labelOrUnset(current.PHPVersion))
+	_, _ = fmt.Fprintf(stdout, "composer %s\n", labelOrUnset(current.ComposerVersion))
+	_, _ = fmt.Fprintf(stdout, "nginx %s\n", labelOrUnset(current.NginxVersion))
+	_, _ = fmt.Fprintf(stdout, "database %s\n", labelDatabase(current.Database))
+	_, _ = fmt.Fprintf(stdout, "server %s\n", serverAddress)
 	return nil
 }
 
