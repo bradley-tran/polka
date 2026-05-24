@@ -113,6 +113,75 @@ func TestRunShLaunchesInteractiveShellWithPreferredPath(t *testing.T) {
 	}
 }
 
+func TestRunShUsesConfiguredNestedRootForPathLoading(t *testing.T) {
+	projectDir := t.TempDir()
+	testSiteDir := filepath.Join(projectDir, "test-site")
+	root := filepath.Join(testSiteDir, ".polka")
+	systemPath := filepath.Join(projectDir, "system-bin")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	configPath := filepath.Join(projectDir, "polka.yaml")
+	configData := []byte("version: 1\nroot: test-site/.polka\ncurrent: demo\nenvironments:\n  demo:\n    php: \"8.4\"\n")
+	if err := os.WriteFile(configPath, configData, 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+
+	t.Setenv("PATH", systemPath)
+	if runtime.GOOS != "windows" {
+		t.Setenv("SHELL", filepath.Join(projectDir, "bin", "custom-shell"))
+	}
+
+	oldLaunch := launchInteractiveShellFunc
+	t.Cleanup(func() {
+		launchInteractiveShellFunc = oldLaunch
+	})
+
+	var capturedEnv []string
+	launchInteractiveShellFunc = func(stdout, stderr io.Writer, env []string, target string, args []string) (int, error) {
+		capturedEnv = append([]string(nil), env...)
+		return 0, nil
+	}
+
+	originalWorkingDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(originalWorkingDir)
+	})
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+
+	if code := Run(stdout, stderr, []string{"sh"}); code != 0 {
+		t.Fatalf("Run(sh) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	pathKey, pathValue, ok := lookupEnvValue(runtime.GOOS, capturedEnv, "PATH")
+	if !ok {
+		t.Fatalf("captured env = %#v, want PATH entry", capturedEnv)
+	}
+	promptKey, promptRoot, ok := lookupEnvValue(runtime.GOOS, capturedEnv, polkaPromptRootEnv)
+	if !ok {
+		t.Fatalf("captured env = %#v, want %s entry", capturedEnv, polkaPromptRootEnv)
+	}
+	if promptRoot != testSiteDir {
+		t.Fatalf("%s = %q, want %q", promptKey, promptRoot, testSiteDir)
+	}
+
+	expectedPath := joinPathList(runtime.GOOS,
+		filepath.Join(root, "bin"),
+		filepath.Join(testSiteDir, "vendor", "bin"),
+		systemPath,
+	)
+	if pathValue != expectedPath {
+		t.Fatalf("%s = %q, want %q", pathKey, pathValue, expectedPath)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("Run(sh) stderr = %q, want empty", stderr.String())
+	}
+}
+
 func TestRunShRejectsArguments(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}

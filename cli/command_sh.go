@@ -191,12 +191,13 @@ func buildShellSessionContext(goos string, store backend.Store, workingDir, envi
 	if err != nil {
 		return shellSessionContext{}, fmt.Errorf("resolve Polka bin directory: %w", err)
 	}
-	vendorProjectDir, err := discoverVendorProjectDir(workingDir, store.ProjectDir)
+	shellProjectDir := shellPathRoot(rootDir)
+	vendorProjectDir, err := discoverVendorProjectDir(workingDir, shellProjectDir)
 	if err != nil {
 		return shellSessionContext{}, err
 	}
 	vendorBinDir := filepath.Join(vendorProjectDir, vendorDirectoryName, binDirectoryName)
-	promptRoot, err := shellPromptRoot(store.ProjectDir)
+	promptRoot, err := shellPromptRoot(shellProjectDir)
 	if err != nil {
 		return shellSessionContext{}, err
 	}
@@ -254,14 +255,19 @@ func buildShellEnvironment(goos string, env []string, store backend.Store) []str
 	if pathKey == "" {
 		pathKey = "PATH"
 	}
+	shellProjectDir := shellPathRoot(store.RootDir)
 
 	resolvedPath := joinPathList(goos,
 		store.BinDir,
-		filepath.Join(store.ProjectDir, vendorDirectoryName, binDirectoryName),
+		filepath.Join(shellProjectDir, vendorDirectoryName, binDirectoryName),
 		systemPath,
 	)
 
 	return replaceEnvValue(goos, env, pathKey, resolvedPath)
+}
+
+func shellPathRoot(rootDir string) string {
+	return filepath.Dir(filepath.Clean(rootDir))
 }
 
 func prepareWindowsVendorBinPHPSupport(vendorBinDir, rootDir string) (string, error) {

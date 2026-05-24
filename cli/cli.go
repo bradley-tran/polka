@@ -91,7 +91,7 @@ func newRootCommand(ctx *commandContext) *cobra.Command {
 
 func resolveStore(root string) (backend.Store, error) {
 	if strings.TrimSpace(root) != "" {
-		return backend.NewStore(root), nil
+		return backend.StoreForRoot(root)
 	}
 
 	return backend.DefaultStore()

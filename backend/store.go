@@ -114,7 +114,27 @@ func DefaultStore() (Store, error) {
 		return Store{}, err
 	}
 
-	return NewProjectStore(projectDir), nil
+	store := NewProjectStore(projectDir)
+	config, err := store.loadConfig()
+	if err != nil {
+		return Store{}, err
+	}
+
+	return newStore(projectDir, resolveConfiguredRootDir(projectDir, config.Root)), nil
+}
+
+func StoreForRoot(root string) (Store, error) {
+	cleanRoot, err := filepath.Abs(root)
+	if err != nil {
+		return Store{}, fmt.Errorf("resolve Polka root directory: %w", err)
+	}
+
+	projectDir, err := discoverProjectDirForRoot(cleanRoot)
+	if err != nil {
+		return Store{}, err
+	}
+
+	return newStore(projectDir, cleanRoot), nil
 }
 
 func discoverProjectDir(workingDir string) (string, error) {
@@ -145,22 +165,88 @@ func discoverProjectDir(workingDir string) (string, error) {
 	}
 }
 
+func discoverProjectDirForRoot(root string) (string, error) {
+	cleanRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve Polka root directory: %w", err)
+	}
+
+	currentDir := filepath.Dir(cleanRoot)
+	originalDir := currentDir
+
+	for {
+		configPath := filepath.Join(currentDir, configFileName)
+		fileInfo, statErr := os.Stat(configPath)
+		switch {
+		case statErr == nil && !fileInfo.IsDir():
+			config, err := newStore(currentDir, cleanRoot).readConfig()
+			if err != nil {
+				return "", err
+			}
+			if pathsEqual(resolveConfiguredRootDir(currentDir, config.Root), cleanRoot) {
+				return currentDir, nil
+			}
+		case statErr == nil && fileInfo.IsDir():
+			// Ignore directories named polka.yaml and keep walking upward.
+		case !errors.Is(statErr, os.ErrNotExist):
+			return "", fmt.Errorf("stat %s: %w", configPath, statErr)
+		}
+
+		parentDir := filepath.Dir(currentDir)
+		if parentDir == currentDir {
+			return originalDir, nil
+		}
+
+		currentDir = parentDir
+	}
+}
+
 func NewProjectStore(projectDir string) Store {
-	return NewStore(filepath.Join(projectDir, defaultRootDirectoryName))
+	return newStore(projectDir, filepath.Join(projectDir, defaultRootDirectoryName))
 }
 
 func NewStore(root string) Store {
 	cleanRoot := filepath.Clean(root)
 	projectDir := filepath.Dir(cleanRoot)
 
+	return newStore(projectDir, cleanRoot)
+}
+
+func newStore(projectDir, root string) Store {
+	cleanProjectDir := filepath.Clean(projectDir)
+	cleanRoot := filepath.Clean(root)
+
 	return Store{
-		ProjectDir: projectDir,
+		ProjectDir: cleanProjectDir,
 		RootDir:    cleanRoot,
 		EnvsDir:    filepath.Join(cleanRoot, envsDirectoryName),
 		BinDir:     filepath.Join(cleanRoot, binDirectoryName),
-		ConfigFile: filepath.Join(projectDir, configFileName),
-		CacheDir:   defaultCacheDir(projectDir),
+		ConfigFile: filepath.Join(cleanProjectDir, configFileName),
+		CacheDir:   defaultCacheDir(cleanProjectDir),
 	}
+}
+
+func resolveConfiguredRootDir(projectDir, configuredRoot string) string {
+	trimmedRoot := strings.TrimSpace(configuredRoot)
+	if trimmedRoot == "" {
+		return filepath.Join(projectDir, defaultRootDirectoryName)
+	}
+
+	if filepath.IsAbs(trimmedRoot) {
+		return filepath.Clean(trimmedRoot)
+	}
+
+	return filepath.Clean(filepath.Join(projectDir, filepath.FromSlash(trimmedRoot)))
+}
+
+func pathsEqual(left, right string) bool {
+	cleanLeft := filepath.Clean(left)
+	cleanRight := filepath.Clean(right)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(cleanLeft, cleanRight)
+	}
+
+	return cleanLeft == cleanRight
 }
 
 func (s Store) Init() error {

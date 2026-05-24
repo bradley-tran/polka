@@ -92,6 +92,61 @@ func TestRunSessionStartWritesActivationScriptAndState(t *testing.T) {
 	}
 }
 
+func TestRunSessionStartUsesConfiguredNestedRootFromExplicitRoot(t *testing.T) {
+	projectDir := t.TempDir()
+	testSiteDir := filepath.Join(projectDir, "test-site")
+	root := filepath.Join(testSiteDir, ".polka")
+	systemPath := filepath.Join(projectDir, "system-bin")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	configPath := filepath.Join(projectDir, "polka.yaml")
+	configData := []byte("version: 1\nroot: test-site/.polka\ncurrent: demo\nenvironments:\n  demo:\n    php: \"8.4\"\n")
+	if err := os.WriteFile(configPath, configData, 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+
+	oldSessionIDFunc := newShellSessionIDFunc
+	t.Cleanup(func() {
+		newShellSessionIDFunc = oldSessionIDFunc
+	})
+	newShellSessionIDFunc = func() (string, error) {
+		return "session-demo", nil
+	}
+
+	t.Setenv("PATH", systemPath)
+	t.Setenv(polkaSessionIDEnv, "")
+	t.Setenv(polkaSessionStateEnv, "")
+
+	if code := Run(stdout, stderr, []string{"--root", root, "session", "start"}); code != 0 {
+		t.Fatalf("Run(session start nested explicit root) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	statePath := shellSessionStatePath(root, "session-demo")
+	state, err := loadShellSessionState(statePath)
+	if err != nil {
+		t.Fatalf("loadShellSessionState() error = %v", err)
+	}
+	if state.EnvironmentName != "demo" {
+		t.Fatalf("session environment = %q, want demo", state.EnvironmentName)
+	}
+
+	activationScriptData, err := os.ReadFile(strings.TrimSpace(stdout.String()))
+	if err != nil {
+		t.Fatalf("ReadFile(activation script) error = %v", err)
+	}
+	activatedPath := joinPathList(runtime.GOOS,
+		filepath.Join(root, "bin"),
+		filepath.Join(testSiteDir, "vendor", "bin"),
+		systemPath,
+	)
+	if !strings.Contains(string(activationScriptData), activatedPath) {
+		t.Fatalf("activation script = %q, want PATH %q", string(activationScriptData), activatedPath)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("Run(session start nested explicit root) stderr = %q, want empty", stderr.String())
+	}
+}
+
 func TestRunSessionStopWritesDeactivationScriptFromActiveSessionState(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
