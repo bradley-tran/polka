@@ -166,8 +166,12 @@ func prepareShellEnvironment(goos string, env []string, store backend.Store, wor
 	if err != nil {
 		return nil, err
 	}
+	resolvedEnv, err := resolveRuntimeEnvironment(goos, env, store)
+	if err != nil {
+		return nil, err
+	}
 
-	pathKey, systemPath, _ := lookupEnvValue(goos, env, "PATH")
+	pathKey, systemPath, _ := lookupEnvValue(goos, resolvedEnv, "PATH")
 	if pathKey == "" {
 		pathKey = "PATH"
 	}
@@ -176,7 +180,7 @@ func prepareShellEnvironment(goos string, env []string, store backend.Store, wor
 	pathEntries = append(pathEntries, context.PathEntries...)
 	pathEntries = append(pathEntries, systemPath)
 	resolvedPath := joinPathList(goos, pathEntries...)
-	updatedEnv := replaceEnvValue(goos, env, pathKey, resolvedPath)
+	updatedEnv := replaceEnvValue(goos, resolvedEnv, pathKey, resolvedPath)
 	updatedEnv = replaceEnvValue(goos, updatedEnv, polkaPromptEnvEnv, context.EnvironmentName)
 
 	return replaceEnvValue(goos, updatedEnv, polkaPromptRootEnv, context.PromptRoot), nil

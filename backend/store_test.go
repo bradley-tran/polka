@@ -513,6 +513,45 @@ func TestStoreCurrentNormalizesServerConfig(t *testing.T) {
 	}
 }
 
+func TestStoreCurrentNormalizesEnvironmentVariables(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+
+	config := store.defaultConfig()
+	config.Current = "demo"
+	config.Environments["demo"] = Environment{
+		PHPVersion: "8.4",
+		EnvFile:    " .env.local ",
+		EnvVars: map[string]string{
+			" APP_ENV ":    "development",
+			"FEATURE_FLAG": "1",
+		},
+	}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	current, err := store.Current()
+	if err != nil {
+		t.Fatalf("Current() error = %v", err)
+	}
+	if current == nil {
+		t.Fatal("Current() = nil, want environment")
+	}
+	if current.EnvFile != ".env.local" {
+		t.Fatalf("Current().EnvFile = %q, want %q", current.EnvFile, ".env.local")
+	}
+	if len(current.EnvVars) != 2 {
+		t.Fatalf("Current().EnvVars = %#v, want two normalized keys", current.EnvVars)
+	}
+	if current.EnvVars["APP_ENV"] != "development" {
+		t.Fatalf("Current().EnvVars[APP_ENV] = %q, want %q", current.EnvVars["APP_ENV"], "development")
+	}
+	if current.EnvVars["FEATURE_FLAG"] != "1" {
+		t.Fatalf("Current().EnvVars[FEATURE_FLAG] = %q, want %q", current.EnvVars["FEATURE_FLAG"], "1")
+	}
+}
+
 func TestStoreCreateRejectsExistingEnvironment(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)

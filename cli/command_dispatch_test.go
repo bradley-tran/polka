@@ -103,3 +103,65 @@ func TestRunConfigSetsVersionLabelsAndDispatchesPhp(t *testing.T) {
 		t.Fatalf("Run(dispatch) output = %q, want forwarded arguments", output)
 	}
 }
+
+func TestRunDispatchLoadsProjectAndConfiguredEnvironmentVariables(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	cacheDir := filepath.Join(projectDir, "global-cache")
+	t.Setenv("Polka_CACHE_DIR", cacheDir)
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	fakePHP := cachedPHPPath(cacheDir, "8.4")
+	if err := os.MkdirAll(filepath.Dir(fakePHP), 0o755); err != nil {
+		t.Fatalf("MkdirAll(cache php) error = %v", err)
+	}
+	if err := os.WriteFile(fakePHP, fakePHPScriptWithEnv("APP_ENV"), 0o755); err != nil {
+		t.Fatalf("WriteFile(cache php) error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(projectDir, "config"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(config) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, ".env"), []byte("APP_ENV=project\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(project .env) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "config", ".env.local"), []byte("APP_ENV=file\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(env-file) error = %v", err)
+	}
+
+	config := testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Current: "demo",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {
+				PHP:     "8.4",
+				EnvFile: "config/.env.local",
+				EnvVars: map[string]string{"APP_ENV": "config"},
+			},
+		},
+	}
+	configData, err := yaml.Marshal(config)
+	if err != nil {
+		t.Fatalf("yaml.Marshal(config) error = %v", err)
+	}
+	configData = append(configData, '\n')
+	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "install", "demo"}); code != 0 {
+		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+
+	if code := Run(stdout, stderr, []string{"--root", root, "dispatch", "php", "-v"}); code != 0 {
+		t.Fatalf("Run(dispatch) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "fake-php -v config") {
+		t.Fatalf("Run(dispatch) output = %q, want env-vars to override env-file and project .env", output)
+	}
+}

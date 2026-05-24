@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -37,14 +38,23 @@ var (
 )
 
 type shellSessionState struct {
-	ID                string `json:"id"`
-	Shell             string `json:"shell"`
-	EnvironmentName   string `json:"environment"`
-	OriginalPathKey   string `json:"path_key"`
-	OriginalPathValue string `json:"path_value,omitempty"`
-	HasOriginalPath   bool   `json:"has_path"`
-	ActivationPath    string `json:"activation_path"`
-	DeactivationPath  string `json:"deactivation_path"`
+	ID                string                      `json:"id"`
+	Shell             string                      `json:"shell"`
+	EnvironmentName   string                      `json:"environment"`
+	OriginalPathKey   string                      `json:"path_key"`
+	OriginalPathValue string                      `json:"path_value,omitempty"`
+	HasOriginalPath   bool                        `json:"has_path"`
+	Variables         []shellSessionVariableState `json:"variables,omitempty"`
+	ActivationPath    string                      `json:"activation_path"`
+	DeactivationPath  string                      `json:"deactivation_path"`
+}
+
+type shellSessionVariableState struct {
+	Key           string `json:"key"`
+	Value         string `json:"value"`
+	OriginalKey   string `json:"original_key,omitempty"`
+	OriginalValue string `json:"original_value,omitempty"`
+	HasOriginal   bool   `json:"has_original"`
 }
 
 func newSessionCommand(ctx *commandContext) *cobra.Command {
@@ -115,8 +125,12 @@ func runSessionStart(stdout io.Writer, store backend.Store, goos string, env []s
 	if err != nil {
 		return err
 	}
+	resolvedEnv, err := resolveRuntimeEnvironment(goos, env, store)
+	if err != nil {
+		return err
+	}
 
-	pathKey, systemPath, hasPath := lookupEnvValue(goos, env, "PATH")
+	pathKey, systemPath, hasPath := lookupEnvValue(goos, resolvedEnv, "PATH")
 	if pathKey == "" {
 		pathKey = "PATH"
 	}
@@ -133,6 +147,12 @@ func runSessionStart(stdout io.Writer, store backend.Store, goos string, env []s
 	statePath := shellSessionStatePath(context.RootDir, sessionID)
 	activationPath := shellSessionActivationPath(context.RootDir, sessionID, kind)
 	deactivationPath := shellSessionDeactivationPath(context.RootDir, sessionID, kind)
+	activatedEnv := replaceEnvValue(goos, resolvedEnv, pathKey, activatedPath)
+	activatedEnv = replaceEnvValue(goos, activatedEnv, polkaPromptEnvEnv, context.EnvironmentName)
+	activatedEnv = replaceEnvValue(goos, activatedEnv, polkaPromptRootEnv, context.PromptRoot)
+	activatedEnv = replaceEnvValue(goos, activatedEnv, polkaSessionIDEnv, sessionID)
+	activatedEnv = replaceEnvValue(goos, activatedEnv, polkaSessionStateEnv, statePath)
+	variables := captureShellSessionVariables(goos, env, activatedEnv)
 	state := shellSessionState{
 		ID:                sessionID,
 		Shell:             string(kind),
@@ -140,13 +160,14 @@ func runSessionStart(stdout io.Writer, store backend.Store, goos string, env []s
 		OriginalPathKey:   pathKey,
 		OriginalPathValue: systemPath,
 		HasOriginalPath:   hasPath,
+		Variables:         variables,
 		ActivationPath:    activationPath,
 		DeactivationPath:  deactivationPath,
 	}
 	if err := writeShellSessionState(statePath, state); err != nil {
 		return err
 	}
-	startScript := renderShellSessionStartScript(kind, pathKey, activatedPath, sessionID, statePath)
+	startScript := renderShellSessionStartScript(kind, state.Variables)
 	if err := writeShellSessionScript(activationPath, startScript); err != nil {
 		_ = os.Remove(statePath)
 		return err
@@ -291,28 +312,129 @@ func writeShellSessionScript(path, contents string) error {
 	return nil
 }
 
-func renderShellSessionStartScript(kind shellScriptKind, pathKey, pathValue, sessionID, statePath string) string {
-	if strings.TrimSpace(pathKey) == "" {
-		pathKey = "PATH"
-	}
-	if kind == shellScriptKindPowerShell {
-		return strings.Join([]string{
-			"$env:" + pathKey + " = " + quotePowerShellLiteral(pathValue),
-			"$env:" + polkaSessionIDEnv + " = " + quotePowerShellLiteral(sessionID),
-			"$env:" + polkaSessionStateEnv + " = " + quotePowerShellLiteral(statePath),
-			"",
-		}, "\n")
+func captureShellSessionVariables(goos string, before, after []string) []shellSessionVariableState {
+	changes := make([]shellSessionVariableState, 0)
+	seen := map[string]struct{}{}
+	for _, entry := range after {
+		key, value, ok := strings.Cut(entry, "=")
+		if !ok {
+			continue
+		}
+
+		canonical := key
+		if goos == "windows" {
+			canonical = strings.ToUpper(canonical)
+		}
+		if _, exists := seen[canonical]; exists {
+			continue
+		}
+		seen[canonical] = struct{}{}
+
+		originalKey, originalValue, hasOriginal := lookupEnvValue(goos, before, key)
+		if hasOriginal && originalValue == value {
+			continue
+		}
+
+		changes = append(changes, shellSessionVariableState{
+			Key:           key,
+			Value:         value,
+			OriginalKey:   originalKey,
+			OriginalValue: originalValue,
+			HasOriginal:   hasOriginal,
+		})
 	}
 
-	return strings.Join([]string{
-		"export " + pathKey + "=" + quotePOSIXLiteral(pathValue),
-		"export " + polkaSessionIDEnv + "=" + quotePOSIXLiteral(sessionID),
-		"export " + polkaSessionStateEnv + "=" + quotePOSIXLiteral(statePath),
-		"",
-	}, "\n")
+	sort.Slice(changes, func(left, right int) bool {
+		leftKey := changes[left].Key
+		rightKey := changes[right].Key
+		if goos == "windows" {
+			leftKey = strings.ToUpper(leftKey)
+			rightKey = strings.ToUpper(rightKey)
+		}
+		if leftKey == rightKey {
+			return changes[left].Key < changes[right].Key
+		}
+
+		return leftKey < rightKey
+	})
+
+	return changes
+}
+
+func renderShellSessionStartScript(kind shellScriptKind, variables []shellSessionVariableState) string {
+	if kind == shellScriptKindPowerShell {
+		lines := make([]string, 0, len(variables)+1)
+		for _, variable := range variables {
+			lines = append(lines, "$env:"+variable.Key+" = "+quotePowerShellLiteral(variable.Value))
+		}
+		lines = append(lines, "")
+
+		return strings.Join(lines, "\n")
+	}
+
+	lines := make([]string, 0, len(variables)+1)
+	for _, variable := range variables {
+		lines = append(lines, "export "+variable.Key+"="+quotePOSIXLiteral(variable.Value))
+	}
+	lines = append(lines, "")
+
+	return strings.Join(lines, "\n")
 }
 
 func renderShellSessionStopScript(kind shellScriptKind, state shellSessionState, statePath string) string {
+	if len(state.Variables) > 0 {
+		if kind == shellScriptKindPowerShell {
+			lines := make([]string, 0, len(state.Variables)+4)
+			for _, variable := range state.Variables {
+				restoreKey := strings.TrimSpace(variable.Key)
+				if restoreKey == "" {
+					continue
+				}
+				if variable.HasOriginal {
+					if strings.TrimSpace(variable.OriginalKey) != "" {
+						restoreKey = variable.OriginalKey
+					}
+					lines = append(lines, "$env:"+restoreKey+" = "+quotePowerShellLiteral(variable.OriginalValue))
+				} else {
+					lines = append(lines, "Remove-Item Env:"+restoreKey+" -ErrorAction SilentlyContinue")
+				}
+			}
+			lines = append(lines,
+				"Remove-Item -LiteralPath "+quotePowerShellLiteral(statePath)+" -Force -ErrorAction SilentlyContinue",
+				"Remove-Item -LiteralPath "+quotePowerShellLiteral(state.ActivationPath)+" -Force -ErrorAction SilentlyContinue",
+				"Remove-Item -LiteralPath "+quotePowerShellLiteral(state.DeactivationPath)+" -Force -ErrorAction SilentlyContinue",
+				"",
+			)
+
+			return strings.Join(lines, "\n")
+		}
+
+		lines := make([]string, 0, len(state.Variables)*2+4)
+		for _, variable := range state.Variables {
+			restoreKey := strings.TrimSpace(variable.Key)
+			if restoreKey == "" {
+				continue
+			}
+			if variable.HasOriginal {
+				if strings.TrimSpace(variable.OriginalKey) != "" {
+					restoreKey = variable.OriginalKey
+				}
+				lines = append(lines,
+					restoreKey+"="+quotePOSIXLiteral(variable.OriginalValue),
+					"export "+restoreKey,
+				)
+			} else {
+				lines = append(lines, "unset "+restoreKey)
+			}
+		}
+		lines = append(lines,
+			"rm -f -- "+quotePOSIXLiteral(statePath)+" "+quotePOSIXLiteral(state.ActivationPath)+" "+quotePOSIXLiteral(state.DeactivationPath),
+			"",
+		)
+
+		return strings.Join(lines, "\n")
+	}
+
 	pathKey := strings.TrimSpace(state.OriginalPathKey)
 	if pathKey == "" {
 		pathKey = "PATH"

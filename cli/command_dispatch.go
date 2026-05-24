@@ -40,6 +40,11 @@ func runDispatch(stdout, stderr io.Writer, args []string, store backend.Store) i
 		fmt.Fprintln(stderr, "error: dispatch requires a tool name")
 		return 2
 	}
+	env, err := resolveRuntimeEnvironment(runtime.GOOS, os.Environ(), store)
+	if err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
 
 	tool := strings.TrimSpace(args[0])
 	target, err := store.ResolveTool(tool)
@@ -60,7 +65,7 @@ func runDispatch(stdout, stderr io.Writer, args []string, store backend.Store) i
 		target = phpTarget
 	}
 
-	exitCode, err := executeTarget(stdout, stderr, target, dispatchArgs)
+	exitCode, err := executeTargetWithEnv(stdout, stderr, env, target, dispatchArgs)
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1

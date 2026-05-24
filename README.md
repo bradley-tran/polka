@@ -41,6 +41,8 @@ The shims in `.polka/bin` mirror the active environment's configured tools. If t
 
 Use `polka sh` to open an interactive shell that resolves commands in this order: `.polka/bin`, then `vendor/bin`, then the inherited system `PATH`. That means a local Polka-managed `composer` shim wins over a globally installed `composer`, while still falling back to project-local Composer plugins in `vendor/bin` and finally to whatever the system shell already exposes. On Windows, Polka also generates temporary `.cmd` wrappers for extensionless Composer PHP proxies and for shell launchers that have a matching `.php` source in `vendor/bin`, so commands such as `drush` run through the local PHP CLI instead of relying on `sh`.
 
+Polka also composes custom runtime environment variables for the active environment from four sources in this precedence order (lowest to highest): inherited process env, project `.env`, `environments.<name>.env-file`, and `environments.<name>.env-vars`. The `.env` file is loaded automatically from the directory containing `polka.yaml` when present, `env-file` paths are resolved relative to that same directory (unless absolute), and `env-vars` always win when keys overlap.
+
 Use the stable helper scripts in `.polka/` when you want to activate that same command resolution in the current shell instead of opening a child shell. Polka installs these wrappers when it initializes the local state directory:
 
 - PowerShell: `.\.polka\session-start.ps1`
@@ -48,14 +50,14 @@ Use the stable helper scripts in `.polka/` when you want to activate that same c
 
 Those wrappers call `polka session start`, source the generated activation script for you, and prepend `.polka/bin`, the nearest `vendor/bin`, and the inherited system `PATH` in the same order as `polka sh`. On Windows, the session flow reuses the same temporary vendor/bin `.cmd` wrappers as `polka sh` for extensionless Composer PHP proxies and shell launchers with a matching `.php` source.
 
-To deactivate the current shell session and restore the exact pre-session `PATH` snapshot, use the matching wrapper:
+To deactivate the current shell session and restore the exact pre-session values for every variable Polka changed (including `PATH`), use the matching wrapper:
 
 - PowerShell: `.\.polka\session-stop.ps1`
 - POSIX: `. ./.polka/session-stop`
 
 The lower-level `polka session start` and `polka session stop` commands remain available for now; they print the transient activation or deactivation script path that the stable wrappers source for you.
 
-Use `polka serve [docroot] [--server HOST:PORT]` to start the active environment's web server. When `docroot` is omitted, Polka uses `environments.<name>.docroot` from `polka.yaml`. When the current environment defines `nginx`, Polka starts `php-cgi` on an internal loopback port, prints a startup line with the listening URL, and runs nginx in the foreground with a generated FastCGI config; otherwise it falls back to PHP's built-in web server with a generated router that serves existing static files with explicit MIME types and forwards missing requests into the app router or front controller. Polka reads `server.hostname` and `server.port` from the current environment in `polka.yaml`, and falls back to `localhost:8000` when that config is absent. Automatic nginx downloads are currently implemented on Windows amd64.
+Use `polka serve [docroot] [--server HOST:PORT]` to start the active environment's web server. When `docroot` is omitted, Polka uses `environments.<name>.docroot` from `polka.yaml`. When the current environment defines `nginx`, Polka starts `php-cgi` on an internal loopback port, prints a startup line with the listening URL, and runs nginx in the foreground with a generated FastCGI config; otherwise it falls back to PHP's built-in web server with a generated router that serves existing static files with explicit MIME types and forwards missing requests into the app router or front controller. Polka reads `server.hostname` and `server.port` from the current environment in `polka.yaml`, and falls back to `localhost:8000` when that config is absent. Automatic nginx downloads are currently implemented on Windows amd64. The same runtime env composition used by `polka sh` also applies to `polka serve`, generated `.polka/bin` dispatch shims, and database client/import/export commands.
 
 When an environment defines `php-extensions`, `polka install` also writes a generated `php.ini` next to the installed PHP executable so those extensions are explicitly enabled or disabled for that environment. If `composer` is configured for that environment, `openssl` and `zip` are enabled by default unless `php-extensions` explicitly sets either one to `false`.
 
@@ -71,6 +73,10 @@ environments:
     composer: 2.8
     nginx: 1.30
     docroot: public
+    env-file: .env.local
+    env-vars:
+      APP_ENV: development
+      APP_DEBUG: "1"
     server:
       hostname: localhost
       port: 8080

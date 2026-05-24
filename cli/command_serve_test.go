@@ -27,7 +27,7 @@ func TestRunServeUsesCurrentServerConfig(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(fakePHP), 0o755); err != nil {
 		t.Fatalf("MkdirAll(cache php) error = %v", err)
 	}
-	if err := os.WriteFile(fakePHP, fakePHPScript(), 0o755); err != nil {
+	if err := os.WriteFile(fakePHP, fakePHPScriptWithEnv("APP_ENV"), 0o755); err != nil {
 		t.Fatalf("WriteFile(cache php) error = %v", err)
 	}
 	docroot := filepath.Join(projectDir, "named-project", "public")
@@ -39,6 +39,9 @@ func TestRunServeUsesCurrentServerConfig(t *testing.T) {
 		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
 	}
 	configPath := filepath.Join(projectDir, "polka.yaml")
+	if err := os.WriteFile(filepath.Join(projectDir, ".env"), []byte("APP_ENV=project\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(project .env) error = %v", err)
+	}
 	configData, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("ReadFile(config) error = %v", err)
@@ -49,6 +52,7 @@ func TestRunServeUsesCurrentServerConfig(t *testing.T) {
 	}
 	environment := config.Environments["demo"]
 	environment.Server = &testServerConfig{Hostname: "localhost", Port: 8080}
+	environment.EnvVars = map[string]string{"APP_ENV": "serve"}
 	config.Environments["demo"] = environment
 	updatedConfig, err := yaml.Marshal(config)
 	if err != nil {
@@ -79,6 +83,9 @@ func TestRunServeUsesCurrentServerConfig(t *testing.T) {
 	output := stdout.String()
 	if !strings.Contains(output, "-S localhost:8080") {
 		t.Fatalf("Run(serve) output = %q, want configured server address", output)
+	}
+	if !strings.Contains(output, "serve") {
+		t.Fatalf("Run(serve) output = %q, want environment variable override in php runtime", output)
 	}
 	if !strings.Contains(output, "-t "+docroot) {
 		t.Fatalf("Run(serve) output = %q, want resolved docroot", output)

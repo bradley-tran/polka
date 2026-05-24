@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/goccy/go-yaml"
+
 	"polka/backend"
 )
 
@@ -231,6 +233,27 @@ func TestRunDBImportAcceptsSQLAndGzip(t *testing.T) {
 				t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
 			}
 
+			configPath := filepath.Join(projectDir, "polka.yaml")
+			configData, err := os.ReadFile(configPath)
+			if err != nil {
+				t.Fatalf("ReadFile(config) error = %v", err)
+			}
+			var config testConfigFile
+			if err := yaml.Unmarshal(configData, &config); err != nil {
+				t.Fatalf("yaml.Unmarshal(config) error = %v", err)
+			}
+			environment := config.Environments["demo"]
+			environment.EnvVars = map[string]string{"POLKA_TEST_DB_CAPTURE_PATH": capturePath}
+			config.Environments["demo"] = environment
+			updatedConfig, err := yaml.Marshal(config)
+			if err != nil {
+				t.Fatalf("yaml.Marshal(config) error = %v", err)
+			}
+			updatedConfig = append(updatedConfig, '\n')
+			if err := os.WriteFile(configPath, updatedConfig, 0o644); err != nil {
+				t.Fatalf("WriteFile(config) error = %v", err)
+			}
+
 			stdout.Reset()
 			stderr.Reset()
 			if code := Run(stdout, stderr, []string{"--root", root, "install", "demo"}); code != 0 {
@@ -335,6 +358,27 @@ func TestRunDBExportWritesSQLAndGzip(t *testing.T) {
 
 			if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--db-engine", "mysql", "--db-version", "8.4"}); code != 0 {
 				t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
+			}
+
+			configPath := filepath.Join(projectDir, "polka.yaml")
+			configData, err := os.ReadFile(configPath)
+			if err != nil {
+				t.Fatalf("ReadFile(config) error = %v", err)
+			}
+			var config testConfigFile
+			if err := yaml.Unmarshal(configData, &config); err != nil {
+				t.Fatalf("yaml.Unmarshal(config) error = %v", err)
+			}
+			environment := config.Environments["demo"]
+			environment.EnvVars = map[string]string{"POLKA_TEST_DB_DUMP_CAPTURE_PATH": dumpCapturePath, "POLKA_TEST_DB_DUMP_OUTPUT": "CREATE DATABASE demo;\n"}
+			config.Environments["demo"] = environment
+			updatedConfig, err := yaml.Marshal(config)
+			if err != nil {
+				t.Fatalf("yaml.Marshal(config) error = %v", err)
+			}
+			updatedConfig = append(updatedConfig, '\n')
+			if err := os.WriteFile(configPath, updatedConfig, 0o644); err != nil {
+				t.Fatalf("WriteFile(config) error = %v", err)
 			}
 
 			stdout.Reset()

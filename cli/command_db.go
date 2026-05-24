@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -139,8 +140,14 @@ func runDBExport(stdout, stderr io.Writer, store backend.Store, resolved dbResol
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
+	env, err := resolveRuntimeEnvironment(runtime.GOOS, os.Environ(), store)
+	if err != nil {
+		_ = finalizeExport(false)
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
 
-	exitCode, err := executeTargetWithIO(exportWriter, stderr, nil, nil, dumpTarget, dumpArgs)
+	exitCode, err := executeTargetWithIO(exportWriter, stderr, nil, env, dumpTarget, dumpArgs)
 	success := err == nil && exitCode == 0
 	finalizeErr := finalizeExport(success)
 	if err != nil {
@@ -185,8 +192,14 @@ func runDBImport(stdout, stderr io.Writer, store backend.Store, resolved dbResol
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
+	env, err := resolveRuntimeEnvironment(runtime.GOOS, os.Environ(), store)
+	if err != nil {
+		_ = closeImport()
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
 
-	exitCode, err := executeTargetWithIO(stdout, stderr, importReader, nil, target, dispatchArgs)
+	exitCode, err := executeTargetWithIO(stdout, stderr, importReader, env, target, dispatchArgs)
 	closeErr := closeImport()
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)

@@ -17,6 +17,8 @@ type testEnvironmentConfig struct {
 	Composer      string              `yaml:"composer"`
 	Nginx         string              `yaml:"nginx,omitempty"`
 	Docroot       string              `yaml:"docroot,omitempty"`
+	EnvFile       string              `yaml:"env-file,omitempty"`
+	EnvVars       map[string]string   `yaml:"env-vars,omitempty"`
 	Database      *testDatabaseConfig `yaml:"database,omitempty"`
 	PHPExtensions map[string]bool     `yaml:"php-extensions,omitempty"`
 	Server        *testServerConfig   `yaml:"server,omitempty"`
@@ -111,6 +113,14 @@ func fakePHPScript() []byte {
 	}
 
 	return []byte("#!/usr/bin/env sh\nprintf 'fake-php %s\n' \"$*\"\n")
+}
+
+func fakePHPScriptWithEnv(varName string) []byte {
+	if runtime.GOOS == "windows" {
+		return []byte("@echo off\r\necho fake-php %* %" + varName + "%\r\n")
+	}
+
+	return []byte("#!/usr/bin/env sh\nprintf 'fake-php %s %s\n' \"$*\" \"$" + varName + "\"\n")
 }
 
 func fakeDatabaseScript(name string) []byte {

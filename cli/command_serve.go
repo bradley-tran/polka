@@ -165,13 +165,17 @@ func runPHPRuntimeServe(stdout, stderr io.Writer, store backend.Store, serverAdd
 	if err != nil {
 		return 0, err
 	}
+	env, err := resolveRuntimeEnvironment(runtime.GOOS, os.Environ(), store)
+	if err != nil {
+		return 0, err
+	}
 	runtimeDir := servePHPRuntimeDir(store.RootDir, layout.Docroot)
 	routerPath, err := preparePHPRuntimeServeRuntime(runtimeDir, layout)
 	if err != nil {
 		return 0, err
 	}
 
-	return executeTarget(stdout, stderr, phpTarget, []string{"-S", serverAddress, "-t", layout.Docroot, routerPath})
+	return executeTargetWithEnv(stdout, stderr, env, phpTarget, []string{"-S", serverAddress, "-t", layout.Docroot, routerPath})
 }
 
 func runNginxServe(stdout, stderr io.Writer, store backend.Store, environment backend.Environment, serverAddress string, layout serveAppLayout) (int, error) {
@@ -188,6 +192,10 @@ func runNginxServe(stdout, stderr io.Writer, store backend.Store, environment ba
 		return 0, err
 	}
 	nginxTarget, err := store.ResolveTool("nginx")
+	if err != nil {
+		return 0, err
+	}
+	env, err := resolveRuntimeEnvironment(runtime.GOOS, os.Environ(), store)
 	if err != nil {
 		return 0, err
 	}
@@ -215,6 +223,7 @@ func runNginxServe(stdout, stderr io.Writer, store backend.Store, environment ba
 	}
 	phpCommand.Stdout = phpLogFile
 	phpCommand.Stderr = phpLogFile
+	phpCommand.Env = env
 
 	if err := phpCommand.Start(); err != nil {
 		return 0, fmt.Errorf("start php-cgi upstream: %w", err)
@@ -226,7 +235,7 @@ func runNginxServe(stdout, stderr io.Writer, store backend.Store, environment ba
 	}
 
 	nginxArgs := []string{"-p", ensureServePrefix(runtimeDir), "-c", filepath.Base(configPath), "-g", "daemon off;"}
-	return executeTarget(stdout, stderr, nginxTarget, nginxArgs)
+	return executeTargetWithEnv(stdout, stderr, env, nginxTarget, nginxArgs)
 }
 
 func resolvePHPCGITarget(phpTarget string) (string, error) {
