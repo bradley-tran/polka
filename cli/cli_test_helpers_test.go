@@ -80,6 +80,18 @@ func cachedDatabaseAdminPath(root, tool, version string) string {
 	return filepath.Join(root, tool, version, "bin", adminName)
 }
 
+func cachedDatabaseDumpPath(root, tool, version string) string {
+	dumpName := "mysqldump"
+	if tool == "mariadb" {
+		dumpName = "mariadb-dump"
+	}
+	if runtime.GOOS == "windows" {
+		return filepath.Join(root, tool, version, "bin", dumpName+".cmd")
+	}
+
+	return filepath.Join(root, tool, version, "bin", dumpName)
+}
+
 func projectInstalledPHPPath(root, version string) string {
 	if runtime.GOOS == "windows" {
 		return filepath.Join(root, "envs", "php", version, "bin", "php.cmd")
@@ -106,4 +118,20 @@ func fakeDatabaseScript(name string) []byte {
 	}
 
 	return []byte("#!/usr/bin/env sh\nprintf 'fake-" + name + " %s\n' \"$*\"\n")
+}
+
+func fakeDatabaseCaptureScript(name string) []byte {
+	if runtime.GOOS == "windows" {
+		return []byte("@echo off\r\necho fake-" + name + " %*\r\npowershell -NoProfile -Command \"[IO.File]::WriteAllText($env:POLKA_TEST_DB_CAPTURE_PATH, [Console]::In.ReadToEnd())\"\r\n")
+	}
+
+	return []byte("#!/usr/bin/env sh\nprintf 'fake-" + name + " %s\n' \"$*\"\ncat > \"$POLKA_TEST_DB_CAPTURE_PATH\"\n")
+}
+
+func fakeDatabaseDumpScript() []byte {
+	if runtime.GOOS == "windows" {
+		return []byte("@echo off\r\nif not \"%POLKA_TEST_DB_DUMP_CAPTURE_PATH%\"==\"\" echo %* > \"%POLKA_TEST_DB_DUMP_CAPTURE_PATH%\"\r\npowershell -NoProfile -Command \"[Console]::Out.Write($env:POLKA_TEST_DB_DUMP_OUTPUT)\"\r\n")
+	}
+
+	return []byte("#!/usr/bin/env sh\nif [ -n \"$POLKA_TEST_DB_DUMP_CAPTURE_PATH\" ]; then\n  printf '%s\n' \"$*\" > \"$POLKA_TEST_DB_DUMP_CAPTURE_PATH\"\nfi\nprintf '%s' \"$POLKA_TEST_DB_DUMP_OUTPUT\"\n")
 }

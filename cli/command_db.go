@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"compress/gzip"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -22,6 +23,8 @@ import (
 
 const (
 	dbSubcommandClient = "client"
+	dbSubcommandExport = "export"
+	dbSubcommandImport = "import"
 	dbSubcommandStart  = "start"
 	dbSubcommandStop   = "stop"
 	dbSubcommandStatus = "status"
@@ -75,6 +78,7 @@ type dbManagedCredentials struct {
 	EnvironmentName string `json:"environment"`
 	Engine          string `json:"engine"`
 	Version         string `json:"version"`
+	DatabaseName    string `json:"database,omitempty"`
 	User            string `json:"user"`
 	Password        string `json:"password"`
 	Port            int    `json:"port"`
@@ -129,6 +133,10 @@ func runDB(stdout, stderr io.Writer, store backend.Store, args []string) int {
 		switch strings.ToLower(strings.TrimSpace(args[0])) {
 		case dbSubcommandClient:
 			return runDBClient(stdout, stderr, store, resolved, args[1:])
+		case dbSubcommandExport:
+			return runDBExport(stdout, stderr, store, resolved, args[1:])
+		case dbSubcommandImport:
+			return runDBImport(stdout, stderr, store, resolved, args[1:])
 		case dbSubcommandStart:
 			return runDBStart(stdout, stderr, store, resolved, args[1:])
 		case dbSubcommandStop:
@@ -164,6 +172,98 @@ func runDBClient(stdout, stderr io.Writer, store backend.Store, resolved dbResol
 	}
 
 	return runDispatch(stdout, stderr, append([]string{resolved.Database.Engine}, dispatchArgs...), store)
+}
+
+func runDBExport(stdout, stderr io.Writer, store backend.Store, resolved dbResolvedEnvironment, args []string) int {
+	exportPath, databaseName, _, err := parseDatabaseTransferArgs("export", resolved, args)
+	if err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
+
+	exportWriter, finalizeExport, exportPath, err := openDatabaseExportWriter(exportPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
+
+	dumpArgs, err := injectDatabaseConnectionArgsWithDatabase(store.RootDir, resolved, nil, "", false)
+	if err != nil {
+		_ = finalizeExport(false)
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
+	dumpArgs = append(dumpArgs, "--databases", databaseName, "--routines", "--events")
+
+	dumpTarget, err := resolveDatabaseDumpTarget(store.EnvsDir, resolved.Database.Engine, resolved.Database.Version)
+	if err != nil {
+		_ = finalizeExport(false)
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
+
+	exitCode, err := executeTargetWithIO(exportWriter, stderr, nil, nil, dumpTarget, dumpArgs)
+	success := err == nil && exitCode == 0
+	finalizeErr := finalizeExport(success)
+	if err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
+	if exitCode != 0 {
+		return exitCode
+	}
+	if finalizeErr != nil {
+		fmt.Fprintf(stderr, "error: %v\n", finalizeErr)
+		return 1
+	}
+
+	fmt.Fprintf(stdout, "Exported database dump for environment %q to %s.\n", resolved.Environment.Name, exportPath)
+	return 0
+}
+
+func runDBImport(stdout, stderr io.Writer, store backend.Store, resolved dbResolvedEnvironment, args []string) int {
+	importPath, databaseName, explicitDatabase, err := parseDatabaseTransferArgs("import", resolved, args)
+	if err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
+
+	importReader, closeImport, importPath, err := openDatabaseImportReader(importPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
+
+	dispatchArgs, err := injectDatabaseConnectionArgsWithDatabase(store.RootDir, resolved, nil, databaseName, explicitDatabase)
+	if err != nil {
+		_ = closeImport()
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
+
+	target, err := store.ResolveTool(resolved.Database.Engine)
+	if err != nil {
+		_ = closeImport()
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
+
+	exitCode, err := executeTargetWithIO(stdout, stderr, importReader, nil, target, dispatchArgs)
+	closeErr := closeImport()
+	if err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
+	if closeErr != nil {
+		fmt.Fprintf(stderr, "error: close database import %s: %v\n", importPath, closeErr)
+		return 1
+	}
+	if exitCode != 0 {
+		return exitCode
+	}
+
+	fmt.Fprintf(stdout, "Imported database dump from %s into environment %q.\n", importPath, resolved.Environment.Name)
+	return 0
 }
 
 func runDBStart(stdout, stderr io.Writer, store backend.Store, resolved dbResolvedEnvironment, args []string) int {
@@ -331,12 +431,29 @@ func ensureManagedDatabaseStarted(store backend.Store, resolved dbResolvedEnviro
 }
 
 func injectDatabaseConnectionArgs(rootDir string, resolved dbResolvedEnvironment, args []string) ([]string, error) {
-	hasDefaultsFile, hasHost, hasPort, hasSocket, hasProtocol, protocol := databaseConnectionOverrides(args)
+	cleanArgs, databaseName, explicitDatabase, err := extractDatabaseNameOverride(args)
+	if err != nil {
+		return nil, err
+	}
+
+	selectedDatabase := managedDatabaseName(resolved)
+	if explicitDatabase {
+		selectedDatabase = databaseName
+	}
+
+	return injectDatabaseConnectionArgsWithDatabase(rootDir, resolved, cleanArgs, selectedDatabase, explicitDatabase)
+}
+
+func injectDatabaseConnectionArgsWithDatabase(rootDir string, resolved dbResolvedEnvironment, args []string, databaseName string, explicitDatabase bool) ([]string, error) {
+	hasDefaultsFile, hasHost, hasPort, hasSocket, hasProtocol, protocol, hasDatabase := databaseConnectionOverrides(args)
+	if explicitDatabase && hasDatabase {
+		return nil, fmt.Errorf("use either --db-name or native --database/-D, not both")
+	}
 	if hasDefaultsFile || hasSocket {
-		return args, nil
+		return appendDatabaseConnectionArg(args, databaseName, explicitDatabase && !hasDatabase), nil
 	}
 	if hasProtocol && protocol != "" && !strings.EqualFold(protocol, "tcp") {
-		return args, nil
+		return appendDatabaseConnectionArg(args, databaseName, explicitDatabase && !hasDatabase), nil
 	}
 
 	state, err := loadLiveDatabaseStateForResolved(rootDir, resolved)
@@ -376,11 +493,79 @@ func injectDatabaseConnectionArgs(rootDir string, resolved dbResolvedEnvironment
 	if !hasPort {
 		injected = append(injected, "--port="+strconv.Itoa(port))
 	}
+	if !hasDatabase && strings.TrimSpace(databaseName) != "" {
+		injected = append(injected, "--database="+databaseName)
+	}
 
 	return append(injected, args...), nil
 }
 
-func databaseConnectionOverrides(args []string) (hasDefaultsFile, hasHost, hasPort, hasSocket, hasProtocol bool, protocol string) {
+func appendDatabaseConnectionArg(args []string, databaseName string, shouldAppend bool) []string {
+	if !shouldAppend || strings.TrimSpace(databaseName) == "" {
+		return args
+	}
+
+	return append(append([]string{}, args...), "--database="+databaseName)
+}
+
+func managedDatabaseName(resolved dbResolvedEnvironment) string {
+	return strings.TrimSpace(resolved.Environment.Name)
+}
+
+func parseDatabaseTransferArgs(subcommand string, resolved dbResolvedEnvironment, args []string) (string, string, bool, error) {
+	cleanArgs, databaseName, explicitDatabase, err := extractDatabaseNameOverride(args)
+	if err != nil {
+		return "", "", false, err
+	}
+	if len(cleanArgs) != 1 {
+		return "", "", false, fmt.Errorf("db %s requires exactly one path argument", subcommand)
+	}
+	if !explicitDatabase {
+		databaseName = managedDatabaseName(resolved)
+	}
+
+	return cleanArgs[0], databaseName, explicitDatabase, nil
+}
+
+func extractDatabaseNameOverride(args []string) ([]string, string, bool, error) {
+	filtered := make([]string, 0, len(args))
+	name := ""
+	hasOverride := false
+
+	for index := 0; index < len(args); index++ {
+		argument := strings.TrimSpace(args[index])
+		switch {
+		case argument == "--db-name":
+			if hasOverride {
+				return nil, "", false, fmt.Errorf("--db-name can only be provided once")
+			}
+			if index+1 >= len(args) {
+				return nil, "", false, fmt.Errorf("--db-name requires a value")
+			}
+			name = strings.TrimSpace(args[index+1])
+			if name == "" {
+				return nil, "", false, fmt.Errorf("--db-name requires a non-empty value")
+			}
+			hasOverride = true
+			index++
+		case strings.HasPrefix(argument, "--db-name="):
+			if hasOverride {
+				return nil, "", false, fmt.Errorf("--db-name can only be provided once")
+			}
+			name = strings.TrimSpace(strings.TrimPrefix(argument, "--db-name="))
+			if name == "" {
+				return nil, "", false, fmt.Errorf("--db-name requires a non-empty value")
+			}
+			hasOverride = true
+		default:
+			filtered = append(filtered, args[index])
+		}
+	}
+
+	return filtered, name, hasOverride, nil
+}
+
+func databaseConnectionOverrides(args []string) (hasDefaultsFile, hasHost, hasPort, hasSocket, hasProtocol bool, protocol string, hasDatabase bool) {
 	for index := 0; index < len(args); index++ {
 		argument := strings.TrimSpace(args[index])
 		switch {
@@ -431,10 +616,19 @@ func databaseConnectionOverrides(args []string) (hasDefaultsFile, hasHost, hasPo
 		case strings.HasPrefix(argument, "--protocol="):
 			hasProtocol = true
 			protocol = strings.TrimSpace(strings.TrimPrefix(argument, "--protocol="))
+		case argument == "--database" || argument == "-D":
+			hasDatabase = true
+			if index+1 < len(args) {
+				index++
+			}
+		case strings.HasPrefix(argument, "--database="):
+			hasDatabase = true
+		case strings.HasPrefix(argument, "-D") && len(argument) > 2:
+			hasDatabase = true
 		}
 	}
 
-	return hasDefaultsFile, hasHost, hasPort, hasSocket, hasProtocol, protocol
+	return hasDefaultsFile, hasHost, hasPort, hasSocket, hasProtocol, protocol, hasDatabase
 }
 
 func resolveDatabaseServerTarget(envsDir, engine, version string) (string, error) {
@@ -473,6 +667,25 @@ func resolveDatabaseAdminTarget(envsDir, engine, version string) (string, error)
 	}
 
 	return "", fmt.Errorf("%s admin client version %q is not installed under %s", engine, version, filepath.Join(envsDir, engine, version))
+}
+
+func resolveDatabaseDumpTarget(envsDir, engine, version string) (string, error) {
+	installDir := filepath.Join(envsDir, engine, version)
+	for _, candidate := range databaseDumpCandidates(installDir, engine) {
+		fileInfo, err := os.Stat(candidate)
+		if err == nil {
+			if fileInfo.IsDir() {
+				continue
+			}
+
+			return candidate, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("stat %s: %w", candidate, err)
+		}
+	}
+
+	return "", fmt.Errorf("%s dump utility version %q is not installed under %s", engine, version, filepath.Join(envsDir, engine, version))
 }
 
 func databaseServerCandidates(installDir, engine string) []string {
@@ -571,6 +784,152 @@ func databaseAdminCandidates(installDir, engine string) []string {
 	}
 }
 
+func databaseDumpCandidates(installDir, engine string) []string {
+	if runtime.GOOS == "windows" {
+		switch engine {
+		case "mysql":
+			return []string{
+				filepath.Join(installDir, "bin", "mysqldump.exe"),
+				filepath.Join(installDir, "bin", "mysqldump.cmd"),
+				filepath.Join(installDir, "bin", "mysqldump.bat"),
+				filepath.Join(installDir, "mysqldump.exe"),
+				filepath.Join(installDir, "mysqldump.cmd"),
+				filepath.Join(installDir, "mysqldump.bat"),
+			}
+		case "mariadb":
+			return []string{
+				filepath.Join(installDir, "bin", "mariadb-dump.exe"),
+				filepath.Join(installDir, "bin", "mariadb-dump.cmd"),
+				filepath.Join(installDir, "bin", "mariadb-dump.bat"),
+				filepath.Join(installDir, "bin", "mysqldump.exe"),
+				filepath.Join(installDir, "bin", "mysqldump.cmd"),
+				filepath.Join(installDir, "bin", "mysqldump.bat"),
+				filepath.Join(installDir, "mariadb-dump.exe"),
+				filepath.Join(installDir, "mariadb-dump.cmd"),
+				filepath.Join(installDir, "mariadb-dump.bat"),
+				filepath.Join(installDir, "mysqldump.exe"),
+				filepath.Join(installDir, "mysqldump.cmd"),
+				filepath.Join(installDir, "mysqldump.bat"),
+			}
+		}
+	}
+
+	switch engine {
+	case "mysql":
+		return []string{
+			filepath.Join(installDir, "bin", "mysqldump"),
+			filepath.Join(installDir, "mysqldump"),
+		}
+	case "mariadb":
+		return []string{
+			filepath.Join(installDir, "bin", "mariadb-dump"),
+			filepath.Join(installDir, "bin", "mysqldump"),
+			filepath.Join(installDir, "mariadb-dump"),
+			filepath.Join(installDir, "mysqldump"),
+		}
+	default:
+		return nil
+	}
+}
+
+func openDatabaseImportReader(path string) (io.Reader, func() error, string, error) {
+	resolvedPath, gzipped, err := resolveDatabaseDumpPath(path)
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	file, err := os.Open(resolvedPath)
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("open database import file %s: %w", resolvedPath, err)
+	}
+	if !gzipped {
+		return file, file.Close, resolvedPath, nil
+	}
+
+	gzipReader, err := gzip.NewReader(file)
+	if err != nil {
+		_ = file.Close()
+		return nil, nil, "", fmt.Errorf("open gzipped database import file %s: %w", resolvedPath, err)
+	}
+
+	return gzipReader, func() error {
+		closeErr := gzipReader.Close()
+		fileErr := file.Close()
+		if closeErr != nil {
+			return closeErr
+		}
+		return fileErr
+	}, resolvedPath, nil
+}
+
+func openDatabaseExportWriter(path string) (io.Writer, func(bool) error, string, error) {
+	resolvedPath, gzipped, err := resolveDatabaseDumpPath(path)
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	tempFile, err := os.CreateTemp(filepath.Dir(resolvedPath), filepath.Base(resolvedPath)+".tmp-*")
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("create database export file %s: %w", resolvedPath, err)
+	}
+
+	var exportWriter io.Writer = tempFile
+	var gzipWriter *gzip.Writer
+	if gzipped {
+		gzipWriter = gzip.NewWriter(tempFile)
+		exportWriter = gzipWriter
+	}
+
+	finalize := func(success bool) error {
+		var finalizeErr error
+		if gzipWriter != nil {
+			if err := gzipWriter.Close(); err != nil && finalizeErr == nil {
+				finalizeErr = fmt.Errorf("close gzip database export %s: %w", resolvedPath, err)
+			}
+		}
+		if err := tempFile.Close(); err != nil && finalizeErr == nil {
+			finalizeErr = fmt.Errorf("close database export %s: %w", resolvedPath, err)
+		}
+		if !success || finalizeErr != nil {
+			if err := os.Remove(tempFile.Name()); err != nil && !errors.Is(err, os.ErrNotExist) && finalizeErr == nil {
+				finalizeErr = fmt.Errorf("remove incomplete database export %s: %w", resolvedPath, err)
+			}
+			return finalizeErr
+		}
+
+		if err := os.Remove(resolvedPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			_ = os.Remove(tempFile.Name())
+			return fmt.Errorf("replace database export %s: %w", resolvedPath, err)
+		}
+		if err := os.Rename(tempFile.Name(), resolvedPath); err != nil {
+			_ = os.Remove(tempFile.Name())
+			return fmt.Errorf("finalize database export %s: %w", resolvedPath, err)
+		}
+
+		return nil
+	}
+
+	return exportWriter, finalize, resolvedPath, nil
+}
+
+func resolveDatabaseDumpPath(path string) (string, bool, error) {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return "", false, fmt.Errorf("database dump path cannot be empty")
+	}
+
+	cleaned := filepath.Clean(trimmed)
+	lowerPath := strings.ToLower(cleaned)
+	switch {
+	case strings.HasSuffix(lowerPath, ".sql.gz"):
+		return cleaned, true, nil
+	case strings.HasSuffix(lowerPath, ".sql"):
+		return cleaned, false, nil
+	default:
+		return "", false, fmt.Errorf("database dump path %q must end with .sql or .sql.gz", path)
+	}
+}
+
 func resolveDatabaseBootstrapTarget(installDir, engine string) (string, error) {
 	for _, candidate := range databaseBootstrapCandidates(installDir, engine) {
 		fileInfo, err := os.Stat(candidate)
@@ -623,6 +982,7 @@ func ensureDatabaseCredentialAssets(rootDir string, resolved dbResolvedEnvironme
 			EnvironmentName: resolved.Environment.Name,
 			Engine:          resolved.Database.Engine,
 			Version:         resolved.Database.Version,
+			DatabaseName:    managedDatabaseName(resolved),
 			User:            dbManagedUserName,
 			Password:        password,
 			Port:            effectiveDatabasePort(resolved.Database),
@@ -644,6 +1004,7 @@ func ensureDatabaseCredentialAssets(rootDir string, resolved dbResolvedEnvironme
 	credentials.EnvironmentName = resolved.Environment.Name
 	credentials.Engine = resolved.Database.Engine
 	credentials.Version = resolved.Database.Version
+	credentials.DatabaseName = managedDatabaseName(resolved)
 	credentials.Port = effectiveDatabasePort(resolved.Database)
 
 	if err := writeDatabaseCredentials(path, credentials); err != nil {
@@ -1158,6 +1519,11 @@ func renderDatabaseDefaultsFile(credentials dbManagedCredentials) string {
 
 func renderDatabaseBootstrapSQL(credentials dbManagedCredentials) string {
 	var builder strings.Builder
+	if strings.TrimSpace(credentials.DatabaseName) != "" {
+		builder.WriteString("CREATE DATABASE IF NOT EXISTS ")
+		builder.WriteString(quoteDatabaseIdentifier(credentials.DatabaseName))
+		builder.WriteString(";\n")
+	}
 	builder.WriteString("CREATE USER IF NOT EXISTS '")
 	builder.WriteString(credentials.User)
 	builder.WriteString("'@'localhost' IDENTIFIED BY '")
@@ -1187,6 +1553,10 @@ func renderDatabaseBootstrapSQL(credentials dbManagedCredentials) string {
 	builder.WriteString("FLUSH PRIVILEGES;\n")
 
 	return builder.String()
+}
+
+func quoteDatabaseIdentifier(name string) string {
+	return "`" + strings.ReplaceAll(strings.TrimSpace(name), "`", "``") + "`"
 }
 
 func generateDatabasePassword() (string, error) {

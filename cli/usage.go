@@ -69,8 +69,10 @@ Polka copies them from the global cache when available, otherwise downloads them
 `
 
 const dbUsage = `Usage:
-  polka db [args...]
-  polka db client [args...]
+  polka db [--db-name NAME] [args...]
+  polka db client [--db-name NAME] [args...]
+  polka db export [--db-name NAME] <path.sql|path.sql.gz>
+  polka db import [--db-name NAME] <path.sql|path.sql.gz>
   polka db start
   polka db stop
   polka db status
@@ -80,9 +82,14 @@ Polka dispatches to mysql or mariadb based on the current environment's database
 
 Subcommands:
   client   force client dispatch, even for reserved words such as status
+  export   dump the selected database to a .sql or .sql.gz file
+  import   load SQL from a .sql or .sql.gz file into the active database server
   start    initialize the local data directory if needed and start the database server
   stop     stop the database server previously started by Polka
   status   show whether the managed database server is running
+
+Polka creates and targets a default database named after the active environment.
+Pass --db-name NAME to target a different database for a single db, client, import, or export command.
 
 When no subcommand is provided, Polka forwards the arguments to the database client.
 `

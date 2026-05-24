@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"compress/gzip"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,8 +52,8 @@ func TestRunDBDispatchesConfiguredDatabaseTool(t *testing.T) {
 	}
 
 	output := stdout.String()
-	if !strings.Contains(output, "fake-mysql") || !strings.Contains(output, "--version") || !strings.Contains(output, "--defaults-extra-file=") || !strings.Contains(output, "--protocol=tcp") || !strings.Contains(output, "--host=127.0.0.1") || !strings.Contains(output, "--port=3306") {
-		t.Fatalf("Run(db) output = %q, want managed credential defaults and TCP connection arguments", output)
+	if !strings.Contains(output, "fake-mysql") || !strings.Contains(output, "--version") || !strings.Contains(output, "--defaults-extra-file=") || !strings.Contains(output, "--protocol=tcp") || !strings.Contains(output, "--host=127.0.0.1") || !strings.Contains(output, "--port=3306") || !strings.Contains(output, "--database=demo") {
+		t.Fatalf("Run(db) output = %q, want managed credential defaults, TCP connection arguments, and default database selection", output)
 	}
 }
 
@@ -94,11 +96,58 @@ func TestRunDBPreservesExplicitConnectionArguments(t *testing.T) {
 	}
 
 	output := stdout.String()
-	if !strings.Contains(output, "--defaults-extra-file=") || !strings.Contains(output, "--host=db.internal") || !strings.Contains(output, "--port=4406") || !strings.Contains(output, "--protocol=tcp") {
-		t.Fatalf("Run(db explicit connection) output = %q, want explicit connection arguments forwarded with managed credential defaults", output)
+	if !strings.Contains(output, "--defaults-extra-file=") || !strings.Contains(output, "--host=db.internal") || !strings.Contains(output, "--port=4406") || !strings.Contains(output, "--protocol=tcp") || !strings.Contains(output, "--database=demo") {
+		t.Fatalf("Run(db explicit connection) output = %q, want explicit connection arguments forwarded with managed credential defaults and default database selection", output)
 	}
 	if strings.Contains(output, "--host=127.0.0.1") || strings.Contains(output, "--port=3307") {
 		t.Fatalf("Run(db explicit connection) output = %q, want injected defaults suppressed", output)
+	}
+}
+
+func TestRunDBTranslatesDatabaseNameOverride(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	cacheDir := filepath.Join(projectDir, "global-cache")
+	t.Setenv("Polka_CACHE_DIR", cacheDir)
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	fakeMySQL := cachedDatabasePath(cacheDir, "mysql", "8.4")
+	if err := os.MkdirAll(filepath.Dir(fakeMySQL), 0o755); err != nil {
+		t.Fatalf("MkdirAll(cache mysql) error = %v", err)
+	}
+	if err := os.WriteFile(fakeMySQL, fakeDatabaseScript("mysql"), 0o755); err != nil {
+		t.Fatalf("WriteFile(cache mysql) error = %v", err)
+	}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--db-engine", "mysql", "--db-version", "8.4"}); code != 0 {
+		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run(stdout, stderr, []string{"--root", root, "install", "demo"}); code != 0 {
+		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run(stdout, stderr, []string{"--root", root, "use", "demo"}); code != 0 {
+		t.Fatalf("Run(use) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run(stdout, stderr, []string{"--root", root, "db", "--db-name", "reporting", "--version"}); code != 0 {
+		t.Fatalf("Run(db --db-name) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "--database=reporting") {
+		t.Fatalf("Run(db --db-name) output = %q, want override translated to native database selection", output)
+	}
+	if strings.Contains(output, "--database=demo") || strings.Contains(output, "--db-name") {
+		t.Fatalf("Run(db --db-name) output = %q, want only native database selection forwarded", output)
 	}
 }
 
@@ -141,8 +190,222 @@ func TestRunDBClientSubcommandDispatchesReservedWord(t *testing.T) {
 	}
 
 	output := stdout.String()
-	if !strings.Contains(output, "fake-mysql") || !strings.Contains(output, " status") || !strings.Contains(output, "--defaults-extra-file=") || !strings.Contains(output, "--host=127.0.0.1") || !strings.Contains(output, "--port=3306") {
-		t.Fatalf("Run(db client) output = %q, want reserved word forwarded with managed credential defaults", output)
+	if !strings.Contains(output, "fake-mysql") || !strings.Contains(output, " status") || !strings.Contains(output, "--defaults-extra-file=") || !strings.Contains(output, "--host=127.0.0.1") || !strings.Contains(output, "--port=3306") || !strings.Contains(output, "--database=demo") {
+		t.Fatalf("Run(db client) output = %q, want reserved word forwarded with managed credential defaults and default database selection", output)
+	}
+}
+
+func TestRunDBImportAcceptsSQLAndGzip(t *testing.T) {
+	testCases := []struct {
+		name       string
+		args       []string
+		fileName   string
+		compressed bool
+		database   string
+	}{
+		{name: "sql", fileName: "import.sql", database: "demo"},
+		{name: "sql gzip", fileName: "import.sql.gz", compressed: true, database: "demo"},
+		{name: "override db", args: []string{"--db-name", "reporting"}, fileName: "import-override.sql", database: "reporting"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			projectDir := t.TempDir()
+			root := filepath.Join(projectDir, ".polka")
+			cacheDir := filepath.Join(projectDir, "global-cache")
+			capturePath := filepath.Join(projectDir, "captured.sql")
+			t.Setenv("Polka_CACHE_DIR", cacheDir)
+			t.Setenv("POLKA_TEST_DB_CAPTURE_PATH", capturePath)
+			stdout := &bytes.Buffer{}
+			stderr := &bytes.Buffer{}
+
+			fakeMySQL := cachedDatabasePath(cacheDir, "mysql", "8.4")
+			if err := os.MkdirAll(filepath.Dir(fakeMySQL), 0o755); err != nil {
+				t.Fatalf("MkdirAll(cache mysql) error = %v", err)
+			}
+			if err := os.WriteFile(fakeMySQL, fakeDatabaseCaptureScript("mysql"), 0o755); err != nil {
+				t.Fatalf("WriteFile(cache mysql) error = %v", err)
+			}
+
+			if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--db-engine", "mysql", "--db-version", "8.4"}); code != 0 {
+				t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
+			}
+
+			stdout.Reset()
+			stderr.Reset()
+			if code := Run(stdout, stderr, []string{"--root", root, "install", "demo"}); code != 0 {
+				t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
+			}
+
+			stdout.Reset()
+			stderr.Reset()
+			if code := Run(stdout, stderr, []string{"--root", root, "use", "demo"}); code != 0 {
+				t.Fatalf("Run(use) code = %d, stderr = %q", code, stderr.String())
+			}
+
+			importSQL := "CREATE DATABASE demo;\n"
+			importPath := filepath.Join(projectDir, testCase.fileName)
+			if testCase.compressed {
+				file, err := os.Create(importPath)
+				if err != nil {
+					t.Fatalf("Create(import) error = %v", err)
+				}
+				writer := gzip.NewWriter(file)
+				if _, err := writer.Write([]byte(importSQL)); err != nil {
+					_ = writer.Close()
+					_ = file.Close()
+					t.Fatalf("Write(gzip import) error = %v", err)
+				}
+				if err := writer.Close(); err != nil {
+					_ = file.Close()
+					t.Fatalf("Close(gzip writer) error = %v", err)
+				}
+				if err := file.Close(); err != nil {
+					t.Fatalf("Close(import file) error = %v", err)
+				}
+			} else {
+				if err := os.WriteFile(importPath, []byte(importSQL), 0o644); err != nil {
+					t.Fatalf("WriteFile(import) error = %v", err)
+				}
+			}
+
+			stdout.Reset()
+			stderr.Reset()
+			runArgs := []string{"--root", root, "db", "import"}
+			runArgs = append(runArgs, testCase.args...)
+			runArgs = append(runArgs, importPath)
+			if code := Run(stdout, stderr, runArgs); code != 0 {
+				t.Fatalf("Run(db import) code = %d, stderr = %q", code, stderr.String())
+			}
+
+			captured, err := os.ReadFile(capturePath)
+			if err != nil {
+				t.Fatalf("ReadFile(capture) error = %v", err)
+			}
+			if string(captured) != importSQL {
+				t.Fatalf("captured import = %q, want %q", string(captured), importSQL)
+			}
+			if !strings.Contains(stdout.String(), "fake-mysql") || !strings.Contains(stdout.String(), "Imported database dump") || !strings.Contains(stdout.String(), "--database="+testCase.database) {
+				t.Fatalf("Run(db import) stdout = %q, want client execution, database selection, and import summary", stdout.String())
+			}
+		})
+	}
+}
+
+func TestRunDBExportWritesSQLAndGzip(t *testing.T) {
+	testCases := []struct {
+		name       string
+		args       []string
+		fileName   string
+		compressed bool
+		database   string
+	}{
+		{name: "sql", fileName: "export.sql", database: "demo"},
+		{name: "sql gzip", fileName: "export.sql.gz", compressed: true, database: "demo"},
+		{name: "override db", args: []string{"--db-name=reporting"}, fileName: "export-override.sql", database: "reporting"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			projectDir := t.TempDir()
+			root := filepath.Join(projectDir, ".polka")
+			cacheDir := filepath.Join(projectDir, "global-cache")
+			t.Setenv("Polka_CACHE_DIR", cacheDir)
+			t.Setenv("POLKA_TEST_DB_DUMP_OUTPUT", "CREATE DATABASE demo;\n")
+			dumpCapturePath := filepath.Join(projectDir, testCase.name+"-dump-args.txt")
+			t.Setenv("POLKA_TEST_DB_DUMP_CAPTURE_PATH", dumpCapturePath)
+			stdout := &bytes.Buffer{}
+			stderr := &bytes.Buffer{}
+
+			fakeMySQL := cachedDatabasePath(cacheDir, "mysql", "8.4")
+			if err := os.MkdirAll(filepath.Dir(fakeMySQL), 0o755); err != nil {
+				t.Fatalf("MkdirAll(cache mysql) error = %v", err)
+			}
+			if err := os.WriteFile(fakeMySQL, fakeDatabaseScript("mysql"), 0o755); err != nil {
+				t.Fatalf("WriteFile(cache mysql) error = %v", err)
+			}
+
+			fakeDump := cachedDatabaseDumpPath(cacheDir, "mysql", "8.4")
+			if err := os.MkdirAll(filepath.Dir(fakeDump), 0o755); err != nil {
+				t.Fatalf("MkdirAll(cache mysqldump) error = %v", err)
+			}
+			if err := os.WriteFile(fakeDump, fakeDatabaseDumpScript(), 0o755); err != nil {
+				t.Fatalf("WriteFile(cache mysqldump) error = %v", err)
+			}
+
+			if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--db-engine", "mysql", "--db-version", "8.4"}); code != 0 {
+				t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
+			}
+
+			stdout.Reset()
+			stderr.Reset()
+			if code := Run(stdout, stderr, []string{"--root", root, "install", "demo"}); code != 0 {
+				t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
+			}
+
+			stdout.Reset()
+			stderr.Reset()
+			if code := Run(stdout, stderr, []string{"--root", root, "use", "demo"}); code != 0 {
+				t.Fatalf("Run(use) code = %d, stderr = %q", code, stderr.String())
+			}
+
+			exportPath := filepath.Join(projectDir, testCase.fileName)
+			stdout.Reset()
+			stderr.Reset()
+			runArgs := []string{"--root", root, "db", "export"}
+			runArgs = append(runArgs, testCase.args...)
+			runArgs = append(runArgs, exportPath)
+			if code := Run(stdout, stderr, runArgs); code != 0 {
+				t.Fatalf("Run(db export) code = %d, stderr = %q", code, stderr.String())
+			}
+
+			dumpArgs, err := os.ReadFile(dumpCapturePath)
+			if err != nil {
+				t.Fatalf("ReadFile(dump args) error = %v", err)
+			}
+			if !strings.Contains(string(dumpArgs), "--databases "+testCase.database) {
+				t.Fatalf("dump args = %q, want selected database %q", string(dumpArgs), testCase.database)
+			}
+
+			var exportData []byte
+			if testCase.compressed {
+				file, err := os.Open(exportPath)
+				if err != nil {
+					t.Fatalf("Open(export gzip) error = %v", err)
+				}
+				reader, err := gzip.NewReader(file)
+				if err != nil {
+					_ = file.Close()
+					t.Fatalf("NewReader(export gzip) error = %v", err)
+				}
+				exportData, err = io.ReadAll(reader)
+				if err != nil {
+					_ = reader.Close()
+					_ = file.Close()
+					t.Fatalf("ReadAll(export gzip) error = %v", err)
+				}
+				if err := reader.Close(); err != nil {
+					_ = file.Close()
+					t.Fatalf("Close(export gzip reader) error = %v", err)
+				}
+				if err := file.Close(); err != nil {
+					t.Fatalf("Close(export gzip file) error = %v", err)
+				}
+			} else {
+				var err error
+				exportData, err = os.ReadFile(exportPath)
+				if err != nil {
+					t.Fatalf("ReadFile(export) error = %v", err)
+				}
+			}
+
+			if string(exportData) != "CREATE DATABASE demo;\n" {
+				t.Fatalf("export data = %q, want dump contents", string(exportData))
+			}
+			if !strings.Contains(stdout.String(), "Exported database dump") {
+				t.Fatalf("Run(db export) stdout = %q, want export summary", stdout.String())
+			}
+		})
 	}
 }
 
@@ -271,8 +534,8 @@ func TestRunDBLifecycleSubcommandsManageState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadDatabaseCredentials() error = %v", err)
 	}
-	if credentials.User != dbManagedUserName || credentials.Password == "" || credentials.Port != 3307 {
-		t.Fatalf("credentials = %#v, want managed user with generated password on port 3307", credentials)
+	if credentials.User != dbManagedUserName || credentials.Password == "" || credentials.Port != 3307 || credentials.DatabaseName != "demo" {
+		t.Fatalf("credentials = %#v, want managed user with generated password and default database on port 3307", credentials)
 	}
 	defaultsData, err := os.ReadFile(databaseDefaultsFilePath(root, "demo"))
 	if err != nil {
@@ -285,8 +548,8 @@ func TestRunDBLifecycleSubcommandsManageState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile(bootstrap sql) error = %v", err)
 	}
-	if !strings.Contains(string(bootstrapData), "CREATE USER IF NOT EXISTS '"+dbManagedUserName+"'") || !strings.Contains(string(bootstrapData), credentials.Password) {
-		t.Fatalf("bootstrap sql = %q, want managed bootstrap statements", string(bootstrapData))
+	if !strings.Contains(string(bootstrapData), "CREATE DATABASE IF NOT EXISTS `demo`;") || !strings.Contains(string(bootstrapData), "CREATE USER IF NOT EXISTS '"+dbManagedUserName+"'") || !strings.Contains(string(bootstrapData), credentials.Password) {
+		t.Fatalf("bootstrap sql = %q, want managed bootstrap statements and default database creation", string(bootstrapData))
 	}
 
 	stdout.Reset()
