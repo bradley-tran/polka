@@ -6,7 +6,7 @@ Polka is a CLI tool for PHP virtual environment management. It uses `polka.yaml`
 
 - A lean Go module with a runnable CLI entrypoint.
 - A project-local layout built around `polka.yaml` and `.polka/`.
-- Starter commands for `init`, `new`, `install`, `serve`, `sh`, `config`, `list`, `use`, `current`, and `remove`.
+- Starter commands for `init`, `new`, `install`, `serve`, `sh`, `session`, `config`, `list`, `use`, `current`, and `remove`.
 - Real dispatch shims in `.polka/bin` for `php` and `composer`.
 - A global tool cache used to avoid re-downloading versions across projects.
 - A small test covering the basic environment lifecycle.
@@ -47,6 +47,20 @@ Use `polka install [name]` to install every configured tool version for an envir
 The shims in `.polka/bin` mirror the active environment's configured tools. If the current environment does not define `composer`, Polka removes the local `composer` shim instead of leaving a dispatcher that would fail at runtime.
 
 Use `polka sh` to open an interactive shell that resolves commands in this order: `.polka/bin`, then `vendor/bin`, then the inherited system `PATH`. That means a local Polka-managed `composer` shim wins over a globally installed `composer`, while still falling back to project-local Composer plugins in `vendor/bin` and finally to whatever the system shell already exposes. On Windows, Polka also generates temporary `.cmd` wrappers for extensionless Composer PHP proxies and for shell launchers that have a matching `.php` source in `vendor/bin`, so commands such as `drush` run through the local PHP CLI instead of relying on `sh`.
+
+Use the stable helper scripts in `.polka/` when you want to activate that same command resolution in the current shell instead of opening a child shell. Polka installs these wrappers when it initializes the local state directory:
+
+- PowerShell: `.\.polka\session-start.ps1`
+- POSIX: `. ./.polka/session-start`
+
+Those wrappers call `polka session start`, source the generated activation script for you, and prepend `.polka/bin`, the nearest `vendor/bin`, and the inherited system `PATH` in the same order as `polka sh`. On Windows, the session flow reuses the same temporary vendor/bin `.cmd` wrappers as `polka sh` for extensionless Composer PHP proxies and shell launchers with a matching `.php` source.
+
+To deactivate the current shell session and restore the exact pre-session `PATH` snapshot, use the matching wrapper:
+
+- PowerShell: `.\.polka\session-stop.ps1`
+- POSIX: `. ./.polka/session-stop`
+
+The lower-level `polka session start` and `polka session stop` commands remain available for now; they print the transient activation or deactivation script path that the stable wrappers source for you.
 
 Use `polka serve <docroot> [--server HOST:PORT]` to start the active environment's web server. When the current environment defines `nginx`, Polka starts `php-cgi` on an internal loopback port and runs nginx in the foreground with a generated FastCGI config; otherwise it falls back to PHP's built-in web server. Polka reads `server.hostname` and `server.port` from the current environment in `polka.yaml`, and falls back to `localhost:8000` when that config is absent. Automatic nginx downloads are currently implemented on Windows amd64.
 
@@ -114,5 +128,5 @@ go run . --root ./.polka-dev init
 ## Next implementation steps
 
 1. Add cache metadata and eviction so old downloaded versions can be pruned safely.
-2. Generate activation scripts or shell hooks.
+2. Add shell hooks or direnv-style integrations around `polka session start` / `polka session stop`.
 3. Add config schema validation.

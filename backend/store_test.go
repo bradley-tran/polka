@@ -21,6 +21,10 @@ func TestStoreInitInstallsDispatcherShimsWithoutToolShims(t *testing.T) {
 	assertPathExists(t, store.ConfigFile)
 	assertPathExists(t, filepath.Join(store.BinDir, dispatcherBinaryName))
 	assertPathExists(t, filepath.Join(store.BinDir, dispatcherBatchFileName))
+	assertPathExists(t, filepath.Join(store.RootDir, sessionStartFileName))
+	assertPathExists(t, filepath.Join(store.RootDir, sessionStopFileName))
+	assertPathExists(t, filepath.Join(store.RootDir, sessionStartFileName+powerShellExtension))
+	assertPathExists(t, filepath.Join(store.RootDir, sessionStopFileName+powerShellExtension))
 	assertPathMissing(t, filepath.Join(store.BinDir, "php"))
 	assertPathMissing(t, filepath.Join(store.BinDir, "php.cmd"))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolComposer))
@@ -50,6 +54,40 @@ func TestStoreInitInstallsDispatcherShimsWithoutToolShims(t *testing.T) {
 	}
 	if !strings.Contains(string(dispatcherShim), filepath.ToSlash(selfPath)) {
 		t.Fatalf("dispatcher shim = %q, want current executable path %q", string(dispatcherShim), filepath.ToSlash(selfPath))
+	}
+	shellSessionStart, err := os.ReadFile(filepath.Join(store.RootDir, sessionStartFileName))
+	if err != nil {
+		t.Fatalf("ReadFile(session-start) error = %v", err)
+	}
+	if !strings.Contains(string(shellSessionStart), filepath.ToSlash(filepath.Join(store.RootDir, binDirectoryName, dispatcherBinaryName))) {
+		t.Fatalf("session-start = %q, want dispatcher path", string(shellSessionStart))
+	}
+	if !strings.Contains(string(shellSessionStart), "session start") {
+		t.Fatalf("session-start = %q, want session start invocation", string(shellSessionStart))
+	}
+	shellSessionStop, err := os.ReadFile(filepath.Join(store.RootDir, sessionStopFileName))
+	if err != nil {
+		t.Fatalf("ReadFile(session-stop) error = %v", err)
+	}
+	if !strings.Contains(string(shellSessionStop), "session stop") {
+		t.Fatalf("session-stop = %q, want session stop invocation", string(shellSessionStop))
+	}
+	powerShellSessionStart, err := os.ReadFile(filepath.Join(store.RootDir, sessionStartFileName+powerShellExtension))
+	if err != nil {
+		t.Fatalf("ReadFile(session-start.ps1) error = %v", err)
+	}
+	if !strings.Contains(string(powerShellSessionStart), filepath.Join(store.RootDir, binDirectoryName, dispatcherBatchFileName)) {
+		t.Fatalf("session-start.ps1 = %q, want dispatcher batch path", string(powerShellSessionStart))
+	}
+	if !strings.Contains(string(powerShellSessionStart), "session start") {
+		t.Fatalf("session-start.ps1 = %q, want session start invocation", string(powerShellSessionStart))
+	}
+	powerShellSessionStop, err := os.ReadFile(filepath.Join(store.RootDir, sessionStopFileName+powerShellExtension))
+	if err != nil {
+		t.Fatalf("ReadFile(session-stop.ps1) error = %v", err)
+	}
+	if !strings.Contains(string(powerShellSessionStop), "session stop") {
+		t.Fatalf("session-stop.ps1 = %q, want session stop invocation", string(powerShellSessionStop))
 	}
 }
 

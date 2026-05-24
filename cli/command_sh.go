@@ -32,6 +32,16 @@ var (
 	launchInteractiveShellFunc = launchInteractiveShell
 )
 
+type shellSessionContext struct {
+	EnvironmentName  string
+	RootDir          string
+	PromptRoot       string
+	VendorProjectDir string
+	VendorBinDir     string
+	VendorShimDir    string
+	PathEntries      []string
+}
+
 func newShCommand(ctx *commandContext) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:  "sh",
@@ -152,21 +162,9 @@ func windowsPromptCommand() string {
 }
 
 func prepareShellEnvironment(goos string, env []string, store backend.Store, workingDir, environmentName string) ([]string, error) {
-	vendorProjectDir, err := discoverVendorProjectDir(workingDir, store.ProjectDir)
+	context, err := buildShellSessionContext(goos, store, workingDir, environmentName)
 	if err != nil {
 		return nil, err
-	}
-	vendorBinDir := filepath.Join(vendorProjectDir, vendorDirectoryName, binDirectoryName)
-
-	pathEntries := []string{store.BinDir}
-	if goos == "windows" {
-		vendorShimDir, err := prepareWindowsVendorBinPHPSupport(vendorBinDir, store.RootDir)
-		if err != nil {
-			return nil, err
-		}
-		if vendorShimDir != "" {
-			pathEntries = append(pathEntries, vendorShimDir)
-		}
 	}
 
 	pathKey, systemPath, _ := lookupEnvValue(goos, env, "PATH")
@@ -174,16 +172,55 @@ func prepareShellEnvironment(goos string, env []string, store backend.Store, wor
 		pathKey = "PATH"
 	}
 
-	pathEntries = append(pathEntries, vendorBinDir, systemPath)
+	pathEntries := make([]string, 0, len(context.PathEntries)+1)
+	pathEntries = append(pathEntries, context.PathEntries...)
+	pathEntries = append(pathEntries, systemPath)
 	resolvedPath := joinPathList(goos, pathEntries...)
 	updatedEnv := replaceEnvValue(goos, env, pathKey, resolvedPath)
+	updatedEnv = replaceEnvValue(goos, updatedEnv, polkaPromptEnvEnv, context.EnvironmentName)
+
+	return replaceEnvValue(goos, updatedEnv, polkaPromptRootEnv, context.PromptRoot), nil
+}
+
+func buildShellSessionContext(goos string, store backend.Store, workingDir, environmentName string) (shellSessionContext, error) {
+	rootDir, err := filepath.Abs(store.RootDir)
+	if err != nil {
+		return shellSessionContext{}, fmt.Errorf("resolve Polka root directory: %w", err)
+	}
+	binDir, err := filepath.Abs(store.BinDir)
+	if err != nil {
+		return shellSessionContext{}, fmt.Errorf("resolve Polka bin directory: %w", err)
+	}
+	vendorProjectDir, err := discoverVendorProjectDir(workingDir, store.ProjectDir)
+	if err != nil {
+		return shellSessionContext{}, err
+	}
+	vendorBinDir := filepath.Join(vendorProjectDir, vendorDirectoryName, binDirectoryName)
 	promptRoot, err := shellPromptRoot(store.ProjectDir)
 	if err != nil {
-		return nil, err
+		return shellSessionContext{}, err
 	}
-	updatedEnv = replaceEnvValue(goos, updatedEnv, polkaPromptEnvEnv, environmentName)
 
-	return replaceEnvValue(goos, updatedEnv, polkaPromptRootEnv, promptRoot), nil
+	context := shellSessionContext{
+		EnvironmentName:  environmentName,
+		RootDir:          rootDir,
+		PromptRoot:       promptRoot,
+		VendorProjectDir: vendorProjectDir,
+		VendorBinDir:     vendorBinDir,
+		PathEntries:      []string{binDir},
+	}
+	if goos == "windows" {
+		context.VendorShimDir, err = prepareWindowsVendorBinPHPSupport(vendorBinDir, rootDir)
+		if err != nil {
+			return shellSessionContext{}, err
+		}
+		if context.VendorShimDir != "" {
+			context.PathEntries = append(context.PathEntries, context.VendorShimDir)
+		}
+	}
+	context.PathEntries = append(context.PathEntries, vendorBinDir)
+
+	return context, nil
 }
 
 func discoverVendorProjectDir(workingDir, projectRoot string) (string, error) {
