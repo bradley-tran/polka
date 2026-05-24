@@ -38,6 +38,48 @@ type serveCommandInput struct {
 	Server  string
 }
 
+type serveAppLayout struct {
+	Docroot                 string
+	FrontControllerRelative string
+	FrontControllerWebPath  string
+	FrontControllerIndex    string
+}
+
+type serveStaticMIMEType struct {
+	ContentType string
+	Extensions  []string
+}
+
+var serveStaticMIMETypes = []serveStaticMIMEType{
+	{ContentType: "text/html", Extensions: []string{"html", "htm", "shtml"}},
+	{ContentType: "text/css", Extensions: []string{"css"}},
+	{ContentType: "text/xml", Extensions: []string{"xml"}},
+	{ContentType: "image/gif", Extensions: []string{"gif"}},
+	{ContentType: "image/jpeg", Extensions: []string{"jpeg", "jpg"}},
+	{ContentType: "application/javascript", Extensions: []string{"js", "mjs"}},
+	{ContentType: "application/atom+xml", Extensions: []string{"atom"}},
+	{ContentType: "application/rss+xml", Extensions: []string{"rss"}},
+	{ContentType: "text/mathml", Extensions: []string{"mml"}},
+	{ContentType: "text/plain", Extensions: []string{"txt"}},
+	{ContentType: "text/vnd.sun.j2me.app-descriptor", Extensions: []string{"jad"}},
+	{ContentType: "text/vnd.wap.wml", Extensions: []string{"wml"}},
+	{ContentType: "text/x-component", Extensions: []string{"htc"}},
+	{ContentType: "image/avif", Extensions: []string{"avif"}},
+	{ContentType: "image/png", Extensions: []string{"png"}},
+	{ContentType: "image/svg+xml", Extensions: []string{"svg", "svgz"}},
+	{ContentType: "image/tiff", Extensions: []string{"tif", "tiff"}},
+	{ContentType: "image/webp", Extensions: []string{"webp"}},
+	{ContentType: "image/x-icon", Extensions: []string{"ico"}},
+	{ContentType: "font/woff", Extensions: []string{"woff"}},
+	{ContentType: "font/woff2", Extensions: []string{"woff2"}},
+	{ContentType: "application/json", Extensions: []string{"json", "map"}},
+	{ContentType: "application/pdf", Extensions: []string{"pdf"}},
+	{ContentType: "application/wasm", Extensions: []string{"wasm"}},
+	{ContentType: "application/xml", Extensions: []string{"xsl", "xslt"}},
+	{ContentType: "application/zip", Extensions: []string{"zip"}},
+	{ContentType: "application/octet-stream", Extensions: []string{"bin", "exe", "dll"}},
+}
+
 func newServeCommand(ctx *commandContext) *cobra.Command {
 	var input serveCommandInput
 
@@ -90,6 +132,11 @@ func runServe(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
+	layout, err := resolveServeAppLayout(docroot)
+	if err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
 	if current.Database != nil && strings.TrimSpace(current.Database.Engine) != "" {
 		resolved := dbResolvedEnvironment{Environment: *current, Database: current.Database}
 		if _, _, err := ensureManagedDatabaseStarted(store, resolved); err != nil {
@@ -101,9 +148,9 @@ func runServe(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 	var exitCode int
 	if current.NginxVersion != "" {
 		_, _ = fmt.Fprintf(stdout, "nginx webserver started at http://%s\n", serverAddress)
-		exitCode, err = runNginxServeFunc(stdout, stderr, store, *current, serverAddress, docroot)
+		exitCode, err = runNginxServeFunc(stdout, stderr, store, *current, serverAddress, layout)
 	} else {
-		exitCode, err = runPHPRuntimeServeFunc(stdout, stderr, store, serverAddress, docroot)
+		exitCode, err = runPHPRuntimeServeFunc(stdout, stderr, store, serverAddress, layout)
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
@@ -113,21 +160,21 @@ func runServe(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 	return exitCode
 }
 
-func runPHPRuntimeServe(stdout, stderr io.Writer, store backend.Store, serverAddress, docroot string) (int, error) {
+func runPHPRuntimeServe(stdout, stderr io.Writer, store backend.Store, serverAddress string, layout serveAppLayout) (int, error) {
 	phpTarget, err := store.ResolveTool("php")
 	if err != nil {
 		return 0, err
 	}
-	runtimeDir := servePHPRuntimeDir(store.RootDir, docroot)
-	routerPath, err := preparePHPRuntimeServeRuntime(runtimeDir, docroot)
+	runtimeDir := servePHPRuntimeDir(store.RootDir, layout.Docroot)
+	routerPath, err := preparePHPRuntimeServeRuntime(runtimeDir, layout)
 	if err != nil {
 		return 0, err
 	}
 
-	return executeTarget(stdout, stderr, phpTarget, []string{"-S", serverAddress, "-t", docroot, routerPath})
+	return executeTarget(stdout, stderr, phpTarget, []string{"-S", serverAddress, "-t", layout.Docroot, routerPath})
 }
 
-func runNginxServe(stdout, stderr io.Writer, store backend.Store, environment backend.Environment, serverAddress, docroot string) (int, error) {
+func runNginxServe(stdout, stderr io.Writer, store backend.Store, environment backend.Environment, serverAddress string, layout serveAppLayout) (int, error) {
 	if strings.TrimSpace(environment.PHPVersion) == "" {
 		return 0, fmt.Errorf("environment %q defines nginx but does not define a php version", environment.Name)
 	}
@@ -151,7 +198,7 @@ func runNginxServe(stdout, stderr io.Writer, store backend.Store, environment ba
 	}
 
 	runtimeDir := serveRuntimeDir(store.RootDir, environment.Name)
-	configPath, phpLogPath, err := prepareNginxServeRuntime(runtimeDir, serverAddress, docroot, backendAddress)
+	configPath, phpLogPath, err := prepareNginxServeRuntime(runtimeDir, serverAddress, layout, backendAddress)
 	if err != nil {
 		return 0, err
 	}
@@ -283,13 +330,33 @@ func servePHPRuntimeDir(rootDir, docroot string) string {
 	return serveRuntimeDir(rootDir, fmt.Sprintf("php-%08x", hasher.Sum32()))
 }
 
-func preparePHPRuntimeServeRuntime(runtimeDir, docroot string) (string, error) {
+func resolveServeAppLayout(docroot string) (serveAppLayout, error) {
+	layout := serveAppLayout{Docroot: docroot}
+	frontControllerPath := filepath.Join(docroot, "index.php")
+	fileInfo, err := os.Stat(frontControllerPath)
+	switch {
+	case err == nil && !fileInfo.IsDir():
+		layout.FrontControllerRelative = "index.php"
+		layout.FrontControllerWebPath = "/index.php"
+		layout.FrontControllerIndex = "index.php"
+	case err == nil && fileInfo.IsDir():
+		return serveAppLayout{}, fmt.Errorf("front controller %q is a directory", frontControllerPath)
+	case os.IsNotExist(err):
+		return layout, nil
+	case err != nil:
+		return serveAppLayout{}, fmt.Errorf("stat front controller: %w", err)
+	}
+
+	return layout, nil
+}
+
+func preparePHPRuntimeServeRuntime(runtimeDir string, layout serveAppLayout) (string, error) {
 	if err := os.MkdirAll(runtimeDir, 0o755); err != nil {
 		return "", fmt.Errorf("create serve runtime directory: %w", err)
 	}
 
 	routerPath := filepath.Join(runtimeDir, phpServeRouterName)
-	router := renderPHPRuntimeRouter(docroot)
+	router := renderPHPRuntimeRouter(layout)
 	if err := os.WriteFile(routerPath, router, 0o644); err != nil {
 		return "", fmt.Errorf("write php serve router: %w", err)
 	}
@@ -297,13 +364,22 @@ func preparePHPRuntimeServeRuntime(runtimeDir, docroot string) (string, error) {
 	return routerPath, nil
 }
 
-func renderPHPRuntimeRouter(docroot string) []byte {
+func renderPHPRuntimeRouter(layout serveAppLayout) []byte {
 	var builder strings.Builder
 	builder.WriteString("<?php\n")
 	builder.WriteString("declare(strict_types=1);\n\n")
 	builder.WriteString("$docroot = ")
-	builder.WriteString(strconv.Quote(filepath.ToSlash(docroot)))
+	builder.WriteString(strconv.Quote(filepath.ToSlash(layout.Docroot)))
 	builder.WriteString(";\n")
+	builder.WriteString("$frontControllerRelative = ")
+	builder.WriteString(strconv.Quote(filepath.ToSlash(layout.FrontControllerRelative)))
+	builder.WriteString(";\n")
+	builder.WriteString("$docrootReal = realpath($docroot);\n")
+	builder.WriteString("if ($docrootReal === false) {\n")
+	builder.WriteString("    header(($_SERVER['SERVER_PROTOCOL'] ?? 'HTTP/1.1') . ' 500 Internal Server Error');\n")
+	builder.WriteString("    echo 'Document root does not exist.';\n")
+	builder.WriteString("    return true;\n")
+	builder.WriteString("}\n")
 	builder.WriteString("$requestUri = $_SERVER['REQUEST_URI'] ?? '/';\n")
 	builder.WriteString("$requestPath = (string) (parse_url($requestUri, PHP_URL_PATH) ?? '/');\n")
 	builder.WriteString("$relativePath = ltrim(str_replace('/', DIRECTORY_SEPARATOR, rawurldecode($requestPath)), DIRECTORY_SEPARATOR);\n")
@@ -311,73 +387,65 @@ func renderPHPRuntimeRouter(docroot string) []byte {
 	builder.WriteString("if ($relativePath !== '') {\n")
 	builder.WriteString("    $targetPath .= DIRECTORY_SEPARATOR . $relativePath;\n")
 	builder.WriteString("}\n")
-	builder.WriteString("$docrootReal = realpath($docroot);\n")
 	builder.WriteString("$targetReal = realpath($targetPath);\n")
-	builder.WriteString("if ($docrootReal === false || $targetReal === false || !is_file($targetReal)) {\n")
-	builder.WriteString("    return false;\n")
-	builder.WriteString("}\n")
 	builder.WriteString("$docrootPrefix = rtrim($docrootReal, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;\n")
-	builder.WriteString("if ($targetReal !== $docrootReal && strncmp($targetReal, $docrootPrefix, strlen($docrootPrefix)) !== 0) {\n")
+	builder.WriteString("if ($targetReal !== false && $targetReal !== $docrootReal && strncmp($targetReal, $docrootPrefix, strlen($docrootPrefix)) !== 0) {\n")
+	builder.WriteString("    header(($_SERVER['SERVER_PROTOCOL'] ?? 'HTTP/1.1') . ' 403 Forbidden');\n")
+	builder.WriteString("    return true;\n")
+	builder.WriteString("}\n")
+	builder.WriteString("if ($targetReal !== false && is_file($targetReal)) {\n")
+	builder.WriteString("    $extension = strtolower(pathinfo($targetReal, PATHINFO_EXTENSION));\n")
+	builder.WriteString("    if ($extension === 'php') {\n")
+	builder.WriteString("        return false;\n")
+	builder.WriteString("    }\n")
+	builder.WriteString("    $mimeTypes = [\n")
+	writeServePHPMIMETypes(&builder, "        ")
+	builder.WriteString("    ];\n")
+	builder.WriteString("    $mimeType = $mimeTypes[$extension] ?? 'application/octet-stream';\n")
+	builder.WriteString("    header('Content-Type: ' . $mimeType);\n")
+	builder.WriteString("    $size = filesize($targetReal);\n")
+	builder.WriteString("    if ($size !== false) {\n")
+	builder.WriteString("        header('Content-Length: ' . (string) $size);\n")
+	builder.WriteString("    }\n")
+	builder.WriteString("    if (strcasecmp($_SERVER['REQUEST_METHOD'] ?? 'GET', 'HEAD') !== 0) {\n")
+	builder.WriteString("        readfile($targetReal);\n")
+	builder.WriteString("    }\n")
+	builder.WriteString("    return true;\n")
+	builder.WriteString("}\n")
+	builder.WriteString("$scriptRelative = $frontControllerRelative;\n")
+	builder.WriteString("if (str_contains($requestPath, '.php')) {\n")
+	builder.WriteString("    $path = $requestPath;\n")
+	builder.WriteString("    do {\n")
+	builder.WriteString("        $path = dirname($path);\n")
+	builder.WriteString("        if (str_ends_with($path, '.php')) {\n")
+	builder.WriteString("            $candidate = ltrim(str_replace('/', DIRECTORY_SEPARATOR, $path), DIRECTORY_SEPARATOR);\n")
+	builder.WriteString("            $candidateReal = realpath($docroot . DIRECTORY_SEPARATOR . $candidate);\n")
+	builder.WriteString("            if ($candidateReal !== false && is_file($candidateReal) && strncmp($candidateReal, $docrootPrefix, strlen($docrootPrefix)) === 0) {\n")
+	builder.WriteString("                $scriptRelative = str_replace(DIRECTORY_SEPARATOR, '/', $candidate);\n")
+	builder.WriteString("                break;\n")
+	builder.WriteString("            }\n")
+	builder.WriteString("        }\n")
+	builder.WriteString("    } while ($path !== '/' && $path !== '.');\n")
+	builder.WriteString("}\n")
+	builder.WriteString("if ($scriptRelative === '') {\n")
 	builder.WriteString("    return false;\n")
 	builder.WriteString("}\n")
-	builder.WriteString("$extension = strtolower(pathinfo($targetReal, PATHINFO_EXTENSION));\n")
-	builder.WriteString("if ($extension === 'php') {\n")
+	builder.WriteString("$scriptAbsolute = $docroot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $scriptRelative);\n")
+	builder.WriteString("$scriptReal = realpath($scriptAbsolute);\n")
+	builder.WriteString("if ($scriptReal === false || !is_file($scriptReal) || strncmp($scriptReal, $docrootPrefix, strlen($docrootPrefix)) !== 0) {\n")
 	builder.WriteString("    return false;\n")
 	builder.WriteString("}\n")
-	builder.WriteString("$mimeTypes = [\n")
-	builder.WriteString("    'html' => 'text/html',\n")
-	builder.WriteString("    'htm' => 'text/html',\n")
-	builder.WriteString("    'shtml' => 'text/html',\n")
-	builder.WriteString("    'css' => 'text/css',\n")
-	builder.WriteString("    'xml' => 'text/xml',\n")
-	builder.WriteString("    'gif' => 'image/gif',\n")
-	builder.WriteString("    'jpeg' => 'image/jpeg',\n")
-	builder.WriteString("    'jpg' => 'image/jpeg',\n")
-	builder.WriteString("    'js' => 'application/javascript',\n")
-	builder.WriteString("    'mjs' => 'application/javascript',\n")
-	builder.WriteString("    'atom' => 'application/atom+xml',\n")
-	builder.WriteString("    'rss' => 'application/rss+xml',\n")
-	builder.WriteString("    'mml' => 'text/mathml',\n")
-	builder.WriteString("    'txt' => 'text/plain',\n")
-	builder.WriteString("    'jad' => 'text/vnd.sun.j2me.app-descriptor',\n")
-	builder.WriteString("    'wml' => 'text/vnd.wap.wml',\n")
-	builder.WriteString("    'htc' => 'text/x-component',\n")
-	builder.WriteString("    'avif' => 'image/avif',\n")
-	builder.WriteString("    'png' => 'image/png',\n")
-	builder.WriteString("    'svg' => 'image/svg+xml',\n")
-	builder.WriteString("    'svgz' => 'image/svg+xml',\n")
-	builder.WriteString("    'tif' => 'image/tiff',\n")
-	builder.WriteString("    'tiff' => 'image/tiff',\n")
-	builder.WriteString("    'webp' => 'image/webp',\n")
-	builder.WriteString("    'ico' => 'image/x-icon',\n")
-	builder.WriteString("    'woff' => 'font/woff',\n")
-	builder.WriteString("    'woff2' => 'font/woff2',\n")
-	builder.WriteString("    'json' => 'application/json',\n")
-	builder.WriteString("    'map' => 'application/json',\n")
-	builder.WriteString("    'pdf' => 'application/pdf',\n")
-	builder.WriteString("    'wasm' => 'application/wasm',\n")
-	builder.WriteString("    'xsl' => 'application/xml',\n")
-	builder.WriteString("    'xslt' => 'application/xml',\n")
-	builder.WriteString("    'zip' => 'application/zip',\n")
-	builder.WriteString("    'bin' => 'application/octet-stream',\n")
-	builder.WriteString("    'exe' => 'application/octet-stream',\n")
-	builder.WriteString("    'dll' => 'application/octet-stream',\n")
-	builder.WriteString("];\n")
-	builder.WriteString("$mimeType = $mimeTypes[$extension] ?? 'application/octet-stream';\n")
-	builder.WriteString("header('Content-Type: ' . $mimeType);\n")
-	builder.WriteString("$size = filesize($targetReal);\n")
-	builder.WriteString("if ($size !== false) {\n")
-	builder.WriteString("    header('Content-Length: ' . (string) $size);\n")
-	builder.WriteString("}\n")
-	builder.WriteString("if (strcasecmp($_SERVER['REQUEST_METHOD'] ?? 'GET', 'HEAD') !== 0) {\n")
-	builder.WriteString("    readfile($targetReal);\n")
-	builder.WriteString("}\n")
+	builder.WriteString("$scriptWebPath = '/' . ltrim(str_replace(DIRECTORY_SEPARATOR, '/', $scriptRelative), '/');\n")
+	builder.WriteString("$_SERVER['SCRIPT_FILENAME'] = $scriptReal;\n")
+	builder.WriteString("$_SERVER['SCRIPT_NAME'] = $scriptWebPath;\n")
+	builder.WriteString("$_SERVER['PHP_SELF'] = $scriptWebPath;\n")
+	builder.WriteString("require $scriptReal;\n")
 	builder.WriteString("return true;\n")
 
 	return []byte(builder.String())
 }
 
-func prepareNginxServeRuntime(runtimeDir, serverAddress, docroot, backendAddress string) (string, string, error) {
+func prepareNginxServeRuntime(runtimeDir, serverAddress string, layout serveAppLayout, backendAddress string) (string, string, error) {
 	tempRoot := filepath.Join(runtimeDir, "temp")
 	logsDir := filepath.Join(runtimeDir, "logs")
 	tempDirs := []string{
@@ -404,7 +472,7 @@ func prepareNginxServeRuntime(runtimeDir, serverAddress, docroot, backendAddress
 
 	configPath := filepath.Join(runtimeDir, "nginx.conf")
 	phpLogPath := filepath.Join(runtimeDir, "php.log")
-	config := renderNginxServeConfig(host, port, docroot, backendAddress)
+	config := renderNginxServeConfig(host, port, layout, backendAddress)
 	if err := os.WriteFile(configPath, config, 0o644); err != nil {
 		return "", "", fmt.Errorf("write nginx config: %w", err)
 	}
@@ -412,7 +480,7 @@ func prepareNginxServeRuntime(runtimeDir, serverAddress, docroot, backendAddress
 	return configPath, phpLogPath, nil
 }
 
-func renderNginxServeConfig(host string, port int, docroot, backendAddress string) []byte {
+func renderNginxServeConfig(host string, port int, layout serveAppLayout, backendAddress string) []byte {
 	listenAddress := renderNginxListenAddress(host, port)
 	serverName := strings.TrimSpace(host)
 	if serverName == "" {
@@ -429,33 +497,7 @@ func renderNginxServeConfig(host string, port int, docroot, backendAddress strin
 	builder.WriteString("    access_log logs/access.log;\n")
 	builder.WriteString("    error_log logs/error.log notice;\n")
 	builder.WriteString("    types {\n")
-	builder.WriteString("        text/html html htm shtml;\n")
-	builder.WriteString("        text/css css;\n")
-	builder.WriteString("        text/xml xml;\n")
-	builder.WriteString("        image/gif gif;\n")
-	builder.WriteString("        image/jpeg jpeg jpg;\n")
-	builder.WriteString("        application/javascript js mjs;\n")
-	builder.WriteString("        application/atom+xml atom;\n")
-	builder.WriteString("        application/rss+xml rss;\n")
-	builder.WriteString("        text/mathml mml;\n")
-	builder.WriteString("        text/plain txt;\n")
-	builder.WriteString("        text/vnd.sun.j2me.app-descriptor jad;\n")
-	builder.WriteString("        text/vnd.wap.wml wml;\n")
-	builder.WriteString("        text/x-component htc;\n")
-	builder.WriteString("        image/avif avif;\n")
-	builder.WriteString("        image/png png;\n")
-	builder.WriteString("        image/svg+xml svg svgz;\n")
-	builder.WriteString("        image/tiff tif tiff;\n")
-	builder.WriteString("        image/webp webp;\n")
-	builder.WriteString("        image/x-icon ico;\n")
-	builder.WriteString("        font/woff woff;\n")
-	builder.WriteString("        font/woff2 woff2;\n")
-	builder.WriteString("        application/json json map;\n")
-	builder.WriteString("        application/pdf pdf;\n")
-	builder.WriteString("        application/wasm wasm;\n")
-	builder.WriteString("        application/xml xsl xslt;\n")
-	builder.WriteString("        application/zip zip;\n")
-	builder.WriteString("        application/octet-stream bin exe dll;\n")
+	writeServeNginxMIMETypes(&builder, "        ")
 	builder.WriteString("    }\n")
 	builder.WriteString("    default_type application/octet-stream;\n")
 	builder.WriteString("    client_body_temp_path temp/client_body;\n")
@@ -470,12 +512,16 @@ func renderNginxServeConfig(host string, port int, docroot, backendAddress strin
 	builder.WriteString("        server_name ")
 	builder.WriteString(serverName)
 	builder.WriteString(";\n")
-	builder.WriteString("        index index.php index.html;\n")
+	builder.WriteString("        index ")
+	builder.WriteString(renderNginxIndexNames(layout))
+	builder.WriteString(";\n")
 	builder.WriteString("        root ")
-	builder.WriteString(quoteNginxPath(docroot))
+	builder.WriteString(quoteNginxPath(layout.Docroot))
 	builder.WriteString(";\n")
 	builder.WriteString("        location / {\n")
-	builder.WriteString("            try_files $uri $uri/ /index.php$is_args$args;\n")
+	builder.WriteString("            try_files $uri $uri/ ")
+	builder.WriteString(renderNginxTryFilesFallback(layout))
+	builder.WriteString(";\n")
 	builder.WriteString("        }\n")
 	builder.WriteString("        location ~ \\.php(?:$|/) {\n")
 	builder.WriteString("            fastcgi_split_path_info ^(.+?\\.php)(/.*)$;\n")
@@ -483,7 +529,9 @@ func renderNginxServeConfig(host string, port int, docroot, backendAddress strin
 	builder.WriteString("            fastcgi_pass ")
 	builder.WriteString(backendAddress)
 	builder.WriteString(";\n")
-	builder.WriteString("            fastcgi_index index.php;\n")
+	builder.WriteString("            fastcgi_index ")
+	builder.WriteString(renderNginxFastCGIIndex(layout))
+	builder.WriteString(";\n")
 	builder.WriteString("            fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;\n")
 	builder.WriteString("            fastcgi_param SCRIPT_NAME $fastcgi_script_name;\n")
 	builder.WriteString("            fastcgi_param DOCUMENT_ROOT $document_root;\n")
@@ -527,6 +575,55 @@ func renderNginxListenAddress(host string, port int) string {
 	}
 
 	return strconv.Itoa(port)
+}
+
+func writeServePHPMIMETypes(builder *strings.Builder, indent string) {
+	for _, mimeType := range serveStaticMIMETypes {
+		for _, extension := range mimeType.Extensions {
+			builder.WriteString(indent)
+			builder.WriteString("'")
+			builder.WriteString(extension)
+			builder.WriteString("' => '")
+			builder.WriteString(mimeType.ContentType)
+			builder.WriteString("',\n")
+		}
+	}
+}
+
+func writeServeNginxMIMETypes(builder *strings.Builder, indent string) {
+	for _, mimeType := range serveStaticMIMETypes {
+		builder.WriteString(indent)
+		builder.WriteString(mimeType.ContentType)
+		builder.WriteString(" ")
+		builder.WriteString(strings.Join(mimeType.Extensions, " "))
+		builder.WriteString(";\n")
+	}
+}
+
+func renderNginxIndexNames(layout serveAppLayout) string {
+	indices := []string{}
+	if layout.FrontControllerIndex != "" {
+		indices = append(indices, layout.FrontControllerIndex)
+	}
+	indices = append(indices, "index.html")
+
+	return strings.Join(indices, " ")
+}
+
+func renderNginxTryFilesFallback(layout serveAppLayout) string {
+	if layout.FrontControllerWebPath == "" {
+		return "=404"
+	}
+
+	return layout.FrontControllerWebPath + "$is_args$args"
+}
+
+func renderNginxFastCGIIndex(layout serveAppLayout) string {
+	if layout.FrontControllerIndex == "" {
+		return "index.php"
+	}
+
+	return layout.FrontControllerIndex
 }
 
 func quoteNginxPath(path string) string {

@@ -374,15 +374,15 @@ func TestRunServeUsesNginxWhenConfigured(t *testing.T) {
 	nginxCalls := 0
 	gotAddress := ""
 	gotDocroot := ""
-	runPHPRuntimeServeFunc = func(stdout, stderr io.Writer, store backend.Store, serverAddress, docroot string) (int, error) {
+	runPHPRuntimeServeFunc = func(stdout, stderr io.Writer, store backend.Store, serverAddress string, layout serveAppLayout) (int, error) {
 		phpCalls++
 		return 0, nil
 	}
-	runNginxServeFunc = func(stdout, stderr io.Writer, store backend.Store, environment backend.Environment, serverAddress, docroot string) (int, error) {
+	runNginxServeFunc = func(stdout, stderr io.Writer, store backend.Store, environment backend.Environment, serverAddress string, layout serveAppLayout) (int, error) {
 		nginxCalls++
 		gotAddress = serverAddress
-		gotDocroot = docroot
-		_, _ = io.WriteString(stdout, "fake-nginx "+serverAddress+" -t "+docroot+"\n")
+		gotDocroot = layout.Docroot
+		_, _ = io.WriteString(stdout, "fake-nginx "+serverAddress+" -t "+layout.Docroot+"\n")
 		return 0, nil
 	}
 
@@ -415,8 +415,15 @@ func TestPreparePHPRuntimeServeRuntimeCreatesRouter(t *testing.T) {
 	if err := os.MkdirAll(docroot, 0o755); err != nil {
 		t.Fatalf("MkdirAll(docroot) error = %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(docroot, "index.php"), []byte("<?php\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(index.php) error = %v", err)
+	}
+	layout, err := resolveServeAppLayout(docroot)
+	if err != nil {
+		t.Fatalf("resolveServeAppLayout() error = %v", err)
+	}
 
-	routerPath, err := preparePHPRuntimeServeRuntime(runtimeDir, docroot)
+	routerPath, err := preparePHPRuntimeServeRuntime(runtimeDir, layout)
 	if err != nil {
 		t.Fatalf("preparePHPRuntimeServeRuntime() error = %v", err)
 	}
@@ -440,14 +447,37 @@ func TestPreparePHPRuntimeServeRuntimeCreatesRouter(t *testing.T) {
 	if !strings.Contains(router, "readfile($targetReal);") {
 		t.Fatalf("php router = %q, want static file passthrough", router)
 	}
-	if !strings.Contains(router, "return false;") {
-		t.Fatalf("php router = %q, want fallback to built-in server handling", router)
+	if strings.Contains(router, ".ht.router.php") {
+		t.Fatalf("php router = %q, want no nested app router delegation", router)
+	}
+	if !strings.Contains(router, "$frontControllerRelative = \"index.php\";") {
+		t.Fatalf("php router = %q, want resolved front controller", router)
+	}
+	if !strings.Contains(router, "$scriptRelative = $frontControllerRelative;") {
+		t.Fatalf("php router = %q, want front controller fallback", router)
+	}
+	if !strings.Contains(router, "$_SERVER['SCRIPT_FILENAME'] = $scriptReal;") {
+		t.Fatalf("php router = %q, want rewritten script filename", router)
+	}
+	if !strings.Contains(router, "require $scriptReal;") {
+		t.Fatalf("php router = %q, want front controller require", router)
 	}
 }
 
 func TestPrepareNginxServeRuntimeCreatesLogsPath(t *testing.T) {
 	runtimeDir := filepath.Join(t.TempDir(), "run", "serve", "demo")
-	configPath, phpLogPath, err := prepareNginxServeRuntime(runtimeDir, "localhost:8080", filepath.Join(runtimeDir, "docroot"), "127.0.0.1:9000")
+	docroot := filepath.Join(runtimeDir, "docroot")
+	if err := os.MkdirAll(docroot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(docroot) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(docroot, "index.php"), []byte("<?php\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(index.php) error = %v", err)
+	}
+	layout, err := resolveServeAppLayout(docroot)
+	if err != nil {
+		t.Fatalf("resolveServeAppLayout() error = %v", err)
+	}
+	configPath, phpLogPath, err := prepareNginxServeRuntime(runtimeDir, "localhost:8080", layout, "127.0.0.1:9000")
 	if err != nil {
 		t.Fatalf("prepareNginxServeRuntime() error = %v", err)
 	}
@@ -476,11 +506,32 @@ func TestPrepareNginxServeRuntimeCreatesLogsPath(t *testing.T) {
 	if !strings.Contains(config, "application/javascript js mjs;") {
 		t.Fatalf("nginx config = %q, want js mime type mapping", config)
 	}
+	if !strings.Contains(config, "try_files $uri $uri/ /index.php$is_args$args;") {
+		t.Fatalf("nginx config = %q, want shared front controller fallback", config)
+	}
 	if !strings.Contains(config, "fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;") {
 		t.Fatalf("nginx config = %q, want script filename fastcgi param", config)
 	}
 	if strings.Contains(config, "proxy_pass") {
 		t.Fatalf("nginx config = %q, want no proxy_pass", config)
+	}
+}
+
+func TestResolveServeAppLayoutAllowsMissingFrontController(t *testing.T) {
+	docroot := t.TempDir()
+
+	layout, err := resolveServeAppLayout(docroot)
+	if err != nil {
+		t.Fatalf("resolveServeAppLayout() error = %v", err)
+	}
+	if layout.Docroot != docroot {
+		t.Fatalf("layout docroot = %q, want %q", layout.Docroot, docroot)
+	}
+	if layout.FrontControllerRelative != "" {
+		t.Fatalf("front controller relative = %q, want empty", layout.FrontControllerRelative)
+	}
+	if layout.FrontControllerWebPath != "" {
+		t.Fatalf("front controller web path = %q, want empty", layout.FrontControllerWebPath)
 	}
 }
 
