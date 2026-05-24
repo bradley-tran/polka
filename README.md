@@ -2,15 +2,6 @@
 
 Polka is a CLI tool for PHP virtual environment management. It uses `polka.yaml` as the source of truth for environment selection, and the shims in `.polka/bin` dispatch to the locally installed `php` and `composer` versions selected for the active environment.
 
-## What is included
-
-- A lean Go module with a runnable CLI entrypoint.
-- A project-local layout built around `polka.yaml` and `.polka/`.
-- Starter commands for `init`, `new`, `install`, `serve`, `sh`, `session`, `config`, `list`, `use`, `status`, and `remove`.
-- Real dispatch shims in `.polka/bin` for `php` and `composer`.
-- A global tool cache used to avoid re-downloading versions across projects.
-- A small test covering the basic environment lifecycle.
-
 ## Project layout
 
 ```text
@@ -64,7 +55,7 @@ To deactivate the current shell session and restore the exact pre-session `PATH`
 
 The lower-level `polka session start` and `polka session stop` commands remain available for now; they print the transient activation or deactivation script path that the stable wrappers source for you.
 
-Use `polka serve <docroot> [--server HOST:PORT]` to start the active environment's web server. When the current environment defines `nginx`, Polka starts `php-cgi` on an internal loopback port and runs nginx in the foreground with a generated FastCGI config; otherwise it falls back to PHP's built-in web server. Polka reads `server.hostname` and `server.port` from the current environment in `polka.yaml`, and falls back to `localhost:8000` when that config is absent. Automatic nginx downloads are currently implemented on Windows amd64.
+Use `polka serve [docroot] [--server HOST:PORT]` to start the active environment's web server. When `docroot` is omitted, Polka uses `environments.<name>.docroot` from `polka.yaml`. When the current environment defines `nginx`, Polka starts `php-cgi` on an internal loopback port, prints a startup line with the listening URL, and runs nginx in the foreground with a generated FastCGI config; otherwise it falls back to PHP's built-in web server with a generated router that serves static files with explicit MIME types. Polka reads `server.hostname` and `server.port` from the current environment in `polka.yaml`, and falls back to `localhost:8000` when that config is absent. Automatic nginx downloads are currently implemented on Windows amd64.
 
 When an environment defines `php-extensions`, `polka install` also writes a generated `php.ini` next to the installed PHP executable so those extensions are explicitly enabled or disabled for that environment. If `composer` is configured for that environment, `openssl` and `zip` are enabled by default unless `php-extensions` explicitly sets either one to `false`.
 
@@ -79,6 +70,7 @@ environments:
     php: 8.4
     composer: 2.8
     nginx: 1.30
+    docroot: public
     server:
       hostname: localhost
       port: 8080

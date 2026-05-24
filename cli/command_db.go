@@ -883,7 +883,7 @@ func openDatabaseExportWriter(path string) (io.Writer, func(bool) error, string,
 	finalize := func(success bool) error {
 		var finalizeErr error
 		if gzipWriter != nil {
-			if err := gzipWriter.Close(); err != nil && finalizeErr == nil {
+			if err := gzipWriter.Close(); err != nil {
 				finalizeErr = fmt.Errorf("close gzip database export %s: %w", resolvedPath, err)
 			}
 		}

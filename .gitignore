@@ -1,5 +1,6 @@
 /polka
 /.polka/
+polka.yaml
 /dist/
 /build/
 *.test
@@ -7,4 +8,4 @@
 *.exe~
 
 # Local test folder
-/samples
+/test-site

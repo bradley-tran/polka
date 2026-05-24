@@ -43,6 +43,7 @@ type Environment struct {
 	PHPVersion      string          `yaml:"php,omitempty"`
 	ComposerVersion string          `yaml:"composer,omitempty"`
 	NginxVersion    string          `yaml:"nginx,omitempty"`
+	Docroot         string          `yaml:"docroot,omitempty"`
 	Database        *DatabaseConfig `yaml:"database,omitempty"`
 	PHPExtensions   map[string]bool `yaml:"php-extensions,omitempty"`
 	Server          *ServerConfig   `yaml:"server,omitempty"`
@@ -592,6 +593,7 @@ func (s Store) normalizeEnvironment(name string, environment Environment) Enviro
 		PHPVersion:      strings.TrimSpace(environment.PHPVersion),
 		ComposerVersion: strings.TrimSpace(environment.ComposerVersion),
 		NginxVersion:    strings.TrimSpace(environment.NginxVersion),
+		Docroot:         strings.TrimSpace(environment.Docroot),
 		Database:        normalizeDatabaseConfig(environment.Database),
 		PHPExtensions:   normalizePHPExtensions(environment.PHPExtensions),
 		Server:          normalizeServerConfig(environment.Server),

@@ -16,6 +16,7 @@ type testEnvironmentConfig struct {
 	PHP           string              `yaml:"php"`
 	Composer      string              `yaml:"composer"`
 	Nginx         string              `yaml:"nginx,omitempty"`
+	Docroot       string              `yaml:"docroot,omitempty"`
 	Database      *testDatabaseConfig `yaml:"database,omitempty"`
 	PHPExtensions map[string]bool     `yaml:"php-extensions,omitempty"`
 	Server        *testServerConfig   `yaml:"server,omitempty"`

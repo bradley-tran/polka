@@ -11,7 +11,7 @@ Commands:
   config [name]        set php, composer, and database settings for an environment
   install [name]       install all tools for an environment
   db [args...]         run the active environment's database client or manage its local server
-	serve <docroot>      start the PHP local server for the active environment
+  serve [docroot]      start the local web server for the active environment
 	sh                   open an interactive shell with local binaries first
 	session [start|stop] generate shell scripts that activate or deactivate local binaries
   list                 list environments
@@ -29,7 +29,8 @@ Examples:
   polka db start
   polka db status
   polka db --version
-	polka serve public
+  polka serve public
+  polka serve
 	polka sh
 	polka session start
   polka list
@@ -95,9 +96,10 @@ When no subcommand is provided, Polka forwards the arguments to the database cli
 `
 
 const serveUsage = `Usage:
-	polka serve <docroot> [--server HOST:PORT]
+  polka serve [docroot] [--server HOST:PORT]
 
-Start the PHP local server for the active environment.
+Start the active environment's local web server.
+When docroot is omitted, Polka uses environments.<name>.docroot from polka.yaml.
 When --server is omitted, Polka uses the current environment's server.hostname and server.port from polka.yaml, defaulting to localhost:8000.
 When the current environment defines a database, Polka starts that managed local database first.
 `

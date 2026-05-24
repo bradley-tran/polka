@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"hash/fnv"
 	"io"
 	"net"
 	"os"
@@ -23,6 +24,7 @@ const (
 	serveStartupTimeout  = 5 * time.Second
 	serveRuntimeRoot     = "run"
 	serveRuntimeSubdir   = "serve"
+	phpServeRouterName   = "php-router.php"
 	serveProxyHost       = "127.0.0.1"
 )
 
@@ -40,15 +42,18 @@ func newServeCommand(ctx *commandContext) *cobra.Command {
 	var input serveCommandInput
 
 	cmd := &cobra.Command{
-		Use:  "serve <docroot>",
-		Args: exactArgsError("serve requires exactly one docroot", 1),
+		Use:  "serve [docroot]",
+		Args: maximumArgsError("serve accepts at most one docroot", 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store, err := ctx.store()
 			if err != nil {
 				return &statusError{code: 1, err: err}
 			}
 
-			input.Docroot = strings.TrimSpace(args[0])
+			input.Docroot = ""
+			if len(args) > 0 {
+				input.Docroot = strings.TrimSpace(args[0])
+			}
 			input.Server = strings.TrimSpace(input.Server)
 			if cmd.Flags().Changed("server") && input.Server == "" {
 				return &statusError{code: 1, err: fmt.Errorf("--server requires a non-empty value")}
@@ -80,7 +85,7 @@ func runServe(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
-	docroot, err := resolveServeDocroot(store.ProjectDir, input.Docroot)
+	docroot, err := resolveServeDocroot(store.ProjectDir, current.Docroot, input.Docroot)
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
@@ -95,6 +100,7 @@ func runServe(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 
 	var exitCode int
 	if current.NginxVersion != "" {
+		_, _ = fmt.Fprintf(stdout, "nginx webserver started at http://%s\n", serverAddress)
 		exitCode, err = runNginxServeFunc(stdout, stderr, store, *current, serverAddress, docroot)
 	} else {
 		exitCode, err = runPHPRuntimeServeFunc(stdout, stderr, store, serverAddress, docroot)
@@ -112,8 +118,13 @@ func runPHPRuntimeServe(stdout, stderr io.Writer, store backend.Store, serverAdd
 	if err != nil {
 		return 0, err
 	}
+	runtimeDir := servePHPRuntimeDir(store.RootDir, docroot)
+	routerPath, err := preparePHPRuntimeServeRuntime(runtimeDir, docroot)
+	if err != nil {
+		return 0, err
+	}
 
-	return executeTarget(stdout, stderr, phpTarget, []string{"-S", serverAddress, "-t", docroot})
+	return executeTarget(stdout, stderr, phpTarget, []string{"-S", serverAddress, "-t", docroot, routerPath})
 }
 
 func runNginxServe(stdout, stderr io.Writer, store backend.Store, environment backend.Environment, serverAddress, docroot string) (int, error) {
@@ -263,6 +274,107 @@ func serveRuntimeDir(rootDir, environmentName string) string {
 	}
 
 	return filepath.Join(rootDir, serveRuntimeRoot, serveRuntimeSubdir, name)
+}
+
+func servePHPRuntimeDir(rootDir, docroot string) string {
+	hasher := fnv.New32a()
+	_, _ = hasher.Write([]byte(filepath.Clean(docroot)))
+
+	return serveRuntimeDir(rootDir, fmt.Sprintf("php-%08x", hasher.Sum32()))
+}
+
+func preparePHPRuntimeServeRuntime(runtimeDir, docroot string) (string, error) {
+	if err := os.MkdirAll(runtimeDir, 0o755); err != nil {
+		return "", fmt.Errorf("create serve runtime directory: %w", err)
+	}
+
+	routerPath := filepath.Join(runtimeDir, phpServeRouterName)
+	router := renderPHPRuntimeRouter(docroot)
+	if err := os.WriteFile(routerPath, router, 0o644); err != nil {
+		return "", fmt.Errorf("write php serve router: %w", err)
+	}
+
+	return routerPath, nil
+}
+
+func renderPHPRuntimeRouter(docroot string) []byte {
+	var builder strings.Builder
+	builder.WriteString("<?php\n")
+	builder.WriteString("declare(strict_types=1);\n\n")
+	builder.WriteString("$docroot = ")
+	builder.WriteString(strconv.Quote(filepath.ToSlash(docroot)))
+	builder.WriteString(";\n")
+	builder.WriteString("$requestUri = $_SERVER['REQUEST_URI'] ?? '/';\n")
+	builder.WriteString("$requestPath = (string) (parse_url($requestUri, PHP_URL_PATH) ?? '/');\n")
+	builder.WriteString("$relativePath = ltrim(str_replace('/', DIRECTORY_SEPARATOR, rawurldecode($requestPath)), DIRECTORY_SEPARATOR);\n")
+	builder.WriteString("$targetPath = $docroot;\n")
+	builder.WriteString("if ($relativePath !== '') {\n")
+	builder.WriteString("    $targetPath .= DIRECTORY_SEPARATOR . $relativePath;\n")
+	builder.WriteString("}\n")
+	builder.WriteString("$docrootReal = realpath($docroot);\n")
+	builder.WriteString("$targetReal = realpath($targetPath);\n")
+	builder.WriteString("if ($docrootReal === false || $targetReal === false || !is_file($targetReal)) {\n")
+	builder.WriteString("    return false;\n")
+	builder.WriteString("}\n")
+	builder.WriteString("$docrootPrefix = rtrim($docrootReal, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;\n")
+	builder.WriteString("if ($targetReal !== $docrootReal && strncmp($targetReal, $docrootPrefix, strlen($docrootPrefix)) !== 0) {\n")
+	builder.WriteString("    return false;\n")
+	builder.WriteString("}\n")
+	builder.WriteString("$extension = strtolower(pathinfo($targetReal, PATHINFO_EXTENSION));\n")
+	builder.WriteString("if ($extension === 'php') {\n")
+	builder.WriteString("    return false;\n")
+	builder.WriteString("}\n")
+	builder.WriteString("$mimeTypes = [\n")
+	builder.WriteString("    'html' => 'text/html',\n")
+	builder.WriteString("    'htm' => 'text/html',\n")
+	builder.WriteString("    'shtml' => 'text/html',\n")
+	builder.WriteString("    'css' => 'text/css',\n")
+	builder.WriteString("    'xml' => 'text/xml',\n")
+	builder.WriteString("    'gif' => 'image/gif',\n")
+	builder.WriteString("    'jpeg' => 'image/jpeg',\n")
+	builder.WriteString("    'jpg' => 'image/jpeg',\n")
+	builder.WriteString("    'js' => 'application/javascript',\n")
+	builder.WriteString("    'mjs' => 'application/javascript',\n")
+	builder.WriteString("    'atom' => 'application/atom+xml',\n")
+	builder.WriteString("    'rss' => 'application/rss+xml',\n")
+	builder.WriteString("    'mml' => 'text/mathml',\n")
+	builder.WriteString("    'txt' => 'text/plain',\n")
+	builder.WriteString("    'jad' => 'text/vnd.sun.j2me.app-descriptor',\n")
+	builder.WriteString("    'wml' => 'text/vnd.wap.wml',\n")
+	builder.WriteString("    'htc' => 'text/x-component',\n")
+	builder.WriteString("    'avif' => 'image/avif',\n")
+	builder.WriteString("    'png' => 'image/png',\n")
+	builder.WriteString("    'svg' => 'image/svg+xml',\n")
+	builder.WriteString("    'svgz' => 'image/svg+xml',\n")
+	builder.WriteString("    'tif' => 'image/tiff',\n")
+	builder.WriteString("    'tiff' => 'image/tiff',\n")
+	builder.WriteString("    'webp' => 'image/webp',\n")
+	builder.WriteString("    'ico' => 'image/x-icon',\n")
+	builder.WriteString("    'woff' => 'font/woff',\n")
+	builder.WriteString("    'woff2' => 'font/woff2',\n")
+	builder.WriteString("    'json' => 'application/json',\n")
+	builder.WriteString("    'map' => 'application/json',\n")
+	builder.WriteString("    'pdf' => 'application/pdf',\n")
+	builder.WriteString("    'wasm' => 'application/wasm',\n")
+	builder.WriteString("    'xsl' => 'application/xml',\n")
+	builder.WriteString("    'xslt' => 'application/xml',\n")
+	builder.WriteString("    'zip' => 'application/zip',\n")
+	builder.WriteString("    'bin' => 'application/octet-stream',\n")
+	builder.WriteString("    'exe' => 'application/octet-stream',\n")
+	builder.WriteString("    'dll' => 'application/octet-stream',\n")
+	builder.WriteString("];\n")
+	builder.WriteString("$mimeType = $mimeTypes[$extension] ?? 'application/octet-stream';\n")
+	builder.WriteString("header('Content-Type: ' . $mimeType);\n")
+	builder.WriteString("$size = filesize($targetReal);\n")
+	builder.WriteString("if ($size !== false) {\n")
+	builder.WriteString("    header('Content-Length: ' . (string) $size);\n")
+	builder.WriteString("}\n")
+	builder.WriteString("if (strcasecmp($_SERVER['REQUEST_METHOD'] ?? 'GET', 'HEAD') !== 0) {\n")
+	builder.WriteString("    readfile($targetReal);\n")
+	builder.WriteString("}\n")
+	builder.WriteString("return true;\n")
+
+	return []byte(builder.String())
 }
 
 func prepareNginxServeRuntime(runtimeDir, serverAddress, docroot, backendAddress string) (string, string, error) {
@@ -489,10 +601,13 @@ func validateServeHostAndPort(host string, port int) error {
 	return nil
 }
 
-func resolveServeDocroot(projectDir, docroot string) (string, error) {
-	trimmed := strings.TrimSpace(docroot)
+func resolveServeDocroot(projectDir, configuredDocroot, overrideDocroot string) (string, error) {
+	trimmed := strings.TrimSpace(overrideDocroot)
 	if trimmed == "" {
-		return "", fmt.Errorf("serve requires exactly one docroot")
+		trimmed = strings.TrimSpace(configuredDocroot)
+	}
+	if trimmed == "" {
+		return "", fmt.Errorf("serve requires a docroot argument or environments.<name>.docroot in polka.yaml")
 	}
 
 	resolved := filepath.Clean(trimmed)
@@ -505,7 +620,7 @@ func resolveServeDocroot(projectDir, docroot string) (string, error) {
 		return "", fmt.Errorf("stat docroot: %w", err)
 	}
 	if !fileInfo.IsDir() {
-		return "", fmt.Errorf("docroot %q is not a directory", docroot)
+		return "", fmt.Errorf("docroot %q is not a directory", trimmed)
 	}
 
 	return resolved, nil
