@@ -370,7 +370,7 @@ func runStatus(stdout io.Writer, store backend.Store) error {
 		return err
 	}
 
-	_, _ = fmt.Fprintf(stdout, "environment%s\n", current.Name)
+	_, _ = fmt.Fprintf(stdout, "environment %s\n", current.Name)
 	_, _ = fmt.Fprintf(stdout, "php %s\n", labelOrUnset(current.PHPVersion))
 	_, _ = fmt.Fprintf(stdout, "composer %s\n", labelOrUnset(current.ComposerVersion))
 	_, _ = fmt.Fprintf(stdout, "nginx %s\n", labelOrUnset(current.NginxVersion))

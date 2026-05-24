@@ -235,7 +235,7 @@ func runDBStatus(stdout, stderr io.Writer, store backend.Store, resolved dbResol
 		return 1
 	}
 
-	state, err := loadLiveDatabaseState(store.RootDir, resolved.Environment.Name)
+	state, err := loadLiveDatabaseStateForResolved(store.RootDir, resolved)
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
@@ -257,6 +257,10 @@ func buildDBServerSpec(store backend.Store, resolved dbResolvedEnvironment) (dbS
 	if err != nil {
 		return dbServerSpec{}, err
 	}
+	dataDir, err := resolveDatabaseDataPath(store.RootDir, resolved)
+	if err != nil {
+		return dbServerSpec{}, err
+	}
 
 	installDir := filepath.Join(store.EnvsDir, resolved.Database.Engine, resolved.Database.Version)
 	target, err := resolveDatabaseServerTarget(store.EnvsDir, resolved.Database.Engine, resolved.Database.Version)
@@ -275,7 +279,7 @@ func buildDBServerSpec(store backend.Store, resolved dbResolvedEnvironment) (dbS
 		InstallDir:       installDir,
 		Target:           target,
 		AdminTarget:      adminTarget,
-		DataDir:          databaseDataPath(store.RootDir, resolved.Environment.Name),
+		DataDir:          dataDir,
 		LogPath:          databaseLogPath(store.RootDir, resolved.Environment.Name),
 		DefaultsFile:     databaseDefaultsFilePath(store.RootDir, resolved.Environment.Name),
 		BootstrapSQLFile: databaseBootstrapSQLPath(store.RootDir, resolved.Environment.Name),
@@ -285,7 +289,7 @@ func buildDBServerSpec(store backend.Store, resolved dbResolvedEnvironment) (dbS
 
 func ensureManagedDatabaseStarted(store backend.Store, resolved dbResolvedEnvironment) (dbRuntimeState, bool, error) {
 	statePath := databaseStatePath(store.RootDir, resolved.Environment.Name)
-	state, err := loadLiveDatabaseState(store.RootDir, resolved.Environment.Name)
+	state, err := loadLiveDatabaseStateForResolved(store.RootDir, resolved)
 	if err != nil {
 		return dbRuntimeState{}, false, err
 	}
@@ -335,7 +339,7 @@ func injectDatabaseConnectionArgs(rootDir string, resolved dbResolvedEnvironment
 		return args, nil
 	}
 
-	state, err := loadLiveDatabaseState(rootDir, resolved.Environment.Name)
+	state, err := loadLiveDatabaseStateForResolved(rootDir, resolved)
 	if err != nil {
 		return nil, err
 	}
@@ -567,6 +571,46 @@ func databaseAdminCandidates(installDir, engine string) []string {
 	}
 }
 
+func resolveDatabaseBootstrapTarget(installDir, engine string) (string, error) {
+	for _, candidate := range databaseBootstrapCandidates(installDir, engine) {
+		fileInfo, err := os.Stat(candidate)
+		if err == nil {
+			if fileInfo.IsDir() {
+				continue
+			}
+
+			return candidate, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("stat %s: %w", candidate, err)
+		}
+	}
+
+	return "", fmt.Errorf("%s bootstrap helper was not found under %s", engine, installDir)
+}
+
+func databaseBootstrapCandidates(installDir, engine string) []string {
+	if engine != "mariadb" {
+		return nil
+	}
+
+	if runtime.GOOS == "windows" {
+		return []string{
+			filepath.Join(installDir, "bin", "mariadb-install-db.exe"),
+			filepath.Join(installDir, "bin", "mysql_install_db.exe"),
+			filepath.Join(installDir, "mariadb-install-db.exe"),
+			filepath.Join(installDir, "mysql_install_db.exe"),
+		}
+	}
+
+	return []string{
+		filepath.Join(installDir, "bin", "mariadb-install-db"),
+		filepath.Join(installDir, "bin", "mysql_install_db"),
+		filepath.Join(installDir, "mariadb-install-db"),
+		filepath.Join(installDir, "mysql_install_db"),
+	}
+}
+
 func ensureDatabaseCredentialAssets(rootDir string, resolved dbResolvedEnvironment) (dbManagedCredentials, error) {
 	path := databaseCredentialStatePath(rootDir, resolved.Environment.Name)
 	credentials, err := loadDatabaseCredentials(path)
@@ -616,12 +660,22 @@ func ensureDatabaseCredentialAssets(rootDir string, resolved dbResolvedEnvironme
 }
 
 func initializeDatabaseServer(spec dbServerSpec) error {
-	initialized, err := databaseDataInitialized(spec.DataDir)
+	initialized, err := databaseServerInitialized(spec)
 	if err != nil {
 		return err
 	}
 	if initialized {
 		return nil
+	}
+
+	hasContents, err := databaseDataInitialized(spec.DataDir)
+	if err != nil {
+		return err
+	}
+	if hasContents {
+		if err := resetDatabaseDataDir(spec.DataDir); err != nil {
+			return err
+		}
 	}
 	if err := os.MkdirAll(spec.DataDir, 0o755); err != nil {
 		return fmt.Errorf("create database data directory: %w", err)
@@ -633,9 +687,20 @@ func initializeDatabaseServer(spec dbServerSpec) error {
 	}
 	defer logFile.Close()
 
-	command, err := prepareCommand(spec.Target, databaseInitializeArgs(spec))
+	initializeTarget := spec.Target
+	if spec.Engine == "mariadb" {
+		initializeTarget, err = resolveDatabaseBootstrapTarget(spec.InstallDir, spec.Engine)
+		if err != nil {
+			return err
+		}
+	}
+
+	command, err := prepareCommand(initializeTarget, databaseInitializeArgs(spec))
 	if err != nil {
 		return err
+	}
+	if spec.Engine == "mariadb" {
+		command.Dir = spec.DataDir
 	}
 	command.Stdout = logFile
 	command.Stderr = logFile
@@ -730,14 +795,17 @@ func stopDatabaseServer(state dbRuntimeState) error {
 }
 
 func databaseInitializeArgs(spec dbServerSpec) []string {
+	if spec.Engine == "mariadb" {
+		return []string{
+			"--datadir=" + spec.DataDir,
+			"--port=" + strconv.Itoa(spec.Port),
+		}
+	}
+
 	args := []string{
 		"--initialize-insecure",
 		"--basedir=" + spec.InstallDir,
 		"--datadir=" + spec.DataDir,
-	}
-
-	if spec.Engine == "mariadb" {
-		args = append(args, "--auth-root-authentication-method=normal")
 	}
 
 	return args
@@ -770,6 +838,41 @@ func databaseDataInitialized(dataDir string) (bool, error) {
 	}
 
 	return len(entries) > 0, nil
+}
+
+func databaseServerInitialized(spec dbServerSpec) (bool, error) {
+	initialized, err := databaseDataInitialized(spec.DataDir)
+	if err != nil || !initialized {
+		return initialized, err
+	}
+
+	entries, err := os.ReadDir(filepath.Join(spec.DataDir, "mysql"))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("read database system directory: %w", err)
+	}
+
+	return len(entries) > 0, nil
+}
+
+func resetDatabaseDataDir(dataDir string) error {
+	entries, err := os.ReadDir(dataDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read database data directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		if err := os.RemoveAll(filepath.Join(dataDir, entry.Name())); err != nil {
+			return fmt.Errorf("reset incomplete database data directory: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func openDatabaseLog(logPath string) (*os.File, error) {
@@ -815,8 +918,78 @@ func databaseLogPath(rootDir, environmentName string) string {
 	return filepath.Join(rootDir, dbStateDirectory, dbStateSubdirectory, environmentName+".log")
 }
 
-func databaseDataPath(rootDir, environmentName string) string {
+func legacyDatabaseDataPath(rootDir, environmentName string) string {
 	return filepath.Join(rootDir, dbDataDirectory, dbDataSubdirectory, environmentName)
+}
+
+func databaseDataPath(rootDir, environmentName, engine, version string) string {
+	return filepath.Join(rootDir, dbDataDirectory, dbDataSubdirectory, environmentName, engine, version)
+}
+
+func resolveDatabaseDataPath(rootDir string, resolved dbResolvedEnvironment) (string, error) {
+	preferred := databaseDataPath(rootDir, resolved.Environment.Name, resolved.Database.Engine, resolved.Database.Version)
+	initialized, err := databaseDataInitialized(preferred)
+	if err != nil {
+		return "", err
+	}
+	if initialized {
+		return preferred, nil
+	}
+
+	legacy := legacyDatabaseDataPath(rootDir, resolved.Environment.Name)
+	initialized, err = databaseDataInitialized(legacy)
+	if err != nil {
+		return "", err
+	}
+	if !initialized {
+		return preferred, nil
+	}
+
+	layout, err := detectDatabaseDataLayout(legacy)
+	if err != nil {
+		return "", err
+	}
+	if layout != "" && !strings.EqualFold(layout, resolved.Database.Engine) {
+		return preferred, nil
+	}
+
+	return legacy, nil
+}
+
+func detectDatabaseDataLayout(dataDir string) (string, error) {
+	for _, marker := range []string{"#innodb_redo", "undo_001", "undo_002"} {
+		exists, err := pathExists(filepath.Join(dataDir, marker))
+		if err != nil {
+			return "", err
+		}
+		if exists {
+			return "mysql", nil
+		}
+	}
+
+	for _, marker := range []string{"ib_logfile0", "aria_log_control"} {
+		exists, err := pathExists(filepath.Join(dataDir, marker))
+		if err != nil {
+			return "", err
+		}
+		if exists {
+			return "mariadb", nil
+		}
+	}
+
+	return "", nil
+}
+
+func pathExists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+
+	return false, fmt.Errorf("stat %s: %w", path, err)
 }
 
 func databaseCredentialStatePath(rootDir, environmentName string) string {
@@ -848,6 +1021,30 @@ func loadLiveDatabaseState(rootDir, environmentName string) (*dbRuntimeState, er
 	}
 
 	return nil, nil
+}
+
+func loadLiveDatabaseStateForResolved(rootDir string, resolved dbResolvedEnvironment) (*dbRuntimeState, error) {
+	state, err := loadLiveDatabaseState(rootDir, resolved.Environment.Name)
+	if err != nil || state == nil {
+		return state, err
+	}
+	if databaseStateMatchesResolved(*state, resolved) {
+		return state, nil
+	}
+
+	return nil, fmt.Errorf(
+		"environment %q still has a running %s %s database on %s, but the current database is %s %s; stop the running database first",
+		resolved.Environment.Name,
+		state.Engine,
+		state.Version,
+		databaseAddress(state.Port),
+		resolved.Database.Engine,
+		resolved.Database.Version,
+	)
+}
+
+func databaseStateMatchesResolved(state dbRuntimeState, resolved dbResolvedEnvironment) bool {
+	return strings.EqualFold(strings.TrimSpace(state.Engine), strings.TrimSpace(resolved.Database.Engine)) && strings.TrimSpace(state.Version) == strings.TrimSpace(resolved.Database.Version)
 }
 
 func loadDatabaseState(path string) (*dbRuntimeState, error) {

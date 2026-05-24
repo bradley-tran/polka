@@ -107,6 +107,26 @@ func TestResolveDatabaseDownloadAssetSupportsSeriesLabels(t *testing.T) {
 			wantFileName:        "mariadb-11.4.11-linux-systemd-x86_64.tar.gz",
 			wantAlgorithm:       checksumAlgorithmSHA256,
 		},
+		{
+			name:                "mariadb 11.8 windows",
+			tool:                toolMariaDB,
+			version:             "11.8",
+			goos:                "windows",
+			goarch:              "amd64",
+			wantResolvedVersion: "11.8.7",
+			wantFileName:        "mariadb-11.8.7-winx64.zip",
+			wantAlgorithm:       checksumAlgorithmSHA256,
+		},
+		{
+			name:                "mariadb 11.8 linux",
+			tool:                toolMariaDB,
+			version:             "11.8",
+			goos:                "linux",
+			goarch:              "amd64",
+			wantResolvedVersion: "11.8.7",
+			wantFileName:        "mariadb-11.8.7-linux-systemd-x86_64.tar.gz",
+			wantAlgorithm:       checksumAlgorithmSHA256,
+		},
 	}
 
 	for _, test := range tests {

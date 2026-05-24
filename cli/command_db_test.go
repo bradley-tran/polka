@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"polka/backend"
 )
 
 func TestRunDBDispatchesConfiguredDatabaseTool(t *testing.T) {
@@ -321,5 +323,136 @@ func TestRunDBLifecycleSubcommandsManageState(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "is stopped") || !strings.Contains(stdout.String(), "3307") {
 		t.Fatalf("Run(db status after stop) stdout = %q, want stopped status on configured port", stdout.String())
+	}
+}
+
+func TestResolveDatabaseDataPathKeepsLegacyDataForMatchingEngine(t *testing.T) {
+	root := t.TempDir()
+	legacy := legacyDatabaseDataPath(root, "demo")
+	if err := os.MkdirAll(filepath.Join(legacy, "#innodb_redo"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(#innodb_redo) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(legacy, "ibdata1"), []byte("ok\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(ibdata1) error = %v", err)
+	}
+
+	resolved := dbResolvedEnvironment{
+		Environment: backend.Environment{Name: "demo"},
+		Database:    &backend.DatabaseConfig{Engine: "mysql", Version: "8.4"},
+	}
+
+	dataPath, err := resolveDatabaseDataPath(root, resolved)
+	if err != nil {
+		t.Fatalf("resolveDatabaseDataPath() error = %v", err)
+	}
+	if dataPath != legacy {
+		t.Fatalf("resolveDatabaseDataPath() = %q, want legacy path %q", dataPath, legacy)
+	}
+}
+
+func TestResolveDatabaseDataPathAvoidsLegacyMySQLDataForMariaDB(t *testing.T) {
+	root := t.TempDir()
+	legacy := legacyDatabaseDataPath(root, "demo")
+	if err := os.MkdirAll(filepath.Join(legacy, "#innodb_redo"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(#innodb_redo) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(legacy, "ibdata1"), []byte("ok\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(ibdata1) error = %v", err)
+	}
+
+	resolved := dbResolvedEnvironment{
+		Environment: backend.Environment{Name: "demo"},
+		Database:    &backend.DatabaseConfig{Engine: "mariadb", Version: "11.8"},
+	}
+
+	dataPath, err := resolveDatabaseDataPath(root, resolved)
+	if err != nil {
+		t.Fatalf("resolveDatabaseDataPath() error = %v", err)
+	}
+	want := databaseDataPath(root, "demo", "mariadb", "11.8")
+	if dataPath != want {
+		t.Fatalf("resolveDatabaseDataPath() = %q, want scoped path %q", dataPath, want)
+	}
+}
+
+func TestLoadLiveDatabaseStateForResolvedRejectsMismatchedLiveState(t *testing.T) {
+	root := t.TempDir()
+	if err := writeDatabaseState(databaseStatePath(root, "demo"), dbRuntimeState{
+		EnvironmentName: "demo",
+		Engine:          "mysql",
+		Version:         "8.4",
+		Port:            3306,
+	}); err != nil {
+		t.Fatalf("writeDatabaseState() error = %v", err)
+	}
+
+	oldPing := pingDatabaseAddressFunc
+	t.Cleanup(func() {
+		pingDatabaseAddressFunc = oldPing
+	})
+	pingDatabaseAddressFunc = func(address string) bool {
+		return address == databaseAddress(3306)
+	}
+
+	resolved := dbResolvedEnvironment{
+		Environment: backend.Environment{Name: "demo"},
+		Database:    &backend.DatabaseConfig{Engine: "mariadb", Version: "11.8", Port: 3306},
+	}
+
+	state, err := loadLiveDatabaseStateForResolved(root, resolved)
+	if err == nil {
+		t.Fatalf("loadLiveDatabaseStateForResolved() error = nil, want mismatch error")
+	}
+	if state != nil {
+		t.Fatalf("loadLiveDatabaseStateForResolved() state = %#v, want nil", state)
+	}
+	if !strings.Contains(err.Error(), "stop the running database first") {
+		t.Fatalf("loadLiveDatabaseStateForResolved() error = %q, want mismatch guidance", err.Error())
+	}
+}
+
+func TestDatabaseInitializeArgsForMariaDBUsesInstallDBFlags(t *testing.T) {
+	args := databaseInitializeArgs(dbServerSpec{
+		Engine:  "mariadb",
+		DataDir: filepath.Join("tmp", "mariadb"),
+		Port:    3306,
+	})
+
+	joined := strings.Join(args, " ")
+	if strings.Contains(joined, "--initialize-insecure") || strings.Contains(joined, "auth-root-authentication-method") {
+		t.Fatalf("databaseInitializeArgs(mariadb) = %q, want install-db compatible args", joined)
+	}
+	if !strings.Contains(joined, "--datadir=") || !strings.Contains(joined, "--port=3306") {
+		t.Fatalf("databaseInitializeArgs(mariadb) = %q, want datadir and port args", joined)
+	}
+}
+
+func TestDatabaseServerInitializedRequiresSystemDatabase(t *testing.T) {
+	dataDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dataDir, "ibdata1"), []byte("partial\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(ibdata1) error = %v", err)
+	}
+
+	initialized, err := databaseServerInitialized(dbServerSpec{Engine: "mariadb", DataDir: dataDir})
+	if err != nil {
+		t.Fatalf("databaseServerInitialized(partial) error = %v", err)
+	}
+	if initialized {
+		t.Fatalf("databaseServerInitialized(partial) = true, want false")
+	}
+
+	if err := os.MkdirAll(filepath.Join(dataDir, "mysql"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(mysql) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dataDir, "mysql", "db.frm"), []byte("ok\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(mysql/db.frm) error = %v", err)
+	}
+
+	initialized, err = databaseServerInitialized(dbServerSpec{Engine: "mariadb", DataDir: dataDir})
+	if err != nil {
+		t.Fatalf("databaseServerInitialized(complete) error = %v", err)
+	}
+	if !initialized {
+		t.Fatalf("databaseServerInitialized(complete) = false, want true")
 	}
 }

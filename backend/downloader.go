@@ -120,6 +120,22 @@ var databaseDownloadCatalog = map[string]map[string]map[string]databaseDownloadA
 				ArchiveFormat:     archiveFormatTarGz,
 			},
 		},
+		"11.8.7": {
+			"windows-amd64": {
+				FileName:          "mariadb-11.8.7-winx64.zip",
+				URL:               mariadbArchiveBaseURL + "/mariadb-11.8.7/winx64-packages/mariadb-11.8.7-winx64.zip",
+				Checksum:          "a613dd4179294dceb023b66bebaea0926c0a89dfb5f6a4d3bc96f63cdb07ea04",
+				ChecksumAlgorithm: checksumAlgorithmSHA256,
+				ArchiveFormat:     archiveFormatZip,
+			},
+			"linux-amd64": {
+				FileName:          "mariadb-11.8.7-linux-systemd-x86_64.tar.gz",
+				URL:               mariadbArchiveBaseURL + "/mariadb-11.8.7/bintar-linux-systemd-x86_64/mariadb-11.8.7-linux-systemd-x86_64.tar.gz",
+				Checksum:          "2763b3f21a79732dea55eb093ce6d1c1bd323182d2bc75f40fd0c52fe65e2462",
+				ChecksumAlgorithm: checksumAlgorithmSHA256,
+				ArchiveFormat:     archiveFormatTarGz,
+			},
+		},
 	},
 }
 
