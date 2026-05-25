@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -29,6 +30,14 @@ func TestStoreInitInstallsDispatcherShimsWithoutToolShims(t *testing.T) {
 	assertPathMissing(t, filepath.Join(store.BinDir, "php.cmd"))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolComposer))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolComposer+".cmd"))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolNode))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolNode+".cmd"))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolNPM))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolNPM+".cmd"))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolNPX))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolNPX+".cmd"))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolNodeJS))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolNodeJS+".cmd"))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolMySQL))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolMySQL+".cmd"))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolMariaDB))
@@ -110,6 +119,12 @@ func TestStoreUseSyncsManagedBinariesForCurrentEnvironment(t *testing.T) {
 	assertPathExists(t, filepath.Join(store.BinDir, toolPHP+".cmd"))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolComposer))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolComposer+".cmd"))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolNode))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolNode+".cmd"))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolNPM))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolNPM+".cmd"))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolNPX))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolNPX+".cmd"))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolMySQL))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolMySQL+".cmd"))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolMariaDB))
@@ -156,6 +171,39 @@ func TestStoreInstallCopiesToolIntoVersionedLayout(t *testing.T) {
 	assertPathExists(t, result.TargetPath)
 	if !strings.Contains(result.TargetPath, filepath.Join("envs", "php", "8.4")) {
 		t.Fatalf("Install(demo) target = %q, want versioned env path", result.TargetPath)
+	}
+}
+
+func TestStoreInstallPreservesExistingConfigComments(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+
+	writeCachedTool(t, store.CacheDir, toolPHP, "8.4")
+	configData := []byte(strings.Join([]string{
+		"# keep this comment",
+		"version: 1",
+		"root: .polka",
+		"current: demo",
+		"environments:",
+		"  demo:",
+		"    php: \"8.4\"",
+		"",
+	}, "\n"))
+	if err := os.WriteFile(store.ConfigFile, configData, 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+
+	if _, err := store.Install("demo"); err != nil {
+		t.Fatalf("Install(demo) error = %v", err)
+	}
+
+	updatedConfig, err := os.ReadFile(store.ConfigFile)
+	if err != nil {
+		t.Fatalf("ReadFile(config) error = %v", err)
+	}
+	if string(updatedConfig) != string(configData) {
+		t.Fatalf("config after install = %q, want original bytes %q", string(updatedConfig), string(configData))
 	}
 }
 
@@ -320,6 +368,66 @@ func TestStoreInstallDownloadsConfiguredNginx(t *testing.T) {
 	}
 	assertPathExists(t, filepath.Join(store.BinDir, toolNginx))
 	assertPathExists(t, filepath.Join(store.BinDir, toolNginx+".cmd"))
+}
+
+func TestStoreInstallCopiesConfiguredNodeJSIntoVersionedLayout(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+	cacheNodeJS := writeCachedTool(t, store.CacheDir, toolNodeJS, "24")
+	writeCachedNodeJSCommand(t, store.CacheDir, "24", toolNPM)
+	writeCachedNodeJSCommand(t, store.CacheDir, "24", toolNPX)
+	writeCachedNodeJSCommand(t, store.CacheDir, "24", toolNode)
+
+	config := store.defaultConfig()
+	config.Current = "demo"
+	config.Environments["demo"] = Environment{NodeJSVersion: "24"}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	results, err := store.Install("demo")
+	if err != nil {
+		t.Fatalf("Install(demo) error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("Install(demo) length = %d, want 1", len(results))
+	}
+
+	result := results[0]
+	if result.Tool != toolNodeJS || result.Version != "24" {
+		t.Fatalf("Install(demo) result = %#v, want nodejs 24", result)
+	}
+	if result.CachePath != cacheNodeJS {
+		t.Fatalf("Install(demo) CachePath = %q, want %q", result.CachePath, cacheNodeJS)
+	}
+	assertPathExists(t, result.TargetPath)
+	if !strings.Contains(result.TargetPath, filepath.Join("envs", toolNodeJS, "24")) {
+		t.Fatalf("Install(demo) target = %q, want versioned nodejs env path", result.TargetPath)
+	}
+
+	for _, tool := range []string{toolNode, toolNPM, toolNPX} {
+		resolvedPath, err := store.ResolveTool(tool)
+		if err != nil {
+			t.Fatalf("ResolveTool(%s) error = %v", tool, err)
+		}
+		assertPathExists(t, resolvedPath)
+		if !strings.Contains(resolvedPath, filepath.Join("envs", toolNodeJS, "24")) {
+			t.Fatalf("ResolveTool(%s) = %q, want versioned nodejs env path", tool, resolvedPath)
+		}
+	}
+	if _, err := store.ResolveTool(toolNodeJS); err == nil {
+		t.Fatal("ResolveTool(nodejs) error = nil, want unsupported tool error")
+	}
+
+	assertPathExists(t, filepath.Join(store.BinDir, toolNode))
+	assertPathExists(t, filepath.Join(store.BinDir, toolNode+".cmd"))
+	assertPathExists(t, filepath.Join(store.BinDir, toolNPM))
+	assertPathExists(t, filepath.Join(store.BinDir, toolNPM+".cmd"))
+	assertPathExists(t, filepath.Join(store.BinDir, toolNPX))
+	assertPathExists(t, filepath.Join(store.BinDir, toolNPX+".cmd"))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolNodeJS))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolNodeJS+".cmd"))
 }
 
 func assertPathMissing(t *testing.T, path string) {
@@ -917,6 +1025,29 @@ func writeCachedTool(t *testing.T, cacheDir, tool, version string) string {
 	}
 	if err := os.WriteFile(path, []byte("placeholder\n"), 0o755); err != nil {
 		t.Fatalf("WriteFile(%q) error = %v", path, err)
+	}
+
+	return path
+}
+
+func writeCachedNodeJSCommand(t *testing.T, cacheDir, version, command string) string {
+	t.Helper()
+
+	path := filepath.Join(cacheDir, toolNodeJS, version)
+	if runtime.GOOS == "windows" {
+		if command == toolNode {
+			path = filepath.Join(path, command+".cmd")
+		} else {
+			path = filepath.Join(path, command+".cmd")
+		}
+	} else {
+		path = filepath.Join(path, "bin", command)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%s) error = %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(command+"\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile(%s) error = %v", path, err)
 	}
 
 	return path

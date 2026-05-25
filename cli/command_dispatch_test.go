@@ -165,3 +165,50 @@ func TestRunDispatchLoadsProjectAndConfiguredEnvironmentVariables(t *testing.T) 
 		t.Fatalf("Run(dispatch) output = %q, want env-vars to override env-file and project .env", output)
 	}
 }
+
+func TestRunDispatchUsesNodeAliasesAndRejectsNodeJSKey(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--nodejs", "24"}); code != 0 {
+		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+
+	if code := Run(stdout, stderr, []string{"--root", root, "use", "demo"}); code != 0 {
+		t.Fatalf("Run(use) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	for _, command := range []string{"node", "npm", "npx"} {
+		path := projectInstalledNodeJSCommandPath(root, "24", command)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("MkdirAll(%s) error = %v", filepath.Dir(path), err)
+		}
+		if err := os.WriteFile(path, fakeToolScript(command), 0o755); err != nil {
+			t.Fatalf("WriteFile(%s) error = %v", path, err)
+		}
+	}
+
+	for _, command := range []string{"node", "npm", "npx"} {
+		stdout.Reset()
+		stderr.Reset()
+		if code := Run(stdout, stderr, []string{"--root", root, "dispatch", command, "--version"}); code != 0 {
+			t.Fatalf("Run(dispatch %s) code = %d, stderr = %q", command, code, stderr.String())
+		}
+		if !strings.Contains(stdout.String(), "fake-"+command+" --version") {
+			t.Fatalf("Run(dispatch %s) stdout = %q, want forwarded arguments", command, stdout.String())
+		}
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run(stdout, stderr, []string{"--root", root, "dispatch", "nodejs", "--version"}); code == 0 {
+		t.Fatal("Run(dispatch nodejs) code = 0, want unsupported tool error")
+	}
+	if !strings.Contains(stderr.String(), "unsupported tool \"nodejs\"") {
+		t.Fatalf("Run(dispatch nodejs) stderr = %q, want unsupported tool error", stderr.String())
+	}
+}

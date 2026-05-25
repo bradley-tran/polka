@@ -22,6 +22,10 @@ const (
 	configVersion            = 1
 	toolPHP                  = "php"
 	toolComposer             = "composer"
+	toolNodeJS               = "nodejs"
+	toolNode                 = "node"
+	toolNPM                  = "npm"
+	toolNPX                  = "npx"
 	toolNginx                = "nginx"
 	toolMySQL                = "mysql"
 	toolMariaDB              = "mariadb"
@@ -42,6 +46,7 @@ type Environment struct {
 	Name            string            `yaml:"-"`
 	PHPVersion      string            `yaml:"php,omitempty"`
 	ComposerVersion string            `yaml:"composer,omitempty"`
+	NodeJSVersion   string            `yaml:"nodejs,omitempty"`
 	NginxVersion    string            `yaml:"nginx,omitempty"`
 	Docroot         string            `yaml:"docroot,omitempty"`
 	EnvFile         string            `yaml:"env-file,omitempty"`
@@ -253,12 +258,14 @@ func (s Store) Init() error {
 		return fmt.Errorf("create binary root: %w", err)
 	}
 
-	config, err := s.loadConfig()
-	if err != nil {
-		return err
-	}
-	if err := s.writeConfig(config); err != nil {
-		return fmt.Errorf("write config file: %w", err)
+	if _, err := s.readConfig(); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			if err := s.writeConfig(s.defaultConfig()); err != nil {
+				return fmt.Errorf("write config file: %w", err)
+			}
+		} else {
+			return err
+		}
 	}
 	if err := s.installBinaries(); err != nil {
 		return fmt.Errorf("install binaries: %w", err)
@@ -288,14 +295,22 @@ func (s Store) List() ([]Environment, error) {
 }
 
 func (s Store) Create(name, phpVersion, composerVersion string, database *DatabaseConfig) (Environment, error) {
-	return s.writeEnvironment(name, phpVersion, composerVersion, database, false)
+	return s.CreateWithNodeJS(name, phpVersion, composerVersion, "", database)
 }
 
 func (s Store) Configure(name, phpVersion, composerVersion string, database *DatabaseConfig) (Environment, error) {
-	return s.writeEnvironment(name, phpVersion, composerVersion, database, true)
+	return s.ConfigureWithNodeJS(name, phpVersion, composerVersion, "", database)
 }
 
-func (s Store) writeEnvironment(name, phpVersion, composerVersion string, database *DatabaseConfig, allowUpdate bool) (Environment, error) {
+func (s Store) CreateWithNodeJS(name, phpVersion, composerVersion, nodeJSVersion string, database *DatabaseConfig) (Environment, error) {
+	return s.writeEnvironment(name, phpVersion, composerVersion, nodeJSVersion, database, false)
+}
+
+func (s Store) ConfigureWithNodeJS(name, phpVersion, composerVersion, nodeJSVersion string, database *DatabaseConfig) (Environment, error) {
+	return s.writeEnvironment(name, phpVersion, composerVersion, nodeJSVersion, database, true)
+}
+
+func (s Store) writeEnvironment(name, phpVersion, composerVersion, nodeJSVersion string, database *DatabaseConfig, allowUpdate bool) (Environment, error) {
 	if err := s.Init(); err != nil {
 		return Environment{}, err
 	}
@@ -305,6 +320,7 @@ func (s Store) writeEnvironment(name, phpVersion, composerVersion string, databa
 
 	phpVersion = strings.TrimSpace(phpVersion)
 	composerVersion = strings.TrimSpace(composerVersion)
+	nodeJSVersion = strings.TrimSpace(nodeJSVersion)
 	database = normalizeDatabaseConfig(database)
 	if phpVersion != "" {
 		if err := validateVersion(toolPHP, phpVersion); err != nil {
@@ -313,6 +329,11 @@ func (s Store) writeEnvironment(name, phpVersion, composerVersion string, databa
 	}
 	if composerVersion != "" {
 		if err := validateVersion(toolComposer, composerVersion); err != nil {
+			return Environment{}, err
+		}
+	}
+	if nodeJSVersion != "" {
+		if err := validateVersion(toolNodeJS, nodeJSVersion); err != nil {
 			return Environment{}, err
 		}
 	}
@@ -334,11 +355,14 @@ func (s Store) writeEnvironment(name, phpVersion, composerVersion string, databa
 	if composerVersion != "" {
 		environment.ComposerVersion = composerVersion
 	}
+	if nodeJSVersion != "" {
+		environment.NodeJSVersion = nodeJSVersion
+	}
 	if database != nil {
 		environment.Database = mergeDatabaseConfig(environment.Database, database)
 	}
-	if environment.PHPVersion == "" && environment.ComposerVersion == "" && environment.NginxVersion == "" && environment.Database == nil {
-		return Environment{}, fmt.Errorf("environment requires at least one of php, composer, nginx, or database")
+	if environment.PHPVersion == "" && environment.ComposerVersion == "" && environment.NodeJSVersion == "" && environment.NginxVersion == "" && environment.Database == nil {
+		return Environment{}, fmt.Errorf("environment requires at least one of php, composer, nodejs, nginx, or database")
 	}
 	if err := validateDatabaseConfig(environment.Database); err != nil {
 		return Environment{}, err
@@ -391,6 +415,9 @@ func (s Store) install(name string, report func(InstallProgress)) ([]InstallResu
 	}
 	if normalized.ComposerVersion != "" {
 		requests = append(requests, InstallResult{Tool: toolComposer, Version: normalized.ComposerVersion})
+	}
+	if normalized.NodeJSVersion != "" {
+		requests = append(requests, InstallResult{Tool: toolNodeJS, Version: normalized.NodeJSVersion})
 	}
 	if normalized.NginxVersion != "" {
 		requests = append(requests, InstallResult{Tool: toolNginx, Version: normalized.NginxVersion})
@@ -580,7 +607,7 @@ func (s Store) Remove(name string) error {
 }
 
 func (s Store) ResolveTool(tool string) (string, error) {
-	normalizedTool, err := normalizeTool(tool)
+	request, err := resolveToolRequest(tool)
 	if err != nil {
 		return "", err
 	}
@@ -593,15 +620,19 @@ func (s Store) ResolveTool(tool string) (string, error) {
 		return "", fmt.Errorf("no active environment selected")
 	}
 
-	version := strings.TrimSpace(current.toolVersion(normalizedTool))
+	version := strings.TrimSpace(current.toolVersion(request.ConfigTool))
 	if version == "" {
-		return "", fmt.Errorf("environment %q does not define a %s version", current.Name, normalizedTool)
+		return "", fmt.Errorf("environment %q does not define a %s version", current.Name, request.ConfigTool)
 	}
-	if err := validateVersion(normalizedTool, version); err != nil {
+	if err := validateVersion(request.ConfigTool, version); err != nil {
 		return "", err
 	}
 
-	return s.resolveInstalledTool(normalizedTool, version)
+	if request.ConfigTool == request.Executable {
+		return s.resolveInstalledTool(request.ConfigTool, version)
+	}
+
+	return s.resolveInstalledDispatchExecutable(request.ConfigTool, request.Executable, version)
 }
 
 func (s Store) loadConfig() (Config, error) {
@@ -674,6 +705,7 @@ func (s Store) normalizeEnvironment(name string, environment Environment) Enviro
 		Name:            name,
 		PHPVersion:      strings.TrimSpace(environment.PHPVersion),
 		ComposerVersion: strings.TrimSpace(environment.ComposerVersion),
+		NodeJSVersion:   strings.TrimSpace(environment.NodeJSVersion),
 		NginxVersion:    strings.TrimSpace(environment.NginxVersion),
 		Docroot:         strings.TrimSpace(environment.Docroot),
 		EnvFile:         strings.TrimSpace(environment.EnvFile),
@@ -819,6 +851,10 @@ func (s Store) resolveInstalledTool(tool, version string) (string, error) {
 	return s.resolveInstalledToolIn(s.EnvsDir, tool, version)
 }
 
+func (s Store) resolveInstalledDispatchExecutable(configTool, executable, version string) (string, error) {
+	return resolveInstalledDispatchExecutableIn(s.EnvsDir, configTool, executable, version)
+}
+
 func (s Store) resolveInstalledToolIn(root, tool, version string) (string, error) {
 	candidates := toolInstallCandidatesIn(root, tool, version)
 	if len(candidates) == 0 {
@@ -840,6 +876,29 @@ func (s Store) resolveInstalledToolIn(root, tool, version string) (string, error
 	}
 
 	return "", fmt.Errorf("%s version %q is not installed under %s", tool, version, filepath.Join(root, tool, version))
+}
+
+func resolveInstalledDispatchExecutableIn(root, configTool, executable, version string) (string, error) {
+	candidates := dispatchExecutableCandidatesIn(root, configTool, executable, version)
+	if len(candidates) == 0 {
+		return "", fmt.Errorf("unsupported tool %q", executable)
+	}
+
+	for _, candidate := range candidates {
+		fileInfo, err := os.Stat(candidate)
+		if err == nil {
+			if fileInfo.IsDir() {
+				continue
+			}
+
+			return candidate, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("stat %s: %w", candidate, err)
+		}
+	}
+
+	return "", fmt.Errorf("%s version %q does not include a %s command under %s", configTool, version, executable, filepath.Join(root, configTool, version))
 }
 
 func toolInstallCandidatesIn(root, tool, version string) []string {
@@ -882,6 +941,18 @@ func toolInstallCandidatesIn(root, tool, version string) []string {
 			filepath.Join(installDir, "composer"),
 			filepath.Join(installDir, "composer.phar"),
 		}
+	case toolNodeJS:
+		if runtime.GOOS == "windows" {
+			return []string{
+				filepath.Join(installDir, "node.exe"),
+				filepath.Join(installDir, "bin", "node.exe"),
+			}
+		}
+
+		return []string{
+			filepath.Join(installDir, "bin", "node"),
+			filepath.Join(installDir, "node"),
+		}
 	case toolNginx:
 		if runtime.GOOS == "windows" {
 			return []string{
@@ -899,6 +970,46 @@ func toolInstallCandidatesIn(root, tool, version string) []string {
 	default:
 		return nil
 	}
+}
+
+func dispatchExecutableCandidatesIn(root, configTool, executable, version string) []string {
+	installDir := filepath.Join(root, configTool, version)
+
+	switch configTool {
+	case toolNodeJS:
+		switch executable {
+		case toolNode:
+			if runtime.GOOS == "windows" {
+				return []string{
+					filepath.Join(installDir, "node.cmd"),
+					filepath.Join(installDir, "node.exe"),
+					filepath.Join(installDir, "bin", "node.cmd"),
+					filepath.Join(installDir, "bin", "node.exe"),
+				}
+			}
+
+			return []string{
+				filepath.Join(installDir, "bin", "node"),
+				filepath.Join(installDir, "node"),
+			}
+		case toolNPM, toolNPX:
+			if runtime.GOOS == "windows" {
+				return []string{
+					filepath.Join(installDir, executable+".cmd"),
+					filepath.Join(installDir, executable),
+					filepath.Join(installDir, "bin", executable+".cmd"),
+					filepath.Join(installDir, "bin", executable),
+				}
+			}
+
+			return []string{
+				filepath.Join(installDir, "bin", executable),
+				filepath.Join(installDir, executable),
+			}
+		}
+	}
+
+	return nil
 }
 
 func (s Store) installBinaries() error {
@@ -1082,11 +1193,19 @@ func (s Store) managedBinaries() []installedBinary {
 	return []installedBinary{
 		shellDispatchBinary("php"),
 		shellDispatchBinary("composer"),
+		shellDispatchBinary(toolNode),
+		shellDispatchBinary(toolNPM),
+		shellDispatchBinary(toolNPX),
+		shellDispatchBinary(toolNodeJS),
 		shellDispatchBinary(toolNginx),
 		shellDispatchBinary(toolMySQL),
 		shellDispatchBinary(toolMariaDB),
 		windowsDispatchBinary("php"),
 		windowsDispatchBinary("composer"),
+		windowsDispatchBinary(toolNode),
+		windowsDispatchBinary(toolNPM),
+		windowsDispatchBinary(toolNPX),
+		windowsDispatchBinary(toolNodeJS),
 		windowsDispatchBinary(toolNginx),
 		windowsDispatchBinary(toolMySQL),
 		windowsDispatchBinary(toolMariaDB),
@@ -1122,12 +1241,15 @@ func managedToolsForEnvironment(environment *Environment) []string {
 		return nil
 	}
 
-	tools := make([]string, 0, 4)
+	tools := make([]string, 0, 7)
 	if environment.PHPVersion != "" {
 		tools = append(tools, toolPHP)
 	}
 	if environment.ComposerVersion != "" {
 		tools = append(tools, toolComposer)
+	}
+	if environment.NodeJSVersion != "" {
+		tools = append(tools, toolNode, toolNPM, toolNPX)
 	}
 	if environment.NginxVersion != "" {
 		tools = append(tools, toolNginx)
@@ -1269,6 +1391,8 @@ func (e Environment) toolVersion(tool string) string {
 		return e.PHPVersion
 	case toolComposer:
 		return e.ComposerVersion
+	case toolNodeJS, toolNode, toolNPM, toolNPX:
+		return e.NodeJSVersion
 	case toolNginx:
 		return e.NginxVersion
 	case toolMySQL, toolMariaDB:
@@ -1308,13 +1432,20 @@ func validateVersion(tool, version string) error {
 	return nil
 }
 
-func normalizeTool(tool string) (string, error) {
+type toolRequest struct {
+	ConfigTool string
+	Executable string
+}
+
+func resolveToolRequest(tool string) (toolRequest, error) {
 	trimmed := strings.ToLower(strings.TrimSpace(tool))
 	switch trimmed {
 	case toolPHP, toolComposer, toolNginx, toolMySQL, toolMariaDB:
-		return trimmed, nil
+		return toolRequest{ConfigTool: trimmed, Executable: trimmed}, nil
+	case toolNode, toolNPM, toolNPX:
+		return toolRequest{ConfigTool: toolNodeJS, Executable: trimmed}, nil
 	default:
-		return "", fmt.Errorf("unsupported tool %q", tool)
+		return toolRequest{}, fmt.Errorf("unsupported tool %q", tool)
 	}
 }
 

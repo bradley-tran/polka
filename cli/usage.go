@@ -8,7 +8,7 @@ Usage:
 Commands:
   init                 create the local .polka directory and sync the active shims
 	new <name>           create an environment with default or explicit versions
-  config [name]        set php, composer, and database settings for an environment
+  config [name]        set php, composer, nodejs, and database settings for an environment
   install [name]       install all tools for an environment
   db [args...]         run the active environment's database client or manage its local server
   serve [docroot]      start the local web server for the active environment
@@ -23,7 +23,7 @@ Commands:
 Examples:
   polka init
 	polka new api
-	polka config api --php 8.4 --composer 2.8
+  polka config api --php 8.4 --composer 2.8 --nodejs 24
   polka config api --db-engine mysql --db-version 8.0 --db-port 3306
 	polka install api
   polka db start
@@ -48,14 +48,14 @@ Create the local .polka directory, bootstrap polka.yaml, and sync the active env
 `
 
 const newUsage = `Usage:
-  polka new <name> [--php VERSION] [--composer VERSION] [--db-engine mysql|mariadb --db-version VERSION [--db-port PORT]]
+  polka new <name> [--php VERSION] [--composer VERSION] [--nodejs VERSION] [--db-engine mysql|mariadb --db-version VERSION [--db-port PORT]]
 
 Create a new environment definition in polka.yaml.
-When omitted, --php defaults to 8.4 and --composer defaults to 2.8.
+When omitted, --php defaults to 8.4, --composer defaults to 2.8, and --nodejs defaults to 24.
 `
 
 const configUsage = `Usage:
-  polka config [name] [--php VERSION] [--composer VERSION] [--db-engine mysql|mariadb --db-version VERSION [--db-port PORT]]
+  polka config [name] [--php VERSION] [--composer VERSION] [--nodejs VERSION] [--db-engine mysql|mariadb --db-version VERSION [--db-port PORT]]
 
 Create or update an environment definition in polka.yaml.
 When name is omitted, Polka updates the current environment. If no current environment is selected, Polka uses default and marks it current after a successful config.

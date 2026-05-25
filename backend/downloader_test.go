@@ -188,6 +188,68 @@ func TestResolveNginxDownloadAssetSupportsSeriesLabels(t *testing.T) {
 	}
 }
 
+func TestResolveNodeJSDownloadAssetSupportsSeriesLabels(t *testing.T) {
+	tests := []struct {
+		name                string
+		version             string
+		goos                string
+		goarch              string
+		wantResolvedVersion string
+		wantFileName        string
+	}{
+		{
+			name:                "current lts windows",
+			version:             "24",
+			goos:                "windows",
+			goarch:              "amd64",
+			wantResolvedVersion: "24.16.0",
+			wantFileName:        "node-v24.16.0-win-x64.zip",
+		},
+		{
+			name:                "current lts linux",
+			version:             "24",
+			goos:                "linux",
+			goarch:              "amd64",
+			wantResolvedVersion: "24.16.0",
+			wantFileName:        "node-v24.16.0-linux-x64.tar.xz",
+		},
+		{
+			name:                "previous lts windows",
+			version:             "22",
+			goos:                "windows",
+			goarch:              "amd64",
+			wantResolvedVersion: "22.22.3",
+			wantFileName:        "node-v22.22.3-win-x64.zip",
+		},
+		{
+			name:                "previous lts linux",
+			version:             "22",
+			goos:                "linux",
+			goarch:              "amd64",
+			wantResolvedVersion: "22.22.3",
+			wantFileName:        "node-v22.22.3-linux-x64.tar.xz",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resolvedVersion, asset, err := resolveNodeJSDownloadAsset(test.version, test.goos, test.goarch)
+			if err != nil {
+				t.Fatalf("resolveNodeJSDownloadAsset(%s) error = %v", test.version, err)
+			}
+			if resolvedVersion != test.wantResolvedVersion {
+				t.Fatalf("resolveNodeJSDownloadAsset(%s) resolved version = %q, want %q", test.version, resolvedVersion, test.wantResolvedVersion)
+			}
+			if asset.FileName != test.wantFileName {
+				t.Fatalf("resolveNodeJSDownloadAsset(%s) file = %q, want %q", test.version, asset.FileName, test.wantFileName)
+			}
+			if asset.ChecksumAlgorithm != checksumAlgorithmSHA256 {
+				t.Fatalf("resolveNodeJSDownloadAsset(%s) checksum algorithm = %q, want %q", test.version, asset.ChecksumAlgorithm, checksumAlgorithmSHA256)
+			}
+		})
+	}
+}
+
 func TestDownloadDatabaseAssetExtractsSupportedArchives(t *testing.T) {
 	tests := []struct {
 		name             string

@@ -14,6 +14,7 @@ const (
 	defaultEnvironmentName    = "default"
 	defaultNewPHPVersion      = "8.4"
 	defaultNewComposerVersion = "2.8"
+	defaultNewNodeJSVersion   = "24"
 )
 
 func newInitCommand(ctx *commandContext) *cobra.Command {
@@ -38,6 +39,7 @@ func newNewCommand(ctx *commandContext) *cobra.Command {
 	input := newCommandInput{
 		PHPVersion:      defaultNewPHPVersion,
 		ComposerVersion: defaultNewComposerVersion,
+		NodeJSVersion:   defaultNewNodeJSVersion,
 	}
 
 	cmd := &cobra.Command{
@@ -56,6 +58,9 @@ func newNewCommand(ctx *commandContext) *cobra.Command {
 			if strings.TrimSpace(input.ComposerVersion) == "" {
 				return &statusError{code: 1, err: fmt.Errorf("--composer requires a non-empty value")}
 			}
+			if cmd.Flags().Changed("nodejs") && strings.TrimSpace(input.NodeJSVersion) == "" {
+				return &statusError{code: 1, err: fmt.Errorf("--nodejs requires a non-empty value")}
+			}
 			input.Database, err = buildDatabaseInput(
 				cmd.Flags().Changed("db-engine"),
 				cmd.Flags().Changed("db-version"),
@@ -73,6 +78,7 @@ func newNewCommand(ctx *commandContext) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&input.PHPVersion, "php", defaultNewPHPVersion, "PHP version")
 	cmd.Flags().StringVar(&input.ComposerVersion, "composer", defaultNewComposerVersion, "Composer version")
+	cmd.Flags().StringVar(&input.NodeJSVersion, "nodejs", defaultNewNodeJSVersion, "Node.js version")
 	cmd.Flags().StringVar(&input.DatabaseEngine, "db-engine", "", "database engine (mysql or mariadb)")
 	cmd.Flags().StringVar(&input.DatabaseVersion, "db-version", "", "database version")
 	cmd.Flags().IntVar(&input.DatabasePort, "db-port", 0, "database port")
@@ -99,17 +105,22 @@ func newConfigCommand(ctx *commandContext) *cobra.Command {
 			}
 			input.HasPHP = cmd.Flags().Changed("php")
 			input.HasComposer = cmd.Flags().Changed("composer")
+			input.HasNodeJS = cmd.Flags().Changed("nodejs")
 			input.HasDatabase = cmd.Flags().Changed("db-engine") || cmd.Flags().Changed("db-version") || cmd.Flags().Changed("db-port")
 			input.PHPVersion = strings.TrimSpace(input.PHPVersion)
 			input.ComposerVersion = strings.TrimSpace(input.ComposerVersion)
-			if !input.HasPHP && !input.HasComposer && !input.HasDatabase {
-				return &statusError{code: 1, err: fmt.Errorf("config requires at least one of --php, --composer, or --db-engine/--db-version")}
+			input.NodeJSVersion = strings.TrimSpace(input.NodeJSVersion)
+			if !input.HasPHP && !input.HasComposer && !input.HasNodeJS && !input.HasDatabase {
+				return &statusError{code: 1, err: fmt.Errorf("config requires at least one of --php, --composer, --nodejs, or --db-engine/--db-version")}
 			}
 			if input.HasPHP && input.PHPVersion == "" {
 				return &statusError{code: 1, err: fmt.Errorf("--php requires a non-empty value")}
 			}
 			if input.HasComposer && input.ComposerVersion == "" {
 				return &statusError{code: 1, err: fmt.Errorf("--composer requires a non-empty value")}
+			}
+			if input.HasNodeJS && input.NodeJSVersion == "" {
+				return &statusError{code: 1, err: fmt.Errorf("--nodejs requires a non-empty value")}
 			}
 			input.Database, err = buildDatabaseInput(
 				cmd.Flags().Changed("db-engine"),
@@ -128,6 +139,7 @@ func newConfigCommand(ctx *commandContext) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&input.PHPVersion, "php", "", "PHP version")
 	cmd.Flags().StringVar(&input.ComposerVersion, "composer", "", "Composer version")
+	cmd.Flags().StringVar(&input.NodeJSVersion, "nodejs", "", "Node.js version")
 	cmd.Flags().StringVar(&input.DatabaseEngine, "db-engine", "", "database engine (mysql or mariadb)")
 	cmd.Flags().StringVar(&input.DatabaseVersion, "db-version", "", "database version")
 	cmd.Flags().IntVar(&input.DatabasePort, "db-port", 0, "database port")
@@ -271,12 +283,12 @@ func runInstall(stdout io.Writer, store backend.Store, input installCommandInput
 }
 
 func runNew(stdout io.Writer, store backend.Store, input newCommandInput) error {
-	environment, err := store.Create(input.Name, input.PHPVersion, input.ComposerVersion, input.Database)
+	environment, err := store.CreateWithNodeJS(input.Name, input.PHPVersion, input.ComposerVersion, input.NodeJSVersion, input.Database)
 	if err != nil {
 		return err
 	}
 
-	_, _ = fmt.Fprintf(stdout, "Created %s\tphp=%s\tcomposer=%s\tdb=%s\n", environment.Name, labelOrUnset(environment.PHPVersion), labelOrUnset(environment.ComposerVersion), labelDatabase(environment.Database))
+	_, _ = fmt.Fprintf(stdout, "Created %s\tphp=%s\tcomposer=%s\tnodejs=%s\tdb=%s\n", environment.Name, labelOrUnset(environment.PHPVersion), labelOrUnset(environment.ComposerVersion), labelOrUnset(environment.NodeJSVersion), labelDatabase(environment.Database))
 	return nil
 }
 
@@ -287,7 +299,7 @@ func runConfig(stdout io.Writer, store backend.Store, input configCommandInput) 
 	}
 	input.Name = resolvedName
 
-	environment, err := store.Configure(input.Name, input.PHPVersion, input.ComposerVersion, input.Database)
+	environment, err := store.ConfigureWithNodeJS(input.Name, input.PHPVersion, input.ComposerVersion, input.NodeJSVersion, input.Database)
 	if err != nil {
 		return err
 	}
@@ -297,7 +309,7 @@ func runConfig(stdout io.Writer, store backend.Store, input configCommandInput) 
 		}
 	}
 
-	_, _ = fmt.Fprintf(stdout, "Configured %s\tphp=%s\tcomposer=%s\tdb=%s\n", environment.Name, labelOrUnset(environment.PHPVersion), labelOrUnset(environment.ComposerVersion), labelDatabase(environment.Database))
+	_, _ = fmt.Fprintf(stdout, "Configured %s\tphp=%s\tcomposer=%s\tnodejs=%s\tdb=%s\n", environment.Name, labelOrUnset(environment.PHPVersion), labelOrUnset(environment.ComposerVersion), labelOrUnset(environment.NodeJSVersion), labelDatabase(environment.Database))
 	return nil
 }
 
@@ -341,7 +353,7 @@ func runList(stdout io.Writer, store backend.Store) error {
 			marker = "*"
 		}
 
-		_, _ = fmt.Fprintf(stdout, "%s %s\tphp=%s\tcomposer=%s\tdb=%s\n", marker, environment.Name, labelOrUnset(environment.PHPVersion), labelOrUnset(environment.ComposerVersion), labelDatabase(environment.Database))
+		_, _ = fmt.Fprintf(stdout, "%s %s\tphp=%s\tcomposer=%s\tnodejs=%s\tdb=%s\n", marker, environment.Name, labelOrUnset(environment.PHPVersion), labelOrUnset(environment.ComposerVersion), labelOrUnset(environment.NodeJSVersion), labelDatabase(environment.Database))
 	}
 
 	return nil
@@ -373,6 +385,7 @@ func runStatus(stdout io.Writer, store backend.Store) error {
 	_, _ = fmt.Fprintf(stdout, "environment %s\n", current.Name)
 	_, _ = fmt.Fprintf(stdout, "php %s\n", labelOrUnset(current.PHPVersion))
 	_, _ = fmt.Fprintf(stdout, "composer %s\n", labelOrUnset(current.ComposerVersion))
+	_, _ = fmt.Fprintf(stdout, "nodejs %s\n", labelOrUnset(current.NodeJSVersion))
 	_, _ = fmt.Fprintf(stdout, "nginx %s\n", labelOrUnset(current.NginxVersion))
 	_, _ = fmt.Fprintf(stdout, "database %s\n", labelDatabase(current.Database))
 	_, _ = fmt.Fprintf(stdout, "server %s\n", serverAddress)
@@ -392,12 +405,14 @@ type configCommandInput struct {
 	Name            string
 	PHPVersion      string
 	ComposerVersion string
+	NodeJSVersion   string
 	Database        *backend.DatabaseConfig
 	DatabaseEngine  string
 	DatabaseVersion string
 	DatabasePort    int
 	HasPHP          bool
 	HasComposer     bool
+	HasNodeJS       bool
 	HasDatabase     bool
 }
 
@@ -405,6 +420,7 @@ type newCommandInput struct {
 	Name            string
 	PHPVersion      string
 	ComposerVersion string
+	NodeJSVersion   string
 	Database        *backend.DatabaseConfig
 	DatabaseEngine  string
 	DatabaseVersion string

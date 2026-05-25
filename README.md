@@ -1,6 +1,6 @@
 # Polka
 
-Polka is a CLI tool for PHP virtual environment management. It uses `polka.yaml` as the source of truth for environment selection, and the shims in `.polka/bin` dispatch to the locally installed `php` and `composer` versions selected for the active environment.
+Polka is a CLI tool for PHP virtual environment management. It uses `polka.yaml` as the source of truth for environment selection, and the shims in `.polka/bin` dispatch to the locally installed tool versions selected for the active environment, including `php`, `composer`, and optional Node.js commands exposed as `node`, `npm`, and `npx` from the `nodejs` config key.
 
 ## Project layout
 
@@ -33,11 +33,11 @@ go run . status
 
 `polka init` creates a local `.polka/` directory, writes dispatcher shims in `.polka/bin` that forward to the current `polka` executable, syncs the active environment's dispatch shims in `.polka/bin`, and writes `polka.yaml` if it does not exist.
 
-Use `polka new <name> [--php VERSION] [--composer VERSION]` to create a new environment definition. When the flags are omitted, Polka currently defaults to `php=8.4` and `composer=2.8`.
+Use `polka new <name> [--php VERSION] [--composer VERSION] [--nodejs VERSION]` to create a new environment definition. When the flags are omitted, Polka currently defaults to `php=8.4`, `composer=2.8`, and `nodejs=24`.
 
 Use `polka install [name]` to install every configured tool version for an environment. When `name` is omitted, Polka installs the current environment and prints which one it selected. If no current environment is selected, Polka uses `default` and marks it current after a successful install. Polka first checks the global cache, then downloads any missing versions into that cache, and finally copies the cached payloads into the project-local `.polka/envs` layout.
 
-The shims in `.polka/bin` mirror the active environment's configured tools. If the current environment does not define `composer`, Polka removes the local `composer` shim instead of leaving a dispatcher that would fail at runtime.
+The shims in `.polka/bin` mirror the active environment's configured tools. A configured `nodejs` version produces `node`, `npm`, and `npx` shims, while the `nodejs` name itself remains config-only. If the current environment does not define a managed tool, Polka removes that local shim instead of leaving a dispatcher that would fail at runtime.
 
 Use `polka sh` to open an interactive shell that resolves commands in this order: `.polka/bin`, then `vendor/bin`, then the inherited system `PATH`. That means a local Polka-managed `composer` shim wins over a globally installed `composer`, while still falling back to project-local Composer plugins in `vendor/bin` and finally to whatever the system shell already exposes. On Windows, Polka also generates temporary `.cmd` wrappers for extensionless Composer PHP proxies and for shell launchers that have a matching `.php` source in `vendor/bin`, so commands such as `drush` run through the local PHP CLI instead of relying on `sh`.
 
@@ -61,7 +61,7 @@ Use `polka serve [docroot] [--server HOST:PORT]` to start the active environment
 
 When an environment defines `php-extensions`, `polka install` also writes a generated `php.ini` next to the installed PHP executable so those extensions are explicitly enabled or disabled for that environment. If `composer` is configured for that environment, `openssl` and `zip` are enabled by default unless `php-extensions` explicitly sets either one to `false`.
 
-Use `polka config [name] --php <version> --composer <version>` to update an existing environment definition. When `name` is omitted, Polka updates the current environment, or `default` when no environment is selected yet. The config file stores version labels, not machine-specific executable paths:
+Use `polka config [name] --php <version> --composer <version> --nodejs <version>` to update an existing environment definition. When `name` is omitted, Polka updates the current environment, or `default` when no environment is selected yet. The config file stores version labels, not machine-specific executable paths:
 
 ```yaml
 version: 1
@@ -71,6 +71,7 @@ environments:
   blog:
     php: 8.4
     composer: 2.8
+    nodejs: 24
     nginx: 1.30
     docroot: public
     env-file: .env.local
@@ -96,10 +97,16 @@ Polka resolves those versions against the local install layout under `.polka/env
 |   |-- composer/
 |   |   `-- 2.8/
 |   |       `-- bin/composer[.cmd|.bat|.exe|.phar]
+|   |-- nodejs/
+|   |   `-- 24/
+|   |       `-- node[.exe]
 |   `-- php/
 |       `-- 8.4/
 |           `-- bin/php[.exe|.cmd|.bat]
 `-- bin/
+  |-- node[.cmd]
+  |-- npm[.cmd]
+  `-- npx[.cmd]
 ```
 
 For example, this sequence records a version label in `polka.yaml`, installs that environment from cache or download, and then dispatches through the generated shim:
@@ -111,10 +118,10 @@ go run . use blog
 ./.polka/bin/php -v
 ```
 
-If you want a non-default version at creation time, pass it explicitly:
+If you want non-default versions at creation time, pass them explicitly:
 
 ```bash
-go run . new legacy --php 8.2 --composer 2.6
+go run . new legacy --php 8.2 --composer 2.6 --nodejs 22
 ```
 
 That keeps `polka.yaml` portable across machines while letting each machine reuse a shared cache and install project-local copies from it.

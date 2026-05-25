@@ -27,6 +27,7 @@ const (
 	composerDownloadBaseURL = "https://getcomposer.org/download"
 	mysqlDownloadBaseURL    = "https://dev.mysql.com/get/Downloads"
 	mariadbArchiveBaseURL   = "https://archive.mariadb.org"
+	nodeJSDownloadBaseURL   = "https://nodejs.org/dist"
 	nginxDownloadBaseURL    = "https://nginx.org/download"
 	phpWindowsReleaseURL    = "https://windows.php.net/downloads/releases/releases.json"
 	phpWindowsBaseURL       = "https://windows.php.net/downloads/releases"
@@ -158,6 +159,41 @@ var nginxDownloadCatalog = map[string]map[string]databaseDownloadAsset{
 	},
 }
 
+var nodeJSDownloadCatalog = map[string]map[string]databaseDownloadAsset{
+	"24.16.0": {
+		"windows-amd64": {
+			FileName:          "node-v24.16.0-win-x64.zip",
+			URL:               nodeJSDownloadBaseURL + "/v24.16.0/node-v24.16.0-win-x64.zip",
+			Checksum:          "edaca9bd58ec8e92037dac4e877d52f6b8f430b81c18b57e264b4e2fb111cd56",
+			ChecksumAlgorithm: checksumAlgorithmSHA256,
+			ArchiveFormat:     archiveFormatZip,
+		},
+		"linux-amd64": {
+			FileName:          "node-v24.16.0-linux-x64.tar.xz",
+			URL:               nodeJSDownloadBaseURL + "/v24.16.0/node-v24.16.0-linux-x64.tar.xz",
+			Checksum:          "d804845d34eddc21dc1092b519d643ef40b1f58ec5dec5c22b1f4bd8fabde6c9",
+			ChecksumAlgorithm: checksumAlgorithmSHA256,
+			ArchiveFormat:     archiveFormatTarXz,
+		},
+	},
+	"22.22.3": {
+		"windows-amd64": {
+			FileName:          "node-v22.22.3-win-x64.zip",
+			URL:               nodeJSDownloadBaseURL + "/v22.22.3/node-v22.22.3-win-x64.zip",
+			Checksum:          "6c8d54f635feff4df76c2ca80f45332eb2ff57d25226edce36592e51a177ee33",
+			ChecksumAlgorithm: checksumAlgorithmSHA256,
+			ArchiveFormat:     archiveFormatZip,
+		},
+		"linux-amd64": {
+			FileName:          "node-v22.22.3-linux-x64.tar.xz",
+			URL:               nodeJSDownloadBaseURL + "/v22.22.3/node-v22.22.3-linux-x64.tar.xz",
+			Checksum:          "2e5d13569282d016861fae7c8f935e741693c269101a5bebcf761a5376d1f99f",
+			ChecksumAlgorithm: checksumAlgorithmSHA256,
+			ArchiveFormat:     archiveFormatTarXz,
+		},
+	},
+}
+
 func (d HTTPToolDownloader) Download(cacheDir, tool, version string) error {
 	client := d.Client
 	if client == nil {
@@ -169,6 +205,8 @@ func (d HTTPToolDownloader) Download(cacheDir, tool, version string) error {
 		return downloadComposer(client, cacheDir, version)
 	case toolPHP:
 		return downloadPHP(client, cacheDir, version)
+	case toolNodeJS:
+		return downloadNodeJS(client, cacheDir, version)
 	case toolNginx:
 		return downloadNginx(client, cacheDir, version)
 	case toolMySQL:
@@ -195,6 +233,15 @@ func downloadNginx(client *http.Client, cacheDir, version string) error {
 	}
 
 	return downloadDatabaseAsset(client, cacheDir, toolNginx, version, asset)
+}
+
+func downloadNodeJS(client *http.Client, cacheDir, version string) error {
+	_, asset, err := resolveNodeJSDownloadAsset(version, runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		return err
+	}
+
+	return downloadDatabaseAsset(client, cacheDir, toolNodeJS, version, asset)
 }
 
 func downloadDatabaseTool(client *http.Client, cacheDir, tool, version string) error {
@@ -261,6 +308,31 @@ func resolveNginxDownloadAsset(requestedVersion, goos, goarch string) (string, d
 	return resolvedVersion, asset, nil
 }
 
+func resolveNodeJSDownloadAsset(requestedVersion, goos, goarch string) (string, databaseDownloadAsset, error) {
+	requestedVersion = strings.TrimSpace(requestedVersion)
+	if requestedVersion == "" {
+		return "", databaseDownloadAsset{}, fmt.Errorf("%s version cannot be empty", toolNodeJS)
+	}
+
+	platformKey, err := nodeJSPlatformKey(goos, goarch)
+	if err != nil {
+		return "", databaseDownloadAsset{}, err
+	}
+
+	resolvedVersion, err := resolveDatabaseCatalogVersion(nodeJSDownloadCatalog, requestedVersion)
+	if err != nil {
+		return "", databaseDownloadAsset{}, fmt.Errorf("resolve %s version %q: %w", toolNodeJS, requestedVersion, err)
+	}
+
+	platformAssets := nodeJSDownloadCatalog[resolvedVersion]
+	asset, ok := platformAssets[platformKey]
+	if !ok {
+		return "", databaseDownloadAsset{}, fmt.Errorf("%s version %q is not available for %s/%s", toolNodeJS, resolvedVersion, goos, goarch)
+	}
+
+	return resolvedVersion, asset, nil
+}
+
 func databasePlatformKey(goos, goarch string) (string, error) {
 	switch {
 	case goos == "windows" && goarch == "amd64":
@@ -278,6 +350,17 @@ func nginxPlatformKey(goos, goarch string) (string, error) {
 	}
 
 	return "", fmt.Errorf("automatic nginx downloads are only implemented on Windows amd64")
+}
+
+func nodeJSPlatformKey(goos, goarch string) (string, error) {
+	switch {
+	case goos == "windows" && goarch == "amd64":
+		return "windows-amd64", nil
+	case goos == "linux" && goarch == "amd64":
+		return "linux-amd64", nil
+	default:
+		return "", fmt.Errorf("automatic nodejs downloads are only implemented for Windows amd64 and Linux amd64")
+	}
 }
 
 func resolveDatabaseCatalogVersion(catalog map[string]map[string]databaseDownloadAsset, requested string) (string, error) {

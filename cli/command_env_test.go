@@ -37,6 +37,18 @@ func TestRunInitUsesDotPolkaByDefault(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(projectDir, ".polka", "bin", "composer.cmd")); !os.IsNotExist(err) {
 		t.Fatalf("Stat(.polka/bin/composer.cmd) error = %v, want missing shim without active environment", err)
 	}
+	if _, err := os.Stat(filepath.Join(projectDir, ".polka", "bin", "node.cmd")); !os.IsNotExist(err) {
+		t.Fatalf("Stat(.polka/bin/node.cmd) error = %v, want missing shim without active environment", err)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, ".polka", "bin", "npm.cmd")); !os.IsNotExist(err) {
+		t.Fatalf("Stat(.polka/bin/npm.cmd) error = %v, want missing shim without active environment", err)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, ".polka", "bin", "npx.cmd")); !os.IsNotExist(err) {
+		t.Fatalf("Stat(.polka/bin/npx.cmd) error = %v, want missing shim without active environment", err)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, ".polka", "bin", "nodejs.cmd")); !os.IsNotExist(err) {
+		t.Fatalf("Stat(.polka/bin/nodejs.cmd) error = %v, want legacy nodejs shim removed", err)
+	}
 	if _, err := os.Stat(filepath.Join(projectDir, ".polka", "bin", "mysql.cmd")); !os.IsNotExist(err) {
 		t.Fatalf("Stat(.polka/bin/mysql.cmd) error = %v, want missing shim without active environment", err)
 	}
@@ -342,8 +354,11 @@ func TestRunNewUsesDefaultVersions(t *testing.T) {
 	if err := yaml.Unmarshal(configData, &config); err != nil {
 		t.Fatalf("yaml.Unmarshal(config) error = %v", err)
 	}
-	if config.Environments["demo"].PHP != "8.4" || config.Environments["demo"].Composer != "2.8" {
+	if config.Environments["demo"].PHP != "8.4" || config.Environments["demo"].Composer != "2.8" || config.Environments["demo"].NodeJS != "24" {
 		t.Fatalf("config = %#v, want default versions for demo", config)
+	}
+	if !strings.Contains(stdout.String(), "nodejs=24") {
+		t.Fatalf("Run(new) stdout = %q, want default nodejs summary", stdout.String())
 	}
 	if !strings.Contains(stdout.String(), "Created demo") {
 		t.Fatalf("Run(new) stdout = %q, want created summary", stdout.String())
@@ -380,6 +395,32 @@ func TestRunConfigPersistsDatabaseSettings(t *testing.T) {
 	}
 }
 
+func TestRunConfigPersistsNodeJSSetting(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--nodejs", "24"}); code != 0 {
+		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	configData, err := os.ReadFile(filepath.Join(projectDir, "polka.yaml"))
+	if err != nil {
+		t.Fatalf("ReadFile(config) error = %v", err)
+	}
+	var config testConfigFile
+	if err := yaml.Unmarshal(configData, &config); err != nil {
+		t.Fatalf("yaml.Unmarshal(config) error = %v", err)
+	}
+	if config.Environments["demo"].NodeJS != "24" {
+		t.Fatalf("config = %#v, want nodejs configured for demo", config)
+	}
+	if !strings.Contains(stdout.String(), "nodejs=24") {
+		t.Fatalf("Run(config) stdout = %q, want nodejs summary", stdout.String())
+	}
+}
+
 func TestRunStatusShowsToolsEachOnOwnLine(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
@@ -394,6 +435,7 @@ func TestRunStatusShowsToolsEachOnOwnLine(t *testing.T) {
 			"demo": {
 				PHP:      "8.4",
 				Composer: "2.8",
+				NodeJS:   "24",
 				Nginx:    "1.30",
 				Database: &testDatabaseConfig{Engine: "mysql", Version: "8.0", Port: 3306},
 				Server:   &testServerConfig{Hostname: "localhost", Port: 8080},
@@ -418,6 +460,7 @@ func TestRunStatusShowsToolsEachOnOwnLine(t *testing.T) {
 		"environment demo\n",
 		"php 8.4\n",
 		"composer 2.8\n",
+		"nodejs 24\n",
 		"nginx 1.30\n",
 		"database mysql:8.0@3306\n",
 		"server localhost:8080\n",
@@ -452,6 +495,9 @@ func TestRunStatusUsesDefaultServerAddress(t *testing.T) {
 	output := stdout.String()
 	if !strings.Contains(output, "server localhost:8000\n") {
 		t.Fatalf("Run(status) stdout = %q, want default server address", output)
+	}
+	if !strings.Contains(output, "nodejs unset\n") {
+		t.Fatalf("Run(status) stdout = %q, want nodejs unset line", output)
 	}
 	if !strings.Contains(output, "nginx unset\n") {
 		t.Fatalf("Run(status) stdout = %q, want nginx unset line", output)

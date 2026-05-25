@@ -15,6 +15,7 @@ type testConfigFile struct {
 type testEnvironmentConfig struct {
 	PHP           string              `yaml:"php"`
 	Composer      string              `yaml:"composer"`
+	NodeJS        string              `yaml:"nodejs,omitempty"`
 	Nginx         string              `yaml:"nginx,omitempty"`
 	Docroot       string              `yaml:"docroot,omitempty"`
 	EnvFile       string              `yaml:"env-file,omitempty"`
@@ -49,6 +50,30 @@ func cachedComposerPath(root, version string) string {
 	}
 
 	return filepath.Join(root, "composer", version, "bin", "composer.phar")
+}
+
+func cachedNodeJSPath(root, version string) string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(root, "nodejs", version, "node.exe")
+	}
+
+	return filepath.Join(root, "nodejs", version, "bin", "node")
+}
+
+func projectInstalledNodeJSCommandPath(root, version, command string) string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(root, "envs", "nodejs", version, command+".cmd")
+	}
+
+	return filepath.Join(root, "envs", "nodejs", version, "bin", command)
+}
+
+func projectInstalledNodeJSPath(root, version string) string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(root, "envs", "nodejs", version, "node.exe")
+	}
+
+	return filepath.Join(root, "envs", "nodejs", version, "bin", "node")
 }
 
 func cachedDatabasePath(root, tool, version string) string {
@@ -121,6 +146,14 @@ func fakePHPScriptWithEnv(varName string) []byte {
 	}
 
 	return []byte("#!/usr/bin/env sh\nprintf 'fake-php %s %s\n' \"$*\" \"$" + varName + "\"\n")
+}
+
+func fakeToolScript(name string) []byte {
+	if runtime.GOOS == "windows" {
+		return []byte("@echo off\r\necho fake-" + name + " %*\r\n")
+	}
+
+	return []byte("#!/usr/bin/env sh\nprintf 'fake-" + name + " %s\n' \"$*\"\n")
 }
 
 func fakeDatabaseScript(name string) []byte {
