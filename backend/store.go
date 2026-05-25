@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -1308,13 +1309,38 @@ func escapeWindowsBatchValue(value string) string {
 }
 
 func writeYAML(path string, value any) error {
-	data, err := yaml.Marshal(value)
+	data, err := marshalYAML(path, value)
 	if err != nil {
 		return err
 	}
 
-	data = append(data, '\n')
+	if len(data) == 0 || data[len(data)-1] != '\n' {
+		data = append(data, '\n')
+	}
 	return os.WriteFile(path, data, 0o644)
+}
+
+func marshalYAML(path string, value any) ([]byte, error) {
+	existingData, err := os.ReadFile(path)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return yaml.Marshal(value)
+	case err != nil:
+		return nil, err
+	case len(bytes.TrimSpace(existingData)) == 0:
+		return yaml.Marshal(value)
+	}
+
+	comments := yaml.CommentMap{}
+	var existing any
+	if err := yaml.UnmarshalWithOptions(existingData, &existing, yaml.CommentToMap(comments)); err != nil {
+		return nil, fmt.Errorf("decode existing YAML comments: %w", err)
+	}
+	if len(comments) == 0 {
+		return yaml.Marshal(value)
+	}
+
+	return yaml.MarshalWithOptions(value, yaml.WithComment(comments))
 }
 
 func copyFile(sourcePath, targetPath string, mode os.FileMode) error {

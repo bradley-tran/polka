@@ -141,6 +141,47 @@ func TestStoreUseSyncsManagedBinariesForCurrentEnvironment(t *testing.T) {
 	assertPathMissing(t, filepath.Join(store.BinDir, toolMySQL+".cmd"))
 }
 
+func TestStoreUsePreservesExistingConfigComments(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	configData := []byte(strings.Join([]string{
+		"version: 1",
+		"root: .polka",
+		"current: demo # active environment",
+		"environments:",
+		"  demo:",
+		"    php: \"8.4\"",
+		"  web:",
+		"    php: \"8.3\"",
+		"",
+	}, "\n"))
+	if err := os.WriteFile(store.ConfigFile, configData, 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	if err := store.Use("web"); err != nil {
+		t.Fatalf("Use(web) error = %v", err)
+	}
+
+	updatedConfig, err := os.ReadFile(store.ConfigFile)
+	if err != nil {
+		t.Fatalf("ReadFile(config) error = %v", err)
+	}
+	if !strings.Contains(string(updatedConfig), "# active environment") {
+		t.Fatalf("config after Use() = %q, want current comment preserved", string(updatedConfig))
+	}
+	config, err := store.readConfig()
+	if err != nil {
+		t.Fatalf("readConfig() error = %v", err)
+	}
+	if config.Current != "web" {
+		t.Fatalf("config.Current = %q, want web", config.Current)
+	}
+}
+
 func TestStoreInstallCopiesToolIntoVersionedLayout(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
@@ -204,6 +245,46 @@ func TestStoreInstallPreservesExistingConfigComments(t *testing.T) {
 	}
 	if string(updatedConfig) != string(configData) {
 		t.Fatalf("config after install = %q, want original bytes %q", string(updatedConfig), string(configData))
+	}
+}
+
+func TestStoreConfigurePreservesExistingConfigComments(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	configData := []byte(strings.Join([]string{
+		"# top comment",
+		"version: 1",
+		"root: .polka",
+		"current: demo",
+		"environments:",
+		"  demo:",
+		"    # php version comment",
+		"    php: \"8.4\" # inline php comment",
+		"",
+	}, "\n"))
+	if err := os.WriteFile(store.ConfigFile, configData, 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+
+	if _, err := store.Configure("demo", "8.3", "", nil); err != nil {
+		t.Fatalf("Configure(demo) error = %v", err)
+	}
+
+	updatedConfig, err := os.ReadFile(store.ConfigFile)
+	if err != nil {
+		t.Fatalf("ReadFile(config) error = %v", err)
+	}
+	for _, comment := range []string{"# top comment", "# php version comment", "# inline php comment"} {
+		if !strings.Contains(string(updatedConfig), comment) {
+			t.Fatalf("config after Configure() = %q, want preserved comment %q", string(updatedConfig), comment)
+		}
+	}
+	config, err := store.readConfig()
+	if err != nil {
+		t.Fatalf("readConfig() error = %v", err)
+	}
+	if config.Environments["demo"].PHPVersion != "8.3" {
+		t.Fatalf("config.Environments[demo].PHPVersion = %q, want 8.3", config.Environments["demo"].PHPVersion)
 	}
 }
 
@@ -693,6 +774,47 @@ func TestStoreCreateRejectsExistingEnvironment(t *testing.T) {
 	}
 }
 
+func TestStoreCreatePreservesExistingConfigComments(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	configData := []byte(strings.Join([]string{
+		"# project comment",
+		"version: 1",
+		"root: .polka",
+		"current: demo",
+		"environments:",
+		"  # existing environment comment",
+		"  demo:",
+		"    php: \"8.4\"",
+		"",
+	}, "\n"))
+	if err := os.WriteFile(store.ConfigFile, configData, 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+
+	if _, err := store.Create("api", "8.3", "2.7", nil); err != nil {
+		t.Fatalf("Create(api) error = %v", err)
+	}
+
+	updatedConfig, err := os.ReadFile(store.ConfigFile)
+	if err != nil {
+		t.Fatalf("ReadFile(config) error = %v", err)
+	}
+	for _, comment := range []string{"# project comment", "# existing environment comment"} {
+		if !strings.Contains(string(updatedConfig), comment) {
+			t.Fatalf("config after Create() = %q, want preserved comment %q", string(updatedConfig), comment)
+		}
+	}
+	config, err := store.readConfig()
+	if err != nil {
+		t.Fatalf("readConfig() error = %v", err)
+	}
+	created := config.Environments["api"]
+	if created.PHPVersion != "8.3" || created.ComposerVersion != "2.7" {
+		t.Fatalf("created environment = %#v, want api php/composer versions", created)
+	}
+}
+
 func TestStoreConfigureLifecycleUsesVersionLabels(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
@@ -802,6 +924,54 @@ func TestStoreConfigureLifecycleUsesVersionLabels(t *testing.T) {
 	}
 	if strings.Contains(string(configData), phpCachePath) || strings.Contains(string(configData), composerCachePath) {
 		t.Fatalf("config after remove = %q, want version labels rather than tool paths", string(configData))
+	}
+}
+
+func TestStoreRemovePreservesRemainingConfigComments(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	configData := []byte(strings.Join([]string{
+		"# project comment",
+		"version: 1",
+		"root: .polka",
+		"current: demo",
+		"environments:",
+		"  demo:",
+		"    php: \"8.4\"",
+		"  # keep this environment comment",
+		"  web:",
+		"    php: \"8.3\" # keep this inline comment",
+		"",
+	}, "\n"))
+	if err := os.WriteFile(store.ConfigFile, configData, 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+	if err := store.Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	if err := store.Remove("demo"); err != nil {
+		t.Fatalf("Remove(demo) error = %v", err)
+	}
+
+	updatedConfig, err := os.ReadFile(store.ConfigFile)
+	if err != nil {
+		t.Fatalf("ReadFile(config) error = %v", err)
+	}
+	for _, comment := range []string{"# project comment", "# keep this environment comment", "# keep this inline comment"} {
+		if !strings.Contains(string(updatedConfig), comment) {
+			t.Fatalf("config after Remove() = %q, want preserved comment %q", string(updatedConfig), comment)
+		}
+	}
+	config, err := store.readConfig()
+	if err != nil {
+		t.Fatalf("readConfig() error = %v", err)
+	}
+	if _, ok := config.Environments["demo"]; ok {
+		t.Fatalf("config.Environments still contains demo after Remove(): %#v", config.Environments)
+	}
+	if config.Environments["web"].PHPVersion != "8.3" {
+		t.Fatalf("config.Environments[web].PHPVersion = %q, want 8.3", config.Environments["web"].PHPVersion)
 	}
 }
 
