@@ -1270,12 +1270,15 @@ func shellDispatchBinary(tool string) installedBinary {
 			"set -eu\n" +
 			"SCRIPT_DIR=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\n" +
 			"ROOT_DIR=$(CDPATH= cd -- \"$SCRIPT_DIR/..\" && pwd)\n" +
-			"DISPATCHER=\"$SCRIPT_DIR/" + dispatcherBinaryName + "\"\n" +
+			"DISPATCHER=${POLKA_TOOL_DISPATCHER:-$SCRIPT_DIR/" + dispatcherBinaryName + "}\n" +
+			"DISPATCH_ROOT=${POLKA_TOOL_ROOT:-$ROOT_DIR}\n" +
 			"if [ ! -f \"$DISPATCHER\" ]; then\n" +
 			"  printf '%s\\n' 'Polka dispatcher shim not found in .polka/bin. Re-run \"polka init\".' >&2\n" +
 			"  exit 1\n" +
 			"fi\n" +
-			"exec \"$DISPATCHER\" --root \"$ROOT_DIR\" dispatch " + tool + " \"$@\"\n",
+			"export POLKA_TOOL_DISPATCHER=\"$DISPATCHER\"\n" +
+			"export POLKA_TOOL_ROOT=\"$DISPATCH_ROOT\"\n" +
+			"exec \"$DISPATCHER\" --root \"$DISPATCH_ROOT\" dispatch " + tool + " \"$@\"\n",
 	}
 }
 
@@ -1287,11 +1290,17 @@ func windowsDispatchBinary(tool string) installedBinary {
 			"setlocal\r\n" +
 			"set \"SCRIPT_DIR=%~dp0\"\r\n" +
 			"set \"ROOT_DIR=%SCRIPT_DIR%..\"\r\n" +
-			"if not exist \"%SCRIPT_DIR%" + dispatcherBatchFileName + "\" (\r\n" +
+			"set \"DISPATCHER=%POLKA_TOOL_DISPATCHER%\"\r\n" +
+			"if not defined DISPATCHER set \"DISPATCHER=%SCRIPT_DIR%" + dispatcherBatchFileName + "\"\r\n" +
+			"set \"DISPATCH_ROOT=%POLKA_TOOL_ROOT%\"\r\n" +
+			"if not defined DISPATCH_ROOT set \"DISPATCH_ROOT=%ROOT_DIR%\"\r\n" +
+			"if not exist \"%DISPATCHER%\" (\r\n" +
 			"  >&2 echo Polka dispatcher shim not found in .polka\\bin. Re-run polka init.\r\n" +
 			"  exit /b 1\r\n" +
 			")\r\n" +
-			"call \"%SCRIPT_DIR%" + dispatcherBatchFileName + "\" --root \"%ROOT_DIR%\" dispatch " + tool + " %*\r\n" +
+			"set \"POLKA_TOOL_DISPATCHER=%DISPATCHER%\"\r\n" +
+			"set \"POLKA_TOOL_ROOT=%DISPATCH_ROOT%\"\r\n" +
+			"call \"%DISPATCHER%\" --root \"%DISPATCH_ROOT%\" dispatch " + tool + " %*\r\n" +
 			"exit /b %ERRORLEVEL%\r\n",
 	}
 }

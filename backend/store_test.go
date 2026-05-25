@@ -3,6 +3,7 @@ package backend
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -509,6 +510,76 @@ func TestStoreInstallCopiesConfiguredNodeJSIntoVersionedLayout(t *testing.T) {
 	assertPathExists(t, filepath.Join(store.BinDir, toolNPX+".cmd"))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolNodeJS))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolNodeJS+".cmd"))
+}
+
+func TestWindowsDispatchBinarySupportsCopiedShimWithInheritedDispatcher(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("windows-only shim regression")
+	}
+
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+
+	if _, err := store.ConfigureWithNodeJS("demo", "", "", "24", nil); err != nil {
+		t.Fatalf("ConfigureWithNodeJS(demo) error = %v", err)
+	}
+	if err := store.Use("demo"); err != nil {
+		t.Fatalf("Use(demo) error = %v", err)
+	}
+
+	originalShimPath := filepath.Join(store.BinDir, toolNPX+".cmd")
+	originalShimData, err := os.ReadFile(originalShimPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%s) error = %v", originalShimPath, err)
+	}
+
+	copiedShimDir := filepath.Join(projectDir, "copied-shims")
+	if err := os.MkdirAll(copiedShimDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(copied-shims) error = %v", err)
+	}
+	copiedShimPath := filepath.Join(copiedShimDir, toolNPX+".cmd")
+	if err := os.WriteFile(copiedShimPath, originalShimData, 0o755); err != nil {
+		t.Fatalf("WriteFile(%s) error = %v", copiedShimPath, err)
+	}
+
+	capturePath := filepath.Join(projectDir, "dispatch-capture.txt")
+	fakeDispatcherPath := filepath.Join(projectDir, "fake-dispatcher.cmd")
+	fakeDispatcherData := "@echo off\r\n" +
+		"> \"%POLKA_TEST_CAPTURE%\" echo args:%*\r\n" +
+		">> \"%POLKA_TEST_CAPTURE%\" echo dispatcher:%POLKA_TOOL_DISPATCHER%\r\n" +
+		">> \"%POLKA_TEST_CAPTURE%\" echo root:%POLKA_TOOL_ROOT%\r\n" +
+		"exit /b 0\r\n"
+	if err := os.WriteFile(fakeDispatcherPath, []byte(fakeDispatcherData), 0o755); err != nil {
+		t.Fatalf("WriteFile(%s) error = %v", fakeDispatcherPath, err)
+	}
+
+	command := exec.Command("cmd.exe", "/c", copiedShimPath, "create-vite")
+	command.Dir = projectDir
+	command.Env = append(os.Environ(),
+		"POLKA_TOOL_DISPATCHER="+fakeDispatcherPath,
+		"POLKA_TOOL_ROOT="+store.RootDir,
+		"POLKA_TEST_CAPTURE="+capturePath,
+	)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("copied shim output = %q, error = %v", string(output), err)
+	}
+
+	captureData, err := os.ReadFile(capturePath)
+	if err != nil {
+		t.Fatalf("ReadFile(%s) error = %v", capturePath, err)
+	}
+	capture := string(captureData)
+	if !strings.Contains(capture, "args:--root \""+store.RootDir+"\" dispatch npx create-vite") {
+		t.Fatalf("capture = %q, want copied shim to dispatch through inherited root", capture)
+	}
+	if !strings.Contains(capture, "dispatcher:"+fakeDispatcherPath) {
+		t.Fatalf("capture = %q, want inherited dispatcher path", capture)
+	}
+	if !strings.Contains(capture, "root:"+store.RootDir) {
+		t.Fatalf("capture = %q, want inherited root path", capture)
+	}
 }
 
 func assertPathMissing(t *testing.T, path string) {
