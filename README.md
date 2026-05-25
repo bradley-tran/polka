@@ -22,6 +22,7 @@ go run . init
 go run . new blog
 go run . install blog
 go run . serve public
+go run . exec php -v
 go run . sh
 go run . list
 go run . use blog
@@ -40,6 +41,8 @@ Use `polka install [name]` to install every configured tool version for an envir
 The shims in `.polka/bin` mirror the active environment's configured tools. A configured `nodejs` version produces `node`, `npm`, and `npx` shims, while the `nodejs` name itself remains config-only. If the current environment does not define a managed tool, Polka removes that local shim instead of leaving a dispatcher that would fail at runtime.
 
 Use `polka sh` to open an interactive shell that resolves commands in this order: `.polka/bin`, then `vendor/bin`, then the inherited system `PATH`. That means a local Polka-managed `composer` shim wins over a globally installed `composer`, while still falling back to project-local Composer plugins in `vendor/bin` and finally to whatever the system shell already exposes. On Windows, Polka also generates temporary `.cmd` wrappers for extensionless Composer PHP proxies and for shell launchers that have a matching `.php` source in `vendor/bin`, so commands such as `drush` run through the local PHP CLI instead of relying on `sh`.
+
+Use `polka exec <command> [args...]` when you want that same resolution order and runtime environment for a single command without opening an interactive shell. For example, `polka exec drush status` and `polka exec php -v` resolve tools through `.polka/bin`, the nearest `vendor/bin`, and then the inherited system `PATH` exactly the same way as `polka sh`.
 
 Polka also composes custom runtime environment variables for the active environment from four sources in this precedence order (lowest to highest): inherited process env, project `.env`, `environments.<name>.env-file`, and `environments.<name>.env-vars`. The `.env` file is loaded automatically from the directory containing `polka.yaml` when present, `env-file` paths are resolved relative to that same directory (unless absolute), and `env-vars` always win when keys overlap.
 

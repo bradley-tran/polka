@@ -101,7 +101,7 @@ func TestRunShLaunchesInteractiveShellWithPreferredPath(t *testing.T) {
 	if pathValue != expectedPath {
 		t.Fatalf("%s = %q, want %q", pathKey, pathValue, expectedPath)
 	}
-	if stdout.String() != "Opened Polka shell for environtment demo\n" {
+	if stdout.String() != "Opened Polka shell for environment demo\n" {
 		t.Fatalf("Run(sh) stdout = %q, want environment banner", stdout.String())
 	}
 	if stderr.Len() != 0 {

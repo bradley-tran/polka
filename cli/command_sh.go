@@ -123,7 +123,7 @@ func writeShellBanner(stdout io.Writer, environmentName string) {
 		return
 	}
 
-	_, _ = fmt.Fprintf(stdout, "Opened Polka shell for environtment %s\n", environmentName)
+	_, _ = fmt.Fprintf(stdout, "Opened Polka shell for environment %s\n", environmentName)
 }
 
 func windowsInteractiveShellArgs() []string {
@@ -166,6 +166,11 @@ func prepareShellEnvironment(goos string, env []string, store backend.Store, wor
 	if err != nil {
 		return nil, err
 	}
+
+	return buildShellExecutionEnvironment(goos, env, store, context)
+}
+
+func buildShellExecutionEnvironment(goos string, env []string, store backend.Store, context shellSessionContext) ([]string, error) {
 	resolvedEnv, err := resolveRuntimeEnvironment(goos, env, store)
 	if err != nil {
 		return nil, err

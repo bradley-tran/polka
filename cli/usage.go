@@ -1,19 +1,20 @@
 package cli
 
-const rootUsage = `Polka manages isolated PHP virtual environments.
+const rootUsage = `The polka CLI manages isolated PHP virtual environments.
 
 Usage:
   polka [--root PATH] <command> [options]
 
 Commands:
   init                 create the local .polka directory and sync the active shims
-	new <name>           create an environment with default or explicit versions
+  new <name>           create an environment with default or explicit versions
   config [name]        set php, composer, nodejs, and database settings for an environment
   install [name]       install all tools for an environment
   db [args...]         run the active environment's database client or manage its local server
   serve [docroot]      start the local web server for the active environment
-	sh                   open an interactive shell with local binaries first
-	session [start|stop] generate shell scripts that activate or deactivate local binaries
+  exec <command>       run one command with the local shell environment
+  sh                   open an interactive shell with local binaries first
+  session [start|stop] generate shell scripts that activate or deactivate local binaries
   list                 list environments
   use <name>           mark an environment as current
   status               show the active environment status
@@ -22,23 +23,24 @@ Commands:
 
 Examples:
   polka init
-	polka new api
+  polka new api
   polka config api --php 8.4 --composer 2.8 --nodejs 24
   polka config api --db-engine mysql --db-version 8.0 --db-port 3306
-	polka install api
+  polka install api
   polka db start
   polka db status
   polka db --version
   polka serve public
   polka serve
-	polka sh
-	polka session start
+  polka exec php -v
+  polka sh
+  polka session start
   polka list
   polka use api
   polka status
 
 Flags:
-	--root PATH          override the state directory (defaults to ./.polka)
+  --root PATH          override the state directory (defaults to ./.polka)
 `
 
 const initUsage = `Usage:
@@ -102,6 +104,16 @@ Start the active environment's local web server.
 When docroot is omitted, Polka uses environments.<name>.docroot from polka.yaml.
 When --server is omitted, Polka uses the current environment's server.hostname and server.port from polka.yaml, defaulting to localhost:8000.
 When the current environment defines a database, Polka starts that managed local database first.
+`
+
+const execUsage = `Usage:
+  polka exec <command> [args...]
+
+Run one command with the same local environment as polka sh.
+Polka resolves commands in this order:
+1. <root>/bin
+2. vendor/bin
+3. system PATH
 `
 
 const shUsage = `Usage:
