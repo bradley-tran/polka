@@ -755,6 +755,7 @@ func TestStoreCurrentNormalizesServerConfig(t *testing.T) {
 		Server: &ServerConfig{
 			Hostname: " localhost ",
 			Port:     8080,
+			HTTPS:    true,
 		},
 	}
 	if err := store.writeConfig(config); err != nil {
@@ -768,8 +769,8 @@ func TestStoreCurrentNormalizesServerConfig(t *testing.T) {
 	if current == nil || current.Server == nil {
 		t.Fatalf("Current() = %#v, want server config", current)
 	}
-	if current.Server.Hostname != "localhost" || current.Server.Port != 8080 {
-		t.Fatalf("Current().Server = %#v, want normalized hostname and port", current.Server)
+	if current.Server.Hostname != "localhost" || current.Server.Port != 8080 || !current.Server.HTTPS {
+		t.Fatalf("Current().Server = %#v, want normalized hostname, port, and https", current.Server)
 	}
 }
 

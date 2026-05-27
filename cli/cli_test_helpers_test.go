@@ -34,6 +34,7 @@ type testDatabaseConfig struct {
 type testServerConfig struct {
 	Hostname string `yaml:"hostname,omitempty"`
 	Port     int    `yaml:"port,omitempty"`
+	HTTPS    bool   `yaml:"https,omitempty"`
 }
 
 func cachedPHPPath(root, version string) string {

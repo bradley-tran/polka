@@ -463,7 +463,7 @@ func TestRunStatusShowsToolsEachOnOwnLine(t *testing.T) {
 		"nodejs 24\n",
 		"nginx 1.30\n",
 		"database mysql:8.0@3306\n",
-		"server localhost:8080\n",
+		"server http://localhost:8080\n",
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("Run(status) stdout = %q, want %q", output, expected)
@@ -493,7 +493,7 @@ func TestRunStatusUsesDefaultServerAddress(t *testing.T) {
 	}
 
 	output := stdout.String()
-	if !strings.Contains(output, "server localhost:8000\n") {
+	if !strings.Contains(output, "server http://localhost:8000\n") {
 		t.Fatalf("Run(status) stdout = %q, want default server address", output)
 	}
 	if !strings.Contains(output, "nodejs unset\n") {

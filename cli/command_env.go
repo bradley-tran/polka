@@ -377,7 +377,7 @@ func runStatus(stdout io.Writer, store backend.Store) error {
 		_, _ = fmt.Fprintln(stdout, "No active environment selected.")
 		return nil
 	}
-	serverAddress, err := resolveServeAddress(current.Server, "")
+	serverEndpoint, err := resolveServeEndpoint(current.Server, "")
 	if err != nil {
 		return err
 	}
@@ -388,7 +388,7 @@ func runStatus(stdout io.Writer, store backend.Store) error {
 	_, _ = fmt.Fprintf(stdout, "nodejs %s\n", labelOrUnset(current.NodeJSVersion))
 	_, _ = fmt.Fprintf(stdout, "nginx %s\n", labelOrUnset(current.NginxVersion))
 	_, _ = fmt.Fprintf(stdout, "database %s\n", labelDatabase(current.Database))
-	_, _ = fmt.Fprintf(stdout, "server %s\n", serverAddress)
+	_, _ = fmt.Fprintf(stdout, "server %s\n", serveEndpointURL(serverEndpoint))
 	return nil
 }
 

@@ -60,6 +60,7 @@ type Environment struct {
 type ServerConfig struct {
 	Hostname string `yaml:"hostname,omitempty"`
 	Port     int    `yaml:"port,omitempty"`
+	HTTPS    bool   `yaml:"https,omitempty"`
 }
 
 type InstallResult struct {
@@ -738,8 +739,9 @@ func normalizeServerConfig(server *ServerConfig) *ServerConfig {
 	normalized := &ServerConfig{
 		Hostname: strings.TrimSpace(server.Hostname),
 		Port:     server.Port,
+		HTTPS:    server.HTTPS,
 	}
-	if normalized.Hostname == "" && normalized.Port == 0 {
+	if normalized.Hostname == "" && normalized.Port == 0 && !normalized.HTTPS {
 		return nil
 	}
 

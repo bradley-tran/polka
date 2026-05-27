@@ -1,11 +1,17 @@
 package cli
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
+	"math/big"
 	"net"
 	"os"
 	"os/exec"
@@ -29,6 +35,7 @@ const (
 	serveRuntimeSubdir   = "serve"
 	serveStateFileName   = "state.json"
 	serveLogFileName     = "serve.log"
+	serveTLSSubdir       = "certs"
 	phpServeRouterName   = "php-router.php"
 	serveProxyHost       = "127.0.0.1"
 	serveShutdownTimeout = 5 * time.Second
@@ -53,6 +60,7 @@ type serveCommandInput struct {
 type serveRuntimeState struct {
 	EnvironmentName string    `json:"environment"`
 	ServerKind      string    `json:"server_kind"`
+	ServerScheme    string    `json:"server_scheme,omitempty"`
 	ServerAddress   string    `json:"server_address"`
 	Docroot         string    `json:"docroot"`
 	RuntimeDir      string    `json:"runtime_dir,omitempty"`
@@ -70,6 +78,18 @@ type serveAppLayout struct {
 	FrontControllerRelative string
 	FrontControllerWebPath  string
 	FrontControllerIndex    string
+}
+
+type serveEndpoint struct {
+	Scheme  string
+	Address string
+	HTTPS   bool
+}
+
+type nginxTLSConfig struct {
+	Enabled            bool
+	CertificatePath    string
+	CertificateKeyPath string
 }
 
 type serveStaticMIMEType struct {
@@ -150,9 +170,15 @@ func runServe(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 		return 1
 	}
 
-	serverAddress, err := resolveServeAddress(current.Server, input.Server)
+	endpoint, err := resolveServeEndpoint(current.Server, input.Server)
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
+	serverAddress := endpoint.Address
+	serverURL := serveEndpointURL(endpoint)
+	if endpoint.HTTPS && strings.TrimSpace(current.NginxVersion) == "" {
+		fmt.Fprintln(stderr, "error: server.https requires nginx in the current environment")
 		return 1
 	}
 	docroot, err := resolveServeDocroot(store.ProjectDir, current.Docroot, input.Docroot)
@@ -179,20 +205,20 @@ func runServe(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 		return 1
 	}
 	if liveState != nil {
-		if serveStateMatches(*liveState, serverAddress, layout.Docroot, current.NginxVersion != "") {
-			fmt.Fprintf(stdout, "Webserver for environment %q is already running at http://%s.\n", current.Name, liveState.ServerAddress)
+		if serveStateMatches(*liveState, endpoint, layout.Docroot, current.NginxVersion != "") {
+			fmt.Fprintf(stdout, "Webserver for environment %q is already running at %s.\n", current.Name, serveStateURL(*liveState))
 			return 0
 		}
 
-		fmt.Fprintf(stderr, "error: environment %q already has a running %s at http://%s; run `polka stop` before starting a different webserver\n", current.Name, serveRuntimeLabel(liveState.ServerKind), liveState.ServerAddress)
+		fmt.Fprintf(stderr, "error: environment %q already has a running %s at %s; run `polka stop` before starting a different webserver\n", current.Name, serveRuntimeLabel(liveState.ServerKind), serveStateURL(*liveState))
 		return 1
 	}
 
 	if input.Watch {
 		var exitCode int
 		if current.NginxVersion != "" {
-			_, _ = fmt.Fprintf(stdout, "nginx webserver started at http://%s\n", serverAddress)
-			exitCode, err = runNginxServeFunc(stdout, stderr, store, *current, serverAddress, layout)
+			_, _ = fmt.Fprintf(stdout, "nginx webserver started at %s\n", serverURL)
+			exitCode, err = runNginxServeFunc(stdout, stderr, store, *current, endpoint, layout)
 		} else {
 			exitCode, err = runPHPRuntimeServeFunc(stdout, stderr, store, serverAddress, layout)
 		}
@@ -206,7 +232,7 @@ func runServe(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 
 	var startedState serveRuntimeState
 	if current.NginxVersion != "" {
-		startedState, err = startBackgroundNginxServe(store, *current, serverAddress, layout)
+		startedState, err = startBackgroundNginxServe(store, *current, endpoint, layout)
 	} else {
 		startedState, err = startBackgroundPHPRuntimeServe(store, *current, serverAddress, layout)
 	}
@@ -219,6 +245,9 @@ func runServe(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 	}
 	if strings.TrimSpace(startedState.ServerKind) == "" {
 		startedState.ServerKind = desiredServeKind(current.NginxVersion != "")
+	}
+	if strings.TrimSpace(startedState.ServerScheme) == "" {
+		startedState.ServerScheme = endpoint.Scheme
 	}
 	if strings.TrimSpace(startedState.ServerAddress) == "" {
 		startedState.ServerAddress = serverAddress
@@ -235,7 +264,7 @@ func runServe(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 		return 1
 	}
 
-	fmt.Fprintf(stdout, "Started %s for environment %q at http://%s.\n", serveRuntimeLabel(startedState.ServerKind), current.Name, serverAddress)
+	fmt.Fprintf(stdout, "Started %s for environment %q at %s.\n", serveRuntimeLabel(startedState.ServerKind), current.Name, serveStateURL(startedState))
 	fmt.Fprintln(stdout, "Run `polka stop` to stop it.")
 	return 0
 }
@@ -315,7 +344,7 @@ func startPHPRuntimeServeInBackground(store backend.Store, environment backend.E
 	return state, nil
 }
 
-func runNginxServe(stdout, stderr io.Writer, store backend.Store, environment backend.Environment, serverAddress string, layout serveAppLayout) (int, error) {
+func runNginxServe(stdout, stderr io.Writer, store backend.Store, environment backend.Environment, endpoint serveEndpoint, layout serveAppLayout) (int, error) {
 	if strings.TrimSpace(environment.PHPVersion) == "" {
 		return 0, fmt.Errorf("environment %q defines nginx but does not define a php version", environment.Name)
 	}
@@ -343,7 +372,7 @@ func runNginxServe(stdout, stderr io.Writer, store backend.Store, environment ba
 	}
 
 	runtimeDir := serveRuntimeDir(store.RootDir, environment.Name)
-	configPath, phpLogPath, err := prepareNginxServeRuntime(runtimeDir, serverAddress, layout, backendAddress)
+	configPath, phpLogPath, err := prepareNginxServeRuntime(runtimeDir, endpoint, layout, backendAddress)
 	if err != nil {
 		return 0, err
 	}
@@ -375,7 +404,7 @@ func runNginxServe(stdout, stderr io.Writer, store backend.Store, environment ba
 	return executeTargetWithEnv(stdout, stderr, env, nginxTarget, nginxArgs)
 }
 
-func startNginxServeInBackground(store backend.Store, environment backend.Environment, serverAddress string, layout serveAppLayout) (serveRuntimeState, error) {
+func startNginxServeInBackground(store backend.Store, environment backend.Environment, endpoint serveEndpoint, layout serveAppLayout) (serveRuntimeState, error) {
 	if strings.TrimSpace(environment.PHPVersion) == "" {
 		return serveRuntimeState{}, fmt.Errorf("environment %q defines nginx but does not define a php version", environment.Name)
 	}
@@ -403,7 +432,7 @@ func startNginxServeInBackground(store backend.Store, environment backend.Enviro
 	}
 
 	runtimeDir := serveRuntimeDir(store.RootDir, environment.Name)
-	configPath, phpLogPath, err := prepareNginxServeRuntime(runtimeDir, serverAddress, layout, backendAddress)
+	configPath, phpLogPath, err := prepareNginxServeRuntime(runtimeDir, endpoint, layout, backendAddress)
 	if err != nil {
 		return serveRuntimeState{}, err
 	}
@@ -456,17 +485,18 @@ func startNginxServeInBackground(store backend.Store, environment backend.Enviro
 		return serveRuntimeState{}, fmt.Errorf("start nginx webserver: %w", err)
 	}
 
-	if err := waitForServeAddress(serverAddress, serveStartupTimeout); err != nil {
+	if err := waitForServeAddress(serveProbeAddress(endpoint.Address), serveStartupTimeout); err != nil {
 		stopServeProcess(nginxCommand.Process)
 		stopServeProcess(phpCommand.Process)
 		_ = nginxLogFile.Close()
-		return serveRuntimeState{}, fmt.Errorf("start nginx webserver on %s: %w (see %s and %s)", serverAddress, err, nginxLogPath, phpLogPath)
+		return serveRuntimeState{}, fmt.Errorf("start nginx webserver on %s: %w (see %s and %s)", endpoint.Address, err, nginxLogPath, phpLogPath)
 	}
 
 	state := serveRuntimeState{
 		EnvironmentName: environment.Name,
 		ServerKind:      desiredServeKind(true),
-		ServerAddress:   serverAddress,
+		ServerScheme:    endpoint.Scheme,
+		ServerAddress:   endpoint.Address,
 		Docroot:         layout.Docroot,
 		RuntimeDir:      runtimeDir,
 		LogPath:         nginxLogPath,
@@ -528,6 +558,21 @@ func resolvePHPCGITarget(phpTarget string) (string, error) {
 	return "", fmt.Errorf("php-cgi executable was not found next to %s", phpTarget)
 }
 
+func resolveServeEndpoint(config *backend.ServerConfig, override string) (serveEndpoint, error) {
+	address, err := resolveServeAddress(config, override)
+	if err != nil {
+		return serveEndpoint{}, err
+	}
+
+	scheme := "http"
+	https := config != nil && config.HTTPS
+	if https {
+		scheme = "https"
+	}
+
+	return serveEndpoint{Scheme: scheme, Address: address, HTTPS: https}, nil
+}
+
 func resolveServeAddress(config *backend.ServerConfig, override string) (string, error) {
 	if strings.TrimSpace(override) != "" {
 		host, port, err := splitServerAddress(override)
@@ -553,6 +598,28 @@ func resolveServeAddress(config *backend.ServerConfig, override string) (string,
 	}
 
 	return net.JoinHostPort(host, strconv.Itoa(port)), nil
+}
+
+func serveEndpointURL(endpoint serveEndpoint) string {
+	scheme := strings.TrimSpace(endpoint.Scheme)
+	if scheme == "" {
+		scheme = "http"
+	}
+
+	return scheme + "://" + strings.TrimSpace(endpoint.Address)
+}
+
+func serveProbeAddress(address string) string {
+	host, port, err := net.SplitHostPort(strings.TrimSpace(address))
+	if err != nil {
+		return address
+	}
+	trimmed := strings.Trim(strings.TrimSpace(host), "[]")
+	if strings.HasSuffix(strings.ToLower(trimmed), "."+defaultServeHostname) {
+		return net.JoinHostPort(serveProxyHost, port)
+	}
+
+	return address
 }
 
 func reserveServeBackendAddress() (string, error) {
@@ -703,7 +770,7 @@ func renderPHPRuntimeRouter(layout serveAppLayout) []byte {
 	return []byte(builder.String())
 }
 
-func prepareNginxServeRuntime(runtimeDir, serverAddress string, layout serveAppLayout, backendAddress string) (string, string, error) {
+func prepareNginxServeRuntime(runtimeDir string, endpoint serveEndpoint, layout serveAppLayout, backendAddress string) (string, string, error) {
 	tempRoot := filepath.Join(runtimeDir, "temp")
 	logsDir := filepath.Join(runtimeDir, "logs")
 	tempDirs := []string{
@@ -719,18 +786,30 @@ func prepareNginxServeRuntime(runtimeDir, serverAddress string, layout serveAppL
 		}
 	}
 
-	host, portText, err := net.SplitHostPort(serverAddress)
+	host, portText, err := net.SplitHostPort(endpoint.Address)
 	if err != nil {
-		return "", "", fmt.Errorf("parse serve address %q: %w", serverAddress, err)
+		return "", "", fmt.Errorf("parse serve address %q: %w", endpoint.Address, err)
 	}
 	port, err := strconv.Atoi(portText)
 	if err != nil {
 		return "", "", fmt.Errorf("parse serve port %q: %w", portText, err)
 	}
+	tlsConfig := nginxTLSConfig{}
+	if endpoint.HTTPS {
+		certPath, keyPath, err := ensureNginxTLSCertificate(runtimeDir, host)
+		if err != nil {
+			return "", "", err
+		}
+		tlsConfig = nginxTLSConfig{
+			Enabled:            true,
+			CertificatePath:    certPath,
+			CertificateKeyPath: keyPath,
+		}
+	}
 
 	configPath := filepath.Join(runtimeDir, "nginx.conf")
 	phpLogPath := filepath.Join(runtimeDir, "php.log")
-	config := renderNginxServeConfig(host, port, layout, backendAddress)
+	config := renderNginxServeConfig(host, port, layout, backendAddress, tlsConfig)
 	if err := os.WriteFile(configPath, config, 0o644); err != nil {
 		return "", "", fmt.Errorf("write nginx config: %w", err)
 	}
@@ -738,7 +817,7 @@ func prepareNginxServeRuntime(runtimeDir, serverAddress string, layout serveAppL
 	return configPath, phpLogPath, nil
 }
 
-func renderNginxServeConfig(host string, port int, layout serveAppLayout, backendAddress string) []byte {
+func renderNginxServeConfig(host string, port int, layout serveAppLayout, backendAddress string, tlsConfig nginxTLSConfig) []byte {
 	listenAddress := renderNginxListenAddress(host, port)
 	serverName := strings.TrimSpace(host)
 	if serverName == "" {
@@ -766,10 +845,22 @@ func renderNginxServeConfig(host string, port int, layout serveAppLayout, backen
 	builder.WriteString("    server {\n")
 	builder.WriteString("        listen ")
 	builder.WriteString(listenAddress)
+	if tlsConfig.Enabled {
+		builder.WriteString(" ssl")
+	}
 	builder.WriteString(";\n")
 	builder.WriteString("        server_name ")
 	builder.WriteString(serverName)
 	builder.WriteString(";\n")
+	if tlsConfig.Enabled {
+		builder.WriteString("        ssl_certificate ")
+		builder.WriteString(quoteNginxPath(tlsConfig.CertificatePath))
+		builder.WriteString(";\n")
+		builder.WriteString("        ssl_certificate_key ")
+		builder.WriteString(quoteNginxPath(tlsConfig.CertificateKeyPath))
+		builder.WriteString(";\n")
+		builder.WriteString("        ssl_protocols TLSv1.2 TLSv1.3;\n")
+	}
 	builder.WriteString("        index ")
 	builder.WriteString(renderNginxIndexNames(layout))
 	builder.WriteString(";\n")
@@ -825,7 +916,7 @@ func renderNginxServeConfig(host string, port int, layout serveAppLayout, backen
 
 func renderNginxListenAddress(host string, port int) string {
 	trimmed := strings.TrimSpace(host)
-	if strings.EqualFold(trimmed, defaultServeHostname) {
+	if isLocalOnlyServeHostname(trimmed) {
 		return net.JoinHostPort(serveProxyHost, strconv.Itoa(port))
 	}
 	if ip := net.ParseIP(trimmed); ip != nil {
@@ -833,6 +924,109 @@ func renderNginxListenAddress(host string, port int) string {
 	}
 
 	return strconv.Itoa(port)
+}
+
+func isLocalOnlyServeHostname(host string) bool {
+	trimmed := strings.Trim(strings.TrimSpace(host), "[]")
+	if strings.EqualFold(trimmed, defaultServeHostname) || strings.HasSuffix(strings.ToLower(trimmed), "."+defaultServeHostname) {
+		return true
+	}
+	if ip := net.ParseIP(trimmed); ip != nil {
+		return ip.IsLoopback()
+	}
+
+	return false
+}
+
+func ensureNginxTLSCertificate(runtimeDir, host string) (string, string, error) {
+	safeName := safeCertificateFileName(host)
+	certDir := filepath.Join(runtimeDir, serveTLSSubdir)
+	certPath := filepath.Join(certDir, safeName+".crt")
+	keyPath := filepath.Join(certDir, safeName+".key")
+	if certificateFileExists(certPath) && certificateFileExists(keyPath) {
+		return certPath, keyPath, nil
+	}
+	if err := os.MkdirAll(certDir, 0o755); err != nil {
+		return "", "", fmt.Errorf("create nginx tls certificate directory: %w", err)
+	}
+
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return "", "", fmt.Errorf("generate nginx tls private key: %w", err)
+	}
+	serialLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serialNumber, err := rand.Int(rand.Reader, serialLimit)
+	if err != nil {
+		return "", "", fmt.Errorf("generate nginx tls serial number: %w", err)
+	}
+
+	now := serveNowFunc().UTC()
+	template := x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject: pkix.Name{
+			CommonName: strings.Trim(strings.TrimSpace(host), "[]"),
+		},
+		NotBefore:             now.Add(-1 * time.Hour),
+		NotAfter:              now.AddDate(2, 0, 0),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+	certificateHost := strings.Trim(strings.TrimSpace(host), "[]")
+	if ip := net.ParseIP(certificateHost); ip != nil {
+		template.IPAddresses = []net.IP{ip}
+	} else {
+		template.DNSNames = []string{certificateHost}
+	}
+
+	certificateDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
+	if err != nil {
+		return "", "", fmt.Errorf("generate nginx tls certificate: %w", err)
+	}
+
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificateDER})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)})
+	if err := os.WriteFile(certPath, certPEM, 0o644); err != nil {
+		return "", "", fmt.Errorf("write nginx tls certificate: %w", err)
+	}
+	if err := os.WriteFile(keyPath, keyPEM, 0o600); err != nil {
+		return "", "", fmt.Errorf("write nginx tls private key: %w", err)
+	}
+
+	return certPath, keyPath, nil
+}
+
+func certificateFileExists(path string) bool {
+	fileInfo, err := os.Stat(path)
+	return err == nil && !fileInfo.IsDir()
+}
+
+func safeCertificateFileName(host string) string {
+	trimmed := strings.Trim(strings.TrimSpace(host), "[]")
+	if trimmed == "" {
+		return defaultServeHostname
+	}
+
+	var builder strings.Builder
+	for _, char := range trimmed {
+		switch {
+		case char >= 'a' && char <= 'z':
+			builder.WriteRune(char)
+		case char >= 'A' && char <= 'Z':
+			builder.WriteRune(char)
+		case char >= '0' && char <= '9':
+			builder.WriteRune(char)
+		case char == '.' || char == '-' || char == '_':
+			builder.WriteRune(char)
+		default:
+			builder.WriteByte('_')
+		}
+	}
+	if builder.Len() == 0 {
+		return defaultServeHostname
+	}
+
+	return builder.String()
 }
 
 func writeServePHPMIMETypes(builder *strings.Builder, indent string) {
@@ -928,7 +1122,7 @@ func loadLiveServeState(rootDir, environmentName string) (*serveRuntimeState, er
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(state.ServerAddress) != "" && pingServeAddressFunc(state.ServerAddress) {
+	if strings.TrimSpace(state.ServerAddress) != "" && pingServeAddressFunc(serveStateProbeAddress(*state)) {
 		return state, nil
 	}
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -1001,12 +1195,12 @@ func stopServeRuntime(state serveRuntimeState) error {
 
 	deadline := time.Now().Add(serveShutdownTimeout)
 	for time.Now().Before(deadline) {
-		if !pingServeAddressFunc(state.ServerAddress) {
+		if !pingServeAddressFunc(serveStateProbeAddress(state)) {
 			return nil
 		}
 		time.Sleep(servePollInterval)
 	}
-	if !pingServeAddressFunc(state.ServerAddress) {
+	if !pingServeAddressFunc(serveStateProbeAddress(state)) {
 		return nil
 	}
 
@@ -1067,10 +1261,26 @@ func serveRuntimeLabel(kind string) string {
 	return trimmed + " webserver"
 }
 
-func serveStateMatches(state serveRuntimeState, serverAddress, docroot string, useNginx bool) bool {
+func serveStateMatches(state serveRuntimeState, endpoint serveEndpoint, docroot string, useNginx bool) bool {
+	stateScheme := strings.TrimSpace(state.ServerScheme)
+	if stateScheme == "" {
+		stateScheme = "http"
+	}
 	return strings.EqualFold(strings.TrimSpace(state.ServerKind), desiredServeKind(useNginx)) &&
-		strings.EqualFold(strings.TrimSpace(state.ServerAddress), strings.TrimSpace(serverAddress)) &&
+		strings.EqualFold(stateScheme, strings.TrimSpace(endpoint.Scheme)) &&
+		strings.EqualFold(strings.TrimSpace(state.ServerAddress), strings.TrimSpace(endpoint.Address)) &&
 		filepath.Clean(state.Docroot) == filepath.Clean(docroot)
+}
+
+func serveStateURL(state serveRuntimeState) string {
+	return serveEndpointURL(serveEndpoint{
+		Scheme:  strings.TrimSpace(state.ServerScheme),
+		Address: strings.TrimSpace(state.ServerAddress),
+	})
+}
+
+func serveStateProbeAddress(state serveRuntimeState) string {
+	return serveProbeAddress(strings.TrimSpace(state.ServerAddress))
 }
 
 func isMissingServeProcessOutput(output string) bool {

@@ -385,11 +385,11 @@ func TestRunServeUsesNginxWhenConfigured(t *testing.T) {
 		phpCalls++
 		return 0, nil
 	}
-	runNginxServeFunc = func(stdout, stderr io.Writer, store backend.Store, environment backend.Environment, serverAddress string, layout serveAppLayout) (int, error) {
+	runNginxServeFunc = func(stdout, stderr io.Writer, store backend.Store, environment backend.Environment, endpoint serveEndpoint, layout serveAppLayout) (int, error) {
 		nginxCalls++
-		gotAddress = serverAddress
+		gotAddress = endpoint.Address
 		gotDocroot = layout.Docroot
-		_, _ = io.WriteString(stdout, "fake-nginx "+serverAddress+" -t "+layout.Docroot+"\n")
+		_, _ = io.WriteString(stdout, "fake-nginx "+endpoint.Address+" -t "+layout.Docroot+"\n")
 		return 0, nil
 	}
 
@@ -484,7 +484,7 @@ func TestPrepareNginxServeRuntimeCreatesLogsPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveServeAppLayout() error = %v", err)
 	}
-	configPath, phpLogPath, err := prepareNginxServeRuntime(runtimeDir, "localhost:8080", layout, "127.0.0.1:9000")
+	configPath, phpLogPath, err := prepareNginxServeRuntime(runtimeDir, serveEndpoint{Scheme: "http", Address: "localhost:8080"}, layout, "127.0.0.1:9000")
 	if err != nil {
 		t.Fatalf("prepareNginxServeRuntime() error = %v", err)
 	}
@@ -521,6 +521,97 @@ func TestPrepareNginxServeRuntimeCreatesLogsPath(t *testing.T) {
 	}
 	if strings.Contains(config, "proxy_pass") {
 		t.Fatalf("nginx config = %q, want no proxy_pass", config)
+	}
+}
+
+func TestPrepareNginxServeRuntimeCreatesHTTPSConfigForLocalhostHostname(t *testing.T) {
+	runtimeDir := filepath.Join(t.TempDir(), "run", "serve", "demo")
+	docroot := filepath.Join(runtimeDir, "docroot")
+	if err := os.MkdirAll(docroot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(docroot) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(docroot, "index.php"), []byte("<?php\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(index.php) error = %v", err)
+	}
+	layout, err := resolveServeAppLayout(docroot)
+	if err != nil {
+		t.Fatalf("resolveServeAppLayout() error = %v", err)
+	}
+
+	configPath, phpLogPath, err := prepareNginxServeRuntime(runtimeDir, serveEndpoint{Scheme: "https", Address: "site.localhost:8443", HTTPS: true}, layout, "127.0.0.1:9000")
+	if err != nil {
+		t.Fatalf("prepareNginxServeRuntime() error = %v", err)
+	}
+	if phpLogPath != filepath.Join(runtimeDir, "php.log") {
+		t.Fatalf("php log path = %q, want %q", phpLogPath, filepath.Join(runtimeDir, "php.log"))
+	}
+	configData, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile(config) error = %v", err)
+	}
+	config := string(configData)
+	if !strings.Contains(config, "listen 127.0.0.1:8443 ssl;") {
+		t.Fatalf("nginx config = %q, want loopback https listener for .localhost hostname", config)
+	}
+	if !strings.Contains(config, "server_name site.localhost;") {
+		t.Fatalf("nginx config = %q, want configured server_name", config)
+	}
+	if !strings.Contains(config, "ssl_certificate ") || !strings.Contains(config, "ssl_certificate_key ") {
+		t.Fatalf("nginx config = %q, want generated certificate directives", config)
+	}
+	if _, err := os.Stat(filepath.Join(runtimeDir, serveTLSSubdir, "site.localhost.crt")); err != nil {
+		t.Fatalf("Stat(generated cert) error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(runtimeDir, serveTLSSubdir, "site.localhost.key")); err != nil {
+		t.Fatalf("Stat(generated key) error = %v", err)
+	}
+}
+
+func TestRunServeRejectsHTTPSWithoutNginx(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	docroot := filepath.Join(projectDir, "site", "public")
+	if err := os.MkdirAll(docroot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(docroot) error = %v", err)
+	}
+
+	config := testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Current: "demo",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {
+				PHP:     "8.4",
+				Docroot: filepath.ToSlash(filepath.Join("site", "public")),
+				Server:  &testServerConfig{Hostname: "site.localhost", Port: 8443, HTTPS: true},
+			},
+		},
+	}
+	configData, err := yaml.Marshal(config)
+	if err != nil {
+		t.Fatalf("yaml.Marshal(config) error = %v", err)
+	}
+	configData = append(configData, '\n')
+	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "serve"}); code != 1 {
+		t.Fatalf("Run(serve https without nginx) code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "server.https requires nginx") {
+		t.Fatalf("Run(serve https without nginx) stderr = %q, want nginx guidance", stderr.String())
+	}
+}
+
+func TestServeProbeAddressUsesLoopbackForLocalhostSubdomains(t *testing.T) {
+	if got := serveProbeAddress("site.localhost:8443"); got != "127.0.0.1:8443" {
+		t.Fatalf("serveProbeAddress() = %q, want loopback address", got)
+	}
+	if got := serveProbeAddress("example.test:8443"); got != "example.test:8443" {
+		t.Fatalf("serveProbeAddress() = %q, want non-local hostname unchanged", got)
 	}
 }
 
