@@ -76,7 +76,7 @@ func TestRunServeUsesCurrentServerConfig(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "serve", filepath.Join("named-project", "public")}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--root", root, "serve", "--watch", filepath.Join("named-project", "public")}); code != 0 {
 		t.Fatalf("Run(serve) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -149,7 +149,7 @@ func TestRunServeUsesConfiguredDocrootWhenArgumentOmitted(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "serve"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--root", root, "serve", "--watch"}); code != 0 {
 		t.Fatalf("Run(serve without arg) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -220,7 +220,7 @@ func TestRunServeArgumentOverridesConfiguredDocroot(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "serve", filepath.Join("override-project", "public")}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--root", root, "serve", "--watch", filepath.Join("override-project", "public")}); code != 0 {
 		t.Fatalf("Run(serve with override) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -323,7 +323,7 @@ func TestRunServeAllowsServerOverride(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "serve", "--server", "127.0.0.1:9001", filepath.Join("site", "public")}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--root", root, "serve", "--watch", "--server", "127.0.0.1:9001", filepath.Join("site", "public")}); code != 0 {
 		t.Fatalf("Run(serve) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -393,7 +393,7 @@ func TestRunServeUsesNginxWhenConfigured(t *testing.T) {
 		return 0, nil
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "serve", filepath.Join("site", "public")}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--root", root, "serve", "--watch", filepath.Join("site", "public")}); code != 0 {
 		t.Fatalf("Run(serve with nginx) code = %d, stderr = %q", code, stderr.String())
 	}
 	if phpCalls != 0 {
@@ -663,7 +663,7 @@ func TestRunServeStartsConfiguredDatabaseBeforePhp(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "serve", filepath.Join("site", "public")}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--root", root, "serve", "--watch", filepath.Join("site", "public")}); code != 0 {
 		t.Fatalf("Run(serve with db) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -686,5 +686,127 @@ func TestRunServeStartsConfiguredDatabaseBeforePhp(t *testing.T) {
 	}
 	if state.PID != 7878 || state.Port != 3307 {
 		t.Fatalf("database state = %#v, want pid 7878 on port 3307", state)
+	}
+}
+
+func TestRunServeStartsInBackgroundByDefaultAndStopStopsIt(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	docroot := filepath.Join(projectDir, "site", "public")
+	if err := os.MkdirAll(docroot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(docroot) error = %v", err)
+	}
+
+	config := testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Current: "demo",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {
+				PHP:     "8.4",
+				Docroot: filepath.ToSlash(filepath.Join("site", "public")),
+				Server:  &testServerConfig{Hostname: "localhost", Port: 8080},
+			},
+		},
+	}
+	configData, err := yaml.Marshal(config)
+	if err != nil {
+		t.Fatalf("yaml.Marshal(config) error = %v", err)
+	}
+	configData = append(configData, '\n')
+	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+
+	oldStartPHP := startBackgroundPHPRuntimeServe
+	oldStopServe := stopServeRuntimeFunc
+	oldPing := pingServeAddressFunc
+	oldNow := serveNowFunc
+	t.Cleanup(func() {
+		startBackgroundPHPRuntimeServe = oldStartPHP
+		stopServeRuntimeFunc = oldStopServe
+		pingServeAddressFunc = oldPing
+		serveNowFunc = oldNow
+	})
+
+	running := map[string]bool{}
+	startCalls := 0
+	stopCalls := 0
+	stoppedState := serveRuntimeState{}
+	startBackgroundPHPRuntimeServe = func(store backend.Store, environment backend.Environment, serverAddress string, layout serveAppLayout) (serveRuntimeState, error) {
+		startCalls++
+		running[serverAddress] = true
+		return serveRuntimeState{
+			PrimaryPID: 4242,
+			RuntimeDir: serveRuntimeDir(store.RootDir, environment.Name),
+			LogPath:    filepath.Join(serveRuntimeDir(store.RootDir, environment.Name), serveLogFileName),
+		}, nil
+	}
+	stopServeRuntimeFunc = func(state serveRuntimeState) error {
+		stopCalls++
+		stoppedState = state
+		running[state.ServerAddress] = false
+		return nil
+	}
+	pingServeAddressFunc = func(address string) bool {
+		return running[address]
+	}
+	serveNowFunc = func() time.Time {
+		return time.Date(2026, time.May, 27, 12, 0, 0, 0, time.UTC)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run(stdout, stderr, []string{"--root", root, "serve"}); code != 0 {
+		t.Fatalf("Run(serve background) code = %d, stderr = %q", code, stderr.String())
+	}
+	if startCalls != 1 {
+		t.Fatalf("start calls = %d, want 1", startCalls)
+	}
+	if !strings.Contains(stdout.String(), "Started php webserver for environment \"demo\" at http://localhost:8080.") {
+		t.Fatalf("Run(serve background) stdout = %q, want background start summary", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "Run `polka stop` to stop it.") {
+		t.Fatalf("Run(serve background) stdout = %q, want stop guidance", stdout.String())
+	}
+
+	state, err := loadServeState(serveStatePath(root, "demo"))
+	if err != nil {
+		t.Fatalf("loadServeState() error = %v", err)
+	}
+	if state.PrimaryPID != 4242 || state.ServerAddress != "localhost:8080" || state.Docroot != docroot {
+		t.Fatalf("serve state = %#v, want background runtime metadata", state)
+	}
+	if state.ServerKind != "php" {
+		t.Fatalf("serve state kind = %q, want php", state.ServerKind)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run(stdout, stderr, []string{"--root", root, "stop"}); code != 0 {
+		t.Fatalf("Run(stop) code = %d, stderr = %q", code, stderr.String())
+	}
+	if stopCalls != 1 {
+		t.Fatalf("stop calls = %d, want 1", stopCalls)
+	}
+	if stoppedState.PrimaryPID != 4242 || stoppedState.ServerAddress != "localhost:8080" {
+		t.Fatalf("stopped state = %#v, want persisted runtime state", stoppedState)
+	}
+	if !strings.Contains(stdout.String(), "Stopped php webserver for environment \"demo\".") {
+		t.Fatalf("Run(stop) stdout = %q, want stop summary", stdout.String())
+	}
+	if _, err := os.Stat(serveStatePath(root, "demo")); !os.IsNotExist(err) {
+		t.Fatalf("Stat(serve state) error = %v, want not exists", err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run(stdout, stderr, []string{"--root", root, "stop"}); code != 0 {
+		t.Fatalf("Run(stop after stop) code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "already stopped") {
+		t.Fatalf("Run(stop after stop) stdout = %q, want already stopped message", stdout.String())
 	}
 }

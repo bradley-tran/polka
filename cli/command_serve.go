@@ -1,11 +1,14 @@
 package cli
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -24,18 +27,42 @@ const (
 	serveStartupTimeout  = 5 * time.Second
 	serveRuntimeRoot     = "run"
 	serveRuntimeSubdir   = "serve"
+	serveStateFileName   = "state.json"
+	serveLogFileName     = "serve.log"
 	phpServeRouterName   = "php-router.php"
 	serveProxyHost       = "127.0.0.1"
+	serveShutdownTimeout = 5 * time.Second
 )
 
 var (
-	runPHPRuntimeServeFunc = runPHPRuntimeServe
-	runNginxServeFunc      = runNginxServe
+	runPHPRuntimeServeFunc         = runPHPRuntimeServe
+	runNginxServeFunc              = runNginxServe
+	startBackgroundPHPRuntimeServe = startPHPRuntimeServeInBackground
+	startBackgroundNginxServe      = startNginxServeInBackground
+	stopServeRuntimeFunc           = stopServeRuntime
+	pingServeAddressFunc           = pingServeAddress
+	serveNowFunc                   = time.Now
 )
 
 type serveCommandInput struct {
 	Docroot string
 	Server  string
+	Watch   bool
+}
+
+type serveRuntimeState struct {
+	EnvironmentName string    `json:"environment"`
+	ServerKind      string    `json:"server_kind"`
+	ServerAddress   string    `json:"server_address"`
+	Docroot         string    `json:"docroot"`
+	RuntimeDir      string    `json:"runtime_dir,omitempty"`
+	LogPath         string    `json:"log_path,omitempty"`
+	BackendLogPath  string    `json:"backend_log_path,omitempty"`
+	ConfigPath      string    `json:"config_path,omitempty"`
+	RouterPath      string    `json:"router_path,omitempty"`
+	PrimaryPID      int       `json:"primary_pid"`
+	SecondaryPID    int       `json:"secondary_pid,omitempty"`
+	StartedAt       time.Time `json:"started_at"`
 }
 
 type serveAppLayout struct {
@@ -106,6 +133,7 @@ func newServeCommand(ctx *commandContext) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&input.Server, "server", "", "server address override in HOST:PORT form")
+	cmd.Flags().BoolVar(&input.Watch, "watch", false, "keep the webserver attached to the current terminal")
 	configureCommand(cmd, serveUsage)
 
 	return cmd
@@ -145,19 +173,71 @@ func runServe(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 		}
 	}
 
-	var exitCode int
+	liveState, err := loadLiveServeState(store.RootDir, current.Name)
+	if err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
+	if liveState != nil {
+		if serveStateMatches(*liveState, serverAddress, layout.Docroot, current.NginxVersion != "") {
+			fmt.Fprintf(stdout, "Webserver for environment %q is already running at http://%s.\n", current.Name, liveState.ServerAddress)
+			return 0
+		}
+
+		fmt.Fprintf(stderr, "error: environment %q already has a running %s at http://%s; run `polka stop` before starting a different webserver\n", current.Name, serveRuntimeLabel(liveState.ServerKind), liveState.ServerAddress)
+		return 1
+	}
+
+	if input.Watch {
+		var exitCode int
+		if current.NginxVersion != "" {
+			_, _ = fmt.Fprintf(stdout, "nginx webserver started at http://%s\n", serverAddress)
+			exitCode, err = runNginxServeFunc(stdout, stderr, store, *current, serverAddress, layout)
+		} else {
+			exitCode, err = runPHPRuntimeServeFunc(stdout, stderr, store, serverAddress, layout)
+		}
+		if err != nil {
+			fmt.Fprintf(stderr, "error: %v\n", err)
+			return 1
+		}
+
+		return exitCode
+	}
+
+	var startedState serveRuntimeState
 	if current.NginxVersion != "" {
-		_, _ = fmt.Fprintf(stdout, "nginx webserver started at http://%s\n", serverAddress)
-		exitCode, err = runNginxServeFunc(stdout, stderr, store, *current, serverAddress, layout)
+		startedState, err = startBackgroundNginxServe(store, *current, serverAddress, layout)
 	} else {
-		exitCode, err = runPHPRuntimeServeFunc(stdout, stderr, store, serverAddress, layout)
+		startedState, err = startBackgroundPHPRuntimeServe(store, *current, serverAddress, layout)
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
+	if strings.TrimSpace(startedState.EnvironmentName) == "" {
+		startedState.EnvironmentName = current.Name
+	}
+	if strings.TrimSpace(startedState.ServerKind) == "" {
+		startedState.ServerKind = desiredServeKind(current.NginxVersion != "")
+	}
+	if strings.TrimSpace(startedState.ServerAddress) == "" {
+		startedState.ServerAddress = serverAddress
+	}
+	if strings.TrimSpace(startedState.Docroot) == "" {
+		startedState.Docroot = layout.Docroot
+	}
+	if startedState.StartedAt.IsZero() {
+		startedState.StartedAt = serveNowFunc().UTC()
+	}
+	if err := writeServeState(serveStatePath(store.RootDir, current.Name), startedState); err != nil {
+		_ = stopServeRuntimeFunc(startedState)
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
 
-	return exitCode
+	fmt.Fprintf(stdout, "Started %s for environment %q at http://%s.\n", serveRuntimeLabel(startedState.ServerKind), current.Name, serverAddress)
+	fmt.Fprintln(stdout, "Run `polka stop` to stop it.")
+	return 0
 }
 
 func runPHPRuntimeServe(stdout, stderr io.Writer, store backend.Store, serverAddress string, layout serveAppLayout) (int, error) {
@@ -176,6 +256,63 @@ func runPHPRuntimeServe(stdout, stderr io.Writer, store backend.Store, serverAdd
 	}
 
 	return executeTargetWithEnv(stdout, stderr, env, phpTarget, []string{"-S", serverAddress, "-t", layout.Docroot, routerPath})
+}
+
+func startPHPRuntimeServeInBackground(store backend.Store, environment backend.Environment, serverAddress string, layout serveAppLayout) (serveRuntimeState, error) {
+	phpTarget, err := store.ResolveTool("php")
+	if err != nil {
+		return serveRuntimeState{}, err
+	}
+	env, err := resolveRuntimeEnvironment(runtime.GOOS, os.Environ(), store)
+	if err != nil {
+		return serveRuntimeState{}, err
+	}
+	runtimeDir := serveRuntimeDir(store.RootDir, environment.Name)
+	routerPath, err := preparePHPRuntimeServeRuntime(runtimeDir, layout)
+	if err != nil {
+		return serveRuntimeState{}, err
+	}
+	logPath := filepath.Join(runtimeDir, serveLogFileName)
+	logFile, err := openServeLog(logPath)
+	if err != nil {
+		return serveRuntimeState{}, err
+	}
+
+	command, err := prepareCommand(phpTarget, []string{"-S", serverAddress, "-t", layout.Docroot, routerPath})
+	if err != nil {
+		_ = logFile.Close()
+		return serveRuntimeState{}, err
+	}
+	command.Stdout = logFile
+	command.Stderr = logFile
+	command.Env = env
+
+	if err := command.Start(); err != nil {
+		_ = logFile.Close()
+		return serveRuntimeState{}, fmt.Errorf("start php webserver: %w", err)
+	}
+
+	if err := waitForServeAddress(serverAddress, serveStartupTimeout); err != nil {
+		stopServeProcess(command.Process)
+		_ = logFile.Close()
+		return serveRuntimeState{}, fmt.Errorf("start php webserver on %s: %w (see %s)", serverAddress, err, logPath)
+	}
+
+	state := serveRuntimeState{
+		EnvironmentName: environment.Name,
+		ServerKind:      desiredServeKind(false),
+		ServerAddress:   serverAddress,
+		Docroot:         layout.Docroot,
+		RuntimeDir:      runtimeDir,
+		LogPath:         logPath,
+		RouterPath:      routerPath,
+		PrimaryPID:      command.Process.Pid,
+		StartedAt:       serveNowFunc().UTC(),
+	}
+	_ = logFile.Close()
+	_ = command.Process.Release()
+
+	return state, nil
 }
 
 func runNginxServe(stdout, stderr io.Writer, store backend.Store, environment backend.Environment, serverAddress string, layout serveAppLayout) (int, error) {
@@ -236,6 +373,114 @@ func runNginxServe(stdout, stderr io.Writer, store backend.Store, environment ba
 
 	nginxArgs := []string{"-p", ensureServePrefix(runtimeDir), "-c", filepath.Base(configPath), "-g", "daemon off;"}
 	return executeTargetWithEnv(stdout, stderr, env, nginxTarget, nginxArgs)
+}
+
+func startNginxServeInBackground(store backend.Store, environment backend.Environment, serverAddress string, layout serveAppLayout) (serveRuntimeState, error) {
+	if strings.TrimSpace(environment.PHPVersion) == "" {
+		return serveRuntimeState{}, fmt.Errorf("environment %q defines nginx but does not define a php version", environment.Name)
+	}
+
+	phpTarget, err := store.ResolveTool("php")
+	if err != nil {
+		return serveRuntimeState{}, err
+	}
+	phpCGITarget, err := resolvePHPCGITarget(phpTarget)
+	if err != nil {
+		return serveRuntimeState{}, err
+	}
+	nginxTarget, err := store.ResolveTool("nginx")
+	if err != nil {
+		return serveRuntimeState{}, err
+	}
+	env, err := resolveRuntimeEnvironment(runtime.GOOS, os.Environ(), store)
+	if err != nil {
+		return serveRuntimeState{}, err
+	}
+
+	backendAddress, err := reserveServeBackendAddress()
+	if err != nil {
+		return serveRuntimeState{}, err
+	}
+
+	runtimeDir := serveRuntimeDir(store.RootDir, environment.Name)
+	configPath, phpLogPath, err := prepareNginxServeRuntime(runtimeDir, serverAddress, layout, backendAddress)
+	if err != nil {
+		return serveRuntimeState{}, err
+	}
+
+	phpLogFile, err := openServeLog(phpLogPath)
+	if err != nil {
+		return serveRuntimeState{}, err
+	}
+	defer phpLogFile.Close()
+
+	phpCommand, err := prepareCommand(phpCGITarget, []string{"-b", backendAddress})
+	if err != nil {
+		return serveRuntimeState{}, err
+	}
+	phpCommand.Stdout = phpLogFile
+	phpCommand.Stderr = phpLogFile
+	phpCommand.Env = env
+
+	if err := phpCommand.Start(); err != nil {
+		return serveRuntimeState{}, fmt.Errorf("start php-cgi upstream: %w", err)
+	}
+	phpPID := phpCommand.Process.Pid
+
+	if err := waitForServeAddress(backendAddress, serveStartupTimeout); err != nil {
+		stopServeProcess(phpCommand.Process)
+		return serveRuntimeState{}, fmt.Errorf("start php-cgi upstream on %s: %w (see %s)", backendAddress, err, phpLogPath)
+	}
+
+	nginxLogPath := filepath.Join(runtimeDir, serveLogFileName)
+	nginxLogFile, err := openServeLog(nginxLogPath)
+	if err != nil {
+		stopServeProcess(phpCommand.Process)
+		return serveRuntimeState{}, err
+	}
+
+	nginxArgs := []string{"-p", ensureServePrefix(runtimeDir), "-c", filepath.Base(configPath), "-g", "daemon off;"}
+	nginxCommand, err := prepareCommand(nginxTarget, nginxArgs)
+	if err != nil {
+		_ = nginxLogFile.Close()
+		stopServeProcess(phpCommand.Process)
+		return serveRuntimeState{}, err
+	}
+	nginxCommand.Stdout = nginxLogFile
+	nginxCommand.Stderr = nginxLogFile
+	nginxCommand.Env = env
+
+	if err := nginxCommand.Start(); err != nil {
+		_ = nginxLogFile.Close()
+		stopServeProcess(phpCommand.Process)
+		return serveRuntimeState{}, fmt.Errorf("start nginx webserver: %w", err)
+	}
+
+	if err := waitForServeAddress(serverAddress, serveStartupTimeout); err != nil {
+		stopServeProcess(nginxCommand.Process)
+		stopServeProcess(phpCommand.Process)
+		_ = nginxLogFile.Close()
+		return serveRuntimeState{}, fmt.Errorf("start nginx webserver on %s: %w (see %s and %s)", serverAddress, err, nginxLogPath, phpLogPath)
+	}
+
+	state := serveRuntimeState{
+		EnvironmentName: environment.Name,
+		ServerKind:      desiredServeKind(true),
+		ServerAddress:   serverAddress,
+		Docroot:         layout.Docroot,
+		RuntimeDir:      runtimeDir,
+		LogPath:         nginxLogPath,
+		BackendLogPath:  phpLogPath,
+		ConfigPath:      configPath,
+		PrimaryPID:      nginxCommand.Process.Pid,
+		SecondaryPID:    phpPID,
+		StartedAt:       serveNowFunc().UTC(),
+	}
+	_ = nginxLogFile.Close()
+	_ = phpCommand.Process.Release()
+	_ = nginxCommand.Process.Release()
+
+	return state, nil
 }
 
 func resolvePHPCGITarget(phpTarget string) (string, error) {
@@ -330,6 +575,10 @@ func serveRuntimeDir(rootDir, environmentName string) string {
 	}
 
 	return filepath.Join(rootDir, serveRuntimeRoot, serveRuntimeSubdir, name)
+}
+
+func serveStatePath(rootDir, environmentName string) string {
+	return filepath.Join(serveRuntimeDir(rootDir, environmentName), serveStateFileName)
 }
 
 func servePHPRuntimeDir(rootDir, docroot string) string {
@@ -650,7 +899,7 @@ func ensureServePrefix(path string) string {
 func waitForServeAddress(address string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if pingServeAddress(address) {
+		if pingServeAddressFunc(address) {
 			return nil
 		}
 
@@ -670,12 +919,175 @@ func pingServeAddress(address string) bool {
 	return true
 }
 
+func loadLiveServeState(rootDir, environmentName string) (*serveRuntimeState, error) {
+	path := serveStatePath(rootDir, environmentName)
+	state, err := loadServeState(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(state.ServerAddress) != "" && pingServeAddressFunc(state.ServerAddress) {
+		return state, nil
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("remove stale serve state: %w", err)
+	}
+
+	return nil, nil
+}
+
+func loadServeState(path string) (*serveRuntimeState, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var state serveRuntimeState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return nil, fmt.Errorf("decode serve state %s: %w", path, err)
+	}
+
+	return &state, nil
+}
+
+func writeServeState(path string, state serveRuntimeState) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create serve state directory: %w", err)
+	}
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode serve state: %w", err)
+	}
+	data = append(data, '\n')
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("write serve state %s: %w", path, err)
+	}
+
+	return nil
+}
+
+func stopManagedServe(store backend.Store, environmentName string) (serveRuntimeState, bool, error) {
+	state, err := loadLiveServeState(store.RootDir, environmentName)
+	if err != nil {
+		return serveRuntimeState{}, false, err
+	}
+	if state == nil {
+		return serveRuntimeState{}, true, nil
+	}
+	if err := stopServeRuntimeFunc(*state); err != nil {
+		return serveRuntimeState{}, false, err
+	}
+	if err := os.Remove(serveStatePath(store.RootDir, environmentName)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return serveRuntimeState{}, false, fmt.Errorf("remove serve state: %w", err)
+	}
+
+	return *state, false, nil
+}
+
+func stopServeRuntime(state serveRuntimeState) error {
+	if err := stopServePID(state.PrimaryPID); err != nil {
+		return err
+	}
+	if state.SecondaryPID != 0 && state.SecondaryPID != state.PrimaryPID {
+		if err := stopServePID(state.SecondaryPID); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(state.ServerAddress) == "" {
+		return nil
+	}
+
+	deadline := time.Now().Add(serveShutdownTimeout)
+	for time.Now().Before(deadline) {
+		if !pingServeAddressFunc(state.ServerAddress) {
+			return nil
+		}
+		time.Sleep(servePollInterval)
+	}
+	if !pingServeAddressFunc(state.ServerAddress) {
+		return nil
+	}
+
+	return fmt.Errorf("webserver did not stop listening on %s within %s", state.ServerAddress, serveShutdownTimeout)
+}
+
+func stopServePID(pid int) error {
+	if pid <= 0 {
+		return nil
+	}
+	if runtime.GOOS == "windows" {
+		output, err := exec.Command("taskkill", "/PID", strconv.Itoa(pid), "/T", "/F").CombinedOutput()
+		if err == nil || isMissingServeProcessOutput(string(output)) {
+			return nil
+		}
+
+		return fmt.Errorf("stop serve process %d: %w (%s)", pid, err, strings.TrimSpace(string(output)))
+	}
+
+	process, err := os.FindProcess(pid)
+	if err != nil {
+		return nil
+	}
+	if err := process.Kill(); err != nil && !isMissingServeProcessOutput(err.Error()) {
+		return fmt.Errorf("stop serve process %d: %w", pid, err)
+	}
+	_ = process.Release()
+
+	return nil
+}
+
+func openServeLog(path string) (*os.File, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, fmt.Errorf("create serve log directory: %w", err)
+	}
+	logFile, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("open serve log %s: %w", path, err)
+	}
+
+	return logFile, nil
+}
+
+func desiredServeKind(useNginx bool) string {
+	if useNginx {
+		return "nginx"
+	}
+
+	return "php"
+}
+
+func serveRuntimeLabel(kind string) string {
+	trimmed := strings.TrimSpace(kind)
+	if trimmed == "" {
+		return "webserver"
+	}
+
+	return trimmed + " webserver"
+}
+
+func serveStateMatches(state serveRuntimeState, serverAddress, docroot string, useNginx bool) bool {
+	return strings.EqualFold(strings.TrimSpace(state.ServerKind), desiredServeKind(useNginx)) &&
+		strings.EqualFold(strings.TrimSpace(state.ServerAddress), strings.TrimSpace(serverAddress)) &&
+		filepath.Clean(state.Docroot) == filepath.Clean(docroot)
+}
+
+func isMissingServeProcessOutput(output string) bool {
+	trimmed := strings.ToLower(strings.TrimSpace(output))
+	return trimmed == "" ||
+		strings.Contains(trimmed, "not found") ||
+		strings.Contains(trimmed, "no running instance") ||
+		strings.Contains(trimmed, "process already finished") ||
+		strings.Contains(trimmed, "no such process")
+}
+
 func stopServeProcess(process *os.Process) {
 	if process == nil {
 		return
 	}
 
-	_ = process.Kill()
+	_ = stopServePID(process.Pid)
 	_ = process.Release()
 }
 
