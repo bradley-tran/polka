@@ -1,11 +1,26 @@
+# Binaries
 /polka
 /.polka/
 polka.yaml
 /dist/
 /build/
-*.test
 *.exe
 *.exe~
+
+# Test artifacts
+*.test
+*.out
+coverage.txt
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
 
 # Local test folder
 /test-site

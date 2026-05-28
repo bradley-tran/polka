@@ -19,7 +19,7 @@ func TestRunDBDispatchesConfiguredDatabaseTool(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
-	t.Setenv("Polka_CACHE_DIR", cacheDir)
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
@@ -63,7 +63,7 @@ func TestRunDBPreservesExplicitConnectionArguments(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
-	t.Setenv("Polka_CACHE_DIR", cacheDir)
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
@@ -110,7 +110,7 @@ func TestRunDBTranslatesDatabaseNameOverride(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
-	t.Setenv("Polka_CACHE_DIR", cacheDir)
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
@@ -157,7 +157,7 @@ func TestRunDBClientSubcommandDispatchesReservedWord(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
-	t.Setenv("Polka_CACHE_DIR", cacheDir)
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
@@ -216,7 +216,7 @@ func TestRunDBImportAcceptsSQLAndGzip(t *testing.T) {
 			root := filepath.Join(projectDir, ".polka")
 			cacheDir := filepath.Join(projectDir, "global-cache")
 			capturePath := filepath.Join(projectDir, "captured.sql")
-			t.Setenv("Polka_CACHE_DIR", cacheDir)
+			t.Setenv("POLKA_CACHE_DIR", cacheDir)
 			t.Setenv("POLKA_TEST_DB_CAPTURE_PATH", capturePath)
 			stdout := &bytes.Buffer{}
 			stderr := &bytes.Buffer{}
@@ -333,7 +333,7 @@ func TestRunDBExportWritesSQLAndGzip(t *testing.T) {
 			projectDir := t.TempDir()
 			root := filepath.Join(projectDir, ".polka")
 			cacheDir := filepath.Join(projectDir, "global-cache")
-			t.Setenv("Polka_CACHE_DIR", cacheDir)
+			t.Setenv("POLKA_CACHE_DIR", cacheDir)
 			t.Setenv("POLKA_TEST_DB_DUMP_OUTPUT", "CREATE DATABASE demo;\n")
 			dumpCapturePath := filepath.Join(projectDir, testCase.name+"-dump-args.txt")
 			t.Setenv("POLKA_TEST_DB_DUMP_CAPTURE_PATH", dumpCapturePath)
@@ -457,7 +457,7 @@ func TestRunDBLifecycleSubcommandsManageState(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
-	t.Setenv("Polka_CACHE_DIR", cacheDir)
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 

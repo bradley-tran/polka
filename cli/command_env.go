@@ -377,7 +377,7 @@ func runStatus(stdout io.Writer, store backend.Store) error {
 		_, _ = fmt.Fprintln(stdout, "No active environment selected.")
 		return nil
 	}
-	serverEndpoint, err := resolveServeEndpoint(current.Server, "")
+	serverEndpoint, err := resolveServerEndpoint(current.Server, "")
 	if err != nil {
 		return err
 	}
@@ -388,7 +388,29 @@ func runStatus(stdout io.Writer, store backend.Store) error {
 	_, _ = fmt.Fprintf(stdout, "nodejs %s\n", labelOrUnset(current.NodeJSVersion))
 	_, _ = fmt.Fprintf(stdout, "nginx %s\n", labelOrUnset(current.NginxVersion))
 	_, _ = fmt.Fprintf(stdout, "database %s\n", labelDatabase(current.Database))
-	_, _ = fmt.Fprintf(stdout, "server %s\n", serveEndpointURL(serverEndpoint))
+	_, _ = fmt.Fprintf(stdout, "server %s\n", serverEndpointURL(serverEndpoint))
+	webServerState, err := loadWebServerState(store.RootDir, current.Name)
+	if err != nil {
+		return err
+	}
+	if webServerState == nil {
+		_, _ = fmt.Fprintln(stdout, "webserver stopped")
+	} else {
+		_, _ = fmt.Fprintf(stdout, "webserver running %s\n", serveStateURL(*webServerState))
+	}
+	if current.Database == nil || strings.TrimSpace(current.Database.Engine) == "" {
+		_, _ = fmt.Fprintln(stdout, "database-server unset")
+		return nil
+	}
+	liveDatabaseState, err := backend.LoadLiveManagedDatabaseState(store.RootDir, current.Name, pingDatabaseAddressFunc)
+	if err != nil {
+		return err
+	}
+	if liveDatabaseState == nil {
+		_, _ = fmt.Fprintln(stdout, "database-server stopped")
+		return nil
+	}
+	_, _ = fmt.Fprintf(stdout, "database-server running %s:%s@%d\n", liveDatabaseState.Engine, liveDatabaseState.Version, liveDatabaseState.Port)
 	return nil
 }
 

@@ -1487,7 +1487,7 @@ func resolveToolRequest(tool string) (toolRequest, error) {
 }
 
 func defaultCacheDir(projectDir string) string {
-	if override := strings.TrimSpace(os.Getenv("Polka_CACHE_DIR")); override != "" {
+	if override := strings.TrimSpace(os.Getenv("POLKA_CACHE_DIR")); override != "" {
 		return filepath.Clean(filepath.FromSlash(override))
 	}
 

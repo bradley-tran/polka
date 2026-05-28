@@ -84,7 +84,7 @@ type serveAppLayout struct {
 	FrontControllerIndex    string
 }
 
-type serveEndpoint struct {
+type serverEndpoint struct {
 	Scheme  string
 	Address string
 	HTTPS   bool
@@ -136,7 +136,7 @@ func newServeCommand(ctx *commandContext) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:  "serve [docroot]",
-		Args: maximumArgsError("serve accepts at most one docroot", 1),
+		Args: maximumArgsError("start/serve accepts at most one docroot", 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store, err := ctx.store()
 			if err != nil {
@@ -152,18 +152,18 @@ func newServeCommand(ctx *commandContext) *cobra.Command {
 				return &statusError{code: 1, err: fmt.Errorf("--server requires a non-empty value")}
 			}
 
-			ctx.exitCode = runServe(cmd.OutOrStdout(), cmd.ErrOrStderr(), store, input)
+			ctx.exitCode = runStart(cmd.OutOrStdout(), cmd.ErrOrStderr(), store, input)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&input.Server, "server", "", "server address override in HOST:PORT form")
 	cmd.Flags().BoolVar(&input.Watch, "watch", false, "keep the webserver attached to the current terminal")
-	configureCommand(cmd, serveUsage)
+	configureCommand(cmd, startUsage)
 
 	return cmd
 }
 
-func runServe(stdout, stderr io.Writer, store backend.Store, input serveCommandInput) int {
+func runStart(stdout, stderr io.Writer, store backend.Store, input serveCommandInput) int {
 	current, err := store.Current()
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
@@ -174,13 +174,13 @@ func runServe(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 		return 1
 	}
 
-	endpoint, err := resolveServeEndpoint(current.Server, input.Server)
+	endpoint, err := resolveServerEndpoint(current.Server, input.Server)
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
 	serverAddress := endpoint.Address
-	serverURL := serveEndpointURL(endpoint)
+	serverURL := serverEndpointURL(endpoint)
 	if endpoint.HTTPS && strings.TrimSpace(current.NginxVersion) == "" {
 		fmt.Fprintln(stderr, "error: server.https requires nginx in the current environment")
 		return 1
@@ -203,7 +203,7 @@ func runServe(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 		}
 	}
 
-	liveState, err := loadLiveServeState(store.RootDir, current.Name)
+	liveState, err := loadWebServerState(store.RootDir, current.Name)
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
@@ -348,7 +348,7 @@ func startPHPRuntimeServeInBackground(store backend.Store, environment backend.E
 	return state, nil
 }
 
-func runNginxServe(stdout, stderr io.Writer, store backend.Store, environment backend.Environment, endpoint serveEndpoint, layout serveAppLayout) (int, error) {
+func runNginxServe(stdout, stderr io.Writer, store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout) (int, error) {
 	if strings.TrimSpace(environment.PHPVersion) == "" {
 		return 0, fmt.Errorf("environment %q defines nginx but does not define a php version", environment.Name)
 	}
@@ -408,7 +408,7 @@ func runNginxServe(stdout, stderr io.Writer, store backend.Store, environment ba
 	return executeTargetWithEnv(stdout, stderr, env, nginxTarget, nginxArgs)
 }
 
-func startNginxServeInBackground(store backend.Store, environment backend.Environment, endpoint serveEndpoint, layout serveAppLayout) (serveRuntimeState, error) {
+func startNginxServeInBackground(store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout) (serveRuntimeState, error) {
 	if strings.TrimSpace(environment.PHPVersion) == "" {
 		return serveRuntimeState{}, fmt.Errorf("environment %q defines nginx but does not define a php version", environment.Name)
 	}
@@ -562,10 +562,10 @@ func resolvePHPCGITarget(phpTarget string) (string, error) {
 	return "", fmt.Errorf("php-cgi executable was not found next to %s", phpTarget)
 }
 
-func resolveServeEndpoint(config *backend.ServerConfig, override string) (serveEndpoint, error) {
+func resolveServerEndpoint(config *backend.ServerConfig, override string) (serverEndpoint, error) {
 	address, err := resolveServeAddress(config, override)
 	if err != nil {
-		return serveEndpoint{}, err
+		return serverEndpoint{}, err
 	}
 
 	scheme := "http"
@@ -574,7 +574,7 @@ func resolveServeEndpoint(config *backend.ServerConfig, override string) (serveE
 		scheme = "https"
 	}
 
-	return serveEndpoint{Scheme: scheme, Address: address, HTTPS: https}, nil
+	return serverEndpoint{Scheme: scheme, Address: address, HTTPS: https}, nil
 }
 
 func resolveServeAddress(config *backend.ServerConfig, override string) (string, error) {
@@ -604,7 +604,7 @@ func resolveServeAddress(config *backend.ServerConfig, override string) (string,
 	return net.JoinHostPort(host, strconv.Itoa(port)), nil
 }
 
-func serveEndpointURL(endpoint serveEndpoint) string {
+func serverEndpointURL(endpoint serverEndpoint) string {
 	scheme := strings.TrimSpace(endpoint.Scheme)
 	if scheme == "" {
 		scheme = "http"
@@ -774,7 +774,7 @@ func renderPHPRuntimeRouter(layout serveAppLayout) []byte {
 	return []byte(builder.String())
 }
 
-func prepareNginxServeRuntime(cacheDir, runtimeDir string, endpoint serveEndpoint, layout serveAppLayout, backendAddress string) (string, string, error) {
+func prepareNginxServeRuntime(cacheDir, runtimeDir string, endpoint serverEndpoint, layout serveAppLayout, backendAddress string) (string, string, error) {
 	tempRoot := filepath.Join(runtimeDir, "temp")
 	logsDir := filepath.Join(runtimeDir, "logs")
 	tempDirs := []string{
@@ -1301,7 +1301,7 @@ func pingServeAddress(address string) bool {
 	return true
 }
 
-func loadLiveServeState(rootDir, environmentName string) (*serveRuntimeState, error) {
+func loadWebServerState(rootDir, environmentName string) (*serveRuntimeState, error) {
 	path := serveStatePath(rootDir, environmentName)
 	state, err := loadServeState(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -1351,7 +1351,7 @@ func writeServeState(path string, state serveRuntimeState) error {
 }
 
 func stopManagedServe(store backend.Store, environmentName string) (serveRuntimeState, bool, error) {
-	state, err := loadLiveServeState(store.RootDir, environmentName)
+	state, err := loadWebServerState(store.RootDir, environmentName)
 	if err != nil {
 		return serveRuntimeState{}, false, err
 	}
@@ -1449,7 +1449,7 @@ func serveRuntimeLabel(kind string) string {
 	return trimmed + " webserver"
 }
 
-func serveStateMatches(state serveRuntimeState, endpoint serveEndpoint, docroot string, useNginx bool) bool {
+func serveStateMatches(state serveRuntimeState, endpoint serverEndpoint, docroot string, useNginx bool) bool {
 	stateScheme := strings.TrimSpace(state.ServerScheme)
 	if stateScheme == "" {
 		stateScheme = "http"
@@ -1461,7 +1461,7 @@ func serveStateMatches(state serveRuntimeState, endpoint serveEndpoint, docroot 
 }
 
 func serveStateURL(state serveRuntimeState) string {
-	return serveEndpointURL(serveEndpoint{
+	return serverEndpointURL(serverEndpoint{
 		Scheme:  strings.TrimSpace(state.ServerScheme),
 		Address: strings.TrimSpace(state.ServerAddress),
 	})
@@ -1523,7 +1523,7 @@ func resolveServeDocroot(projectDir, configuredDocroot, overrideDocroot string) 
 		trimmed = strings.TrimSpace(configuredDocroot)
 	}
 	if trimmed == "" {
-		return "", fmt.Errorf("serve requires a docroot argument or environments.<name>.docroot in polka.yaml")
+		return "", fmt.Errorf("start requires a docroot argument or environments.<name>.docroot in polka.yaml")
 	}
 
 	resolved := filepath.Clean(trimmed)

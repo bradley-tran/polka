@@ -108,7 +108,7 @@ Pass --db-name NAME to target a different database for a single db, client, impo
 When no subcommand is provided, Polka forwards the arguments to the database client.
 `
 
-const serveUsage = `Usage:
+const startUsage = `Usage:
   polka serve [docroot] [--server HOST:PORT] [--watch]
 
 Start the active environment's local web server.
@@ -189,7 +189,8 @@ Select one of the environments defined in polka.yaml.
 const statusUsage = `Usage:
   polka status
 
-Show the active environment from polka.yaml, including one line per configured tool and the resolved server address.
+Show the active environment from polka.yaml, including one line per configured tool and the resolved server URL.
+Also shows whether the active environment's webserver and managed database are currently running.
 `
 
 const removeUsage = `Usage:

@@ -70,7 +70,7 @@ func TestRunInstallUsesCurrentEnvironmentWhenNameOmitted(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
-	t.Setenv("Polka_CACHE_DIR", cacheDir)
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
@@ -111,7 +111,7 @@ func TestRunInstallUsesConfiguredNestedRootFromProjectConfig(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, "test-site", ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
-	t.Setenv("Polka_CACHE_DIR", cacheDir)
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
@@ -159,7 +159,7 @@ func TestRunInstallUsesConfiguredNestedRootFromExplicitRoot(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, "test-site", ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
-	t.Setenv("Polka_CACHE_DIR", cacheDir)
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
@@ -276,7 +276,7 @@ func TestRunInstallUsesDefaultEnvironmentWhenCurrentMissing(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
-	t.Setenv("Polka_CACHE_DIR", cacheDir)
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
@@ -464,6 +464,8 @@ func TestRunStatusShowsToolsEachOnOwnLine(t *testing.T) {
 		"nginx 1.30\n",
 		"database mysql:8.0@3306\n",
 		"server http://localhost:8080\n",
+		"webserver stopped\n",
+		"database-server stopped\n",
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("Run(status) stdout = %q, want %q", output, expected)
@@ -502,13 +504,90 @@ func TestRunStatusUsesDefaultServerAddress(t *testing.T) {
 	if !strings.Contains(output, "nginx unset\n") {
 		t.Fatalf("Run(status) stdout = %q, want nginx unset line", output)
 	}
+	if !strings.Contains(output, "webserver stopped\n") {
+		t.Fatalf("Run(status) stdout = %q, want webserver stopped line", output)
+	}
+	if !strings.Contains(output, "database-server unset\n") {
+		t.Fatalf("Run(status) stdout = %q, want database unset line", output)
+	}
+}
+
+func TestRunStatusShowsRunningWebserverAndDatabase(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	config := testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Current: "demo",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {
+				PHP:      "8.4",
+				Database: &testDatabaseConfig{Engine: "mysql", Version: "8.0", Port: 3307},
+				Server:   &testServerConfig{Hostname: "localhost", Port: 8080},
+			},
+		},
+	}
+	configData, err := yaml.Marshal(config)
+	if err != nil {
+		t.Fatalf("yaml.Marshal(config) error = %v", err)
+	}
+	configData = append(configData, '\n')
+	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+	if err := writeServeState(serveStatePath(root, "demo"), serveRuntimeState{
+		EnvironmentName: "demo",
+		ServerKind:      "php",
+		ServerScheme:    "http",
+		ServerAddress:   "localhost:8080",
+		Docroot:         filepath.Join(projectDir, "site", "public"),
+		PrimaryPID:      1010,
+	}); err != nil {
+		t.Fatalf("writeServeState() error = %v", err)
+	}
+	if err := writeDatabaseState(databaseStatePath(root, "demo"), dbRuntimeState{
+		EnvironmentName: "demo",
+		Engine:          "mysql",
+		Version:         "8.0",
+		Port:            3307,
+		PID:             2020,
+	}); err != nil {
+		t.Fatalf("writeDatabaseState() error = %v", err)
+	}
+
+	oldPingServe := pingServeAddressFunc
+	oldPingDatabase := pingDatabaseAddressFunc
+	t.Cleanup(func() {
+		pingServeAddressFunc = oldPingServe
+		pingDatabaseAddressFunc = oldPingDatabase
+	})
+	pingServeAddressFunc = func(address string) bool {
+		return address == "localhost:8080"
+	}
+	pingDatabaseAddressFunc = func(address string) bool {
+		return address == databaseAddress(3307)
+	}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "status"}); code != 0 {
+		t.Fatalf("Run(status) code = %d, stderr = %q", code, stderr.String())
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "webserver running http://localhost:8080\n") {
+		t.Fatalf("Run(status) stdout = %q, want running webserver line", output)
+	}
+	if !strings.Contains(output, "database-server running mysql:8.0@3307\n") {
+		t.Fatalf("Run(status) stdout = %q, want running database line", output)
+	}
 }
 
 func TestRunInstallAppliesPHPExtensionsFromConfigFile(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
-	t.Setenv("Polka_CACHE_DIR", cacheDir)
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
@@ -575,7 +654,7 @@ func TestRunInstallEnablesComposerPHPExtensionsByDefault(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
-	t.Setenv("Polka_CACHE_DIR", cacheDir)
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 

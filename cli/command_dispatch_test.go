@@ -14,7 +14,7 @@ func TestRunConfigSetsVersionLabelsAndDispatchesPhp(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
-	t.Setenv("Polka_CACHE_DIR", cacheDir)
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
@@ -108,7 +108,7 @@ func TestRunDispatchLoadsProjectAndConfiguredEnvironmentVariables(t *testing.T) 
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
-	t.Setenv("Polka_CACHE_DIR", cacheDir)
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 

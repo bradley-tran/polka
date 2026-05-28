@@ -19,7 +19,7 @@ func TestRunServeUsesCurrentServerConfig(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
-	t.Setenv("Polka_CACHE_DIR", cacheDir)
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
@@ -52,7 +52,7 @@ func TestRunServeUsesCurrentServerConfig(t *testing.T) {
 	}
 	environment := config.Environments["demo"]
 	environment.Server = &testServerConfig{Hostname: "localhost", Port: 8080}
-	environment.EnvVars = map[string]string{"APP_ENV": "serve"}
+	environment.EnvVars = map[string]string{"APP_ENV": "start"}
 	config.Environments["demo"] = environment
 	updatedConfig, err := yaml.Marshal(config)
 	if err != nil {
@@ -76,7 +76,7 @@ func TestRunServeUsesCurrentServerConfig(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "serve", "--watch", filepath.Join("named-project", "public")}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--root", root, "start", "--watch", filepath.Join("named-project", "public")}); code != 0 {
 		t.Fatalf("Run(serve) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -84,7 +84,7 @@ func TestRunServeUsesCurrentServerConfig(t *testing.T) {
 	if !strings.Contains(output, "-S localhost:8080") {
 		t.Fatalf("Run(serve) output = %q, want configured server address", output)
 	}
-	if !strings.Contains(output, "serve") {
+	if !strings.Contains(output, "start") {
 		t.Fatalf("Run(serve) output = %q, want environment variable override in php runtime", output)
 	}
 	if !strings.Contains(output, "-t "+docroot) {
@@ -99,7 +99,7 @@ func TestRunServeUsesConfiguredDocrootWhenArgumentOmitted(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
-	t.Setenv("Polka_CACHE_DIR", cacheDir)
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
@@ -149,7 +149,7 @@ func TestRunServeUsesConfiguredDocrootWhenArgumentOmitted(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "serve", "--watch"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--root", root, "start", "--watch"}); code != 0 {
 		t.Fatalf("Run(serve without arg) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -166,7 +166,7 @@ func TestRunServeArgumentOverridesConfiguredDocroot(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
-	t.Setenv("Polka_CACHE_DIR", cacheDir)
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
@@ -220,7 +220,7 @@ func TestRunServeArgumentOverridesConfiguredDocroot(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "serve", "--watch", filepath.Join("override-project", "public")}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--root", root, "start", "--watch", filepath.Join("override-project", "public")}); code != 0 {
 		t.Fatalf("Run(serve with override) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -258,7 +258,7 @@ func TestRunServeRequiresDocrootArgumentOrConfig(t *testing.T) {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "serve"}); code != 1 {
+	if code := Run(stdout, stderr, []string{"--root", root, "start"}); code != 1 {
 		t.Fatalf("Run(serve without docroot) code = %d, stderr = %q", code, stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "docroot argument or environments.<name>.docroot") {
@@ -270,7 +270,7 @@ func TestRunServeAllowsServerOverride(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
-	t.Setenv("Polka_CACHE_DIR", cacheDir)
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
@@ -323,7 +323,7 @@ func TestRunServeAllowsServerOverride(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "serve", "--watch", "--server", "127.0.0.1:9001", filepath.Join("site", "public")}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--root", root, "start", "--watch", "--server", "127.0.0.1:9001", filepath.Join("site", "public")}); code != 0 {
 		t.Fatalf("Run(serve) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -385,7 +385,7 @@ func TestRunServeUsesNginxWhenConfigured(t *testing.T) {
 		phpCalls++
 		return 0, nil
 	}
-	runNginxServeFunc = func(stdout, stderr io.Writer, store backend.Store, environment backend.Environment, endpoint serveEndpoint, layout serveAppLayout) (int, error) {
+	runNginxServeFunc = func(stdout, stderr io.Writer, store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout) (int, error) {
 		nginxCalls++
 		gotAddress = endpoint.Address
 		gotDocroot = layout.Docroot
@@ -393,7 +393,7 @@ func TestRunServeUsesNginxWhenConfigured(t *testing.T) {
 		return 0, nil
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "serve", "--watch", filepath.Join("site", "public")}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--root", root, "start", "--watch", filepath.Join("site", "public")}); code != 0 {
 		t.Fatalf("Run(serve with nginx) code = %d, stderr = %q", code, stderr.String())
 	}
 	if phpCalls != 0 {
@@ -417,7 +417,7 @@ func TestRunServeUsesNginxWhenConfigured(t *testing.T) {
 }
 
 func TestPreparePHPRuntimeServeRuntimeCreatesRouter(t *testing.T) {
-	runtimeDir := filepath.Join(t.TempDir(), "run", "serve", "php")
+	runtimeDir := filepath.Join(t.TempDir(), "run", "start", "php")
 	docroot := filepath.Join(runtimeDir, "docroot")
 	if err := os.MkdirAll(docroot, 0o755); err != nil {
 		t.Fatalf("MkdirAll(docroot) error = %v", err)
@@ -472,7 +472,7 @@ func TestPreparePHPRuntimeServeRuntimeCreatesRouter(t *testing.T) {
 }
 
 func TestPrepareNginxServeRuntimeCreatesLogsPath(t *testing.T) {
-	runtimeDir := filepath.Join(t.TempDir(), "run", "serve", "demo")
+	runtimeDir := filepath.Join(t.TempDir(), "run", "start", "demo")
 	docroot := filepath.Join(runtimeDir, "docroot")
 	if err := os.MkdirAll(docroot, 0o755); err != nil {
 		t.Fatalf("MkdirAll(docroot) error = %v", err)
@@ -484,7 +484,7 @@ func TestPrepareNginxServeRuntimeCreatesLogsPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveServeAppLayout() error = %v", err)
 	}
-	configPath, phpLogPath, err := prepareNginxServeRuntime(filepath.Join(runtimeDir, "root"), runtimeDir, serveEndpoint{Scheme: "http", Address: "localhost:8080"}, layout, "127.0.0.1:9000")
+	configPath, phpLogPath, err := prepareNginxServeRuntime(filepath.Join(runtimeDir, "root"), runtimeDir, serverEndpoint{Scheme: "http", Address: "localhost:8080"}, layout, "127.0.0.1:9000")
 	if err != nil {
 		t.Fatalf("prepareNginxServeRuntime() error = %v", err)
 	}
@@ -526,7 +526,7 @@ func TestPrepareNginxServeRuntimeCreatesLogsPath(t *testing.T) {
 
 func TestPrepareNginxServeRuntimeCreatesHTTPSConfigForLocalhostHostname(t *testing.T) {
 	rootDir := t.TempDir()
-	runtimeDir := filepath.Join(rootDir, "run", "serve", "demo")
+	runtimeDir := filepath.Join(rootDir, "run", "start", "demo")
 	docroot := filepath.Join(runtimeDir, "docroot")
 	if err := os.MkdirAll(docroot, 0o755); err != nil {
 		t.Fatalf("MkdirAll(docroot) error = %v", err)
@@ -539,7 +539,7 @@ func TestPrepareNginxServeRuntimeCreatesHTTPSConfigForLocalhostHostname(t *testi
 		t.Fatalf("resolveServeAppLayout() error = %v", err)
 	}
 
-	configPath, phpLogPath, err := prepareNginxServeRuntime(rootDir, runtimeDir, serveEndpoint{Scheme: "https", Address: "site.localhost:8443", HTTPS: true}, layout, "127.0.0.1:9000")
+	configPath, phpLogPath, err := prepareNginxServeRuntime(rootDir, runtimeDir, serverEndpoint{Scheme: "https", Address: "site.localhost:8443", HTTPS: true}, layout, "127.0.0.1:9000")
 	if err != nil {
 		t.Fatalf("prepareNginxServeRuntime() error = %v", err)
 	}
@@ -602,7 +602,7 @@ func TestRunServeRejectsHTTPSWithoutNginx(t *testing.T) {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "serve"}); code != 1 {
+	if code := Run(stdout, stderr, []string{"--root", root, "start"}); code != 1 {
 		t.Fatalf("Run(serve https without nginx) code = %d, stderr = %q", code, stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "server.https requires nginx") {
@@ -668,7 +668,7 @@ func TestRunServeStartsConfiguredDatabaseBeforePhp(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
-	t.Setenv("Polka_CACHE_DIR", cacheDir)
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
@@ -758,7 +758,7 @@ func TestRunServeStartsConfiguredDatabaseBeforePhp(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "serve", "--watch", filepath.Join("site", "public")}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--root", root, "start", "--watch", filepath.Join("site", "public")}); code != 0 {
 		t.Fatalf("Run(serve with db) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -854,7 +854,7 @@ func TestRunServeStartsInBackgroundByDefaultAndStopStopsIt(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "serve"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--root", root, "start"}); code != 0 {
 		t.Fatalf("Run(serve background) code = %d, stderr = %q", code, stderr.String())
 	}
 	if startCalls != 1 {

@@ -14,7 +14,7 @@ func TestRunCertInstallCreatesAndInstallsGlobalCertificate(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
-	t.Setenv("Polka_CACHE_DIR", cacheDir)
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
@@ -66,7 +66,7 @@ func TestRunCertInstallRegeneratesExistingGlobalCertificate(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
-	t.Setenv("Polka_CACHE_DIR", cacheDir)
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	caCertificatePath := filepath.Join(cacheDir, "polka", serveTLSSubdir, serveTLSCACertName)
