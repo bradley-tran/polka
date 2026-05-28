@@ -10,6 +10,7 @@ Commands:
   new <name>           create an environment with default or explicit versions
   config [name]        set php, composer, nodejs, and database settings for an environment
   install [name]       install all tools for an environment
+  cert-install         install Polka's local HTTPS certificate into the user trust store
   db [args...]         run the active environment's database client or manage its local server
   serve [docroot]      start the local web server for the active environment
   stop                 stop the active environment's local web server and managed database
@@ -28,6 +29,7 @@ Examples:
   polka config api --php 8.4 --composer 2.8 --nodejs 24
   polka config api --db-engine mysql --db-version 8.0 --db-port 3306
   polka install api
+  polka cert-install
   polka db start
   polka db status
   polka db --version
@@ -71,6 +73,13 @@ const installUsage = `Usage:
 Install all configured tool versions for an environment.
 When name is omitted, Polka installs the current environment. If no current environment is selected, Polka uses default and marks it current after a successful install.
 Polka copies them from the global cache when available, otherwise downloads them into the cache first.
+`
+
+const certInstallUsage = `Usage:
+  polka cert-install
+
+Install Polka's generated local HTTPS certificate into the current user's trust store.
+The generated certificate material is global to the Polka cache. This command replaces any existing generated CA/server certificate pair and installs the CA certificate.
 `
 
 const dbUsage = `Usage:

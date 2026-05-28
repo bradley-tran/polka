@@ -484,7 +484,7 @@ func TestPrepareNginxServeRuntimeCreatesLogsPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveServeAppLayout() error = %v", err)
 	}
-	configPath, phpLogPath, err := prepareNginxServeRuntime(runtimeDir, serveEndpoint{Scheme: "http", Address: "localhost:8080"}, layout, "127.0.0.1:9000")
+	configPath, phpLogPath, err := prepareNginxServeRuntime(filepath.Join(runtimeDir, "root"), runtimeDir, serveEndpoint{Scheme: "http", Address: "localhost:8080"}, layout, "127.0.0.1:9000")
 	if err != nil {
 		t.Fatalf("prepareNginxServeRuntime() error = %v", err)
 	}
@@ -525,7 +525,8 @@ func TestPrepareNginxServeRuntimeCreatesLogsPath(t *testing.T) {
 }
 
 func TestPrepareNginxServeRuntimeCreatesHTTPSConfigForLocalhostHostname(t *testing.T) {
-	runtimeDir := filepath.Join(t.TempDir(), "run", "serve", "demo")
+	rootDir := t.TempDir()
+	runtimeDir := filepath.Join(rootDir, "run", "serve", "demo")
 	docroot := filepath.Join(runtimeDir, "docroot")
 	if err := os.MkdirAll(docroot, 0o755); err != nil {
 		t.Fatalf("MkdirAll(docroot) error = %v", err)
@@ -538,7 +539,7 @@ func TestPrepareNginxServeRuntimeCreatesHTTPSConfigForLocalhostHostname(t *testi
 		t.Fatalf("resolveServeAppLayout() error = %v", err)
 	}
 
-	configPath, phpLogPath, err := prepareNginxServeRuntime(runtimeDir, serveEndpoint{Scheme: "https", Address: "site.localhost:8443", HTTPS: true}, layout, "127.0.0.1:9000")
+	configPath, phpLogPath, err := prepareNginxServeRuntime(rootDir, runtimeDir, serveEndpoint{Scheme: "https", Address: "site.localhost:8443", HTTPS: true}, layout, "127.0.0.1:9000")
 	if err != nil {
 		t.Fatalf("prepareNginxServeRuntime() error = %v", err)
 	}
@@ -559,11 +560,14 @@ func TestPrepareNginxServeRuntimeCreatesHTTPSConfigForLocalhostHostname(t *testi
 	if !strings.Contains(config, "ssl_certificate ") || !strings.Contains(config, "ssl_certificate_key ") {
 		t.Fatalf("nginx config = %q, want generated certificate directives", config)
 	}
-	if _, err := os.Stat(filepath.Join(runtimeDir, serveTLSSubdir, "site.localhost.crt")); err != nil {
+	if _, err := os.Stat(filepath.Join(rootDir, "polka", serveTLSSubdir, serveTLSCertFileName)); err != nil {
 		t.Fatalf("Stat(generated cert) error = %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(runtimeDir, serveTLSSubdir, "site.localhost.key")); err != nil {
+	if _, err := os.Stat(filepath.Join(rootDir, "polka", serveTLSSubdir, serveTLSKeyFileName)); err != nil {
 		t.Fatalf("Stat(generated key) error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(rootDir, "polka", serveTLSSubdir, serveTLSCACertName)); err != nil {
+		t.Fatalf("Stat(generated ca cert) error = %v", err)
 	}
 }
 

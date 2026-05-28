@@ -35,7 +35,11 @@ const (
 	serveRuntimeSubdir   = "serve"
 	serveStateFileName   = "state.json"
 	serveLogFileName     = "serve.log"
-	serveTLSSubdir       = "certs"
+	serveTLSSubdir       = "cert"
+	serveTLSCACertName   = "polka-local-ca.crt"
+	serveTLSCAKeyName    = "polka-local-ca.key"
+	serveTLSCertFileName = "polka-local.crt"
+	serveTLSKeyFileName  = "polka-local.key"
 	phpServeRouterName   = "php-router.php"
 	serveProxyHost       = "127.0.0.1"
 	serveShutdownTimeout = 5 * time.Second
@@ -372,7 +376,7 @@ func runNginxServe(stdout, stderr io.Writer, store backend.Store, environment ba
 	}
 
 	runtimeDir := serveRuntimeDir(store.RootDir, environment.Name)
-	configPath, phpLogPath, err := prepareNginxServeRuntime(runtimeDir, endpoint, layout, backendAddress)
+	configPath, phpLogPath, err := prepareNginxServeRuntime(store.CacheDir, runtimeDir, endpoint, layout, backendAddress)
 	if err != nil {
 		return 0, err
 	}
@@ -432,7 +436,7 @@ func startNginxServeInBackground(store backend.Store, environment backend.Enviro
 	}
 
 	runtimeDir := serveRuntimeDir(store.RootDir, environment.Name)
-	configPath, phpLogPath, err := prepareNginxServeRuntime(runtimeDir, endpoint, layout, backendAddress)
+	configPath, phpLogPath, err := prepareNginxServeRuntime(store.CacheDir, runtimeDir, endpoint, layout, backendAddress)
 	if err != nil {
 		return serveRuntimeState{}, err
 	}
@@ -770,7 +774,7 @@ func renderPHPRuntimeRouter(layout serveAppLayout) []byte {
 	return []byte(builder.String())
 }
 
-func prepareNginxServeRuntime(runtimeDir string, endpoint serveEndpoint, layout serveAppLayout, backendAddress string) (string, string, error) {
+func prepareNginxServeRuntime(cacheDir, runtimeDir string, endpoint serveEndpoint, layout serveAppLayout, backendAddress string) (string, string, error) {
 	tempRoot := filepath.Join(runtimeDir, "temp")
 	logsDir := filepath.Join(runtimeDir, "logs")
 	tempDirs := []string{
@@ -796,7 +800,7 @@ func prepareNginxServeRuntime(runtimeDir string, endpoint serveEndpoint, layout 
 	}
 	tlsConfig := nginxTLSConfig{}
 	if endpoint.HTTPS {
-		certPath, keyPath, err := ensureNginxTLSCertificate(runtimeDir, host)
+		certPath, keyPath, err := ensureGlobalTLSCertificate(cacheDir, host)
 		if err != nil {
 			return "", "", err
 		}
@@ -938,95 +942,279 @@ func isLocalOnlyServeHostname(host string) bool {
 	return false
 }
 
-func ensureNginxTLSCertificate(runtimeDir, host string) (string, string, error) {
-	safeName := safeCertificateFileName(host)
-	certDir := filepath.Join(runtimeDir, serveTLSSubdir)
-	certPath := filepath.Join(certDir, safeName+".crt")
-	keyPath := filepath.Join(certDir, safeName+".key")
-	if certificateFileExists(certPath) && certificateFileExists(keyPath) {
+func ensureGlobalTLSCertificate(cacheDir, host string) (string, string, error) {
+	certPath, keyPath := globalTLSCertificatePaths(cacheDir)
+	caCertPath, caKeyPath := globalTLSCACertificatePaths(cacheDir)
+	hasCA := certificateFileExists(caCertPath) && certificateFileExists(caKeyPath)
+	if certificateFileExists(certPath) && certificateFileExists(keyPath) && hasCA && serverCertificateCoversHost(certPath, host) {
 		return certPath, keyPath, nil
 	}
+	if hasCA {
+		return createGlobalTLSServerCertificate(cacheDir, host)
+	}
+
+	return createGlobalTLSCertificate(cacheDir, host)
+}
+
+func regenerateGlobalTLSCertificate(cacheDir string) (string, string, error) {
+	certPath, keyPath := globalTLSCertificatePaths(cacheDir)
+	caCertPath, caKeyPath := globalTLSCACertificatePaths(cacheDir)
+	for _, path := range []string{certPath, keyPath, caCertPath, caKeyPath} {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return "", "", fmt.Errorf("remove existing tls certificate file %s: %w", path, err)
+		}
+	}
+
+	return createGlobalTLSCertificate(cacheDir, "")
+}
+
+func createGlobalTLSCertificate(cacheDir, host string) (string, string, error) {
+	certPath, _ := globalTLSCertificatePaths(cacheDir)
+	caCertPath, caKeyPath := globalTLSCACertificatePaths(cacheDir)
+	certDir := filepath.Dir(certPath)
 	if err := os.MkdirAll(certDir, 0o755); err != nil {
 		return "", "", fmt.Errorf("create nginx tls certificate directory: %w", err)
 	}
 
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	caPrivateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		return "", "", fmt.Errorf("generate nginx tls private key: %w", err)
+		return "", "", fmt.Errorf("generate local ca private key: %w", err)
 	}
-	serialLimit := new(big.Int).Lsh(big.NewInt(1), 128)
-	serialNumber, err := rand.Int(rand.Reader, serialLimit)
+	caSerialNumber, err := randomTLSSerialNumber()
 	if err != nil {
-		return "", "", fmt.Errorf("generate nginx tls serial number: %w", err)
+		return "", "", err
 	}
 
 	now := serveNowFunc().UTC()
-	template := x509.Certificate{
-		SerialNumber: serialNumber,
+	caTemplate := x509.Certificate{
+		SerialNumber: caSerialNumber,
 		Subject: pkix.Name{
-			CommonName: strings.Trim(strings.TrimSpace(host), "[]"),
+			CommonName: "Polka Local Development CA",
+		},
+		NotBefore:             now.Add(-1 * time.Hour),
+		NotAfter:              now.AddDate(5, 0, 0),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	caDER, err := x509.CreateCertificate(rand.Reader, &caTemplate, &caTemplate, &caPrivateKey.PublicKey, caPrivateKey)
+	if err != nil {
+		return "", "", fmt.Errorf("generate local ca certificate: %w", err)
+	}
+
+	if err := writePEMFile(caCertPath, 0o644, "CERTIFICATE", caDER); err != nil {
+		return "", "", fmt.Errorf("write local ca certificate: %w", err)
+	}
+	if err := writePEMFile(caKeyPath, 0o600, "RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(caPrivateKey)); err != nil {
+		return "", "", fmt.Errorf("write local ca private key: %w", err)
+	}
+
+	return createGlobalTLSServerCertificateWithCA(cacheDir, host, &caTemplate, caPrivateKey)
+}
+
+func createGlobalTLSServerCertificate(cacheDir, host string) (string, string, error) {
+	caCertificate, caPrivateKey, err := loadGlobalTLSCA(cacheDir)
+	if err != nil {
+		return "", "", err
+	}
+
+	return createGlobalTLSServerCertificateWithCA(cacheDir, host, caCertificate, caPrivateKey)
+}
+
+func createGlobalTLSServerCertificateWithCA(cacheDir, host string, caCertificate *x509.Certificate, caPrivateKey *rsa.PrivateKey) (string, string, error) {
+	certPath, keyPath := globalTLSCertificatePaths(cacheDir)
+	serverPrivateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return "", "", fmt.Errorf("generate nginx tls private key: %w", err)
+	}
+	serverSerialNumber, err := randomTLSSerialNumber()
+	if err != nil {
+		return "", "", err
+	}
+	dnsNames, ipAddresses := serverCertificateNames(host)
+	now := serveNowFunc().UTC()
+	serverTemplate := x509.Certificate{
+		SerialNumber: serverSerialNumber,
+		Subject: pkix.Name{
+			CommonName: firstServerCertificateCommonName(dnsNames, ipAddresses),
 		},
 		NotBefore:             now.Add(-1 * time.Hour),
 		NotAfter:              now.AddDate(2, 0, 0),
 		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
+		DNSNames:              dnsNames,
+		IPAddresses:           ipAddresses,
 	}
-	certificateHost := strings.Trim(strings.TrimSpace(host), "[]")
-	if ip := net.ParseIP(certificateHost); ip != nil {
-		template.IPAddresses = []net.IP{ip}
-	} else {
-		template.DNSNames = []string{certificateHost}
-	}
-
-	certificateDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &privateKey.PublicKey, privateKey)
+	serverDER, err := x509.CreateCertificate(rand.Reader, &serverTemplate, caCertificate, &serverPrivateKey.PublicKey, caPrivateKey)
 	if err != nil {
 		return "", "", fmt.Errorf("generate nginx tls certificate: %w", err)
 	}
 
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificateDER})
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)})
-	if err := os.WriteFile(certPath, certPEM, 0o644); err != nil {
+	if err := writePEMFile(certPath, 0o644, "CERTIFICATE", serverDER); err != nil {
 		return "", "", fmt.Errorf("write nginx tls certificate: %w", err)
 	}
-	if err := os.WriteFile(keyPath, keyPEM, 0o600); err != nil {
+	if err := writePEMFile(keyPath, 0o600, "RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(serverPrivateKey)); err != nil {
 		return "", "", fmt.Errorf("write nginx tls private key: %w", err)
 	}
 
 	return certPath, keyPath, nil
 }
 
+func loadGlobalTLSCA(cacheDir string) (*x509.Certificate, *rsa.PrivateKey, error) {
+	caCertPath, caKeyPath := globalTLSCACertificatePaths(cacheDir)
+	caCertificate, err := readCertificateFile(caCertPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read local ca certificate: %w", err)
+	}
+	caPrivateKey, err := readRSAPrivateKeyFile(caKeyPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read local ca private key: %w", err)
+	}
+
+	return caCertificate, caPrivateKey, nil
+}
+
+func serverCertificateCoversHost(certificatePath, host string) bool {
+	trimmed := strings.Trim(strings.TrimSpace(host), "[]")
+	if trimmed == "" {
+		return true
+	}
+	certificate, err := readCertificateFile(certificatePath)
+	if err != nil {
+		return false
+	}
+
+	return certificate.VerifyHostname(trimmed) == nil && certificateHasExactHost(certificate, trimmed)
+}
+
+func certificateHasExactHost(certificate *x509.Certificate, host string) bool {
+	if ip := net.ParseIP(host); ip != nil {
+		for _, candidate := range certificate.IPAddresses {
+			if candidate.Equal(ip) {
+				return true
+			}
+		}
+
+		return false
+	}
+	for _, candidate := range certificate.DNSNames {
+		if strings.EqualFold(candidate, host) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func serverCertificateNames(host string) ([]string, []net.IP) {
+	dnsNames := []string{"localhost", "*.localhost"}
+	ipAddresses := []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")}
+	trimmed := strings.Trim(strings.TrimSpace(host), "[]")
+	if trimmed == "" {
+		return dnsNames, ipAddresses
+	}
+	if ip := net.ParseIP(trimmed); ip != nil {
+		for _, existing := range ipAddresses {
+			if existing.Equal(ip) {
+				return dnsNames, ipAddresses
+			}
+		}
+
+		return dnsNames, append(ipAddresses, ip)
+	}
+	for _, existing := range dnsNames {
+		if strings.EqualFold(existing, trimmed) {
+			return dnsNames, ipAddresses
+		}
+	}
+
+	return append(dnsNames, trimmed), ipAddresses
+}
+
+func firstServerCertificateCommonName(dnsNames []string, ipAddresses []net.IP) string {
+	for _, name := range dnsNames {
+		if name != "" && !strings.HasPrefix(name, "*.") {
+			return name
+		}
+	}
+	if len(ipAddresses) > 0 {
+		return ipAddresses[0].String()
+	}
+
+	return "localhost"
+}
+
+func randomTLSSerialNumber() (*big.Int, error) {
+	serialLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serialNumber, err := rand.Int(rand.Reader, serialLimit)
+	if err != nil {
+		return nil, fmt.Errorf("generate tls serial number: %w", err)
+	}
+
+	return serialNumber, nil
+}
+
+func writePEMFile(path string, mode os.FileMode, blockType string, data []byte) error {
+	pemData := pem.EncodeToMemory(&pem.Block{Type: blockType, Bytes: data})
+
+	return os.WriteFile(path, pemData, mode)
+}
+
+func readCertificateFile(path string) (*x509.Certificate, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	block, _ := pem.Decode(data)
+	if block == nil || block.Type != "CERTIFICATE" {
+		return nil, fmt.Errorf("missing CERTIFICATE PEM block in %s", path)
+	}
+
+	return x509.ParseCertificate(block.Bytes)
+}
+
+func readRSAPrivateKeyFile(path string) (*rsa.PrivateKey, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	block, _ := pem.Decode(data)
+	if block == nil || block.Type != "RSA PRIVATE KEY" {
+		return nil, fmt.Errorf("missing RSA PRIVATE KEY PEM block in %s", path)
+	}
+
+	return x509.ParsePKCS1PrivateKey(block.Bytes)
+}
+
+func globalTLSCertificatePaths(cacheDir string) (string, string) {
+	certDir := globalTLSCertificateDir(cacheDir)
+	certPath := filepath.Join(certDir, serveTLSCertFileName)
+	keyPath := filepath.Join(certDir, serveTLSKeyFileName)
+
+	return certPath, keyPath
+}
+
+func globalTLSCACertificatePaths(cacheDir string) (string, string) {
+	certDir := globalTLSCertificateDir(cacheDir)
+	certPath := filepath.Join(certDir, serveTLSCACertName)
+	keyPath := filepath.Join(certDir, serveTLSCAKeyName)
+
+	return certPath, keyPath
+}
+
+func globalTLSCertificateDir(cacheDir string) string {
+	cleanCacheDir := filepath.Clean(cacheDir)
+	if strings.EqualFold(filepath.Base(cleanCacheDir), "tools") && strings.EqualFold(filepath.Base(filepath.Dir(cleanCacheDir)), "polka") {
+		return filepath.Join(filepath.Dir(cleanCacheDir), serveTLSSubdir)
+	}
+
+	return filepath.Join(cleanCacheDir, "polka", serveTLSSubdir)
+}
+
 func certificateFileExists(path string) bool {
 	fileInfo, err := os.Stat(path)
 	return err == nil && !fileInfo.IsDir()
-}
-
-func safeCertificateFileName(host string) string {
-	trimmed := strings.Trim(strings.TrimSpace(host), "[]")
-	if trimmed == "" {
-		return defaultServeHostname
-	}
-
-	var builder strings.Builder
-	for _, char := range trimmed {
-		switch {
-		case char >= 'a' && char <= 'z':
-			builder.WriteRune(char)
-		case char >= 'A' && char <= 'Z':
-			builder.WriteRune(char)
-		case char >= '0' && char <= '9':
-			builder.WriteRune(char)
-		case char == '.' || char == '-' || char == '_':
-			builder.WriteRune(char)
-		default:
-			builder.WriteByte('_')
-		}
-	}
-	if builder.Len() == 0 {
-		return defaultServeHostname
-	}
-
-	return builder.String()
 }
 
 func writeServePHPMIMETypes(builder *strings.Builder, indent string) {

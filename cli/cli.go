@@ -75,6 +75,7 @@ func newRootCommand(ctx *commandContext) *cobra.Command {
 		newNewCommand(ctx),
 		newConfigCommand(ctx),
 		newInstallCommand(ctx),
+		newCertInstallCommand(ctx),
 		newDBCommand(ctx),
 		newServeCommand(ctx),
 		newStopCommand(ctx),
