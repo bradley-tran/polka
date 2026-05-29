@@ -209,8 +209,9 @@ func newUseCommand(ctx *commandContext) *cobra.Command {
 
 func newStatusCommand(ctx *commandContext) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:  "status",
-		Args: exactArgsError("status does not take arguments", 0),
+		Use:     "status",
+		Aliases: []string{"info"},
+		Args:    exactArgsError("status/info does not take arguments", 0),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store, err := ctx.store()
 			if err != nil {

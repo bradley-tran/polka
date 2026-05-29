@@ -473,6 +473,39 @@ func TestRunStatusShowsToolsEachOnOwnLine(t *testing.T) {
 	}
 }
 
+func TestRunInfoAliasShowsStatus(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	config := testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Current: "demo",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {
+				PHP: "8.4",
+			},
+		},
+	}
+	configData, err := yaml.Marshal(config)
+	if err != nil {
+		t.Fatalf("yaml.Marshal(config) error = %v", err)
+	}
+	configData = append(configData, '\n')
+	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "info"}); code != 0 {
+		t.Fatalf("Run(info) code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "environment demo\n") {
+		t.Fatalf("Run(info) stdout = %q, want status output", stdout.String())
+	}
+}
+
 func TestRunStatusUsesDefaultServerAddress(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")

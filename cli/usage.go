@@ -12,14 +12,15 @@ Commands:
   install [name]       install all tools for an environment
   cert-install         install Polka's local HTTPS certificate into the user trust store
   db [args...]         run the active environment's database client or manage its local server
-  serve [docroot]      start the local web server for the active environment
+  serve, start [docroot]
+                       start the local web server for the active environment
   stop                 stop the active environment's local web server and managed database
   exec <command>       run one command with the local shell environment
-  sh                   open an interactive shell with local binaries first
+  sh, shell            open an interactive shell with local binaries first
   session [start|stop] generate shell scripts that activate or deactivate local binaries
   list                 list environments
   use <name>           mark an environment as current
-  status               show the active environment status
+  status, info         show the active environment status
   remove <name>        remove an environment
   help                 show this help
 
@@ -110,6 +111,7 @@ When no subcommand is provided, Polka forwards the arguments to the database cli
 
 const startUsage = `Usage:
   polka serve [docroot] [--server HOST:PORT] [--watch]
+  polka start [docroot] [--server HOST:PORT] [--watch]
 
 Start the active environment's local web server.
 When docroot is omitted, Polka uses environments.<name>.docroot from polka.yaml.
@@ -137,6 +139,7 @@ Polka resolves commands in this order:
 
 const shUsage = `Usage:
   polka sh
+  polka shell
 
 Open an interactive shell with command resolution in this order:
 1. <root>/bin
@@ -188,6 +191,7 @@ Select one of the environments defined in polka.yaml.
 
 const statusUsage = `Usage:
   polka status
+  polka info
 
 Show the active environment from polka.yaml, including one line per configured tool and the resolved server URL.
 Also shows whether the active environment's webserver and managed database are currently running.

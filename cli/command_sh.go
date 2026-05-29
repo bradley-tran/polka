@@ -44,8 +44,9 @@ type shellSessionContext struct {
 
 func newShCommand(ctx *commandContext) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:  "sh",
-		Args: exactArgsError("sh does not take arguments", 0),
+		Use:     "sh",
+		Aliases: []string{"shell"},
+		Args:    exactArgsError("sh/shell does not take arguments", 0),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store, err := ctx.store()
 			if err != nil {

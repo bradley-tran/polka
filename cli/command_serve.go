@@ -135,8 +135,9 @@ func newServeCommand(ctx *commandContext) *cobra.Command {
 	var input serveCommandInput
 
 	cmd := &cobra.Command{
-		Use:  "serve [docroot]",
-		Args: maximumArgsError("start/serve accepts at most one docroot", 1),
+		Use:     "serve [docroot]",
+		Aliases: []string{"start"},
+		Args:    maximumArgsError("start/serve accepts at most one docroot", 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store, err := ctx.store()
 			if err != nil {

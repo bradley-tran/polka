@@ -182,6 +182,50 @@ func TestRunShUsesConfiguredNestedRootForPathLoading(t *testing.T) {
 	}
 }
 
+func TestRunShellAliasLaunchesInteractiveShell(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	configPath := filepath.Join(projectDir, "polka.yaml")
+	configData := []byte("version: 1\nroot: .polka\ncurrent: demo\nenvironments:\n  demo:\n    php: \"8.4\"\n")
+	if err := os.WriteFile(configPath, configData, 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+
+	oldLaunch := launchInteractiveShellFunc
+	t.Cleanup(func() {
+		launchInteractiveShellFunc = oldLaunch
+	})
+
+	launched := false
+	launchInteractiveShellFunc = func(stdout, stderr io.Writer, env []string, target string, args []string) (int, error) {
+		launched = true
+		return 0, nil
+	}
+
+	originalWorkingDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(originalWorkingDir)
+	})
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("Chdir() error = %v", err)
+	}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "shell"}); code != 0 {
+		t.Fatalf("Run(shell) code = %d, stderr = %q", code, stderr.String())
+	}
+	if !launched {
+		t.Fatal("Run(shell) did not launch interactive shell")
+	}
+	if stdout.String() != "Opened Polka shell for environment demo\n" {
+		t.Fatalf("Run(shell) stdout = %q, want environment banner", stdout.String())
+	}
+}
+
 func TestRunShRejectsArguments(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
@@ -189,7 +233,7 @@ func TestRunShRejectsArguments(t *testing.T) {
 	if code := Run(stdout, stderr, []string{"sh", "composer"}); code != 1 {
 		t.Fatalf("Run(sh composer) code = %d, want 1", code)
 	}
-	if !strings.Contains(stderr.String(), "sh does not take arguments") {
+	if !strings.Contains(stderr.String(), "sh/shell does not take arguments") {
 		t.Fatalf("Run(sh composer) stderr = %q, want argument error", stderr.String())
 	}
 }
