@@ -27,6 +27,7 @@ const (
 	composerDownloadBaseURL = "https://getcomposer.org/download"
 	mysqlDownloadBaseURL    = "https://dev.mysql.com/get/Downloads"
 	mariadbArchiveBaseURL   = "https://archive.mariadb.org"
+	mailpitDownloadBaseURL  = "https://github.com/axllent/mailpit/releases/download"
 	nodeJSDownloadBaseURL   = "https://nodejs.org/dist"
 	nginxDownloadBaseURL    = "https://nginx.org/download"
 	phpWindowsReleaseURL    = "https://windows.php.net/downloads/releases/releases.json"
@@ -159,6 +160,37 @@ var nginxDownloadCatalog = map[string]map[string]databaseDownloadAsset{
 	},
 }
 
+var mailpitDownloadCatalog = map[string]map[string]databaseDownloadAsset{
+	"1.30.1": {
+		"windows-amd64": {
+			FileName:          "mailpit-windows-amd64.zip",
+			URL:               mailpitDownloadBaseURL + "/v1.30.1/mailpit-windows-amd64.zip",
+			ChecksumAlgorithm: checksumAlgorithmNone,
+			ArchiveFormat:     archiveFormatZip,
+		},
+		"linux-amd64": {
+			FileName:          "mailpit-linux-amd64.tar.gz",
+			URL:               mailpitDownloadBaseURL + "/v1.30.1/mailpit-linux-amd64.tar.gz",
+			ChecksumAlgorithm: checksumAlgorithmNone,
+			ArchiveFormat:     archiveFormatTarGz,
+		},
+	},
+	"1.30.0": {
+		"windows-amd64": {
+			FileName:          "mailpit-windows-amd64.zip",
+			URL:               mailpitDownloadBaseURL + "/v1.30.0/mailpit-windows-amd64.zip",
+			ChecksumAlgorithm: checksumAlgorithmNone,
+			ArchiveFormat:     archiveFormatZip,
+		},
+		"linux-amd64": {
+			FileName:          "mailpit-linux-amd64.tar.gz",
+			URL:               mailpitDownloadBaseURL + "/v1.30.0/mailpit-linux-amd64.tar.gz",
+			ChecksumAlgorithm: checksumAlgorithmNone,
+			ArchiveFormat:     archiveFormatTarGz,
+		},
+	},
+}
+
 var nodeJSDownloadCatalog = map[string]map[string]databaseDownloadAsset{
 	"24.16.0": {
 		"windows-amd64": {
@@ -209,6 +241,8 @@ func (d HTTPToolDownloader) Download(cacheDir, tool, version string) error {
 		return downloadNodeJS(client, cacheDir, version)
 	case toolNginx:
 		return downloadNginx(client, cacheDir, version)
+	case toolMailpit:
+		return downloadMailpit(client, cacheDir, version)
 	case toolMySQL:
 		return downloadMySQL(client, cacheDir, version)
 	case toolMariaDB:
@@ -233,6 +267,15 @@ func downloadNginx(client *http.Client, cacheDir, version string) error {
 	}
 
 	return downloadDatabaseAsset(client, cacheDir, toolNginx, version, asset)
+}
+
+func downloadMailpit(client *http.Client, cacheDir, version string) error {
+	_, asset, err := resolveMailpitDownloadAsset(version, runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		return err
+	}
+
+	return downloadDatabaseAsset(client, cacheDir, toolMailpit, version, asset)
 }
 
 func downloadNodeJS(client *http.Client, cacheDir, version string) error {
@@ -308,6 +351,31 @@ func resolveNginxDownloadAsset(requestedVersion, goos, goarch string) (string, d
 	return resolvedVersion, asset, nil
 }
 
+func resolveMailpitDownloadAsset(requestedVersion, goos, goarch string) (string, databaseDownloadAsset, error) {
+	requestedVersion = strings.TrimSpace(requestedVersion)
+	if requestedVersion == "" {
+		return "", databaseDownloadAsset{}, fmt.Errorf("%s version cannot be empty", toolMailpit)
+	}
+
+	platformKey, err := mailpitPlatformKey(goos, goarch)
+	if err != nil {
+		return "", databaseDownloadAsset{}, err
+	}
+
+	resolvedVersion, err := resolveDatabaseCatalogVersion(mailpitDownloadCatalog, requestedVersion)
+	if err != nil {
+		return "", databaseDownloadAsset{}, fmt.Errorf("resolve %s version %q: %w", toolMailpit, requestedVersion, err)
+	}
+
+	platformAssets := mailpitDownloadCatalog[resolvedVersion]
+	asset, ok := platformAssets[platformKey]
+	if !ok {
+		return "", databaseDownloadAsset{}, fmt.Errorf("%s version %q is not available for %s/%s", toolMailpit, resolvedVersion, goos, goarch)
+	}
+
+	return resolvedVersion, asset, nil
+}
+
 func resolveNodeJSDownloadAsset(requestedVersion, goos, goarch string) (string, databaseDownloadAsset, error) {
 	requestedVersion = strings.TrimSpace(requestedVersion)
 	if requestedVersion == "" {
@@ -360,6 +428,17 @@ func nodeJSPlatformKey(goos, goarch string) (string, error) {
 		return "linux-amd64", nil
 	default:
 		return "", fmt.Errorf("automatic nodejs downloads are only implemented for Windows amd64 and Linux amd64")
+	}
+}
+
+func mailpitPlatformKey(goos, goarch string) (string, error) {
+	switch {
+	case goos == "windows" && goarch == "amd64":
+		return "windows-amd64", nil
+	case goos == "linux" && goarch == "amd64":
+		return "linux-amd64", nil
+	default:
+		return "", fmt.Errorf("automatic mailpit downloads are only implemented for Windows amd64 and Linux amd64")
 	}
 }
 

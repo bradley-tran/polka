@@ -28,6 +28,7 @@ const (
 	toolNPM                  = "npm"
 	toolNPX                  = "npx"
 	toolNginx                = "nginx"
+	toolMailpit              = "mailpit"
 	toolMySQL                = "mysql"
 	toolMariaDB              = "mariadb"
 	dispatcherBinaryName     = "polka"
@@ -53,6 +54,7 @@ type Environment struct {
 	EnvFile         string            `yaml:"env-file,omitempty"`
 	EnvVars         map[string]string `yaml:"env-vars,omitempty"`
 	Database        *DatabaseConfig   `yaml:"database,omitempty"`
+	Mailpit         *MailpitConfig    `yaml:"mailpit,omitempty"`
 	PHPExtensions   map[string]bool   `yaml:"php-extensions,omitempty"`
 	Server          *ServerConfig     `yaml:"server,omitempty"`
 }
@@ -363,10 +365,13 @@ func (s Store) writeEnvironment(name, phpVersion, composerVersion, nodeJSVersion
 	if database != nil {
 		environment.Database = mergeDatabaseConfig(environment.Database, database)
 	}
-	if environment.PHPVersion == "" && environment.ComposerVersion == "" && environment.NodeJSVersion == "" && environment.NginxVersion == "" && environment.Database == nil {
-		return Environment{}, fmt.Errorf("environment requires at least one of php, composer, nodejs, nginx, or database")
+	if environment.PHPVersion == "" && environment.ComposerVersion == "" && environment.NodeJSVersion == "" && environment.NginxVersion == "" && environment.Database == nil && environment.Mailpit == nil {
+		return Environment{}, fmt.Errorf("environment requires at least one of php, composer, nodejs, nginx, database, or mailpit")
 	}
 	if err := validateDatabaseConfig(environment.Database); err != nil {
+		return Environment{}, err
+	}
+	if err := validateMailpitConfig(environment.Mailpit); err != nil {
 		return Environment{}, err
 	}
 
@@ -410,6 +415,9 @@ func (s Store) install(name string, report func(InstallProgress)) ([]InstallResu
 	if len(normalized.PHPExtensions) > 0 && normalized.PHPVersion == "" {
 		return nil, fmt.Errorf("environment %q defines php-extensions but does not define a php version", name)
 	}
+	if err := validateMailpitConfig(normalized.Mailpit); err != nil {
+		return nil, err
+	}
 
 	requests := []InstallResult{}
 	if normalized.PHPVersion != "" {
@@ -423,6 +431,9 @@ func (s Store) install(name string, report func(InstallProgress)) ([]InstallResu
 	}
 	if normalized.NginxVersion != "" {
 		requests = append(requests, InstallResult{Tool: toolNginx, Version: normalized.NginxVersion})
+	}
+	if normalized.Mailpit != nil {
+		requests = append(requests, InstallResult{Tool: toolMailpit, Version: normalized.Mailpit.Version})
 	}
 	if normalized.Database != nil {
 		requests = append(requests, InstallResult{Tool: normalized.Database.Engine, Version: normalized.Database.Version})
@@ -713,6 +724,7 @@ func (s Store) normalizeEnvironment(name string, environment Environment) Enviro
 		EnvFile:         strings.TrimSpace(environment.EnvFile),
 		EnvVars:         normalizeEnvironmentVariables(environment.EnvVars),
 		Database:        normalizeDatabaseConfig(environment.Database),
+		Mailpit:         normalizeMailpitConfig(environment.Mailpit),
 		PHPExtensions:   normalizePHPExtensions(environment.PHPExtensions),
 		Server:          normalizeServerConfig(environment.Server),
 	}
@@ -968,6 +980,18 @@ func toolInstallCandidatesIn(root, tool, version string) []string {
 			filepath.Join(installDir, "sbin", "nginx"),
 			filepath.Join(installDir, "nginx"),
 		}
+	case toolMailpit:
+		if runtime.GOOS == "windows" {
+			return []string{
+				filepath.Join(installDir, "mailpit.exe"),
+				filepath.Join(installDir, "bin", "mailpit.exe"),
+			}
+		}
+
+		return []string{
+			filepath.Join(installDir, "mailpit"),
+			filepath.Join(installDir, "bin", "mailpit"),
+		}
 	case toolMySQL, toolMariaDB:
 		return databaseToolInstallCandidates(tool, installDir)
 	default:
@@ -1201,6 +1225,7 @@ func (s Store) managedBinaries() []installedBinary {
 		shellDispatchBinary(toolNPX),
 		shellDispatchBinary(toolNodeJS),
 		shellDispatchBinary(toolNginx),
+		shellDispatchBinary(toolMailpit),
 		shellDispatchBinary(toolMySQL),
 		shellDispatchBinary(toolMariaDB),
 		windowsDispatchBinary("php"),
@@ -1210,6 +1235,7 @@ func (s Store) managedBinaries() []installedBinary {
 		windowsDispatchBinary(toolNPX),
 		windowsDispatchBinary(toolNodeJS),
 		windowsDispatchBinary(toolNginx),
+		windowsDispatchBinary(toolMailpit),
 		windowsDispatchBinary(toolMySQL),
 		windowsDispatchBinary(toolMariaDB),
 	}
@@ -1256,6 +1282,9 @@ func managedToolsForEnvironment(environment *Environment) []string {
 	}
 	if environment.NginxVersion != "" {
 		tools = append(tools, toolNginx)
+	}
+	if environment.Mailpit != nil && environment.Mailpit.Version != "" {
+		tools = append(tools, toolMailpit)
 	}
 	if environment.Database != nil && environment.Database.Engine != "" {
 		tools = append(tools, environment.Database.Engine)
@@ -1432,6 +1461,11 @@ func (e Environment) toolVersion(tool string) string {
 		return e.NodeJSVersion
 	case toolNginx:
 		return e.NginxVersion
+	case toolMailpit:
+		if e.Mailpit != nil {
+			return e.Mailpit.Version
+		}
+		return ""
 	case toolMySQL, toolMariaDB:
 		return e.databaseToolVersion(tool)
 	default:
@@ -1477,7 +1511,7 @@ type toolRequest struct {
 func resolveToolRequest(tool string) (toolRequest, error) {
 	trimmed := strings.ToLower(strings.TrimSpace(tool))
 	switch trimmed {
-	case toolPHP, toolComposer, toolNginx, toolMySQL, toolMariaDB:
+	case toolPHP, toolComposer, toolNginx, toolMailpit, toolMySQL, toolMariaDB:
 		return toolRequest{ConfigTool: trimmed, Executable: trimmed}, nil
 	case toolNode, toolNPM, toolNPX:
 		return toolRequest{ConfigTool: toolNodeJS, Executable: trimmed}, nil

@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/goccy/go-yaml"
+
+	"polka/backend"
 )
 
 func TestRunStopStopsManagedDatabaseWhenWebserverAlreadyStopped(t *testing.T) {
@@ -161,6 +163,66 @@ func TestRunStopStopsWebserverAndDatabase(t *testing.T) {
 	}
 	if _, err := os.Stat(databaseStatePath(root, "demo")); !os.IsNotExist(err) {
 		t.Fatalf("Stat(database state) error = %v, want not exists", err)
+	}
+}
+
+func TestRunStopStopsMailpitWhenConfigured(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	writeStopTestConfig(t, projectDir, testEnvironmentConfig{
+		PHP:     "8.4",
+		Mailpit: &testMailpitConfig{Version: "1.30", SMTPPort: 1125, UIPort: 8125},
+	})
+	if err := writeMailpitState(mailpitStatePath(root, "demo"), mailpitRuntimeState{
+		EnvironmentName: "demo",
+		Version:         "1.30",
+		SMTPPort:        1125,
+		UIPort:          8125,
+		PID:             5656,
+	}); err != nil {
+		t.Fatalf("writeMailpitState() error = %v", err)
+	}
+
+	oldStopMailpit := stopMailpitRuntimeFunc
+	oldPingMailpit := pingMailpitAddressFunc
+	t.Cleanup(func() {
+		stopMailpitRuntimeFunc = oldStopMailpit
+		pingMailpitAddressFunc = oldPingMailpit
+	})
+
+	running := map[string]bool{
+		backend.MailpitAddress(1125): true,
+		backend.MailpitAddress(8125): true,
+	}
+	stopCalls := 0
+	var stoppedState mailpitRuntimeState
+	stopMailpitRuntimeFunc = func(state mailpitRuntimeState) error {
+		stopCalls++
+		stoppedState = state
+		running[backend.MailpitAddress(state.SMTPPort)] = false
+		running[backend.MailpitAddress(state.UIPort)] = false
+		return nil
+	}
+	pingMailpitAddressFunc = func(address string) bool {
+		return running[address]
+	}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "stop"}); code != 0 {
+		t.Fatalf("Run(stop) code = %d, stderr = %q", code, stderr.String())
+	}
+	if stopCalls != 1 {
+		t.Fatalf("mailpit stop calls = %d, want 1", stopCalls)
+	}
+	if stoppedState.PID != 5656 || stoppedState.SMTPPort != 1125 || stoppedState.UIPort != 8125 {
+		t.Fatalf("stopped mailpit state = %#v, want persisted runtime state", stoppedState)
+	}
+	if !strings.Contains(stdout.String(), "Stopped mailpit for environment \"demo\".") {
+		t.Fatalf("Run(stop) stdout = %q, want mailpit stop summary", stdout.String())
+	}
+	if _, err := os.Stat(mailpitStatePath(root, "demo")); !os.IsNotExist(err) {
+		t.Fatalf("Stat(mailpit state) error = %v, want not exists", err)
 	}
 }
 

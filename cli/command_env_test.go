@@ -463,9 +463,11 @@ func TestRunStatusShowsToolsEachOnOwnLine(t *testing.T) {
 		"nodejs 24\n",
 		"nginx 1.30\n",
 		"database mysql:8.0@3306\n",
+		"mailpit unset\n",
 		"server http://localhost:8080\n",
 		"webserver stopped\n",
 		"database-server stopped\n",
+		"mailpit-server unset\n",
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("Run(status) stdout = %q, want %q", output, expected)
@@ -543,6 +545,9 @@ func TestRunStatusUsesDefaultServerAddress(t *testing.T) {
 	if !strings.Contains(output, "database-server unset\n") {
 		t.Fatalf("Run(status) stdout = %q, want database unset line", output)
 	}
+	if !strings.Contains(output, "mailpit unset\n") || !strings.Contains(output, "mailpit-server unset\n") {
+		t.Fatalf("Run(status) stdout = %q, want mailpit unset lines", output)
+	}
 }
 
 func TestRunStatusShowsRunningWebserverAndDatabase(t *testing.T) {
@@ -613,6 +618,62 @@ func TestRunStatusShowsRunningWebserverAndDatabase(t *testing.T) {
 	}
 	if !strings.Contains(output, "database-server running mysql:8.0@3307\n") {
 		t.Fatalf("Run(status) stdout = %q, want running database line", output)
+	}
+}
+
+func TestRunStatusShowsMailpitUIURL(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	config := testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Current: "demo",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {
+				PHP:     "8.4",
+				Mailpit: &testMailpitConfig{Version: "1.30", SMTPPort: 1125, UIPort: 8125, HTTPS: true},
+			},
+		},
+	}
+	configData, err := yaml.Marshal(config)
+	if err != nil {
+		t.Fatalf("yaml.Marshal(config) error = %v", err)
+	}
+	configData = append(configData, '\n')
+	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+	if err := writeMailpitState(mailpitStatePath(root, "demo"), mailpitRuntimeState{
+		EnvironmentName: "demo",
+		Version:         "1.30",
+		SMTPPort:        1125,
+		UIPort:          8125,
+		UIScheme:        "https",
+		PID:             5656,
+	}); err != nil {
+		t.Fatalf("writeMailpitState() error = %v", err)
+	}
+
+	oldPingMailpit := pingMailpitAddressFunc
+	t.Cleanup(func() {
+		pingMailpitAddressFunc = oldPingMailpit
+	})
+	pingMailpitAddressFunc = func(address string) bool {
+		return address == "127.0.0.1:1125" || address == "127.0.0.1:8125"
+	}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "status"}); code != 0 {
+		t.Fatalf("Run(status) code = %d, stderr = %q", code, stderr.String())
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "mailpit 1.30 smtp=1125 ui=https://127.0.0.1:8125\n") {
+		t.Fatalf("Run(status) stdout = %q, want configured mailpit UI URL", output)
+	}
+	if !strings.Contains(output, "mailpit-server running smtp=1125 ui=https://127.0.0.1:8125\n") {
+		t.Fatalf("Run(status) stdout = %q, want running mailpit UI URL", output)
 	}
 }
 

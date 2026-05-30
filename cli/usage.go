@@ -14,7 +14,7 @@ Commands:
   db [args...]         run the active environment's database client or manage its local server
   serve, start [docroot]
                        start the local web server for the active environment
-  stop                 stop the active environment's local web server and managed database
+  stop                 stop the active environment's local web server and managed services
   exec <command>       run one command with the local shell environment
   sh, shell            open an interactive shell with local binaries first
   session [start|stop] generate shell scripts that activate or deactivate local binaries
@@ -116,7 +116,8 @@ const startUsage = `Usage:
 Start the active environment's local web server.
 When docroot is omitted, Polka uses environments.<name>.docroot from polka.yaml.
 When --server is omitted, Polka uses the current environment's server.hostname and server.port from polka.yaml, defaulting to localhost:8000.
-When the current environment defines a database, Polka starts that managed local database first.
+When the current environment defines a database or mailpit, Polka starts those managed local services first.
+Set mailpit.https to true to serve the Mailpit UI over HTTPS and enable SMTP STARTTLS with Polka's generated local certificate.
 By default, Polka starts the webserver in the background and returns once it is listening.
 Pass --watch to keep the webserver attached to the current terminal with the previous foreground behavior.
 `
@@ -124,7 +125,7 @@ Pass --watch to keep the webserver attached to the current terminal with the pre
 const stopUsage = `Usage:
   polka stop
 
-Stop the active environment's local web server and managed database when they are running.
+Stop the active environment's local web server, managed database, and mailpit when they are running.
 `
 
 const execUsage = `Usage:
@@ -194,7 +195,7 @@ const statusUsage = `Usage:
   polka info
 
 Show the active environment from polka.yaml, including one line per configured tool and the resolved server URL.
-Also shows whether the active environment's webserver and managed database are currently running.
+Also shows whether the active environment's webserver, managed database, and mailpit are currently running.
 `
 
 const removeUsage = `Usage:

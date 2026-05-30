@@ -203,6 +203,12 @@ func runStart(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 			return 1
 		}
 	}
+	if current.Mailpit != nil && strings.TrimSpace(current.Mailpit.Version) != "" {
+		if _, _, err := ensureManagedMailpitStarted(store, *current); err != nil {
+			fmt.Fprintf(stderr, "error: %v\n", err)
+			return 1
+		}
+	}
 
 	liveState, err := loadWebServerState(store.RootDir, current.Name)
 	if err != nil {

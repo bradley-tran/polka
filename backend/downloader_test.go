@@ -250,6 +250,58 @@ func TestResolveNodeJSDownloadAssetSupportsSeriesLabels(t *testing.T) {
 	}
 }
 
+func TestResolveMailpitDownloadAssetSupportsSeriesLabels(t *testing.T) {
+	tests := []struct {
+		name                string
+		version             string
+		goos                string
+		goarch              string
+		wantResolvedVersion string
+		wantFileName        string
+		wantFormat          archiveFormat
+	}{
+		{
+			name:                "windows",
+			version:             "1.30",
+			goos:                "windows",
+			goarch:              "amd64",
+			wantResolvedVersion: "1.30.1",
+			wantFileName:        "mailpit-windows-amd64.zip",
+			wantFormat:          archiveFormatZip,
+		},
+		{
+			name:                "linux",
+			version:             "1.30",
+			goos:                "linux",
+			goarch:              "amd64",
+			wantResolvedVersion: "1.30.1",
+			wantFileName:        "mailpit-linux-amd64.tar.gz",
+			wantFormat:          archiveFormatTarGz,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resolvedVersion, asset, err := resolveMailpitDownloadAsset(test.version, test.goos, test.goarch)
+			if err != nil {
+				t.Fatalf("resolveMailpitDownloadAsset(%s) error = %v", test.version, err)
+			}
+			if resolvedVersion != test.wantResolvedVersion {
+				t.Fatalf("resolveMailpitDownloadAsset(%s) resolved version = %q, want %q", test.version, resolvedVersion, test.wantResolvedVersion)
+			}
+			if asset.FileName != test.wantFileName {
+				t.Fatalf("resolveMailpitDownloadAsset(%s) file = %q, want %q", test.version, asset.FileName, test.wantFileName)
+			}
+			if asset.ArchiveFormat != test.wantFormat {
+				t.Fatalf("resolveMailpitDownloadAsset(%s) archive format = %q, want %q", test.version, asset.ArchiveFormat, test.wantFormat)
+			}
+			if asset.ChecksumAlgorithm != checksumAlgorithmNone {
+				t.Fatalf("resolveMailpitDownloadAsset(%s) checksum algorithm = %q, want none", test.version, asset.ChecksumAlgorithm)
+			}
+		})
+	}
+}
+
 func TestDownloadDatabaseAssetExtractsSupportedArchives(t *testing.T) {
 	tests := []struct {
 		name             string

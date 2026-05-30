@@ -452,6 +452,51 @@ func TestStoreInstallDownloadsConfiguredNginx(t *testing.T) {
 	assertPathExists(t, filepath.Join(store.BinDir, toolNginx+".cmd"))
 }
 
+func TestStoreInstallDownloadsConfiguredMailpit(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+	store.Downloader = fakeDownloader(func(cacheDir, tool, version string) error {
+		_ = writeCachedTool(t, cacheDir, tool, version)
+		return nil
+	})
+
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{Mailpit: &MailpitConfig{Version: "1.30"}}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	results, err := store.Install("demo")
+	if err != nil {
+		t.Fatalf("Install(demo) error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("Install(demo) length = %d, want 1", len(results))
+	}
+	result := results[0]
+	if result.Tool != toolMailpit || result.Version != "1.30" {
+		t.Fatalf("Install(demo) result = %#v, want mailpit 1.30", result)
+	}
+	if !result.Downloaded {
+		t.Fatalf("Install(demo) Downloaded = false, want true after cache miss")
+	}
+	assertPathExists(t, result.TargetPath)
+
+	if err := store.Use("demo"); err != nil {
+		t.Fatalf("Use(demo) error = %v", err)
+	}
+	resolvedPath, err := store.ResolveTool(toolMailpit)
+	if err != nil {
+		t.Fatalf("ResolveTool(mailpit) error = %v", err)
+	}
+	if resolvedPath != result.TargetPath {
+		t.Fatalf("ResolveTool(mailpit) = %q, want %q", resolvedPath, result.TargetPath)
+	}
+	assertPathExists(t, filepath.Join(store.BinDir, toolMailpit))
+	assertPathExists(t, filepath.Join(store.BinDir, toolMailpit+".cmd"))
+}
+
 func TestStoreInstallCopiesConfiguredNodeJSIntoVersionedLayout(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)

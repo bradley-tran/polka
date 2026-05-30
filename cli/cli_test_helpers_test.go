@@ -21,6 +21,7 @@ type testEnvironmentConfig struct {
 	EnvFile       string              `yaml:"env-file,omitempty"`
 	EnvVars       map[string]string   `yaml:"env-vars,omitempty"`
 	Database      *testDatabaseConfig `yaml:"database,omitempty"`
+	Mailpit       *testMailpitConfig  `yaml:"mailpit,omitempty"`
 	PHPExtensions map[string]bool     `yaml:"php-extensions,omitempty"`
 	Server        *testServerConfig   `yaml:"server,omitempty"`
 }
@@ -34,6 +35,13 @@ type testDatabaseConfig struct {
 type testServerConfig struct {
 	Hostname string `yaml:"hostname,omitempty"`
 	Port     int    `yaml:"port,omitempty"`
+	HTTPS    bool   `yaml:"https,omitempty"`
+}
+
+type testMailpitConfig struct {
+	Version  string `yaml:"version,omitempty"`
+	SMTPPort int    `yaml:"smtp-port,omitempty"`
+	UIPort   int    `yaml:"ui-port,omitempty"`
 	HTTPS    bool   `yaml:"https,omitempty"`
 }
 
@@ -83,6 +91,14 @@ func cachedDatabasePath(root, tool, version string) string {
 	}
 
 	return filepath.Join(root, tool, version, "bin", tool)
+}
+
+func cachedMailpitPath(root, version string) string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(root, "mailpit", version, "mailpit.exe")
+	}
+
+	return filepath.Join(root, "mailpit", version, "mailpit")
 }
 
 func cachedDatabaseServerPath(root, tool, version string) string {

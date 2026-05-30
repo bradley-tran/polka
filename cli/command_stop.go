@@ -51,21 +51,33 @@ func runStop(stdout, stderr io.Writer, store backend.Store) int {
 		fmt.Fprintf(stdout, "Stopped %s for environment %q.\n", serveRuntimeLabel(state.ServerKind), current.Name)
 	}
 
-	if current.Database == nil || strings.TrimSpace(current.Database.Engine) == "" {
-		return 0
+	if current.Database != nil && strings.TrimSpace(current.Database.Engine) != "" {
+		resolved := dbResolvedEnvironment{Environment: *current, Database: current.Database}
+		databaseState, databaseAlreadyStopped, err := backend.StopManagedDatabase(store, resolved, dbRuntimeHooks())
+		if err != nil {
+			fmt.Fprintf(stderr, "error: %v\n", err)
+			return 1
+		}
+		if databaseAlreadyStopped {
+			fmt.Fprintf(stdout, "Database for environment %q is already stopped.\n", current.Name)
+		} else {
+			fmt.Fprintf(stdout, "Stopped %s for environment %q.\n", databaseState.Engine, current.Name)
+		}
 	}
 
-	resolved := dbResolvedEnvironment{Environment: *current, Database: current.Database}
-	databaseState, databaseAlreadyStopped, err := backend.StopManagedDatabase(store, resolved, dbRuntimeHooks())
+	if current.Mailpit == nil || strings.TrimSpace(current.Mailpit.Version) == "" {
+		return 0
+	}
+	_, mailpitAlreadyStopped, err := stopManagedMailpit(store, current.Name)
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
-	if databaseAlreadyStopped {
-		fmt.Fprintf(stdout, "Database for environment %q is already stopped.\n", current.Name)
+	if mailpitAlreadyStopped {
+		fmt.Fprintf(stdout, "Mailpit for environment %q is already stopped.\n", current.Name)
 		return 0
 	}
 
-	fmt.Fprintf(stdout, "Stopped %s for environment %q.\n", databaseState.Engine, current.Name)
+	fmt.Fprintf(stdout, "Stopped mailpit for environment %q.\n", current.Name)
 	return 0
 }

@@ -784,6 +784,147 @@ func TestRunServeStartsConfiguredDatabaseBeforePhp(t *testing.T) {
 	}
 }
 
+func TestRunServeStartsConfiguredMailpitBeforeWebserver(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	t.Setenv("POLKA_CACHE_DIR", filepath.Join(projectDir, "global-cache"))
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	docroot := filepath.Join(projectDir, "site", "public")
+	if err := os.MkdirAll(docroot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(docroot) error = %v", err)
+	}
+
+	config := testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Current: "demo",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {
+				PHP:     "8.4",
+				Docroot: filepath.ToSlash(filepath.Join("site", "public")),
+				Mailpit: &testMailpitConfig{
+					Version:  "1.30",
+					SMTPPort: 1125,
+					UIPort:   8125,
+					HTTPS:    true,
+				},
+				Server: &testServerConfig{Hostname: "localhost", Port: 8080},
+			},
+		},
+	}
+	configData, err := yaml.Marshal(config)
+	if err != nil {
+		t.Fatalf("yaml.Marshal(config) error = %v", err)
+	}
+	configData = append(configData, '\n')
+	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+	for _, path := range []string{
+		projectInstalledPHPPath(root, "8.4"),
+		filepath.Join(root, "envs", "mailpit", "1.30", "mailpit"),
+	} {
+		if runtime.GOOS == "windows" && strings.HasSuffix(path, "mailpit") {
+			path += ".exe"
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("MkdirAll(%s) error = %v", filepath.Dir(path), err)
+		}
+		if err := os.WriteFile(path, []byte("placeholder\n"), 0o755); err != nil {
+			t.Fatalf("WriteFile(%s) error = %v", path, err)
+		}
+	}
+
+	oldStartMailpit := startMailpitServerFunc
+	oldStopMailpit := stopMailpitRuntimeFunc
+	oldPingMailpit := pingMailpitAddressFunc
+	oldMailpitNow := mailpitNowFunc
+	oldStartPHP := startBackgroundPHPRuntimeServe
+	oldPingServe := pingServeAddressFunc
+	t.Cleanup(func() {
+		startMailpitServerFunc = oldStartMailpit
+		stopMailpitRuntimeFunc = oldStopMailpit
+		pingMailpitAddressFunc = oldPingMailpit
+		mailpitNowFunc = oldMailpitNow
+		startBackgroundPHPRuntimeServe = oldStartPHP
+		pingServeAddressFunc = oldPingServe
+	})
+
+	order := []string{}
+	mailpitRunning := map[string]bool{}
+	serveRunning := map[string]bool{}
+	var startedSpec mailpitServerSpec
+	startMailpitServerFunc = func(spec mailpitServerSpec) (mailpitStartResult, error) {
+		order = append(order, "mailpit")
+		startedSpec = spec
+		mailpitRunning[backend.MailpitAddress(spec.SMTPPort)] = true
+		mailpitRunning[backend.MailpitAddress(spec.UIPort)] = true
+		return mailpitStartResult{PID: 5656}, nil
+	}
+	stopMailpitRuntimeFunc = func(state mailpitRuntimeState) error {
+		mailpitRunning[backend.MailpitAddress(state.SMTPPort)] = false
+		mailpitRunning[backend.MailpitAddress(state.UIPort)] = false
+		return nil
+	}
+	pingMailpitAddressFunc = func(address string) bool {
+		return mailpitRunning[address]
+	}
+	mailpitNowFunc = func() time.Time {
+		return time.Date(2026, time.May, 29, 12, 0, 0, 0, time.UTC)
+	}
+	startBackgroundPHPRuntimeServe = func(store backend.Store, environment backend.Environment, serverAddress string, layout serveAppLayout) (serveRuntimeState, error) {
+		order = append(order, "web")
+		serveRunning[serverAddress] = true
+		return serveRuntimeState{PrimaryPID: 4242}, nil
+	}
+	pingServeAddressFunc = func(address string) bool {
+		return serveRunning[address]
+	}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "start"}); code != 0 {
+		t.Fatalf("Run(serve with mailpit) code = %d, stderr = %q", code, stderr.String())
+	}
+	if strings.Join(order, ",") != "mailpit,web" {
+		t.Fatalf("start order = %v, want mailpit before webserver", order)
+	}
+	if startedSpec.SMTPPort != 1125 || startedSpec.UIPort != 8125 || !startedSpec.HTTPS {
+		t.Fatalf("started mailpit spec = %#v, want configured ports", startedSpec)
+	}
+	if startedSpec.TLSCertPath == "" || startedSpec.TLSKeyPath == "" {
+		t.Fatalf("started mailpit spec = %#v, want generated tls paths", startedSpec)
+	}
+	state, err := loadMailpitState(mailpitStatePath(root, "demo"))
+	if err != nil {
+		t.Fatalf("loadMailpitState() error = %v", err)
+	}
+	if state.PID != 5656 || state.SMTPPort != 1125 || state.UIPort != 8125 || state.UIScheme != "https" {
+		t.Fatalf("mailpit state = %#v, want pid 5656, https, and configured ports", state)
+	}
+}
+
+func TestMailpitServerArgsEnableUITLSAndSMTPStartTLS(t *testing.T) {
+	args := mailpitServerArgs(mailpitServerSpec{
+		SMTPPort:    1125,
+		UIPort:      8125,
+		HTTPS:       true,
+		TLSCertPath: "cert.pem",
+		TLSKeyPath:  "key.pem",
+	})
+
+	want := []string{
+		"--smtp", "127.0.0.1:1125",
+		"--listen", "127.0.0.1:8125",
+		"--ui-tls-cert", "cert.pem",
+		"--ui-tls-key", "key.pem",
+		"--smtp-tls-cert", "cert.pem",
+		"--smtp-tls-key", "key.pem",
+	}
+	if strings.Join(args, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("mailpitServerArgs() = %#v, want %#v", args, want)
+	}
+}
+
 func TestRunServeStartsInBackgroundByDefaultAndStopStopsIt(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
