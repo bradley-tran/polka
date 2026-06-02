@@ -20,13 +20,13 @@ go run . status
 ./.polka/bin/php -v
 ```
 
-`polka status` shows the active environment, prints each configured tool on its own line, includes the resolved web server URL, and reports whether the webserver, managed database, and Mailpit are running.
+`polka status` shows the active environment, prints each configured tool on its own line, includes the resolved web server URL, and reports whether the webserver, phpMyAdmin, managed database, and Mailpit are running.
 
 `polka init` creates a local `.polka/` directory, writes dispatcher shims in `.polka/bin` that forward to the current `polka` executable, syncs the active environment's dispatch shims in `.polka/bin`, and writes `polka.yaml` if it does not exist.
 
 Use `polka new <name> [--php VERSION] [--composer VERSION] [--nodejs VERSION]` to create a new environment definition. When the flags are omitted, Polka currently defaults to `php=8.4`, `composer=2.8`, and `nodejs=24`.
 
-Use `polka install [name]` to install every configured tool version for an environment. When `name` is omitted, Polka installs the current environment and prints which one it selected. If no current environment is selected, Polka uses `default` and marks it current after a successful install. Polka first checks the global cache, then downloads any missing versions into that cache, and finally copies the cached payloads into the project-local `.polka/envs` layout.
+Use `polka install [name]` to install every configured tool version for an environment. When `name` is omitted, Polka installs the current environment and prints which one it selected. If no current environment is selected, Polka uses `default` and marks it current after a successful install. Polka first checks the global cache, then downloads any missing versions into that cache, and finally copies the cached payloads into the project-local `.polka/envs` layout. The `phpmyadmin` config key installs the phpMyAdmin web app archive under `.polka/envs/phpmyadmin/<version>`, writes a generated `config.inc.php` with a fresh `blowfish_secret`, and carries its UI `port` and `https` settings; it does not create a command shim.
 
 The shims in `.polka/bin` mirror the active environment's configured tools. A configured `nodejs` version produces `node`, `npm`, and `npx` shims, while the `nodejs` name itself remains config-only. If the current environment does not define a managed tool, Polka removes that local shim instead of leaving a dispatcher that would fail at runtime.
 
@@ -50,9 +50,9 @@ To deactivate the current shell session and restore the exact pre-session values
 
 The lower-level `polka session start` and `polka session stop` commands remain available for now; they print the transient activation or deactivation script path that the stable wrappers source for you.
 
-Use `polka serve [docroot] [--server HOST:PORT] [--watch]` to start the active environment's web server. When `docroot` is omitted, Polka uses `environments.<name>.docroot` from `polka.yaml`. By default, Polka starts the webserver in the background, waits for it to begin listening, and records runtime state so `polka stop` can stop it later. Pass `--watch` to keep the previous foreground behavior in the current terminal. When the current environment defines `nginx`, Polka starts `php-cgi` on an internal loopback port and runs nginx with a generated FastCGI config; otherwise it falls back to PHP's built-in web server with a generated router that serves existing static files with explicit MIME types and forwards missing requests into the app router or front controller. When the current environment defines `mailpit`, Polka starts Mailpit before the webserver and records runtime state so `polka stop` can stop it later. Mailpit listens on `127.0.0.1:1025` for SMTP and `127.0.0.1:8025` for the web UI by default; set `mailpit.smtp-port` or `mailpit.ui-port` to override those ports. Set `mailpit.https: true` to serve the Mailpit UI over HTTPS and enable SMTP STARTTLS using Polka's generated local certificate. `polka status` prints the full Mailpit UI URL. Polka reads `server.hostname`, `server.port`, and `server.https` from the current environment in `polka.yaml`, and falls back to `http://localhost:8000` when that config is absent. HTTPS requires nginx at start time. Polka uses one generated server certificate from the global Polka cache for all HTTPS environments; it covers `localhost`, `*.localhost`, `127.0.0.1`, and `::1`, and is signed by a generated local Polka CA. With the default cache layout, the certificate material lives under the cache's `polka/cert` directory. Run `polka cert-install` at any time to clear and regenerate that global CA/server certificate pair, then install the CA certificate into the current user's trust store on Windows or macOS. Hostnames ending in `.localhost`, such as `blog.localhost`, are bound to `127.0.0.1` so the site is local-only and works without editing the hosts file. Automatic nginx downloads are currently implemented on Windows amd64. Automatic Mailpit downloads are currently implemented for Windows amd64 and Linux amd64. The same runtime env composition used by `polka sh` also applies to `polka serve`, generated `.polka/bin` dispatch shims, and database client/import/export commands.
+Use `polka serve [docroot] [--server HOST:PORT] [--watch]` to start the active environment's web server. When `docroot` is omitted, Polka uses `environments.<name>.docroot` from `polka.yaml`. By default, Polka starts the webserver in the background, waits for it to begin listening, and records runtime state so `polka stop` can stop it later. Pass `--watch` to keep the previous foreground behavior in the current terminal. When the current environment defines `nginx`, Polka starts `php-cgi` on an internal loopback port and runs nginx with a generated FastCGI config; otherwise it falls back to PHP's built-in web server with a generated router that serves existing static files with explicit MIME types and forwards missing requests into the app router or front controller. When the current environment defines `mailpit`, Polka starts Mailpit before the webserver and records runtime state so `polka stop` can stop it later. Mailpit listens on `127.0.0.1:1025` for SMTP and `127.0.0.1:8025` for the web UI by default; set `mailpit.smtp-port` or `mailpit.ui-port` to override those ports. Set `mailpit.https: true` to serve the Mailpit UI over HTTPS and enable SMTP STARTTLS using Polka's generated local certificate. When the current environment defines `phpmyadmin`, Polka starts the installed phpMyAdmin web app before the webserver; if a managed database is configured, Polka also imports phpMyAdmin's bundled `sql/create_tables.sql` into the managed database before starting the UI. Set `phpmyadmin.port` to choose the UI port and `phpmyadmin.https: true` to serve it through nginx with Polka's local certificate. `polka status` prints the full Mailpit and phpMyAdmin UI URLs. Polka reads `server.hostname`, `server.port`, and `server.https` from the current environment in `polka.yaml`, and falls back to `http://localhost:8000` when that config is absent. HTTPS requires nginx at start time. Polka uses one generated server certificate from the global Polka cache for all HTTPS environments; it covers `localhost`, `*.localhost`, `127.0.0.1`, and `::1`, and is signed by a generated local Polka CA. With the default cache layout, the certificate material lives under the cache's `polka/cert` directory. Run `polka cert-install` at any time to clear and regenerate that global CA/server certificate pair, then install the CA certificate into the current user's trust store on Windows or macOS. Hostnames ending in `.localhost`, such as `blog.localhost`, are bound to `127.0.0.1` so the site is local-only and works without editing the hosts file. Automatic nginx downloads are currently implemented on Windows amd64. Automatic Mailpit downloads are currently implemented for Windows amd64 and Linux amd64. Automatic phpMyAdmin downloads use the official cross-platform zip archive. The same runtime env composition used by `polka sh` also applies to `polka serve`, generated `.polka/bin` dispatch shims, and database client/import/export commands.
 
-Use `polka stop` to stop the active environment's background webserver, its managed database, and Mailpit when configured.
+Use `polka stop` to stop the active environment's background webserver, phpMyAdmin, managed database, and Mailpit when configured.
 
 When an environment defines `php-extensions`, `polka install` also writes a generated `php.ini` next to the installed PHP executable so those extensions are explicitly enabled or disabled for that environment. If `composer` is configured for that environment, `openssl` and `zip` are enabled by default unless `php-extensions` explicitly sets either one to `false`.
 
@@ -68,6 +68,10 @@ environments:
     composer: 2.8
     nodejs: 24
     nginx: 1.30
+    phpmyadmin:
+      version: 5.2
+      port: 8082
+      https: true
     mailpit:
       version: "1.30"
       smtp-port: 1025
@@ -101,6 +105,9 @@ Polka resolves those versions against the local install layout under `.polka/env
 |   |-- nodejs/
 |   |   `-- 24/
 |   |       `-- node[.exe]
+|   |-- phpmyadmin/
+|   |   `-- 5.2/
+|   |       `-- index.php
 |   `-- php/
 |       `-- 8.4/
 |           `-- bin/php[.exe|.cmd|.bat]

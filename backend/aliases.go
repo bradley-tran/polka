@@ -9,6 +9,7 @@ type Config = config.Config
 type DatabaseConfig = config.DatabaseConfig
 type Environment = config.Environment
 type MailpitConfig = config.MailpitConfig
+type PHPMyAdminConfig = config.PHPMyAdminConfig
 type ServerConfig = config.ServerConfig
 
 type InstallResult = tools.InstallResult
@@ -22,16 +23,17 @@ type ToolRegistry = tools.Registry
 type HTTPToolDownloader = tools.HTTPDownloader
 
 const (
-	toolPHP      = tools.PHP
-	toolComposer = tools.Composer
-	toolNodeJS   = tools.NodeJS
-	toolNode     = tools.Node
-	toolNPM      = tools.NPM
-	toolNPX      = tools.NPX
-	toolNginx    = tools.Nginx
-	toolMailpit  = tools.Mailpit
-	toolMySQL    = tools.MySQL
-	toolMariaDB  = tools.MariaDB
+	toolPHP        = tools.PHP
+	toolComposer   = tools.Composer
+	toolNodeJS     = tools.NodeJS
+	toolNode       = tools.Node
+	toolNPM        = tools.NPM
+	toolNPX        = tools.NPX
+	toolNginx      = tools.Nginx
+	toolMailpit    = tools.Mailpit
+	toolPHPMyAdmin = tools.PHPMyAdmin
+	toolMySQL      = tools.MySQL
+	toolMariaDB    = tools.MariaDB
 )
 
 func NewToolRegistry(plugins ...ToolPlugin) (*ToolRegistry, error) {

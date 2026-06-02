@@ -15,6 +15,7 @@ func TestDefaultRegistryInstallRequestsUseConfiguredToolOrder(t *testing.T) {
 		ComposerVersion: "2.8",
 		NodeJSVersion:   "24",
 		NginxVersion:    "1.30",
+		PHPMyAdmin:      &config.PHPMyAdminConfig{Version: "5.2", Port: 8081, HTTPS: true},
 		Mailpit:         &config.MailpitConfig{Version: "1.30"},
 		Database:        &config.DatabaseConfig{Engine: MariaDB, Version: "11.8"},
 	}
@@ -31,6 +32,7 @@ func TestDefaultRegistryInstallRequestsUseConfiguredToolOrder(t *testing.T) {
 		"nodejs:24",
 		"nginx:1.30",
 		"mailpit:1.30",
+		"phpmyadmin:5.2",
 		"mariadb:11.8",
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -69,6 +71,17 @@ func TestDefaultRegistryKeepsNodeJSConfigOnly(t *testing.T) {
 	cleanup := registry.CleanupCommandNames()
 	if !containsString(cleanup, NodeJS) {
 		t.Fatalf("CleanupCommandNames() = %#v, want legacy nodejs cleanup entry", cleanup)
+	}
+}
+
+func TestDefaultRegistryValidatesPHPMyAdminConfig(t *testing.T) {
+	registry := NewDefaultRegistry()
+
+	if err := registry.ValidateEnvironment(config.Environment{PHPMyAdmin: &config.PHPMyAdminConfig{Version: "5.2", Port: 70000}}); err == nil {
+		t.Fatal("ValidateEnvironment(phpmyadmin invalid port) error = nil, want port validation error")
+	}
+	if err := registry.ValidateEnvironment(config.Environment{PHPMyAdmin: &config.PHPMyAdminConfig{Port: 8081}}); err == nil {
+		t.Fatal("ValidateEnvironment(phpmyadmin without version) error = nil, want version validation error")
 	}
 }
 

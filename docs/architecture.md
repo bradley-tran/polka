@@ -43,6 +43,7 @@ The `config` package contains shared YAML schema types and normalization helpers
 - `Environment`
 - `DatabaseConfig`
 - `MailpitConfig`
+- `PHPMyAdminConfig`
 - `ServerConfig`
 
 This package exists to avoid import cycles. Both `backend` and `tools` can depend on config types without either package importing the other.
@@ -51,7 +52,7 @@ This package exists to avoid import cycles. Both `backend` and `tools` can depen
 
 The `tools` package owns managed tool behavior:
 
-- tool IDs such as `PHP`, `Composer`, `NodeJS`, `Nginx`, `Mailpit`, `MySQL`, and `MariaDB`
+- tool IDs such as `PHP`, `Composer`, `NodeJS`, `Nginx`, `Mailpit`, `PHPMyAdmin`, `MySQL`, and `MariaDB`
 - plugin interfaces and registry
 - built-in plugin definitions
 - install candidate paths
@@ -90,7 +91,7 @@ Managed command shims in `.polka/bin` call back into Polka:
 
 Dispatch resolution uses the active environment from `polka.yaml`, maps command names to their config tool, and locates the installed executable under `.polka/envs`.
 
-Node.js is config-only as `nodejs`, but it exposes `node`, `npm`, and `npx` dispatch commands. The `nodejs` command itself is not generated as an active shim.
+Node.js is config-only as `nodejs`, but it exposes `node`, `npm`, and `npx` dispatch commands. The `nodejs` command itself is not generated as an active shim. phpMyAdmin does not generate a command shim either; Polka installs its web app archive, writes its generated `config.inc.php`, and uses its UI port/HTTPS settings when the CLI starts the managed phpMyAdmin service.
 
 ## Runtime Services
 
@@ -99,6 +100,7 @@ Runtime services remain in `backend` and `cli`:
 - PHP built-in server and nginx serving are command/runtime concerns.
 - Managed database lifecycle is in `backend/database_runtime.go`.
 - Mailpit startup, shutdown, and status are command/runtime concerns.
+- phpMyAdmin startup, shutdown, status, and managed database storage import are command/runtime concerns.
 - Certificates are backend-managed assets.
 - Shell and session commands compose environment variables and `PATH` behavior around the active environment.
 

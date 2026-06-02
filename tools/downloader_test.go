@@ -302,6 +302,25 @@ func TestResolveMailpitDownloadAssetSupportsSeriesLabels(t *testing.T) {
 	}
 }
 
+func TestResolvePHPMyAdminDownloadAssetSupportsSeriesLabels(t *testing.T) {
+	resolvedVersion, asset, err := resolvePHPMyAdminDownloadAsset("5.2")
+	if err != nil {
+		t.Fatalf("resolvePHPMyAdminDownloadAsset(5.2) error = %v", err)
+	}
+	if resolvedVersion != "5.2.3" {
+		t.Fatalf("resolvePHPMyAdminDownloadAsset(5.2) resolved version = %q, want %q", resolvedVersion, "5.2.3")
+	}
+	if asset.FileName != "phpMyAdmin-5.2.3-all-languages.zip" {
+		t.Fatalf("resolvePHPMyAdminDownloadAsset(5.2) file = %q, want phpMyAdmin archive", asset.FileName)
+	}
+	if asset.ArchiveFormat != archiveFormatZip {
+		t.Fatalf("resolvePHPMyAdminDownloadAsset(5.2) archive format = %q, want %q", asset.ArchiveFormat, archiveFormatZip)
+	}
+	if asset.ChecksumAlgorithm != checksumAlgorithmSHA256 {
+		t.Fatalf("resolvePHPMyAdminDownloadAsset(5.2) checksum algorithm = %q, want %q", asset.ChecksumAlgorithm, checksumAlgorithmSHA256)
+	}
+}
+
 func TestDownloadDatabaseAssetExtractsSupportedArchives(t *testing.T) {
 	tests := []struct {
 		name             string

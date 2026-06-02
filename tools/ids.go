@@ -7,16 +7,17 @@ import (
 )
 
 const (
-	PHP      = "php"
-	Composer = "composer"
-	NodeJS   = "nodejs"
-	Node     = "node"
-	NPM      = "npm"
-	NPX      = "npx"
-	Nginx    = "nginx"
-	Mailpit  = "mailpit"
-	MySQL    = "mysql"
-	MariaDB  = "mariadb"
+	PHP        = "php"
+	Composer   = "composer"
+	NodeJS     = "nodejs"
+	Node       = "node"
+	NPM        = "npm"
+	NPX        = "npx"
+	Nginx      = "nginx"
+	Mailpit    = "mailpit"
+	PHPMyAdmin = "phpmyadmin"
+	MySQL      = "mysql"
+	MariaDB    = "mariadb"
 )
 
 var (

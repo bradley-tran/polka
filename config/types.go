@@ -13,6 +13,7 @@ type Environment struct {
 	EnvVars         map[string]string `yaml:"env-vars,omitempty"`
 	Database        *DatabaseConfig   `yaml:"database,omitempty"`
 	Mailpit         *MailpitConfig    `yaml:"mailpit,omitempty"`
+	PHPMyAdmin      *PHPMyAdminConfig `yaml:"phpmyadmin,omitempty"`
 	PHPExtensions   map[string]bool   `yaml:"php-extensions,omitempty"`
 	Server          *ServerConfig     `yaml:"server,omitempty"`
 }
@@ -28,6 +29,12 @@ type MailpitConfig struct {
 	SMTPPort int    `yaml:"smtp-port,omitempty"`
 	UIPort   int    `yaml:"ui-port,omitempty"`
 	HTTPS    bool   `yaml:"https,omitempty"`
+}
+
+type PHPMyAdminConfig struct {
+	Version string `yaml:"version,omitempty"`
+	Port    int    `yaml:"port,omitempty"`
+	HTTPS   bool   `yaml:"https,omitempty"`
 }
 
 type ServerConfig struct {
@@ -55,6 +62,7 @@ func NormalizeEnvironment(name string, environment Environment) Environment {
 		EnvVars:         NormalizeEnvironmentVariables(environment.EnvVars),
 		Database:        NormalizeDatabaseConfig(environment.Database),
 		Mailpit:         NormalizeMailpitConfig(environment.Mailpit),
+		PHPMyAdmin:      NormalizePHPMyAdminConfig(environment.PHPMyAdmin),
 		PHPExtensions:   NormalizePHPExtensions(environment.PHPExtensions),
 		Server:          NormalizeServerConfig(environment.Server),
 	}
@@ -126,6 +134,23 @@ func NormalizeMailpitConfig(mailpit *MailpitConfig) *MailpitConfig {
 		HTTPS:    mailpit.HTTPS,
 	}
 	if normalized.Version == "" && normalized.SMTPPort == 0 && normalized.UIPort == 0 && !normalized.HTTPS {
+		return nil
+	}
+
+	return normalized
+}
+
+func NormalizePHPMyAdminConfig(phpMyAdmin *PHPMyAdminConfig) *PHPMyAdminConfig {
+	if phpMyAdmin == nil {
+		return nil
+	}
+
+	normalized := &PHPMyAdminConfig{
+		Version: strings.TrimSpace(phpMyAdmin.Version),
+		Port:    phpMyAdmin.Port,
+		HTTPS:   phpMyAdmin.HTTPS,
+	}
+	if normalized.Version == "" && normalized.Port == 0 && !normalized.HTTPS {
 		return nil
 	}
 

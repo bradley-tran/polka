@@ -903,6 +903,121 @@ func TestRunServeStartsConfiguredMailpitBeforeWebserver(t *testing.T) {
 	}
 }
 
+func TestRunServeStartsConfiguredPHPMyAdminBeforeWebserver(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	docroot := filepath.Join(projectDir, "site", "public")
+	if err := os.MkdirAll(docroot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(docroot) error = %v", err)
+	}
+
+	config := testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Current: "demo",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {
+				PHP:     "8.4",
+				Docroot: filepath.ToSlash(filepath.Join("site", "public")),
+				PHPMyAdmin: &testPHPMyAdminConfig{
+					Version: "5.2",
+					Port:    8082,
+				},
+				Server: &testServerConfig{Hostname: "localhost", Port: 8080},
+			},
+		},
+	}
+	configData, err := yaml.Marshal(config)
+	if err != nil {
+		t.Fatalf("yaml.Marshal(config) error = %v", err)
+	}
+	configData = append(configData, '\n')
+	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+	phpMyAdminIndex := filepath.Join(root, "envs", "phpmyadmin", "5.2", "index.php")
+	if err := os.MkdirAll(filepath.Dir(phpMyAdminIndex), 0o755); err != nil {
+		t.Fatalf("MkdirAll(phpmyadmin docroot) error = %v", err)
+	}
+	if err := os.WriteFile(phpMyAdminIndex, []byte("<?php\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(phpmyadmin index) error = %v", err)
+	}
+
+	oldStartPHPMyAdmin := startPHPMyAdminServeFunc
+	oldEnsurePHPMyAdminStorage := ensurePHPMyAdminStorageConfiguredFunc
+	oldStartPHP := startBackgroundPHPRuntimeServe
+	oldPingServe := pingServeAddressFunc
+	oldNow := serveNowFunc
+	t.Cleanup(func() {
+		startPHPMyAdminServeFunc = oldStartPHPMyAdmin
+		ensurePHPMyAdminStorageConfiguredFunc = oldEnsurePHPMyAdminStorage
+		startBackgroundPHPRuntimeServe = oldStartPHP
+		pingServeAddressFunc = oldPingServe
+		serveNowFunc = oldNow
+	})
+
+	order := []string{}
+	running := map[string]bool{}
+	var phpMyAdminEndpoint serverEndpoint
+	var phpMyAdminDocroot string
+	ensurePHPMyAdminStorageConfiguredFunc = func(store backend.Store, environment backend.Environment, hooks backend.DatabaseRuntimeHooks) error {
+		order = append(order, "storage")
+		return nil
+	}
+	startPHPMyAdminServeFunc = func(store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout) (serveRuntimeState, error) {
+		order = append(order, "phpmyadmin")
+		phpMyAdminEndpoint = endpoint
+		phpMyAdminDocroot = layout.Docroot
+		running[endpoint.Address] = true
+		return serveRuntimeState{
+			EnvironmentName: environment.Name,
+			ServerKind:      desiredServeKind(endpoint.HTTPS),
+			ServerScheme:    endpoint.Scheme,
+			ServerAddress:   endpoint.Address,
+			Docroot:         layout.Docroot,
+			RuntimeDir:      phpMyAdminRuntimeDir(store.RootDir, environment.Name),
+			PrimaryPID:      6262,
+			StartedAt:       serveNowFunc().UTC(),
+		}, nil
+	}
+	startBackgroundPHPRuntimeServe = func(store backend.Store, environment backend.Environment, serverAddress string, layout serveAppLayout) (serveRuntimeState, error) {
+		order = append(order, "web")
+		running[serverAddress] = true
+		return serveRuntimeState{PrimaryPID: 4242}, nil
+	}
+	pingServeAddressFunc = func(address string) bool {
+		return running[address]
+	}
+	serveNowFunc = func() time.Time {
+		return time.Date(2026, time.June, 2, 12, 0, 0, 0, time.UTC)
+	}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "start"}); code != 0 {
+		t.Fatalf("Run(serve with phpmyadmin) code = %d, stderr = %q", code, stderr.String())
+	}
+	if strings.Join(order, ",") != "storage,phpmyadmin,web" {
+		t.Fatalf("start order = %v, want phpmyadmin storage before phpmyadmin and webserver", order)
+	}
+	if phpMyAdminEndpoint.Address != "127.0.0.1:8082" || phpMyAdminEndpoint.Scheme != "http" {
+		t.Fatalf("phpmyadmin endpoint = %#v, want http://127.0.0.1:8082", phpMyAdminEndpoint)
+	}
+	if phpMyAdminDocroot != filepath.Join(root, "envs", "phpmyadmin", "5.2") {
+		t.Fatalf("phpmyadmin docroot = %q, want installed phpmyadmin docroot", phpMyAdminDocroot)
+	}
+	state, err := loadPHPMyAdminState(phpMyAdminStatePath(root, "demo"))
+	if err != nil {
+		t.Fatalf("loadPHPMyAdminState() error = %v", err)
+	}
+	if state.Version != "5.2" || state.ServerAddress != "127.0.0.1:8082" || state.PrimaryPID != 6262 {
+		t.Fatalf("phpmyadmin state = %#v, want version, endpoint, and pid", state)
+	}
+	if !strings.Contains(stdout.String(), "Started phpMyAdmin for environment \"demo\" at http://127.0.0.1:8082.\n") {
+		t.Fatalf("Run(serve with phpmyadmin) stdout = %q, want phpMyAdmin URL", stdout.String())
+	}
+}
+
 func TestMailpitServerArgsEnableUITLSAndSMTPStartTLS(t *testing.T) {
 	args := mailpitServerArgs(mailpitServerSpec{
 		SMTPPort:    1125,

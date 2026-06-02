@@ -16,6 +16,7 @@ func DefaultPlugins() []Plugin {
 		nodeJSPlugin(),
 		nginxPlugin(),
 		mailpitPlugin(),
+		phpMyAdminPlugin(),
 		mysqlPlugin(),
 		mariaDBPlugin(),
 	}
@@ -102,6 +103,25 @@ func mailpitPlugin() Plugin {
 		download: func(ctx DownloadContext) error {
 			return downloadMailpit(ctx.Client, ctx.CacheDir, ctx.Version)
 		},
+	}
+}
+
+func phpMyAdminPlugin() Plugin {
+	return builtinPlugin{
+		id: PHPMyAdmin,
+		version: func(environment config.Environment) string {
+			if environment.PHPMyAdmin == nil {
+				return ""
+			}
+
+			return environment.PHPMyAdmin.Version
+		},
+		validate:          func(environment config.Environment) error { return validatePHPMyAdminConfig(environment.PHPMyAdmin) },
+		installCandidates: phpMyAdminInstallCandidates,
+		download: func(ctx DownloadContext) error {
+			return downloadPHPMyAdmin(ctx.Client, ctx.CacheDir, ctx.Version)
+		},
+		postInstall: configureInstalledPHPMyAdmin,
 	}
 }
 
@@ -194,6 +214,23 @@ func validateMailpitConfig(mailpit *config.MailpitConfig) error {
 	return nil
 }
 
+func validatePHPMyAdminConfig(phpMyAdmin *config.PHPMyAdminConfig) error {
+	if phpMyAdmin == nil {
+		return nil
+	}
+	if strings.TrimSpace(phpMyAdmin.Version) == "" {
+		return fmt.Errorf("phpmyadmin configuration requires version")
+	}
+	if err := validateVersion(PHPMyAdmin, phpMyAdmin.Version); err != nil {
+		return err
+	}
+	if phpMyAdmin.Port != 0 && !validPort(phpMyAdmin.Port) {
+		return fmt.Errorf("phpmyadmin port must be between 1 and 65535")
+	}
+
+	return nil
+}
+
 func phpInstallCandidates(root, version string) []string {
 	installDir := filepath.Join(root, PHP, version)
 	if runtime.GOOS == "windows" {
@@ -278,6 +315,13 @@ func mailpitInstallCandidates(root, version string) []string {
 	return []string{
 		filepath.Join(installDir, "mailpit"),
 		filepath.Join(installDir, "bin", "mailpit"),
+	}
+}
+
+func phpMyAdminInstallCandidates(root, version string) []string {
+	installDir := filepath.Join(root, PHPMyAdmin, version)
+	return []string{
+		filepath.Join(installDir, "index.php"),
 	}
 }
 

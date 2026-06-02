@@ -497,6 +497,47 @@ func TestStoreInstallDownloadsConfiguredMailpit(t *testing.T) {
 	assertPathExists(t, filepath.Join(store.BinDir, toolMailpit+".cmd"))
 }
 
+func TestStoreInstallDownloadsConfiguredPHPMyAdmin(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+	store.Downloader = fakeDownloader(func(cacheDir, tool, version string) error {
+		_ = writeCachedTool(t, cacheDir, tool, version)
+		return nil
+	})
+
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{PHPMyAdmin: &PHPMyAdminConfig{Version: "5.2", Port: 8082, HTTPS: true}}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	results, err := store.Install("demo")
+	if err != nil {
+		t.Fatalf("Install(demo) error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("Install(demo) length = %d, want 1", len(results))
+	}
+	result := results[0]
+	if result.Tool != toolPHPMyAdmin || result.Version != "5.2" {
+		t.Fatalf("Install(demo) result = %#v, want phpmyadmin 5.2", result)
+	}
+	if !result.Downloaded {
+		t.Fatalf("Install(demo) Downloaded = false, want true after cache miss")
+	}
+	assertPathExists(t, result.TargetPath)
+	if !strings.Contains(result.TargetPath, filepath.Join("envs", toolPHPMyAdmin, "5.2")) {
+		t.Fatalf("Install(demo) target = %q, want versioned phpmyadmin env path", result.TargetPath)
+	}
+
+	if err := store.Use("demo"); err != nil {
+		t.Fatalf("Use(demo) error = %v", err)
+	}
+	assertPathMissing(t, filepath.Join(store.BinDir, toolPHPMyAdmin))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolPHPMyAdmin+".cmd"))
+}
+
 func TestStoreInstallCopiesConfiguredNodeJSIntoVersionedLayout(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
@@ -816,6 +857,35 @@ func TestStoreCurrentNormalizesServerConfig(t *testing.T) {
 	}
 	if current.Server.Hostname != "localhost" || current.Server.Port != 8080 || !current.Server.HTTPS {
 		t.Fatalf("Current().Server = %#v, want normalized hostname, port, and https", current.Server)
+	}
+}
+
+func TestStoreCurrentNormalizesPHPMyAdminConfig(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+
+	config := store.defaultConfig()
+	config.Current = "demo"
+	config.Environments["demo"] = Environment{
+		PHPMyAdmin: &PHPMyAdminConfig{
+			Version: " 5.2 ",
+			Port:    8082,
+			HTTPS:   true,
+		},
+	}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	current, err := store.Current()
+	if err != nil {
+		t.Fatalf("Current() error = %v", err)
+	}
+	if current == nil || current.PHPMyAdmin == nil {
+		t.Fatalf("Current() = %#v, want phpmyadmin config", current)
+	}
+	if current.PHPMyAdmin.Version != "5.2" || current.PHPMyAdmin.Port != 8082 || !current.PHPMyAdmin.HTTPS {
+		t.Fatalf("Current().PHPMyAdmin = %#v, want normalized version, port, and https", current.PHPMyAdmin)
 	}
 }
 

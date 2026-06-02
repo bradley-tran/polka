@@ -24,14 +24,15 @@ import (
 )
 
 const (
-	composerDownloadBaseURL = "https://getcomposer.org/download"
-	mysqlDownloadBaseURL    = "https://dev.mysql.com/get/Downloads"
-	mariadbArchiveBaseURL   = "https://archive.mariadb.org"
-	mailpitDownloadBaseURL  = "https://github.com/axllent/mailpit/releases/download"
-	nodeJSDownloadBaseURL   = "https://nodejs.org/dist"
-	nginxDownloadBaseURL    = "https://nginx.org/download"
-	phpWindowsReleaseURL    = "https://windows.php.net/downloads/releases/releases.json"
-	phpWindowsBaseURL       = "https://windows.php.net/downloads/releases"
+	composerDownloadBaseURL   = "https://getcomposer.org/download"
+	mysqlDownloadBaseURL      = "https://dev.mysql.com/get/Downloads"
+	mariadbArchiveBaseURL     = "https://archive.mariadb.org"
+	mailpitDownloadBaseURL    = "https://github.com/axllent/mailpit/releases/download"
+	nodeJSDownloadBaseURL     = "https://nodejs.org/dist"
+	nginxDownloadBaseURL      = "https://nginx.org/download"
+	phpMyAdminDownloadBaseURL = "https://files.phpmyadmin.net/phpMyAdmin"
+	phpWindowsReleaseURL      = "https://windows.php.net/downloads/releases/releases.json"
+	phpWindowsBaseURL         = "https://windows.php.net/downloads/releases"
 )
 
 var composerReleaseLinkPattern = regexp.MustCompile(`(?:https://getcomposer\.org)?/download/([0-9]+(?:\.[0-9]+){1,2}(?:-[0-9A-Za-z.-]+)?)/composer\.phar`)
@@ -192,6 +193,18 @@ var mailpitDownloadCatalog = map[string]map[string]databaseDownloadAsset{
 	},
 }
 
+var phpMyAdminDownloadCatalog = map[string]map[string]databaseDownloadAsset{
+	"5.2.3": {
+		"all": {
+			FileName:          "phpMyAdmin-5.2.3-all-languages.zip",
+			URL:               phpMyAdminDownloadBaseURL + "/5.2.3/phpMyAdmin-5.2.3-all-languages.zip",
+			Checksum:          "2d2e13c735366d318425c78e4ee2cc8fc648d77faba3ddea2cd516e43885733f",
+			ChecksumAlgorithm: checksumAlgorithmSHA256,
+			ArchiveFormat:     archiveFormatZip,
+		},
+	},
+}
+
 var nodeJSDownloadCatalog = map[string]map[string]databaseDownloadAsset{
 	"24.16.0": {
 		"windows-amd64": {
@@ -274,6 +287,15 @@ func downloadMailpit(client *http.Client, cacheDir, version string) error {
 	}
 
 	return downloadDatabaseAsset(client, cacheDir, Mailpit, version, asset)
+}
+
+func downloadPHPMyAdmin(client *http.Client, cacheDir, version string) error {
+	_, asset, err := resolvePHPMyAdminDownloadAsset(version)
+	if err != nil {
+		return err
+	}
+
+	return downloadDatabaseAsset(client, cacheDir, PHPMyAdmin, version, asset)
 }
 
 func downloadNodeJS(client *http.Client, cacheDir, version string) error {
@@ -369,6 +391,25 @@ func resolveMailpitDownloadAsset(requestedVersion, goos, goarch string) (string,
 	asset, ok := platformAssets[platformKey]
 	if !ok {
 		return "", databaseDownloadAsset{}, fmt.Errorf("%s version %q is not available for %s/%s", Mailpit, resolvedVersion, goos, goarch)
+	}
+
+	return resolvedVersion, asset, nil
+}
+
+func resolvePHPMyAdminDownloadAsset(requestedVersion string) (string, databaseDownloadAsset, error) {
+	requestedVersion = strings.TrimSpace(requestedVersion)
+	if requestedVersion == "" {
+		return "", databaseDownloadAsset{}, fmt.Errorf("%s version cannot be empty", PHPMyAdmin)
+	}
+
+	resolvedVersion, err := resolveDatabaseCatalogVersion(phpMyAdminDownloadCatalog, requestedVersion)
+	if err != nil {
+		return "", databaseDownloadAsset{}, fmt.Errorf("resolve %s version %q: %w", PHPMyAdmin, requestedVersion, err)
+	}
+
+	asset, ok := phpMyAdminDownloadCatalog[resolvedVersion]["all"]
+	if !ok {
+		return "", databaseDownloadAsset{}, fmt.Errorf("%s version %q is not available", PHPMyAdmin, resolvedVersion)
 	}
 
 	return resolvedVersion, asset, nil

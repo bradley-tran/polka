@@ -13,17 +13,18 @@ type testConfigFile struct {
 }
 
 type testEnvironmentConfig struct {
-	PHP           string              `yaml:"php"`
-	Composer      string              `yaml:"composer"`
-	NodeJS        string              `yaml:"nodejs,omitempty"`
-	Nginx         string              `yaml:"nginx,omitempty"`
-	Docroot       string              `yaml:"docroot,omitempty"`
-	EnvFile       string              `yaml:"env-file,omitempty"`
-	EnvVars       map[string]string   `yaml:"env-vars,omitempty"`
-	Database      *testDatabaseConfig `yaml:"database,omitempty"`
-	Mailpit       *testMailpitConfig  `yaml:"mailpit,omitempty"`
-	PHPExtensions map[string]bool     `yaml:"php-extensions,omitempty"`
-	Server        *testServerConfig   `yaml:"server,omitempty"`
+	PHP           string                `yaml:"php"`
+	Composer      string                `yaml:"composer"`
+	NodeJS        string                `yaml:"nodejs,omitempty"`
+	Nginx         string                `yaml:"nginx,omitempty"`
+	PHPMyAdmin    *testPHPMyAdminConfig `yaml:"phpmyadmin,omitempty"`
+	Docroot       string                `yaml:"docroot,omitempty"`
+	EnvFile       string                `yaml:"env-file,omitempty"`
+	EnvVars       map[string]string     `yaml:"env-vars,omitempty"`
+	Database      *testDatabaseConfig   `yaml:"database,omitempty"`
+	Mailpit       *testMailpitConfig    `yaml:"mailpit,omitempty"`
+	PHPExtensions map[string]bool       `yaml:"php-extensions,omitempty"`
+	Server        *testServerConfig     `yaml:"server,omitempty"`
 }
 
 type testDatabaseConfig struct {
@@ -43,6 +44,12 @@ type testMailpitConfig struct {
 	SMTPPort int    `yaml:"smtp-port,omitempty"`
 	UIPort   int    `yaml:"ui-port,omitempty"`
 	HTTPS    bool   `yaml:"https,omitempty"`
+}
+
+type testPHPMyAdminConfig struct {
+	Version string `yaml:"version,omitempty"`
+	Port    int    `yaml:"port,omitempty"`
+	HTTPS   bool   `yaml:"https,omitempty"`
 }
 
 func cachedPHPPath(root, version string) string {

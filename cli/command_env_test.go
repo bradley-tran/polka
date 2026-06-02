@@ -433,12 +433,13 @@ func TestRunStatusShowsToolsEachOnOwnLine(t *testing.T) {
 		Current: "demo",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
-				PHP:      "8.4",
-				Composer: "2.8",
-				NodeJS:   "24",
-				Nginx:    "1.30",
-				Database: &testDatabaseConfig{Engine: "mysql", Version: "8.0", Port: 3306},
-				Server:   &testServerConfig{Hostname: "localhost", Port: 8080},
+				PHP:        "8.4",
+				Composer:   "2.8",
+				NodeJS:     "24",
+				Nginx:      "1.30",
+				PHPMyAdmin: &testPHPMyAdminConfig{Version: "5.2", Port: 8082, HTTPS: true},
+				Database:   &testDatabaseConfig{Engine: "mysql", Version: "8.0", Port: 3306},
+				Server:     &testServerConfig{Hostname: "localhost", Port: 8080},
 			},
 		},
 	}
@@ -462,10 +463,12 @@ func TestRunStatusShowsToolsEachOnOwnLine(t *testing.T) {
 		"composer 2.8\n",
 		"nodejs 24\n",
 		"nginx 1.30\n",
+		"phpmyadmin 5.2 ui=https://127.0.0.1:8082\n",
 		"database mysql:8.0@3306\n",
 		"mailpit unset\n",
 		"server http://localhost:8080\n",
 		"webserver stopped\n",
+		"phpmyadmin-server stopped\n",
 		"database-server stopped\n",
 		"mailpit-server unset\n",
 	} {
@@ -539,8 +542,14 @@ func TestRunStatusUsesDefaultServerAddress(t *testing.T) {
 	if !strings.Contains(output, "nginx unset\n") {
 		t.Fatalf("Run(status) stdout = %q, want nginx unset line", output)
 	}
+	if !strings.Contains(output, "phpmyadmin unset\n") {
+		t.Fatalf("Run(status) stdout = %q, want phpmyadmin unset line", output)
+	}
 	if !strings.Contains(output, "webserver stopped\n") {
 		t.Fatalf("Run(status) stdout = %q, want webserver stopped line", output)
+	}
+	if !strings.Contains(output, "phpmyadmin-server unset\n") {
+		t.Fatalf("Run(status) stdout = %q, want phpmyadmin server unset line", output)
 	}
 	if !strings.Contains(output, "database-server unset\n") {
 		t.Fatalf("Run(status) stdout = %q, want database unset line", output)

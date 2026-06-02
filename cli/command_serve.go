@@ -63,6 +63,7 @@ type serveCommandInput struct {
 
 type serveRuntimeState struct {
 	EnvironmentName string    `json:"environment"`
+	Version         string    `json:"version,omitempty"`
 	ServerKind      string    `json:"server_kind"`
 	ServerScheme    string    `json:"server_scheme,omitempty"`
 	ServerAddress   string    `json:"server_address"`
@@ -256,6 +257,10 @@ func runPHPRuntimeServe(stdout, stderr io.Writer, store backend.Store, serverAdd
 }
 
 func startPHPRuntimeServeInBackground(store backend.Store, environment backend.Environment, serverAddress string, layout serveAppLayout) (serveRuntimeState, error) {
+	return startPHPRuntimeServeInBackgroundAt(store, environment, serverAddress, layout, serveRuntimeDir(store.RootDir, environment.Name))
+}
+
+func startPHPRuntimeServeInBackgroundAt(store backend.Store, environment backend.Environment, serverAddress string, layout serveAppLayout, runtimeDir string) (serveRuntimeState, error) {
 	phpTarget, err := store.ResolveTool("php")
 	if err != nil {
 		return serveRuntimeState{}, err
@@ -264,7 +269,6 @@ func startPHPRuntimeServeInBackground(store backend.Store, environment backend.E
 	if err != nil {
 		return serveRuntimeState{}, err
 	}
-	runtimeDir := serveRuntimeDir(store.RootDir, environment.Name)
 	routerPath, err := preparePHPRuntimeServeRuntime(runtimeDir, layout)
 	if err != nil {
 		return serveRuntimeState{}, err
@@ -373,6 +377,10 @@ func runNginxServe(stdout, stderr io.Writer, store backend.Store, environment ba
 }
 
 func startNginxServeInBackground(store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout) (serveRuntimeState, error) {
+	return startNginxServeInBackgroundAt(store, environment, endpoint, layout, serveRuntimeDir(store.RootDir, environment.Name))
+}
+
+func startNginxServeInBackgroundAt(store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout, runtimeDir string) (serveRuntimeState, error) {
 	if strings.TrimSpace(environment.PHPVersion) == "" {
 		return serveRuntimeState{}, fmt.Errorf("environment %q defines nginx but does not define a php version", environment.Name)
 	}
@@ -399,7 +407,6 @@ func startNginxServeInBackground(store backend.Store, environment backend.Enviro
 		return serveRuntimeState{}, err
 	}
 
-	runtimeDir := serveRuntimeDir(store.RootDir, environment.Name)
 	configPath, phpLogPath, err := prepareNginxServeRuntime(store.CacheDir, runtimeDir, endpoint, layout, backendAddress)
 	if err != nil {
 		return serveRuntimeState{}, err

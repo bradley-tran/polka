@@ -72,6 +72,7 @@ func defaultCLIHookRegistry() cliHookRegistry {
 		startServices: []startServiceHook{
 			{id: "database", run: startDatabaseServiceHook},
 			{id: "mailpit", run: startMailpitServiceHook},
+			{id: "phpmyadmin", run: startPHPMyAdminServiceHook},
 		},
 		webservers: []webserverStartHook{
 			{id: "nginx", matches: environmentUsesNginx, run: startNginxWebserverHook},
@@ -79,6 +80,7 @@ func defaultCLIHookRegistry() cliHookRegistry {
 		},
 		stopHooks: []stopHook{
 			{id: "webserver", run: stopWebserverHook},
+			{id: "phpmyadmin", run: stopPHPMyAdminServiceHook},
 			{id: "database", run: stopDatabaseServiceHook},
 			{id: "mailpit", run: stopMailpitServiceHook},
 		},
@@ -87,11 +89,13 @@ func defaultCLIHookRegistry() cliHookRegistry {
 			{id: "composer", run: statusComposerConfigHook},
 			{id: "nodejs", run: statusNodeJSConfigHook},
 			{id: "nginx", run: statusNginxConfigHook},
+			{id: "phpmyadmin", run: statusPHPMyAdminConfigHook},
 			{id: "database", run: statusDatabaseConfigHook},
 			{id: "mailpit", run: statusMailpitConfigHook},
 		},
 		runtimeStatusHooks: []statusHook{
 			{id: "webserver", run: statusWebserverRuntimeHook},
+			{id: "phpmyadmin", run: statusPHPMyAdminRuntimeHook},
 			{id: "database", run: statusDatabaseRuntimeHook},
 			{id: "mailpit", run: statusMailpitRuntimeHook},
 		},
@@ -165,6 +169,28 @@ func startMailpitServiceHook(ctx startHookContext) error {
 
 	_, _, err := ensureManagedMailpitStarted(ctx.Store, ctx.Environment)
 	return err
+}
+
+func startPHPMyAdminServiceHook(ctx startHookContext) error {
+	if ctx.Environment.PHPMyAdmin == nil || strings.TrimSpace(ctx.Environment.PHPMyAdmin.Version) == "" {
+		return nil
+	}
+
+	if err := ensurePHPMyAdminStorageConfiguredFunc(ctx.Store, ctx.Environment, dbRuntimeHooks()); err != nil {
+		return err
+	}
+
+	state, alreadyStarted, err := ensureManagedPHPMyAdminStarted(ctx.Store, ctx.Environment)
+	if err != nil {
+		return err
+	}
+	if alreadyStarted {
+		fmt.Fprintf(ctx.Stdout, "phpMyAdmin for environment %q is already running at %s.\n", ctx.Environment.Name, serveStateURL(state))
+		return nil
+	}
+
+	fmt.Fprintf(ctx.Stdout, "Started phpMyAdmin for environment %q at %s.\n", ctx.Environment.Name, serveStateURL(state))
+	return nil
 }
 
 func environmentUsesNginx(environment backend.Environment) bool {
@@ -286,6 +312,24 @@ func stopMailpitServiceHook(ctx stopHookContext) error {
 	return nil
 }
 
+func stopPHPMyAdminServiceHook(ctx stopHookContext) error {
+	if ctx.Environment.PHPMyAdmin == nil || strings.TrimSpace(ctx.Environment.PHPMyAdmin.Version) == "" {
+		return nil
+	}
+
+	_, phpMyAdminAlreadyStopped, err := stopManagedPHPMyAdmin(ctx.Store, ctx.Environment.Name)
+	if err != nil {
+		return err
+	}
+	if phpMyAdminAlreadyStopped {
+		fmt.Fprintf(ctx.Stdout, "phpMyAdmin for environment %q is already stopped.\n", ctx.Environment.Name)
+		return nil
+	}
+
+	fmt.Fprintf(ctx.Stdout, "Stopped phpMyAdmin for environment %q.\n", ctx.Environment.Name)
+	return nil
+}
+
 func statusPHPConfigHook(ctx statusHookContext) error {
 	_, _ = fmt.Fprintf(ctx.Stdout, "php %s\n", labelOrUnset(ctx.Environment.PHPVersion))
 	return nil
@@ -303,6 +347,11 @@ func statusNodeJSConfigHook(ctx statusHookContext) error {
 
 func statusNginxConfigHook(ctx statusHookContext) error {
 	_, _ = fmt.Fprintf(ctx.Stdout, "nginx %s\n", labelOrUnset(ctx.Environment.NginxVersion))
+	return nil
+}
+
+func statusPHPMyAdminConfigHook(ctx statusHookContext) error {
+	_, _ = fmt.Fprintf(ctx.Stdout, "phpmyadmin %s\n", labelPHPMyAdmin(ctx.Environment.PHPMyAdmin))
 	return nil
 }
 
@@ -346,6 +395,25 @@ func statusDatabaseRuntimeHook(ctx statusHookContext) error {
 	}
 
 	_, _ = fmt.Fprintf(ctx.Stdout, "database-server running %s:%s@%d\n", liveDatabaseState.Engine, liveDatabaseState.Version, liveDatabaseState.Port)
+	return nil
+}
+
+func statusPHPMyAdminRuntimeHook(ctx statusHookContext) error {
+	if ctx.Environment.PHPMyAdmin == nil || strings.TrimSpace(ctx.Environment.PHPMyAdmin.Version) == "" {
+		_, _ = fmt.Fprintln(ctx.Stdout, "phpmyadmin-server unset")
+		return nil
+	}
+
+	livePHPMyAdminState, err := loadLivePHPMyAdminState(ctx.Store.RootDir, ctx.Environment.Name)
+	if err != nil {
+		return err
+	}
+	if livePHPMyAdminState == nil {
+		_, _ = fmt.Fprintln(ctx.Stdout, "phpmyadmin-server stopped")
+		return nil
+	}
+
+	_, _ = fmt.Fprintf(ctx.Stdout, "phpmyadmin-server running %s\n", serveStateURL(*livePHPMyAdminState))
 	return nil
 }
 

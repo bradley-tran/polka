@@ -466,6 +466,14 @@ func labelMailpit(mailpit *backend.MailpitConfig) string {
 	return fmt.Sprintf("%s smtp=%d ui=%s", mailpit.Version, backend.EffectiveMailpitSMTPPort(mailpit), mailpitUIURLForConfig(mailpit))
 }
 
+func labelPHPMyAdmin(phpMyAdmin *backend.PHPMyAdminConfig) string {
+	if phpMyAdmin == nil {
+		return "unset"
+	}
+
+	return fmt.Sprintf("%s ui=%s", phpMyAdmin.Version, phpMyAdminUIURLForConfig(phpMyAdmin))
+}
+
 func buildDatabaseInput(engineChanged, versionChanged, portChanged bool, engine, version string, port int) (*backend.DatabaseConfig, error) {
 	if !engineChanged && !versionChanged && !portChanged {
 		return nil, nil
