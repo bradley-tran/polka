@@ -180,8 +180,6 @@ func runStart(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
-	serverAddress := endpoint.Address
-	serverURL := serverEndpointURL(endpoint)
 	if endpoint.HTTPS && strings.TrimSpace(current.NginxVersion) == "" {
 		fmt.Fprintln(stderr, "error: server.https requires nginx in the current environment")
 		return 1
@@ -196,18 +194,15 @@ func runStart(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
-	if current.Database != nil && strings.TrimSpace(current.Database.Engine) != "" {
-		resolved := dbResolvedEnvironment{Environment: *current, Database: current.Database}
-		if _, _, err := ensureManagedDatabaseStarted(store, resolved); err != nil {
-			fmt.Fprintf(stderr, "error: %v\n", err)
-			return 1
-		}
-	}
-	if current.Mailpit != nil && strings.TrimSpace(current.Mailpit.Version) != "" {
-		if _, _, err := ensureManagedMailpitStarted(store, *current); err != nil {
-			fmt.Fprintf(stderr, "error: %v\n", err)
-			return 1
-		}
+	hooks := defaultCLIHookRegistry()
+	if err := hooks.StartServices(startHookContext{
+		Stdout:      stdout,
+		Stderr:      stderr,
+		Store:       store,
+		Environment: *current,
+	}); err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
 	}
 
 	liveState, err := loadWebServerState(store.RootDir, current.Name)
@@ -225,59 +220,21 @@ func runStart(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 		return 1
 	}
 
-	if input.Watch {
-		var exitCode int
-		if current.NginxVersion != "" {
-			_, _ = fmt.Fprintf(stdout, "nginx webserver started at %s\n", serverURL)
-			exitCode, err = runNginxServeFunc(stdout, stderr, store, *current, endpoint, layout)
-		} else {
-			exitCode, err = runPHPRuntimeServeFunc(stdout, stderr, store, serverAddress, layout)
-		}
-		if err != nil {
-			fmt.Fprintf(stderr, "error: %v\n", err)
-			return 1
-		}
-
-		return exitCode
-	}
-
-	var startedState serveRuntimeState
-	if current.NginxVersion != "" {
-		startedState, err = startBackgroundNginxServe(store, *current, endpoint, layout)
-	} else {
-		startedState, err = startBackgroundPHPRuntimeServe(store, *current, serverAddress, layout)
-	}
+	exitCode, err := hooks.StartWebserver(webserverStartHookContext{
+		Stdout:      stdout,
+		Stderr:      stderr,
+		Store:       store,
+		Environment: *current,
+		Input:       input,
+		Endpoint:    endpoint,
+		Layout:      layout,
+	})
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
-	if strings.TrimSpace(startedState.EnvironmentName) == "" {
-		startedState.EnvironmentName = current.Name
-	}
-	if strings.TrimSpace(startedState.ServerKind) == "" {
-		startedState.ServerKind = desiredServeKind(current.NginxVersion != "")
-	}
-	if strings.TrimSpace(startedState.ServerScheme) == "" {
-		startedState.ServerScheme = endpoint.Scheme
-	}
-	if strings.TrimSpace(startedState.ServerAddress) == "" {
-		startedState.ServerAddress = serverAddress
-	}
-	if strings.TrimSpace(startedState.Docroot) == "" {
-		startedState.Docroot = layout.Docroot
-	}
-	if startedState.StartedAt.IsZero() {
-		startedState.StartedAt = serveNowFunc().UTC()
-	}
-	if err := writeServeState(serveStatePath(store.RootDir, current.Name), startedState); err != nil {
-		_ = stopServeRuntimeFunc(startedState)
-		fmt.Fprintf(stderr, "error: %v\n", err)
-		return 1
-	}
 
-	fmt.Fprintf(stdout, "Started %s for environment %q at %s.\n", serveRuntimeLabel(startedState.ServerKind), current.Name, serveStateURL(startedState))
-	fmt.Fprintln(stdout, "Run `polka stop` to stop it.")
-	return 0
+	return exitCode
 }
 
 func runPHPRuntimeServe(stdout, stderr io.Writer, store backend.Store, serverAddress string, layout serveAppLayout) (int, error) {

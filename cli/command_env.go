@@ -384,49 +384,18 @@ func runStatus(stdout io.Writer, store backend.Store) error {
 	}
 
 	_, _ = fmt.Fprintf(stdout, "environment %s\n", current.Name)
-	_, _ = fmt.Fprintf(stdout, "php %s\n", labelOrUnset(current.PHPVersion))
-	_, _ = fmt.Fprintf(stdout, "composer %s\n", labelOrUnset(current.ComposerVersion))
-	_, _ = fmt.Fprintf(stdout, "nodejs %s\n", labelOrUnset(current.NodeJSVersion))
-	_, _ = fmt.Fprintf(stdout, "nginx %s\n", labelOrUnset(current.NginxVersion))
-	_, _ = fmt.Fprintf(stdout, "database %s\n", labelDatabase(current.Database))
-	_, _ = fmt.Fprintf(stdout, "mailpit %s\n", labelMailpit(current.Mailpit))
+	hooks := defaultCLIHookRegistry()
+	statusContext := statusHookContext{
+		Stdout:      stdout,
+		Store:       store,
+		Environment: *current,
+	}
+	if err := hooks.WriteConfigStatus(statusContext); err != nil {
+		return err
+	}
 	_, _ = fmt.Fprintf(stdout, "server %s\n", serverEndpointURL(serverEndpoint))
-	webServerState, err := loadWebServerState(store.RootDir, current.Name)
-	if err != nil {
-		return err
-	}
-	if webServerState == nil {
-		_, _ = fmt.Fprintln(stdout, "webserver stopped")
-	} else {
-		_, _ = fmt.Fprintf(stdout, "webserver running %s\n", serveStateURL(*webServerState))
-	}
-	if current.Database == nil || strings.TrimSpace(current.Database.Engine) == "" {
-		_, _ = fmt.Fprintln(stdout, "database-server unset")
-	} else {
-		liveDatabaseState, err := backend.LoadLiveManagedDatabaseState(store.RootDir, current.Name, pingDatabaseAddressFunc)
-		if err != nil {
-			return err
-		}
-		if liveDatabaseState == nil {
-			_, _ = fmt.Fprintln(stdout, "database-server stopped")
-		} else {
-			_, _ = fmt.Fprintf(stdout, "database-server running %s:%s@%d\n", liveDatabaseState.Engine, liveDatabaseState.Version, liveDatabaseState.Port)
-		}
-	}
-	if current.Mailpit == nil || strings.TrimSpace(current.Mailpit.Version) == "" {
-		_, _ = fmt.Fprintln(stdout, "mailpit-server unset")
-		return nil
-	}
-	liveMailpitState, err := loadLiveMailpitState(store.RootDir, current.Name)
-	if err != nil {
-		return err
-	}
-	if liveMailpitState == nil {
-		_, _ = fmt.Fprintln(stdout, "mailpit-server stopped")
-		return nil
-	}
-	_, _ = fmt.Fprintf(stdout, "mailpit-server running smtp=%d ui=%s\n", liveMailpitState.SMTPPort, mailpitUIURL(*liveMailpitState))
-	return nil
+
+	return hooks.WriteRuntimeStatus(statusContext)
 }
 
 func runRemove(stdout io.Writer, store backend.Store, name string) error {

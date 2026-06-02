@@ -106,6 +106,7 @@ type Store struct {
 	ConfigFile string
 	CacheDir   string
 	Downloader ToolDownloader
+	Plugins    *ToolRegistry
 }
 
 func DefaultStore() (Store, error) {
@@ -228,7 +229,16 @@ func newStore(projectDir, root string) Store {
 		BinDir:     filepath.Join(cleanRoot, binDirectoryName),
 		ConfigFile: filepath.Join(cleanProjectDir, configFileName),
 		CacheDir:   defaultCacheDir(cleanProjectDir),
+		Plugins:    NewDefaultToolRegistry(),
 	}
+}
+
+func (s Store) toolRegistry() *ToolRegistry {
+	if s.Plugins != nil {
+		return s.Plugins
+	}
+
+	return NewDefaultToolRegistry()
 }
 
 func resolveConfiguredRootDir(projectDir, configuredRoot string) string {
@@ -368,10 +378,7 @@ func (s Store) writeEnvironment(name, phpVersion, composerVersion, nodeJSVersion
 	if environment.PHPVersion == "" && environment.ComposerVersion == "" && environment.NodeJSVersion == "" && environment.NginxVersion == "" && environment.Database == nil && environment.Mailpit == nil {
 		return Environment{}, fmt.Errorf("environment requires at least one of php, composer, nodejs, nginx, database, or mailpit")
 	}
-	if err := validateDatabaseConfig(environment.Database); err != nil {
-		return Environment{}, err
-	}
-	if err := validateMailpitConfig(environment.Mailpit); err != nil {
+	if err := s.toolRegistry().ValidateEnvironment(environment); err != nil {
 		return Environment{}, err
 	}
 
@@ -411,39 +418,26 @@ func (s Store) install(name string, report func(InstallProgress)) ([]InstallResu
 		return nil, fmt.Errorf("environment %q does not exist in %s", name, filepath.Base(s.ConfigFile))
 	}
 	normalized := s.normalizeEnvironment(name, environment)
+	registry := s.toolRegistry()
 	installPHPExtensions := effectivePHPExtensionsForInstall(normalized)
 	if len(normalized.PHPExtensions) > 0 && normalized.PHPVersion == "" {
 		return nil, fmt.Errorf("environment %q defines php-extensions but does not define a php version", name)
 	}
-	if err := validateMailpitConfig(normalized.Mailpit); err != nil {
+	if err := registry.ValidateEnvironment(normalized); err != nil {
 		return nil, err
 	}
 
-	requests := []InstallResult{}
-	if normalized.PHPVersion != "" {
-		requests = append(requests, InstallResult{Tool: toolPHP, Version: normalized.PHPVersion})
-	}
-	if normalized.ComposerVersion != "" {
-		requests = append(requests, InstallResult{Tool: toolComposer, Version: normalized.ComposerVersion})
-	}
-	if normalized.NodeJSVersion != "" {
-		requests = append(requests, InstallResult{Tool: toolNodeJS, Version: normalized.NodeJSVersion})
-	}
-	if normalized.NginxVersion != "" {
-		requests = append(requests, InstallResult{Tool: toolNginx, Version: normalized.NginxVersion})
-	}
-	if normalized.Mailpit != nil {
-		requests = append(requests, InstallResult{Tool: toolMailpit, Version: normalized.Mailpit.Version})
-	}
-	if normalized.Database != nil {
-		requests = append(requests, InstallResult{Tool: normalized.Database.Engine, Version: normalized.Database.Version})
-	}
+	requests := registry.InstallRequests(normalized)
 	if len(requests) == 0 {
 		return nil, fmt.Errorf("environment %q does not define any installable tool versions", name)
 	}
 
 	results := make([]InstallResult, 0, len(requests))
 	for index, request := range requests {
+		plugin, ok := registry.Plugin(request.Tool)
+		if !ok {
+			return nil, fmt.Errorf("unsupported tool %q", request.Tool)
+		}
 		baseProgress := InstallProgress{
 			Index:   index + 1,
 			Total:   len(requests),
@@ -476,9 +470,13 @@ func (s Store) install(name string, report func(InstallProgress)) ([]InstallResu
 			if len(installPHPExtensions) > 0 {
 				emitInstallProgress(report, baseProgress, InstallProgressConfiguring)
 			}
-			if err := s.configureInstalledPHPExtensions(request.Version, installPHPExtensions); err != nil {
-				return nil, err
-			}
+		}
+		if err := plugin.PostInstall(ToolInstallContext{
+			Store:       s,
+			Environment: normalized,
+			Result:      results[len(results)-1],
+		}); err != nil {
+			return nil, err
 		}
 
 		emitInstallProgress(report, baseProgress, InstallProgressInstalled)
@@ -520,7 +518,7 @@ func (s Store) ensureCachedTool(tool, version string, report func(InstallProgres
 
 	downloader := s.Downloader
 	if downloader == nil {
-		downloader = HTTPToolDownloader{}
+		downloader = HTTPToolDownloader{Plugins: s.toolRegistry()}
 	}
 
 	if report != nil {
@@ -620,7 +618,7 @@ func (s Store) Remove(name string) error {
 }
 
 func (s Store) ResolveTool(tool string) (string, error) {
-	request, err := resolveToolRequest(tool)
+	request, err := s.toolRegistry().ResolveDispatchRequest(tool)
 	if err != nil {
 		return "", err
 	}
@@ -633,7 +631,7 @@ func (s Store) ResolveTool(tool string) (string, error) {
 		return "", fmt.Errorf("no active environment selected")
 	}
 
-	version := strings.TrimSpace(current.toolVersion(request.ConfigTool))
+	version := strings.TrimSpace(request.plugin.Version(*current))
 	if version == "" {
 		return "", fmt.Errorf("environment %q does not define a %s version", current.Name, request.ConfigTool)
 	}
@@ -867,11 +865,11 @@ func (s Store) resolveInstalledTool(tool, version string) (string, error) {
 }
 
 func (s Store) resolveInstalledDispatchExecutable(configTool, executable, version string) (string, error) {
-	return resolveInstalledDispatchExecutableIn(s.EnvsDir, configTool, executable, version)
+	return s.resolveInstalledDispatchExecutableIn(s.EnvsDir, configTool, executable, version)
 }
 
 func (s Store) resolveInstalledToolIn(root, tool, version string) (string, error) {
-	candidates := toolInstallCandidatesIn(root, tool, version)
+	candidates := s.toolRegistry().InstallCandidates(root, tool, version)
 	if len(candidates) == 0 {
 		return "", fmt.Errorf("unsupported tool %q", tool)
 	}
@@ -894,7 +892,15 @@ func (s Store) resolveInstalledToolIn(root, tool, version string) (string, error
 }
 
 func resolveInstalledDispatchExecutableIn(root, configTool, executable, version string) (string, error) {
-	candidates := dispatchExecutableCandidatesIn(root, configTool, executable, version)
+	return resolveInstalledDispatchExecutableWithRegistry(NewDefaultToolRegistry(), root, configTool, executable, version)
+}
+
+func (s Store) resolveInstalledDispatchExecutableIn(root, configTool, executable, version string) (string, error) {
+	return resolveInstalledDispatchExecutableWithRegistry(s.toolRegistry(), root, configTool, executable, version)
+}
+
+func resolveInstalledDispatchExecutableWithRegistry(registry *ToolRegistry, root, configTool, executable, version string) (string, error) {
+	candidates := registry.DispatchCandidates(root, configTool, executable, version)
 	if len(candidates) == 0 {
 		return "", fmt.Errorf("unsupported tool %q", executable)
 	}
@@ -917,126 +923,11 @@ func resolveInstalledDispatchExecutableIn(root, configTool, executable, version 
 }
 
 func toolInstallCandidatesIn(root, tool, version string) []string {
-	installDir := filepath.Join(root, tool, version)
-
-	switch tool {
-	case toolPHP:
-		if runtime.GOOS == "windows" {
-			return []string{
-				filepath.Join(installDir, "bin", "php.exe"),
-				filepath.Join(installDir, "bin", "php.cmd"),
-				filepath.Join(installDir, "bin", "php.bat"),
-				filepath.Join(installDir, "php.exe"),
-				filepath.Join(installDir, "php.cmd"),
-				filepath.Join(installDir, "php.bat"),
-			}
-		}
-
-		return []string{
-			filepath.Join(installDir, "bin", "php"),
-			filepath.Join(installDir, "php"),
-		}
-	case toolComposer:
-		if runtime.GOOS == "windows" {
-			return []string{
-				filepath.Join(installDir, "bin", "composer.cmd"),
-				filepath.Join(installDir, "bin", "composer.bat"),
-				filepath.Join(installDir, "bin", "composer.exe"),
-				filepath.Join(installDir, "bin", "composer.phar"),
-				filepath.Join(installDir, "composer.cmd"),
-				filepath.Join(installDir, "composer.bat"),
-				filepath.Join(installDir, "composer.exe"),
-				filepath.Join(installDir, "composer.phar"),
-			}
-		}
-
-		return []string{
-			filepath.Join(installDir, "bin", "composer"),
-			filepath.Join(installDir, "bin", "composer.phar"),
-			filepath.Join(installDir, "composer"),
-			filepath.Join(installDir, "composer.phar"),
-		}
-	case toolNodeJS:
-		if runtime.GOOS == "windows" {
-			return []string{
-				filepath.Join(installDir, "node.exe"),
-				filepath.Join(installDir, "bin", "node.exe"),
-			}
-		}
-
-		return []string{
-			filepath.Join(installDir, "bin", "node"),
-			filepath.Join(installDir, "node"),
-		}
-	case toolNginx:
-		if runtime.GOOS == "windows" {
-			return []string{
-				filepath.Join(installDir, "nginx.exe"),
-				filepath.Join(installDir, "sbin", "nginx.exe"),
-			}
-		}
-
-		return []string{
-			filepath.Join(installDir, "sbin", "nginx"),
-			filepath.Join(installDir, "nginx"),
-		}
-	case toolMailpit:
-		if runtime.GOOS == "windows" {
-			return []string{
-				filepath.Join(installDir, "mailpit.exe"),
-				filepath.Join(installDir, "bin", "mailpit.exe"),
-			}
-		}
-
-		return []string{
-			filepath.Join(installDir, "mailpit"),
-			filepath.Join(installDir, "bin", "mailpit"),
-		}
-	case toolMySQL, toolMariaDB:
-		return databaseToolInstallCandidates(tool, installDir)
-	default:
-		return nil
-	}
+	return NewDefaultToolRegistry().InstallCandidates(root, tool, version)
 }
 
 func dispatchExecutableCandidatesIn(root, configTool, executable, version string) []string {
-	installDir := filepath.Join(root, configTool, version)
-
-	switch configTool {
-	case toolNodeJS:
-		switch executable {
-		case toolNode:
-			if runtime.GOOS == "windows" {
-				return []string{
-					filepath.Join(installDir, "node.cmd"),
-					filepath.Join(installDir, "node.exe"),
-					filepath.Join(installDir, "bin", "node.cmd"),
-					filepath.Join(installDir, "bin", "node.exe"),
-				}
-			}
-
-			return []string{
-				filepath.Join(installDir, "bin", "node"),
-				filepath.Join(installDir, "node"),
-			}
-		case toolNPM, toolNPX:
-			if runtime.GOOS == "windows" {
-				return []string{
-					filepath.Join(installDir, executable+".cmd"),
-					filepath.Join(installDir, executable),
-					filepath.Join(installDir, "bin", executable+".cmd"),
-					filepath.Join(installDir, "bin", executable),
-				}
-			}
-
-			return []string{
-				filepath.Join(installDir, "bin", executable),
-				filepath.Join(installDir, executable),
-			}
-		}
-	}
-
-	return nil
+	return NewDefaultToolRegistry().DispatchCandidates(root, configTool, executable, version)
 }
 
 func (s Store) installBinaries() error {
@@ -1217,32 +1108,17 @@ func windowsDispatcherBinary(selfPath string) installedBinary {
 }
 
 func (s Store) managedBinaries() []installedBinary {
-	return []installedBinary{
-		shellDispatchBinary("php"),
-		shellDispatchBinary("composer"),
-		shellDispatchBinary(toolNode),
-		shellDispatchBinary(toolNPM),
-		shellDispatchBinary(toolNPX),
-		shellDispatchBinary(toolNodeJS),
-		shellDispatchBinary(toolNginx),
-		shellDispatchBinary(toolMailpit),
-		shellDispatchBinary(toolMySQL),
-		shellDispatchBinary(toolMariaDB),
-		windowsDispatchBinary("php"),
-		windowsDispatchBinary("composer"),
-		windowsDispatchBinary(toolNode),
-		windowsDispatchBinary(toolNPM),
-		windowsDispatchBinary(toolNPX),
-		windowsDispatchBinary(toolNodeJS),
-		windowsDispatchBinary(toolNginx),
-		windowsDispatchBinary(toolMailpit),
-		windowsDispatchBinary(toolMySQL),
-		windowsDispatchBinary(toolMariaDB),
+	commands := s.toolRegistry().CleanupCommandNames()
+	binaries := make([]installedBinary, 0, len(commands)*2)
+	for _, command := range commands {
+		binaries = append(binaries, shellDispatchBinary(command), windowsDispatchBinary(command))
 	}
+
+	return binaries
 }
 
 func (s Store) managedBinariesForEnvironment(environment *Environment) []installedBinary {
-	tools := managedToolsForEnvironment(environment)
+	tools := s.toolRegistry().ActiveCommandNames(environment)
 	binaries := make([]installedBinary, 0, len(tools)*2)
 	for _, tool := range tools {
 		binaries = append(binaries, shellDispatchBinary(tool), windowsDispatchBinary(tool))
@@ -1266,31 +1142,7 @@ func (s Store) currentEnvironmentFromConfig(config Config) *Environment {
 }
 
 func managedToolsForEnvironment(environment *Environment) []string {
-	if environment == nil {
-		return nil
-	}
-
-	tools := make([]string, 0, 7)
-	if environment.PHPVersion != "" {
-		tools = append(tools, toolPHP)
-	}
-	if environment.ComposerVersion != "" {
-		tools = append(tools, toolComposer)
-	}
-	if environment.NodeJSVersion != "" {
-		tools = append(tools, toolNode, toolNPM, toolNPX)
-	}
-	if environment.NginxVersion != "" {
-		tools = append(tools, toolNginx)
-	}
-	if environment.Mailpit != nil && environment.Mailpit.Version != "" {
-		tools = append(tools, toolMailpit)
-	}
-	if environment.Database != nil && environment.Database.Engine != "" {
-		tools = append(tools, environment.Database.Engine)
-	}
-
-	return tools
+	return NewDefaultToolRegistry().ActiveCommandNames(environment)
 }
 
 func shellDispatchBinary(tool string) installedBinary {
@@ -1452,25 +1304,15 @@ func dispatcherBinaryFileName() string {
 }
 
 func (e Environment) toolVersion(tool string) string {
-	switch tool {
-	case toolPHP:
-		return e.PHPVersion
-	case toolComposer:
-		return e.ComposerVersion
-	case toolNodeJS, toolNode, toolNPM, toolNPX:
-		return e.NodeJSVersion
-	case toolNginx:
-		return e.NginxVersion
-	case toolMailpit:
-		if e.Mailpit != nil {
-			return e.Mailpit.Version
-		}
-		return ""
-	case toolMySQL, toolMariaDB:
-		return e.databaseToolVersion(tool)
-	default:
-		return ""
+	registry := NewDefaultToolRegistry()
+	if request, err := registry.ResolveDispatchRequest(tool); err == nil {
+		return request.plugin.Version(e)
 	}
+	if plugin, ok := registry.Plugin(tool); ok {
+		return plugin.Version(e)
+	}
+
+	return ""
 }
 
 type installedBinary struct {
@@ -1509,15 +1351,12 @@ type toolRequest struct {
 }
 
 func resolveToolRequest(tool string) (toolRequest, error) {
-	trimmed := strings.ToLower(strings.TrimSpace(tool))
-	switch trimmed {
-	case toolPHP, toolComposer, toolNginx, toolMailpit, toolMySQL, toolMariaDB:
-		return toolRequest{ConfigTool: trimmed, Executable: trimmed}, nil
-	case toolNode, toolNPM, toolNPX:
-		return toolRequest{ConfigTool: toolNodeJS, Executable: trimmed}, nil
-	default:
-		return toolRequest{}, fmt.Errorf("unsupported tool %q", tool)
+	request, err := NewDefaultToolRegistry().ResolveDispatchRequest(tool)
+	if err != nil {
+		return toolRequest{}, err
 	}
+
+	return toolRequest{ConfigTool: request.ConfigTool, Executable: request.Executable}, nil
 }
 
 func defaultCacheDir(projectDir string) string {

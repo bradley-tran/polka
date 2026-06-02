@@ -41,7 +41,8 @@ type ToolDownloader interface {
 }
 
 type HTTPToolDownloader struct {
-	Client *http.Client
+	Client  *http.Client
+	Plugins *ToolRegistry
 }
 
 type phpWindowsReleaseIndex map[string]phpWindowsRelease
@@ -232,24 +233,21 @@ func (d HTTPToolDownloader) Download(cacheDir, tool, version string) error {
 		client = &http.Client{Timeout: 10 * time.Minute}
 	}
 
-	switch tool {
-	case toolComposer:
-		return downloadComposer(client, cacheDir, version)
-	case toolPHP:
-		return downloadPHP(client, cacheDir, version)
-	case toolNodeJS:
-		return downloadNodeJS(client, cacheDir, version)
-	case toolNginx:
-		return downloadNginx(client, cacheDir, version)
-	case toolMailpit:
-		return downloadMailpit(client, cacheDir, version)
-	case toolMySQL:
-		return downloadMySQL(client, cacheDir, version)
-	case toolMariaDB:
-		return downloadMariaDB(client, cacheDir, version)
-	default:
+	registry := d.Plugins
+	if registry == nil {
+		registry = NewDefaultToolRegistry()
+	}
+	plugin, ok := registry.Plugin(tool)
+	if !ok {
 		return fmt.Errorf("unsupported tool %q", tool)
 	}
+
+	return plugin.Download(ToolDownloadContext{
+		Client:   client,
+		CacheDir: cacheDir,
+		Tool:     tool,
+		Version:  version,
+	})
 }
 
 func downloadMySQL(client *http.Client, cacheDir, version string) error {
