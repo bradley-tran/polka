@@ -2,18 +2,6 @@
 
 Polka is a CLI tool for PHP virtual environment management. It uses `polka.yaml` as the source of truth for environment selection, and the shims in `.polka/bin` dispatch to the locally installed tool versions selected for the active environment, including `php`, `composer`, and optional Node.js commands exposed as `node`, `npm`, and `npx` from the `nodejs` config key.
 
-## Project layout
-
-```text
-.
-|-- .polka/     # local environments and shims
-|-- cli/        # argument parsing and command handlers
-|-- backend/    # environment metadata and filesystem state
-|-- main.go     # CLI entrypoint
-|-- polka.yaml  # project config and current environment
-`-- README.md
-```
-
 ## Quick start
 
 ```bash

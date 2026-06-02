@@ -5,6 +5,8 @@ import (
 	"net"
 	"strconv"
 	"strings"
+
+	"polka/config"
 )
 
 const (
@@ -13,29 +15,8 @@ const (
 	DefaultMailpitUIPort   = 8025
 )
 
-type MailpitConfig struct {
-	Version  string `yaml:"version,omitempty"`
-	SMTPPort int    `yaml:"smtp-port,omitempty"`
-	UIPort   int    `yaml:"ui-port,omitempty"`
-	HTTPS    bool   `yaml:"https,omitempty"`
-}
-
 func normalizeMailpitConfig(mailpit *MailpitConfig) *MailpitConfig {
-	if mailpit == nil {
-		return nil
-	}
-
-	normalized := &MailpitConfig{
-		Version:  strings.TrimSpace(mailpit.Version),
-		SMTPPort: mailpit.SMTPPort,
-		UIPort:   mailpit.UIPort,
-		HTTPS:    mailpit.HTTPS,
-	}
-	if normalized.Version == "" && normalized.SMTPPort == 0 && normalized.UIPort == 0 && !normalized.HTTPS {
-		return nil
-	}
-
-	return normalized
+	return config.NormalizeMailpitConfig(mailpit)
 }
 
 func validateMailpitConfig(mailpit *MailpitConfig) error {

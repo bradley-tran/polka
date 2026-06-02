@@ -1,4 +1,4 @@
-package backend
+package tools
 
 import (
 	"archive/tar"
@@ -69,7 +69,7 @@ func TestResolveDatabaseDownloadAssetSupportsSeriesLabels(t *testing.T) {
 	}{
 		{
 			name:                "mysql windows",
-			tool:                toolMySQL,
+			tool:                MySQL,
 			version:             "8.4",
 			goos:                "windows",
 			goarch:              "amd64",
@@ -79,7 +79,7 @@ func TestResolveDatabaseDownloadAssetSupportsSeriesLabels(t *testing.T) {
 		},
 		{
 			name:                "mysql linux",
-			tool:                toolMySQL,
+			tool:                MySQL,
 			version:             "8.4",
 			goos:                "linux",
 			goarch:              "amd64",
@@ -89,7 +89,7 @@ func TestResolveDatabaseDownloadAssetSupportsSeriesLabels(t *testing.T) {
 		},
 		{
 			name:                "mariadb windows",
-			tool:                toolMariaDB,
+			tool:                MariaDB,
 			version:             "11.4",
 			goos:                "windows",
 			goarch:              "amd64",
@@ -99,7 +99,7 @@ func TestResolveDatabaseDownloadAssetSupportsSeriesLabels(t *testing.T) {
 		},
 		{
 			name:                "mariadb linux",
-			tool:                toolMariaDB,
+			tool:                MariaDB,
 			version:             "11.4",
 			goos:                "linux",
 			goarch:              "amd64",
@@ -109,7 +109,7 @@ func TestResolveDatabaseDownloadAssetSupportsSeriesLabels(t *testing.T) {
 		},
 		{
 			name:                "mariadb 11.8 windows",
-			tool:                toolMariaDB,
+			tool:                MariaDB,
 			version:             "11.8",
 			goos:                "windows",
 			goarch:              "amd64",
@@ -119,7 +119,7 @@ func TestResolveDatabaseDownloadAssetSupportsSeriesLabels(t *testing.T) {
 		},
 		{
 			name:                "mariadb 11.8 linux",
-			tool:                toolMariaDB,
+			tool:                MariaDB,
 			version:             "11.8",
 			goos:                "linux",
 			goarch:              "amd64",
@@ -364,11 +364,11 @@ func TestDownloadDatabaseAssetExtractsSupportedArchives(t *testing.T) {
 				ArchiveFormat:     test.format,
 			}
 
-			if err := downloadDatabaseAsset(server.Client(), cacheDir, toolMySQL, test.requestedVersion, asset); err != nil {
+			if err := downloadDatabaseAsset(server.Client(), cacheDir, MySQL, test.requestedVersion, asset); err != nil {
 				t.Fatalf("downloadDatabaseAsset(%s) error = %v", test.fileName, err)
 			}
 
-			installedPath := filepath.Join(cacheDir, toolMySQL, test.requestedVersion, test.expectedPath)
+			installedPath := filepath.Join(cacheDir, MySQL, test.requestedVersion, test.expectedPath)
 			if _, err := os.Stat(installedPath); err != nil {
 				t.Fatalf("Stat(%s) error = %v", installedPath, err)
 			}

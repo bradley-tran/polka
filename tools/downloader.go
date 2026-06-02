@@ -1,4 +1,4 @@
-package backend
+package tools
 
 import (
 	"archive/tar"
@@ -36,13 +36,13 @@ const (
 
 var composerReleaseLinkPattern = regexp.MustCompile(`(?:https://getcomposer\.org)?/download/([0-9]+(?:\.[0-9]+){1,2}(?:-[0-9A-Za-z.-]+)?)/composer\.phar`)
 
-type ToolDownloader interface {
+type Downloader interface {
 	Download(cacheDir, tool, version string) error
 }
 
-type HTTPToolDownloader struct {
+type HTTPDownloader struct {
 	Client  *http.Client
-	Plugins *ToolRegistry
+	Plugins *Registry
 }
 
 type phpWindowsReleaseIndex map[string]phpWindowsRelease
@@ -88,7 +88,7 @@ type databaseDownloadAsset struct {
 // Keep the initial database downloader deterministic by pinning exact assets
 // for the first supported release lines.
 var databaseDownloadCatalog = map[string]map[string]map[string]databaseDownloadAsset{
-	toolMySQL: {
+	MySQL: {
 		"8.4.9": {
 			"windows-amd64": {
 				FileName:          "mysql-8.4.9-winx64.zip",
@@ -106,7 +106,7 @@ var databaseDownloadCatalog = map[string]map[string]map[string]databaseDownloadA
 			},
 		},
 	},
-	toolMariaDB: {
+	MariaDB: {
 		"11.4.11": {
 			"windows-amd64": {
 				FileName:          "mariadb-11.4.11-winx64.zip",
@@ -227,7 +227,7 @@ var nodeJSDownloadCatalog = map[string]map[string]databaseDownloadAsset{
 	},
 }
 
-func (d HTTPToolDownloader) Download(cacheDir, tool, version string) error {
+func (d HTTPDownloader) Download(cacheDir, tool, version string) error {
 	client := d.Client
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Minute}
@@ -235,14 +235,14 @@ func (d HTTPToolDownloader) Download(cacheDir, tool, version string) error {
 
 	registry := d.Plugins
 	if registry == nil {
-		registry = NewDefaultToolRegistry()
+		registry = NewDefaultRegistry()
 	}
 	plugin, ok := registry.Plugin(tool)
 	if !ok {
 		return fmt.Errorf("unsupported tool %q", tool)
 	}
 
-	return plugin.Download(ToolDownloadContext{
+	return plugin.Download(DownloadContext{
 		Client:   client,
 		CacheDir: cacheDir,
 		Tool:     tool,
@@ -251,11 +251,11 @@ func (d HTTPToolDownloader) Download(cacheDir, tool, version string) error {
 }
 
 func downloadMySQL(client *http.Client, cacheDir, version string) error {
-	return downloadDatabaseTool(client, cacheDir, toolMySQL, version)
+	return downloadDatabaseTool(client, cacheDir, MySQL, version)
 }
 
 func downloadMariaDB(client *http.Client, cacheDir, version string) error {
-	return downloadDatabaseTool(client, cacheDir, toolMariaDB, version)
+	return downloadDatabaseTool(client, cacheDir, MariaDB, version)
 }
 
 func downloadNginx(client *http.Client, cacheDir, version string) error {
@@ -264,7 +264,7 @@ func downloadNginx(client *http.Client, cacheDir, version string) error {
 		return err
 	}
 
-	return downloadDatabaseAsset(client, cacheDir, toolNginx, version, asset)
+	return downloadDatabaseAsset(client, cacheDir, Nginx, version, asset)
 }
 
 func downloadMailpit(client *http.Client, cacheDir, version string) error {
@@ -273,7 +273,7 @@ func downloadMailpit(client *http.Client, cacheDir, version string) error {
 		return err
 	}
 
-	return downloadDatabaseAsset(client, cacheDir, toolMailpit, version, asset)
+	return downloadDatabaseAsset(client, cacheDir, Mailpit, version, asset)
 }
 
 func downloadNodeJS(client *http.Client, cacheDir, version string) error {
@@ -282,7 +282,7 @@ func downloadNodeJS(client *http.Client, cacheDir, version string) error {
 		return err
 	}
 
-	return downloadDatabaseAsset(client, cacheDir, toolNodeJS, version, asset)
+	return downloadDatabaseAsset(client, cacheDir, NodeJS, version, asset)
 }
 
 func downloadDatabaseTool(client *http.Client, cacheDir, tool, version string) error {
@@ -327,7 +327,7 @@ func resolveDatabaseDownloadAsset(tool, requestedVersion, goos, goarch string) (
 func resolveNginxDownloadAsset(requestedVersion, goos, goarch string) (string, databaseDownloadAsset, error) {
 	requestedVersion = strings.TrimSpace(requestedVersion)
 	if requestedVersion == "" {
-		return "", databaseDownloadAsset{}, fmt.Errorf("%s version cannot be empty", toolNginx)
+		return "", databaseDownloadAsset{}, fmt.Errorf("%s version cannot be empty", Nginx)
 	}
 
 	platformKey, err := nginxPlatformKey(goos, goarch)
@@ -337,13 +337,13 @@ func resolveNginxDownloadAsset(requestedVersion, goos, goarch string) (string, d
 
 	resolvedVersion, err := resolveDatabaseCatalogVersion(nginxDownloadCatalog, requestedVersion)
 	if err != nil {
-		return "", databaseDownloadAsset{}, fmt.Errorf("resolve %s version %q: %w", toolNginx, requestedVersion, err)
+		return "", databaseDownloadAsset{}, fmt.Errorf("resolve %s version %q: %w", Nginx, requestedVersion, err)
 	}
 
 	platformAssets := nginxDownloadCatalog[resolvedVersion]
 	asset, ok := platformAssets[platformKey]
 	if !ok {
-		return "", databaseDownloadAsset{}, fmt.Errorf("%s version %q is not available for %s/%s", toolNginx, resolvedVersion, goos, goarch)
+		return "", databaseDownloadAsset{}, fmt.Errorf("%s version %q is not available for %s/%s", Nginx, resolvedVersion, goos, goarch)
 	}
 
 	return resolvedVersion, asset, nil
@@ -352,7 +352,7 @@ func resolveNginxDownloadAsset(requestedVersion, goos, goarch string) (string, d
 func resolveMailpitDownloadAsset(requestedVersion, goos, goarch string) (string, databaseDownloadAsset, error) {
 	requestedVersion = strings.TrimSpace(requestedVersion)
 	if requestedVersion == "" {
-		return "", databaseDownloadAsset{}, fmt.Errorf("%s version cannot be empty", toolMailpit)
+		return "", databaseDownloadAsset{}, fmt.Errorf("%s version cannot be empty", Mailpit)
 	}
 
 	platformKey, err := mailpitPlatformKey(goos, goarch)
@@ -362,13 +362,13 @@ func resolveMailpitDownloadAsset(requestedVersion, goos, goarch string) (string,
 
 	resolvedVersion, err := resolveDatabaseCatalogVersion(mailpitDownloadCatalog, requestedVersion)
 	if err != nil {
-		return "", databaseDownloadAsset{}, fmt.Errorf("resolve %s version %q: %w", toolMailpit, requestedVersion, err)
+		return "", databaseDownloadAsset{}, fmt.Errorf("resolve %s version %q: %w", Mailpit, requestedVersion, err)
 	}
 
 	platformAssets := mailpitDownloadCatalog[resolvedVersion]
 	asset, ok := platformAssets[platformKey]
 	if !ok {
-		return "", databaseDownloadAsset{}, fmt.Errorf("%s version %q is not available for %s/%s", toolMailpit, resolvedVersion, goos, goarch)
+		return "", databaseDownloadAsset{}, fmt.Errorf("%s version %q is not available for %s/%s", Mailpit, resolvedVersion, goos, goarch)
 	}
 
 	return resolvedVersion, asset, nil
@@ -377,7 +377,7 @@ func resolveMailpitDownloadAsset(requestedVersion, goos, goarch string) (string,
 func resolveNodeJSDownloadAsset(requestedVersion, goos, goarch string) (string, databaseDownloadAsset, error) {
 	requestedVersion = strings.TrimSpace(requestedVersion)
 	if requestedVersion == "" {
-		return "", databaseDownloadAsset{}, fmt.Errorf("%s version cannot be empty", toolNodeJS)
+		return "", databaseDownloadAsset{}, fmt.Errorf("%s version cannot be empty", NodeJS)
 	}
 
 	platformKey, err := nodeJSPlatformKey(goos, goarch)
@@ -387,13 +387,13 @@ func resolveNodeJSDownloadAsset(requestedVersion, goos, goarch string) (string, 
 
 	resolvedVersion, err := resolveDatabaseCatalogVersion(nodeJSDownloadCatalog, requestedVersion)
 	if err != nil {
-		return "", databaseDownloadAsset{}, fmt.Errorf("resolve %s version %q: %w", toolNodeJS, requestedVersion, err)
+		return "", databaseDownloadAsset{}, fmt.Errorf("resolve %s version %q: %w", NodeJS, requestedVersion, err)
 	}
 
 	platformAssets := nodeJSDownloadCatalog[resolvedVersion]
 	asset, ok := platformAssets[platformKey]
 	if !ok {
-		return "", databaseDownloadAsset{}, fmt.Errorf("%s version %q is not available for %s/%s", toolNodeJS, resolvedVersion, goos, goarch)
+		return "", databaseDownloadAsset{}, fmt.Errorf("%s version %q is not available for %s/%s", NodeJS, resolvedVersion, goos, goarch)
 	}
 
 	return resolvedVersion, asset, nil
@@ -539,12 +539,12 @@ func downloadDatabaseAsset(client *http.Client, cacheDir, tool, version string, 
 }
 
 func downloadComposer(client *http.Client, cacheDir, version string) error {
-	if err := os.MkdirAll(filepath.Join(cacheDir, toolComposer), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(cacheDir, Composer), 0o755); err != nil {
 		return fmt.Errorf("create composer cache dir: %w", err)
 	}
 
-	cacheVersionDir := filepath.Join(cacheDir, toolComposer, version)
-	stagingDir, err := os.MkdirTemp(filepath.Join(cacheDir, toolComposer), version+"-tmp-")
+	cacheVersionDir := filepath.Join(cacheDir, Composer, version)
+	stagingDir, err := os.MkdirTemp(filepath.Join(cacheDir, Composer), version+"-tmp-")
 	if err != nil {
 		return fmt.Errorf("create composer staging dir: %w", err)
 	}
@@ -648,7 +648,7 @@ func downloadPHP(client *http.Client, cacheDir, version string) error {
 	if runtime.GOOS != "windows" {
 		return fmt.Errorf("automatic php download is only implemented on Windows")
 	}
-	if err := os.MkdirAll(filepath.Join(cacheDir, toolPHP), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(cacheDir, PHP), 0o755); err != nil {
 		return fmt.Errorf("create php cache dir: %w", err)
 	}
 
@@ -668,8 +668,8 @@ func downloadPHP(client *http.Client, cacheDir, version string) error {
 		return err
 	}
 
-	cacheVersionDir := filepath.Join(cacheDir, toolPHP, version)
-	stagingDir, err := os.MkdirTemp(filepath.Join(cacheDir, toolPHP), version+"-tmp-")
+	cacheVersionDir := filepath.Join(cacheDir, PHP, version)
+	stagingDir, err := os.MkdirTemp(filepath.Join(cacheDir, PHP), version+"-tmp-")
 	if err != nil {
 		return fmt.Errorf("create php staging dir: %w", err)
 	}

@@ -13,6 +13,9 @@ import (
 	"strings"
 
 	"github.com/goccy/go-yaml"
+
+	"polka/config"
+	"polka/tools"
 )
 
 const (
@@ -21,16 +24,6 @@ const (
 	binDirectoryName         = "bin"
 	envsDirectoryName        = "envs"
 	configVersion            = 1
-	toolPHP                  = "php"
-	toolComposer             = "composer"
-	toolNodeJS               = "nodejs"
-	toolNode                 = "node"
-	toolNPM                  = "npm"
-	toolNPX                  = "npx"
-	toolNginx                = "nginx"
-	toolMailpit              = "mailpit"
-	toolMySQL                = "mysql"
-	toolMariaDB              = "mariadb"
 	dispatcherBinaryName     = "polka"
 	dispatcherBatchFileName  = "polka.cmd"
 	sessionStartFileName     = "session-start"
@@ -39,39 +32,9 @@ const (
 )
 
 var (
-	validName                 = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
-	validVersion              = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
-	composerDefaultExtensions = []string{"openssl", "zip"}
+	validName    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+	validVersion = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 )
-
-type Environment struct {
-	Name            string            `yaml:"-"`
-	PHPVersion      string            `yaml:"php,omitempty"`
-	ComposerVersion string            `yaml:"composer,omitempty"`
-	NodeJSVersion   string            `yaml:"nodejs,omitempty"`
-	NginxVersion    string            `yaml:"nginx,omitempty"`
-	Docroot         string            `yaml:"docroot,omitempty"`
-	EnvFile         string            `yaml:"env-file,omitempty"`
-	EnvVars         map[string]string `yaml:"env-vars,omitempty"`
-	Database        *DatabaseConfig   `yaml:"database,omitempty"`
-	Mailpit         *MailpitConfig    `yaml:"mailpit,omitempty"`
-	PHPExtensions   map[string]bool   `yaml:"php-extensions,omitempty"`
-	Server          *ServerConfig     `yaml:"server,omitempty"`
-}
-
-type ServerConfig struct {
-	Hostname string `yaml:"hostname,omitempty"`
-	Port     int    `yaml:"port,omitempty"`
-	HTTPS    bool   `yaml:"https,omitempty"`
-}
-
-type InstallResult struct {
-	Tool       string
-	Version    string
-	CachePath  string
-	TargetPath string
-	Downloaded bool
-}
 
 type InstallProgressStage string
 
@@ -89,13 +52,6 @@ type InstallProgress struct {
 	Tool    string
 	Version string
 	Stage   InstallProgressStage
-}
-
-type Config struct {
-	Version      int                    `yaml:"version"`
-	Root         string                 `yaml:"root"`
-	Current      string                 `yaml:"current,omitempty"`
-	Environments map[string]Environment `yaml:"environments,omitempty"`
 }
 
 type Store struct {
@@ -419,7 +375,7 @@ func (s Store) install(name string, report func(InstallProgress)) ([]InstallResu
 	}
 	normalized := s.normalizeEnvironment(name, environment)
 	registry := s.toolRegistry()
-	installPHPExtensions := effectivePHPExtensionsForInstall(normalized)
+	installPHPExtensions := tools.EffectivePHPExtensionsForInstall(normalized)
 	if len(normalized.PHPExtensions) > 0 && normalized.PHPVersion == "" {
 		return nil, fmt.Errorf("environment %q defines php-extensions but does not define a php version", name)
 	}
@@ -472,7 +428,11 @@ func (s Store) install(name string, report func(InstallProgress)) ([]InstallResu
 			}
 		}
 		if err := plugin.PostInstall(ToolInstallContext{
-			Store:       s,
+			ProjectDir:  s.ProjectDir,
+			RootDir:     s.RootDir,
+			EnvsDir:     s.EnvsDir,
+			BinDir:      s.BinDir,
+			CacheDir:    s.CacheDir,
 			Environment: normalized,
 			Result:      results[len(results)-1],
 		}); err != nil {
@@ -631,7 +591,7 @@ func (s Store) ResolveTool(tool string) (string, error) {
 		return "", fmt.Errorf("no active environment selected")
 	}
 
-	version := strings.TrimSpace(request.plugin.Version(*current))
+	version := strings.TrimSpace(request.Plugin.Version(*current))
 	if version == "" {
 		return "", fmt.Errorf("environment %q does not define a %s version", current.Name, request.ConfigTool)
 	}
@@ -712,152 +672,7 @@ func (s Store) relativeRootDir() string {
 }
 
 func (s Store) normalizeEnvironment(name string, environment Environment) Environment {
-	return Environment{
-		Name:            name,
-		PHPVersion:      strings.TrimSpace(environment.PHPVersion),
-		ComposerVersion: strings.TrimSpace(environment.ComposerVersion),
-		NodeJSVersion:   strings.TrimSpace(environment.NodeJSVersion),
-		NginxVersion:    strings.TrimSpace(environment.NginxVersion),
-		Docroot:         strings.TrimSpace(environment.Docroot),
-		EnvFile:         strings.TrimSpace(environment.EnvFile),
-		EnvVars:         normalizeEnvironmentVariables(environment.EnvVars),
-		Database:        normalizeDatabaseConfig(environment.Database),
-		Mailpit:         normalizeMailpitConfig(environment.Mailpit),
-		PHPExtensions:   normalizePHPExtensions(environment.PHPExtensions),
-		Server:          normalizeServerConfig(environment.Server),
-	}
-}
-
-func normalizeEnvironmentVariables(values map[string]string) map[string]string {
-	if len(values) == 0 {
-		return nil
-	}
-
-	normalized := make(map[string]string, len(values))
-	for key, value := range values {
-		normalized[strings.TrimSpace(key)] = value
-	}
-
-	return normalized
-}
-
-func normalizeServerConfig(server *ServerConfig) *ServerConfig {
-	if server == nil {
-		return nil
-	}
-
-	normalized := &ServerConfig{
-		Hostname: strings.TrimSpace(server.Hostname),
-		Port:     server.Port,
-		HTTPS:    server.HTTPS,
-	}
-	if normalized.Hostname == "" && normalized.Port == 0 && !normalized.HTTPS {
-		return nil
-	}
-
-	return normalized
-}
-
-func normalizePHPExtensions(extensions map[string]bool) map[string]bool {
-	if len(extensions) == 0 {
-		return nil
-	}
-
-	normalized := make(map[string]bool, len(extensions))
-	for name, enabled := range extensions {
-		normalized[strings.ToLower(strings.TrimSpace(name))] = enabled
-	}
-
-	return normalized
-}
-
-func effectivePHPExtensionsForInstall(environment Environment) map[string]bool {
-	if environment.ComposerVersion == "" {
-		return environment.PHPExtensions
-	}
-
-	effective := make(map[string]bool, len(environment.PHPExtensions)+len(composerDefaultExtensions))
-	for name, enabled := range environment.PHPExtensions {
-		effective[name] = enabled
-	}
-	for _, name := range composerDefaultExtensions {
-		if _, ok := effective[name]; !ok {
-			effective[name] = true
-		}
-	}
-
-	return effective
-}
-
-func (s Store) configureInstalledPHPExtensions(version string, extensions map[string]bool) error {
-	if len(extensions) == 0 {
-		return nil
-	}
-
-	phpPath, err := s.resolveInstalledTool(toolPHP, version)
-	if err != nil {
-		return err
-	}
-
-	phpDir := filepath.Dir(phpPath)
-	extensionDir, err := filepath.Rel(phpDir, filepath.Join(s.EnvsDir, toolPHP, version, "ext"))
-	if err != nil {
-		extensionDir = filepath.Join(s.EnvsDir, toolPHP, version, "ext")
-	}
-
-	configData, err := renderPHPExtensionConfig(filepath.ToSlash(extensionDir), extensions)
-	if err != nil {
-		return err
-	}
-
-	phpIniPath := filepath.Join(phpDir, "php.ini")
-	if err := os.WriteFile(phpIniPath, configData, 0o644); err != nil {
-		return fmt.Errorf("write php extension config: %w", err)
-	}
-
-	return nil
-}
-
-func renderPHPExtensionConfig(extensionDir string, extensions map[string]bool) ([]byte, error) {
-	names := make([]string, 0, len(extensions))
-	for name := range extensions {
-		if err := validatePHPExtensionName(name); err != nil {
-			return nil, err
-		}
-
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	var builder strings.Builder
-	builder.WriteString("; Generated by Polka. Re-run polka install after editing php-extensions.\n")
-	builder.WriteString("[PHP]\n")
-	builder.WriteString("extension_dir=\"")
-	builder.WriteString(extensionDir)
-	builder.WriteString("\"\n")
-	for _, name := range names {
-		if extensions[name] {
-			builder.WriteString("extension=")
-		} else {
-			builder.WriteString(";extension=")
-		}
-		builder.WriteString(name)
-		builder.WriteByte('\n')
-	}
-
-	return []byte(builder.String()), nil
-}
-
-func validatePHPExtensionName(name string) error {
-	trimmed := strings.TrimSpace(name)
-	if trimmed == "" {
-		return fmt.Errorf("php extension name cannot be empty")
-	}
-	if !validName.MatchString(trimmed) {
-		return fmt.Errorf("invalid php extension name %q: use letters, numbers, dots, dashes, or underscores", name)
-	}
-
-	return nil
+	return config.NormalizeEnvironment(name, environment)
 }
 
 func (s Store) resolveInstalledTool(tool, version string) (string, error) {
@@ -1301,18 +1116,6 @@ func dispatcherBinaryFileName() string {
 	}
 
 	return dispatcherBinaryName
-}
-
-func (e Environment) toolVersion(tool string) string {
-	registry := NewDefaultToolRegistry()
-	if request, err := registry.ResolveDispatchRequest(tool); err == nil {
-		return request.plugin.Version(e)
-	}
-	if plugin, ok := registry.Plugin(tool); ok {
-		return plugin.Version(e)
-	}
-
-	return ""
 }
 
 type installedBinary struct {
