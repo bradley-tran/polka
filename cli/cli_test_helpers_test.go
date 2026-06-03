@@ -16,6 +16,7 @@ type testEnvironmentConfig struct {
 	PHP           string                `yaml:"php"`
 	Composer      string                `yaml:"composer"`
 	NodeJS        string                `yaml:"nodejs,omitempty"`
+	Mago          string                `yaml:"mago,omitempty"`
 	Nginx         string                `yaml:"nginx,omitempty"`
 	PHPMyAdmin    *testPHPMyAdminConfig `yaml:"phpmyadmin,omitempty"`
 	Docroot       string                `yaml:"docroot,omitempty"`

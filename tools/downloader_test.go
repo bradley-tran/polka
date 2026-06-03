@@ -302,6 +302,58 @@ func TestResolveMailpitDownloadAssetSupportsSeriesLabels(t *testing.T) {
 	}
 }
 
+func TestResolveMagoDownloadAssetSupportsSeriesLabels(t *testing.T) {
+	tests := []struct {
+		name                string
+		version             string
+		goos                string
+		goarch              string
+		wantResolvedVersion string
+		wantFileName        string
+		wantFormat          archiveFormat
+	}{
+		{
+			name:                "windows",
+			version:             "1.27",
+			goos:                "windows",
+			goarch:              "amd64",
+			wantResolvedVersion: "1.27.0",
+			wantFileName:        "mago-1.27.0-x86_64-pc-windows-msvc.zip",
+			wantFormat:          archiveFormatZip,
+		},
+		{
+			name:                "linux",
+			version:             "1.27",
+			goos:                "linux",
+			goarch:              "amd64",
+			wantResolvedVersion: "1.27.0",
+			wantFileName:        "mago-1.27.0-x86_64-unknown-linux-gnu.tar.gz",
+			wantFormat:          archiveFormatTarGz,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resolvedVersion, asset, err := resolveMagoDownloadAsset(test.version, test.goos, test.goarch)
+			if err != nil {
+				t.Fatalf("resolveMagoDownloadAsset(%s) error = %v", test.version, err)
+			}
+			if resolvedVersion != test.wantResolvedVersion {
+				t.Fatalf("resolveMagoDownloadAsset(%s) resolved version = %q, want %q", test.version, resolvedVersion, test.wantResolvedVersion)
+			}
+			if asset.FileName != test.wantFileName {
+				t.Fatalf("resolveMagoDownloadAsset(%s) file = %q, want %q", test.version, asset.FileName, test.wantFileName)
+			}
+			if asset.ArchiveFormat != test.wantFormat {
+				t.Fatalf("resolveMagoDownloadAsset(%s) archive format = %q, want %q", test.version, asset.ArchiveFormat, test.wantFormat)
+			}
+			if asset.ChecksumAlgorithm != checksumAlgorithmSHA256 {
+				t.Fatalf("resolveMagoDownloadAsset(%s) checksum algorithm = %q, want %q", test.version, asset.ChecksumAlgorithm, checksumAlgorithmSHA256)
+			}
+		})
+	}
+}
+
 func TestResolvePHPMyAdminDownloadAssetSupportsSeriesLabels(t *testing.T) {
 	resolvedVersion, asset, err := resolvePHPMyAdminDownloadAsset("5.2")
 	if err != nil {

@@ -39,6 +39,8 @@ func TestStoreInitInstallsDispatcherShimsWithoutToolShims(t *testing.T) {
 	assertPathMissing(t, filepath.Join(store.BinDir, toolNPX+".cmd"))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolNodeJS))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolNodeJS+".cmd"))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolMago))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolMago+".cmd"))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolMySQL))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolMySQL+".cmd"))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolMariaDB))
@@ -126,6 +128,8 @@ func TestStoreUseSyncsManagedBinariesForCurrentEnvironment(t *testing.T) {
 	assertPathMissing(t, filepath.Join(store.BinDir, toolNPM+".cmd"))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolNPX))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolNPX+".cmd"))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolMago))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolMago+".cmd"))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolMySQL))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolMySQL+".cmd"))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolMariaDB))
@@ -450,6 +454,54 @@ func TestStoreInstallDownloadsConfiguredNginx(t *testing.T) {
 	}
 	assertPathExists(t, filepath.Join(store.BinDir, toolNginx))
 	assertPathExists(t, filepath.Join(store.BinDir, toolNginx+".cmd"))
+}
+
+func TestStoreInstallDownloadsConfiguredMago(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+	store.Downloader = fakeDownloader(func(cacheDir, tool, version string) error {
+		_ = writeCachedTool(t, cacheDir, tool, version)
+		return nil
+	})
+
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{MagoVersion: "1.27"}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	results, err := store.Install("demo")
+	if err != nil {
+		t.Fatalf("Install(demo) error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("Install(demo) length = %d, want 1", len(results))
+	}
+	result := results[0]
+	if result.Tool != toolMago || result.Version != "1.27" {
+		t.Fatalf("Install(demo) result = %#v, want mago 1.27", result)
+	}
+	if !result.Downloaded {
+		t.Fatalf("Install(demo) Downloaded = false, want true after cache miss")
+	}
+	assertPathExists(t, result.TargetPath)
+	if !strings.Contains(result.TargetPath, filepath.Join("envs", toolMago, "1.27")) {
+		t.Fatalf("Install(demo) target = %q, want versioned mago env path", result.TargetPath)
+	}
+
+	if err := store.Use("demo"); err != nil {
+		t.Fatalf("Use(demo) error = %v", err)
+	}
+	resolvedPath, err := store.ResolveTool(toolMago)
+	if err != nil {
+		t.Fatalf("ResolveTool(mago) error = %v", err)
+	}
+	if resolvedPath != result.TargetPath {
+		t.Fatalf("ResolveTool(mago) = %q, want %q", resolvedPath, result.TargetPath)
+	}
+	assertPathExists(t, filepath.Join(store.BinDir, toolMago))
+	assertPathExists(t, filepath.Join(store.BinDir, toolMago+".cmd"))
 }
 
 func TestStoreInstallDownloadsConfiguredMailpit(t *testing.T) {

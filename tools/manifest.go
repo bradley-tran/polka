@@ -141,7 +141,7 @@ func (m pluginManifest) validate() error {
 func validateManifestVersionBinding(tool string, binding manifestVersionBinding) error {
 	source := strings.ToLower(strings.TrimSpace(binding.Source))
 	switch source {
-	case PHP, Composer, NodeJS, Nginx, Mailpit, PHPMyAdmin:
+	case PHP, Composer, NodeJS, Mago, Nginx, Mailpit, PHPMyAdmin:
 		return nil
 	case "database":
 		engine := strings.ToLower(strings.TrimSpace(binding.DatabaseEngine))
@@ -260,6 +260,8 @@ func manifestVersionFunc(m pluginManifest) func(config.Environment) string {
 			return environment.ComposerVersion
 		case NodeJS:
 			return environment.NodeJSVersion
+		case Mago:
+			return environment.MagoVersion
 		case Nginx:
 			return environment.NginxVersion
 		case Mailpit:

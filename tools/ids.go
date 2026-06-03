@@ -13,6 +13,7 @@ const (
 	Node       = "node"
 	NPM        = "npm"
 	NPX        = "npx"
+	Mago       = "mago"
 	Nginx      = "nginx"
 	Mailpit    = "mailpit"
 	PHPMyAdmin = "phpmyadmin"

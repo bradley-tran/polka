@@ -52,7 +52,7 @@ This package exists to avoid import cycles. Both `backend` and `tools` can depen
 
 The `tools` package owns managed tool behavior:
 
-- tool IDs such as `PHP`, `Composer`, `NodeJS`, `Nginx`, `Mailpit`, `PHPMyAdmin`, `MySQL`, and `MariaDB`
+- tool IDs such as `PHP`, `Composer`, `NodeJS`, `Mago`, `Nginx`, `Mailpit`, `PHPMyAdmin`, `MySQL`, and `MariaDB`
 - plugin interfaces and registry
 - embedded YAML manifests for built-in plugin metadata
 - install candidate paths
@@ -91,7 +91,7 @@ Managed command shims in `.polka/bin` call back into Polka:
 
 Dispatch resolution uses the active environment from `polka.yaml`, maps command names to their config tool, and locates the installed executable under `.polka/envs`.
 
-Node.js is config-only as `nodejs`, but it exposes `node`, `npm`, and `npx` dispatch commands. The `nodejs` command itself is not generated as an active shim. phpMyAdmin does not generate a command shim either; Polka installs its web app archive, writes its generated `config.inc.php`, and uses its UI port/HTTPS settings when the CLI starts the managed phpMyAdmin service.
+Node.js is config-only as `nodejs`, but it exposes `node`, `npm`, and `npx` dispatch commands. The `nodejs` command itself is not generated as an active shim. Mago is configured with `mago` and exposes the `mago` dispatch command. phpMyAdmin does not generate a command shim either; Polka installs its web app archive, writes its generated `config.inc.php`, and uses its UI port/HTTPS settings when the CLI starts the managed phpMyAdmin service.
 
 ## Runtime Services
 

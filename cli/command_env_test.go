@@ -49,6 +49,9 @@ func TestRunInitUsesDotPolkaByDefault(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(projectDir, ".polka", "bin", "nodejs.cmd")); !os.IsNotExist(err) {
 		t.Fatalf("Stat(.polka/bin/nodejs.cmd) error = %v, want legacy nodejs shim removed", err)
 	}
+	if _, err := os.Stat(filepath.Join(projectDir, ".polka", "bin", "mago.cmd")); !os.IsNotExist(err) {
+		t.Fatalf("Stat(.polka/bin/mago.cmd) error = %v, want missing shim without active environment", err)
+	}
 	if _, err := os.Stat(filepath.Join(projectDir, ".polka", "bin", "mysql.cmd")); !os.IsNotExist(err) {
 		t.Fatalf("Stat(.polka/bin/mysql.cmd) error = %v, want missing shim without active environment", err)
 	}
@@ -436,6 +439,7 @@ func TestRunStatusShowsToolsEachOnOwnLine(t *testing.T) {
 				PHP:        "8.4",
 				Composer:   "2.8",
 				NodeJS:     "24",
+				Mago:       "1.27",
 				Nginx:      "1.30",
 				PHPMyAdmin: &testPHPMyAdminConfig{Version: "5.2", Port: 8082, HTTPS: true},
 				Database:   &testDatabaseConfig{Engine: "mysql", Version: "8.0", Port: 3306},
@@ -462,6 +466,7 @@ func TestRunStatusShowsToolsEachOnOwnLine(t *testing.T) {
 		"php 8.4\n",
 		"composer 2.8\n",
 		"nodejs 24\n",
+		"mago 1.27\n",
 		"nginx 1.30\n",
 		"phpmyadmin 5.2 ui=https://127.0.0.1:8082\n",
 		"database mysql:8.0@3306\n",
@@ -538,6 +543,9 @@ func TestRunStatusUsesDefaultServerAddress(t *testing.T) {
 	}
 	if !strings.Contains(output, "nodejs unset\n") {
 		t.Fatalf("Run(status) stdout = %q, want nodejs unset line", output)
+	}
+	if !strings.Contains(output, "mago unset\n") {
+		t.Fatalf("Run(status) stdout = %q, want mago unset line", output)
 	}
 	if !strings.Contains(output, "nginx unset\n") {
 		t.Fatalf("Run(status) stdout = %q, want nginx unset line", output)

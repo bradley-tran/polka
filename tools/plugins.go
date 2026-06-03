@@ -5,6 +5,7 @@ func DefaultPlugins() []Plugin {
 		phpPlugin(),
 		composerPlugin(),
 		nodeJSPlugin(),
+		magoPlugin(),
 		nginxPlugin(),
 		mailpitPlugin(),
 		phpMyAdminPlugin(),

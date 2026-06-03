@@ -7,6 +7,7 @@ type Environment struct {
 	PHPVersion      string            `yaml:"php,omitempty"`
 	ComposerVersion string            `yaml:"composer,omitempty"`
 	NodeJSVersion   string            `yaml:"nodejs,omitempty"`
+	MagoVersion     string            `yaml:"mago,omitempty"`
 	NginxVersion    string            `yaml:"nginx,omitempty"`
 	Docroot         string            `yaml:"docroot,omitempty"`
 	EnvFile         string            `yaml:"env-file,omitempty"`
@@ -56,6 +57,7 @@ func NormalizeEnvironment(name string, environment Environment) Environment {
 		PHPVersion:      strings.TrimSpace(environment.PHPVersion),
 		ComposerVersion: strings.TrimSpace(environment.ComposerVersion),
 		NodeJSVersion:   strings.TrimSpace(environment.NodeJSVersion),
+		MagoVersion:     strings.TrimSpace(environment.MagoVersion),
 		NginxVersion:    strings.TrimSpace(environment.NginxVersion),
 		Docroot:         strings.TrimSpace(environment.Docroot),
 		EnvFile:         strings.TrimSpace(environment.EnvFile),

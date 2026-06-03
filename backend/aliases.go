@@ -29,6 +29,7 @@ const (
 	toolNode       = tools.Node
 	toolNPM        = tools.NPM
 	toolNPX        = tools.NPX
+	toolMago       = tools.Mago
 	toolNginx      = tools.Nginx
 	toolMailpit    = tools.Mailpit
 	toolPHPMyAdmin = tools.PHPMyAdmin

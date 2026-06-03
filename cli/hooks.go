@@ -88,6 +88,7 @@ func defaultCLIHookRegistry() cliHookRegistry {
 			{id: "php", run: statusPHPConfigHook},
 			{id: "composer", run: statusComposerConfigHook},
 			{id: "nodejs", run: statusNodeJSConfigHook},
+			{id: "mago", run: statusMagoConfigHook},
 			{id: "nginx", run: statusNginxConfigHook},
 			{id: "phpmyadmin", run: statusPHPMyAdminConfigHook},
 			{id: "database", run: statusDatabaseConfigHook},
@@ -342,6 +343,11 @@ func statusComposerConfigHook(ctx statusHookContext) error {
 
 func statusNodeJSConfigHook(ctx statusHookContext) error {
 	_, _ = fmt.Fprintf(ctx.Stdout, "nodejs %s\n", labelOrUnset(ctx.Environment.NodeJSVersion))
+	return nil
+}
+
+func statusMagoConfigHook(ctx statusHookContext) error {
+	_, _ = fmt.Fprintf(ctx.Stdout, "mago %s\n", labelOrUnset(ctx.Environment.MagoVersion))
 	return nil
 }
 
