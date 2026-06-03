@@ -7,14 +7,12 @@ import (
 	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"hash"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -23,20 +21,6 @@ import (
 	"github.com/ulikunitz/xz"
 )
 
-const (
-	composerDownloadBaseURL   = "https://getcomposer.org/download"
-	mysqlDownloadBaseURL      = "https://dev.mysql.com/get/Downloads"
-	mariadbArchiveBaseURL     = "https://archive.mariadb.org"
-	mailpitDownloadBaseURL    = "https://github.com/axllent/mailpit/releases/download"
-	nodeJSDownloadBaseURL     = "https://nodejs.org/dist"
-	nginxDownloadBaseURL      = "https://nginx.org/download"
-	phpMyAdminDownloadBaseURL = "https://files.phpmyadmin.net/phpMyAdmin"
-	phpWindowsReleaseURL      = "https://windows.php.net/downloads/releases/releases.json"
-	phpWindowsBaseURL         = "https://windows.php.net/downloads/releases"
-)
-
-var composerReleaseLinkPattern = regexp.MustCompile(`(?:https://getcomposer\.org)?/download/([0-9]+(?:\.[0-9]+){1,2}(?:-[0-9A-Za-z.-]+)?)/composer\.phar`)
-
 type Downloader interface {
 	Download(cacheDir, tool, version string) error
 }
@@ -44,22 +28,6 @@ type Downloader interface {
 type HTTPDownloader struct {
 	Client  *http.Client
 	Plugins *Registry
-}
-
-type phpWindowsReleaseIndex map[string]phpWindowsRelease
-
-type phpWindowsRelease struct {
-	Version  string
-	Variants map[string]phpWindowsVariant
-}
-
-type phpWindowsVariant struct {
-	Zip phpWindowsAsset `json:"zip"`
-}
-
-type phpWindowsAsset struct {
-	Path   string `json:"path"`
-	SHA256 string `json:"sha256"`
 }
 
 type checksumAlgorithm string
@@ -77,168 +45,6 @@ const (
 	archiveFormatTarGz archiveFormat = "tar.gz"
 	archiveFormatTarXz archiveFormat = "tar.xz"
 )
-
-type databaseDownloadAsset struct {
-	FileName          string
-	URL               string
-	Checksum          string
-	ChecksumAlgorithm checksumAlgorithm
-	ArchiveFormat     archiveFormat
-}
-
-// Keep the initial database downloader deterministic by pinning exact assets
-// for the first supported release lines.
-var databaseDownloadCatalog = map[string]map[string]map[string]databaseDownloadAsset{
-	MySQL: {
-		"8.4.9": {
-			"windows-amd64": {
-				FileName:          "mysql-8.4.9-winx64.zip",
-				URL:               mysqlDownloadBaseURL + "/MySQL-8.4/mysql-8.4.9-winx64.zip",
-				Checksum:          "fe14853279d1704e0f0eb253ea8c8d33",
-				ChecksumAlgorithm: checksumAlgorithmMD5,
-				ArchiveFormat:     archiveFormatZip,
-			},
-			"linux-amd64": {
-				FileName:          "mysql-8.4.9-linux-glibc2.17-x86_64.tar.xz",
-				URL:               mysqlDownloadBaseURL + "/MySQL-8.4/mysql-8.4.9-linux-glibc2.17-x86_64.tar.xz",
-				Checksum:          "9d88f7a1b06d6620a92f88b7f5a6050f",
-				ChecksumAlgorithm: checksumAlgorithmMD5,
-				ArchiveFormat:     archiveFormatTarXz,
-			},
-		},
-	},
-	MariaDB: {
-		"11.4.11": {
-			"windows-amd64": {
-				FileName:          "mariadb-11.4.11-winx64.zip",
-				URL:               mariadbArchiveBaseURL + "/mariadb-11.4.11/winx64-packages/mariadb-11.4.11-winx64.zip",
-				Checksum:          "dc8b121a2c0c34a12bd8f4aec37592e00734468aee578030a7f5c971adf68255",
-				ChecksumAlgorithm: checksumAlgorithmSHA256,
-				ArchiveFormat:     archiveFormatZip,
-			},
-			"linux-amd64": {
-				FileName:          "mariadb-11.4.11-linux-systemd-x86_64.tar.gz",
-				URL:               mariadbArchiveBaseURL + "/mariadb-11.4.11/bintar-linux-systemd-x86_64/mariadb-11.4.11-linux-systemd-x86_64.tar.gz",
-				Checksum:          "aceffff76d478d462ceb6f4e5f7807c83cf3087f6953c75e0473f9d5aa3cf63e",
-				ChecksumAlgorithm: checksumAlgorithmSHA256,
-				ArchiveFormat:     archiveFormatTarGz,
-			},
-		},
-		"11.8.7": {
-			"windows-amd64": {
-				FileName:          "mariadb-11.8.7-winx64.zip",
-				URL:               mariadbArchiveBaseURL + "/mariadb-11.8.7/winx64-packages/mariadb-11.8.7-winx64.zip",
-				Checksum:          "a613dd4179294dceb023b66bebaea0926c0a89dfb5f6a4d3bc96f63cdb07ea04",
-				ChecksumAlgorithm: checksumAlgorithmSHA256,
-				ArchiveFormat:     archiveFormatZip,
-			},
-			"linux-amd64": {
-				FileName:          "mariadb-11.8.7-linux-systemd-x86_64.tar.gz",
-				URL:               mariadbArchiveBaseURL + "/mariadb-11.8.7/bintar-linux-systemd-x86_64/mariadb-11.8.7-linux-systemd-x86_64.tar.gz",
-				Checksum:          "2763b3f21a79732dea55eb093ce6d1c1bd323182d2bc75f40fd0c52fe65e2462",
-				ChecksumAlgorithm: checksumAlgorithmSHA256,
-				ArchiveFormat:     archiveFormatTarGz,
-			},
-		},
-	},
-}
-
-var nginxDownloadCatalog = map[string]map[string]databaseDownloadAsset{
-	"1.30.2": {
-		"windows-amd64": {
-			FileName:          "nginx-1.30.2.zip",
-			URL:               nginxDownloadBaseURL + "/nginx-1.30.2.zip",
-			ChecksumAlgorithm: checksumAlgorithmNone,
-			ArchiveFormat:     archiveFormatZip,
-		},
-	},
-	"1.28.3": {
-		"windows-amd64": {
-			FileName:          "nginx-1.28.3.zip",
-			URL:               nginxDownloadBaseURL + "/nginx-1.28.3.zip",
-			ChecksumAlgorithm: checksumAlgorithmNone,
-			ArchiveFormat:     archiveFormatZip,
-		},
-	},
-}
-
-var mailpitDownloadCatalog = map[string]map[string]databaseDownloadAsset{
-	"1.30.1": {
-		"windows-amd64": {
-			FileName:          "mailpit-windows-amd64.zip",
-			URL:               mailpitDownloadBaseURL + "/v1.30.1/mailpit-windows-amd64.zip",
-			ChecksumAlgorithm: checksumAlgorithmNone,
-			ArchiveFormat:     archiveFormatZip,
-		},
-		"linux-amd64": {
-			FileName:          "mailpit-linux-amd64.tar.gz",
-			URL:               mailpitDownloadBaseURL + "/v1.30.1/mailpit-linux-amd64.tar.gz",
-			ChecksumAlgorithm: checksumAlgorithmNone,
-			ArchiveFormat:     archiveFormatTarGz,
-		},
-	},
-	"1.30.0": {
-		"windows-amd64": {
-			FileName:          "mailpit-windows-amd64.zip",
-			URL:               mailpitDownloadBaseURL + "/v1.30.0/mailpit-windows-amd64.zip",
-			ChecksumAlgorithm: checksumAlgorithmNone,
-			ArchiveFormat:     archiveFormatZip,
-		},
-		"linux-amd64": {
-			FileName:          "mailpit-linux-amd64.tar.gz",
-			URL:               mailpitDownloadBaseURL + "/v1.30.0/mailpit-linux-amd64.tar.gz",
-			ChecksumAlgorithm: checksumAlgorithmNone,
-			ArchiveFormat:     archiveFormatTarGz,
-		},
-	},
-}
-
-var phpMyAdminDownloadCatalog = map[string]map[string]databaseDownloadAsset{
-	"5.2.3": {
-		"all": {
-			FileName:          "phpMyAdmin-5.2.3-all-languages.zip",
-			URL:               phpMyAdminDownloadBaseURL + "/5.2.3/phpMyAdmin-5.2.3-all-languages.zip",
-			Checksum:          "2d2e13c735366d318425c78e4ee2cc8fc648d77faba3ddea2cd516e43885733f",
-			ChecksumAlgorithm: checksumAlgorithmSHA256,
-			ArchiveFormat:     archiveFormatZip,
-		},
-	},
-}
-
-var nodeJSDownloadCatalog = map[string]map[string]databaseDownloadAsset{
-	"24.16.0": {
-		"windows-amd64": {
-			FileName:          "node-v24.16.0-win-x64.zip",
-			URL:               nodeJSDownloadBaseURL + "/v24.16.0/node-v24.16.0-win-x64.zip",
-			Checksum:          "edaca9bd58ec8e92037dac4e877d52f6b8f430b81c18b57e264b4e2fb111cd56",
-			ChecksumAlgorithm: checksumAlgorithmSHA256,
-			ArchiveFormat:     archiveFormatZip,
-		},
-		"linux-amd64": {
-			FileName:          "node-v24.16.0-linux-x64.tar.xz",
-			URL:               nodeJSDownloadBaseURL + "/v24.16.0/node-v24.16.0-linux-x64.tar.xz",
-			Checksum:          "d804845d34eddc21dc1092b519d643ef40b1f58ec5dec5c22b1f4bd8fabde6c9",
-			ChecksumAlgorithm: checksumAlgorithmSHA256,
-			ArchiveFormat:     archiveFormatTarXz,
-		},
-	},
-	"22.22.3": {
-		"windows-amd64": {
-			FileName:          "node-v22.22.3-win-x64.zip",
-			URL:               nodeJSDownloadBaseURL + "/v22.22.3/node-v22.22.3-win-x64.zip",
-			Checksum:          "6c8d54f635feff4df76c2ca80f45332eb2ff57d25226edce36592e51a177ee33",
-			ChecksumAlgorithm: checksumAlgorithmSHA256,
-			ArchiveFormat:     archiveFormatZip,
-		},
-		"linux-amd64": {
-			FileName:          "node-v22.22.3-linux-x64.tar.xz",
-			URL:               nodeJSDownloadBaseURL + "/v22.22.3/node-v22.22.3-linux-x64.tar.xz",
-			Checksum:          "2e5d13569282d016861fae7c8f935e741693c269101a5bebcf761a5376d1f99f",
-			ChecksumAlgorithm: checksumAlgorithmSHA256,
-			ArchiveFormat:     archiveFormatTarXz,
-		},
-	},
-}
 
 func (d HTTPDownloader) Download(cacheDir, tool, version string) error {
 	client := d.Client
@@ -263,225 +69,75 @@ func (d HTTPDownloader) Download(cacheDir, tool, version string) error {
 	})
 }
 
-func downloadMySQL(client *http.Client, cacheDir, version string) error {
-	return downloadDatabaseTool(client, cacheDir, MySQL, version)
-}
-
-func downloadMariaDB(client *http.Client, cacheDir, version string) error {
-	return downloadDatabaseTool(client, cacheDir, MariaDB, version)
-}
-
-func downloadNginx(client *http.Client, cacheDir, version string) error {
-	_, asset, err := resolveNginxDownloadAsset(version, runtime.GOOS, runtime.GOARCH)
+func downloadBuiltinManifestTool(client *http.Client, cacheDir, tool, version string) error {
+	manifest, err := loadBuiltinManifest(tool)
 	if err != nil {
 		return err
 	}
 
-	return downloadDatabaseAsset(client, cacheDir, Nginx, version, asset)
+	return downloadManifestCatalogAsset(client, cacheDir, tool, version, manifest.Download.Catalog, runtime.GOOS, runtime.GOARCH)
 }
 
-func downloadMailpit(client *http.Client, cacheDir, version string) error {
-	_, asset, err := resolveMailpitDownloadAsset(version, runtime.GOOS, runtime.GOARCH)
+func downloadManifestCatalogAsset(client *http.Client, cacheDir, tool, version string, catalog downloadCatalog, goos, goarch string) error {
+	_, asset, err := resolveDownloadCatalogAsset(tool, catalog, version, goos, goarch)
 	if err != nil {
 		return err
 	}
 
-	return downloadDatabaseAsset(client, cacheDir, Mailpit, version, asset)
+	return downloadManifestAsset(client, cacheDir, tool, version, asset)
 }
 
-func downloadPHPMyAdmin(client *http.Client, cacheDir, version string) error {
-	_, asset, err := resolvePHPMyAdminDownloadAsset(version)
+func resolveBuiltinManifestDownloadAsset(tool, requestedVersion, goos, goarch string) (string, databaseDownloadAsset, error) {
+	manifest, err := loadBuiltinManifest(tool)
 	if err != nil {
-		return err
+		return "", databaseDownloadAsset{}, err
 	}
 
-	return downloadDatabaseAsset(client, cacheDir, PHPMyAdmin, version, asset)
+	return resolveDownloadCatalogAsset(tool, manifest.Download.Catalog, requestedVersion, goos, goarch)
 }
 
-func downloadNodeJS(client *http.Client, cacheDir, version string) error {
-	_, asset, err := resolveNodeJSDownloadAsset(version, runtime.GOOS, runtime.GOARCH)
-	if err != nil {
-		return err
-	}
-
-	return downloadDatabaseAsset(client, cacheDir, NodeJS, version, asset)
-}
-
-func downloadDatabaseTool(client *http.Client, cacheDir, tool, version string) error {
-	_, asset, err := resolveDatabaseDownloadAsset(tool, version, runtime.GOOS, runtime.GOARCH)
-	if err != nil {
-		return err
-	}
-
-	return downloadDatabaseAsset(client, cacheDir, tool, version, asset)
-}
-
-func resolveDatabaseDownloadAsset(tool, requestedVersion, goos, goarch string) (string, databaseDownloadAsset, error) {
+func resolveDownloadCatalogAsset(tool string, catalog downloadCatalog, requestedVersion, goos, goarch string) (string, databaseDownloadAsset, error) {
 	requestedVersion = strings.TrimSpace(requestedVersion)
 	if requestedVersion == "" {
 		return "", databaseDownloadAsset{}, fmt.Errorf("%s version cannot be empty", tool)
 	}
-
-	platformKey, err := databasePlatformKey(goos, goarch)
-	if err != nil {
-		return "", databaseDownloadAsset{}, err
+	if len(catalog) == 0 {
+		return "", databaseDownloadAsset{}, fmt.Errorf("%s does not define automatic downloads", tool)
 	}
 
-	toolCatalog, ok := databaseDownloadCatalog[tool]
-	if !ok {
-		return "", databaseDownloadAsset{}, fmt.Errorf("unsupported tool %q", tool)
-	}
-
-	resolvedVersion, err := resolveDatabaseCatalogVersion(toolCatalog, requestedVersion)
+	resolvedVersion, err := resolveCatalogVersion(catalog, requestedVersion)
 	if err != nil {
 		return "", databaseDownloadAsset{}, fmt.Errorf("resolve %s version %q: %w", tool, requestedVersion, err)
 	}
 
-	platformAssets := toolCatalog[resolvedVersion]
-	asset, ok := platformAssets[platformKey]
-	if !ok {
-		return "", databaseDownloadAsset{}, fmt.Errorf("%s version %q is not available for %s/%s", tool, resolvedVersion, goos, goarch)
+	platformAssets := catalog[resolvedVersion]
+	for _, key := range downloadPlatformKeys(goos, goarch) {
+		if asset, ok := platformAssets[key]; ok {
+			return resolvedVersion, asset, nil
+		}
 	}
 
-	return resolvedVersion, asset, nil
+	return "", databaseDownloadAsset{}, fmt.Errorf("%s version %q is not available for %s/%s", tool, resolvedVersion, goos, goarch)
 }
 
-func resolveNginxDownloadAsset(requestedVersion, goos, goarch string) (string, databaseDownloadAsset, error) {
-	requestedVersion = strings.TrimSpace(requestedVersion)
-	if requestedVersion == "" {
-		return "", databaseDownloadAsset{}, fmt.Errorf("%s version cannot be empty", Nginx)
+func downloadPlatformKeys(goos, goarch string) []string {
+	keys := []string{}
+	if strings.TrimSpace(goos) != "" && strings.TrimSpace(goarch) != "" {
+		keys = append(keys, platformKey(goos, goarch))
 	}
-
-	platformKey, err := nginxPlatformKey(goos, goarch)
-	if err != nil {
-		return "", databaseDownloadAsset{}, err
-	}
-
-	resolvedVersion, err := resolveDatabaseCatalogVersion(nginxDownloadCatalog, requestedVersion)
-	if err != nil {
-		return "", databaseDownloadAsset{}, fmt.Errorf("resolve %s version %q: %w", Nginx, requestedVersion, err)
-	}
-
-	platformAssets := nginxDownloadCatalog[resolvedVersion]
-	asset, ok := platformAssets[platformKey]
-	if !ok {
-		return "", databaseDownloadAsset{}, fmt.Errorf("%s version %q is not available for %s/%s", Nginx, resolvedVersion, goos, goarch)
-	}
-
-	return resolvedVersion, asset, nil
+	keys = append(keys, "all")
+	return keys
 }
 
-func resolveMailpitDownloadAsset(requestedVersion, goos, goarch string) (string, databaseDownloadAsset, error) {
-	requestedVersion = strings.TrimSpace(requestedVersion)
-	if requestedVersion == "" {
-		return "", databaseDownloadAsset{}, fmt.Errorf("%s version cannot be empty", Mailpit)
-	}
-
-	platformKey, err := mailpitPlatformKey(goos, goarch)
-	if err != nil {
-		return "", databaseDownloadAsset{}, err
-	}
-
-	resolvedVersion, err := resolveDatabaseCatalogVersion(mailpitDownloadCatalog, requestedVersion)
-	if err != nil {
-		return "", databaseDownloadAsset{}, fmt.Errorf("resolve %s version %q: %w", Mailpit, requestedVersion, err)
-	}
-
-	platformAssets := mailpitDownloadCatalog[resolvedVersion]
-	asset, ok := platformAssets[platformKey]
-	if !ok {
-		return "", databaseDownloadAsset{}, fmt.Errorf("%s version %q is not available for %s/%s", Mailpit, resolvedVersion, goos, goarch)
-	}
-
-	return resolvedVersion, asset, nil
-}
-
-func resolvePHPMyAdminDownloadAsset(requestedVersion string) (string, databaseDownloadAsset, error) {
-	requestedVersion = strings.TrimSpace(requestedVersion)
-	if requestedVersion == "" {
-		return "", databaseDownloadAsset{}, fmt.Errorf("%s version cannot be empty", PHPMyAdmin)
-	}
-
-	resolvedVersion, err := resolveDatabaseCatalogVersion(phpMyAdminDownloadCatalog, requestedVersion)
-	if err != nil {
-		return "", databaseDownloadAsset{}, fmt.Errorf("resolve %s version %q: %w", PHPMyAdmin, requestedVersion, err)
-	}
-
-	asset, ok := phpMyAdminDownloadCatalog[resolvedVersion]["all"]
-	if !ok {
-		return "", databaseDownloadAsset{}, fmt.Errorf("%s version %q is not available", PHPMyAdmin, resolvedVersion)
-	}
-
-	return resolvedVersion, asset, nil
-}
-
-func resolveNodeJSDownloadAsset(requestedVersion, goos, goarch string) (string, databaseDownloadAsset, error) {
-	requestedVersion = strings.TrimSpace(requestedVersion)
-	if requestedVersion == "" {
-		return "", databaseDownloadAsset{}, fmt.Errorf("%s version cannot be empty", NodeJS)
-	}
-
-	platformKey, err := nodeJSPlatformKey(goos, goarch)
-	if err != nil {
-		return "", databaseDownloadAsset{}, err
-	}
-
-	resolvedVersion, err := resolveDatabaseCatalogVersion(nodeJSDownloadCatalog, requestedVersion)
-	if err != nil {
-		return "", databaseDownloadAsset{}, fmt.Errorf("resolve %s version %q: %w", NodeJS, requestedVersion, err)
-	}
-
-	platformAssets := nodeJSDownloadCatalog[resolvedVersion]
-	asset, ok := platformAssets[platformKey]
-	if !ok {
-		return "", databaseDownloadAsset{}, fmt.Errorf("%s version %q is not available for %s/%s", NodeJS, resolvedVersion, goos, goarch)
-	}
-
-	return resolvedVersion, asset, nil
-}
-
-func databasePlatformKey(goos, goarch string) (string, error) {
-	switch {
-	case goos == "windows" && goarch == "amd64":
-		return "windows-amd64", nil
-	case goos == "linux" && goarch == "amd64":
-		return "linux-amd64", nil
-	default:
-		return "", fmt.Errorf("automatic database downloads are only implemented for Windows amd64 and Linux amd64")
-	}
-}
-
-func nginxPlatformKey(goos, goarch string) (string, error) {
-	if goos == "windows" && goarch == "amd64" {
-		return "windows-amd64", nil
-	}
-
-	return "", fmt.Errorf("automatic nginx downloads are only implemented on Windows amd64")
-}
-
-func nodeJSPlatformKey(goos, goarch string) (string, error) {
-	switch {
-	case goos == "windows" && goarch == "amd64":
-		return "windows-amd64", nil
-	case goos == "linux" && goarch == "amd64":
-		return "linux-amd64", nil
-	default:
-		return "", fmt.Errorf("automatic nodejs downloads are only implemented for Windows amd64 and Linux amd64")
-	}
-}
-
-func mailpitPlatformKey(goos, goarch string) (string, error) {
-	switch {
-	case goos == "windows" && goarch == "amd64":
-		return "windows-amd64", nil
-	case goos == "linux" && goarch == "amd64":
-		return "linux-amd64", nil
-	default:
-		return "", fmt.Errorf("automatic mailpit downloads are only implemented for Windows amd64 and Linux amd64")
-	}
+func platformKey(goos, goarch string) string {
+	return strings.TrimSpace(goos) + "-" + strings.TrimSpace(goarch)
 }
 
 func resolveDatabaseCatalogVersion(catalog map[string]map[string]databaseDownloadAsset, requested string) (string, error) {
+	return resolveCatalogVersion(downloadCatalog(catalog), requested)
+}
+
+func resolveCatalogVersion(catalog downloadCatalog, requested string) (string, error) {
 	if _, ok := catalog[requested]; ok {
 		return requested, nil
 	}
@@ -546,6 +202,10 @@ func compareCatalogVersions(left, right string) int {
 }
 
 func downloadDatabaseAsset(client *http.Client, cacheDir, tool, version string, asset databaseDownloadAsset) error {
+	return downloadManifestAsset(client, cacheDir, tool, version, asset)
+}
+
+func downloadManifestAsset(client *http.Client, cacheDir, tool, version string, asset downloadAsset) error {
 	if err := os.MkdirAll(filepath.Join(cacheDir, tool), 0o755); err != nil {
 		return fmt.Errorf("create %s cache dir: %w", tool, err)
 	}
@@ -577,242 +237,6 @@ func downloadDatabaseAsset(client *http.Client, cacheDir, tool, version string, 
 	}
 
 	return finalizeCacheVersion(cacheVersionDir, payloadDir)
-}
-
-func downloadComposer(client *http.Client, cacheDir, version string) error {
-	if err := os.MkdirAll(filepath.Join(cacheDir, Composer), 0o755); err != nil {
-		return fmt.Errorf("create composer cache dir: %w", err)
-	}
-
-	cacheVersionDir := filepath.Join(cacheDir, Composer, version)
-	stagingDir, err := os.MkdirTemp(filepath.Join(cacheDir, Composer), version+"-tmp-")
-	if err != nil {
-		return fmt.Errorf("create composer staging dir: %w", err)
-	}
-	defer os.RemoveAll(stagingDir)
-
-	targetPath := filepath.Join(stagingDir, "bin", "composer.phar")
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
-		return fmt.Errorf("create composer target dir: %w", err)
-	}
-
-	url, checksumURL, err := resolveComposerDownloadURLs(client, version)
-	if err != nil {
-		return err
-	}
-	if err := downloadFile(client, url, targetPath); err != nil {
-		return err
-	}
-	if err := verifyFileSHA256(client, targetPath, checksumURL); err != nil {
-		return err
-	}
-
-	return finalizeCacheVersion(cacheVersionDir, stagingDir)
-}
-
-func resolveComposerDownloadURLs(client *http.Client, version string) (string, string, error) {
-	resolvedVersion := strings.TrimSpace(version)
-	if composerVersionNeedsResolution(resolvedVersion) {
-		var err error
-		resolvedVersion, err = resolveComposerReleaseVersion(client, resolvedVersion)
-		if err != nil {
-			return "", "", err
-		}
-	}
-
-	url := fmt.Sprintf("%s/%s/composer.phar", composerDownloadBaseURL, resolvedVersion)
-	return url, url + ".sha256sum", nil
-}
-
-func composerVersionNeedsResolution(version string) bool {
-	version = strings.TrimSpace(version)
-	if version == "" {
-		return false
-	}
-
-	return !strings.Contains(version, "-") && strings.Count(version, ".") < 2
-}
-
-func resolveComposerReleaseVersion(client *http.Client, requested string) (string, error) {
-	response, err := client.Get(composerDownloadBaseURL + "/")
-	if err != nil {
-		return "", fmt.Errorf("download composer release index: %w", err)
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("download composer release index: unexpected status %s", response.Status)
-	}
-
-	page, err := io.ReadAll(response.Body)
-	if err != nil {
-		return "", fmt.Errorf("read composer release index: %w", err)
-	}
-
-	resolvedVersion, err := selectComposerReleaseVersion(string(page), requested)
-	if err != nil {
-		return "", fmt.Errorf("resolve composer version %q: %w", requested, err)
-	}
-
-	return resolvedVersion, nil
-}
-
-func selectComposerReleaseVersion(page, requested string) (string, error) {
-	requested = strings.TrimSpace(requested)
-	if requested == "" {
-		return "", fmt.Errorf("requested composer version is empty")
-	}
-
-	allowPrerelease := strings.Contains(requested, "-")
-	seen := map[string]struct{}{}
-	for _, match := range composerReleaseLinkPattern.FindAllStringSubmatch(page, -1) {
-		version := strings.TrimSpace(match[1])
-		if _, ok := seen[version]; ok {
-			continue
-		}
-		seen[version] = struct{}{}
-
-		if version != requested && !strings.HasPrefix(version, requested+".") {
-			continue
-		}
-		if !allowPrerelease && strings.Contains(version, "-") {
-			continue
-		}
-
-		return version, nil
-	}
-
-	return "", fmt.Errorf("no matching release found")
-}
-
-func downloadPHP(client *http.Client, cacheDir, version string) error {
-	if runtime.GOOS != "windows" {
-		return fmt.Errorf("automatic php download is only implemented on Windows")
-	}
-	if err := os.MkdirAll(filepath.Join(cacheDir, PHP), 0o755); err != nil {
-		return fmt.Errorf("create php cache dir: %w", err)
-	}
-
-	index, err := fetchPHPWindowsReleaseIndex(client)
-	if err != nil {
-		return err
-	}
-
-	series := phpSeries(version)
-	release, ok := index[series]
-	if !ok {
-		return fmt.Errorf("php version %q is not available in the Windows release index", version)
-	}
-
-	asset, err := selectPHPWindowsAsset(release)
-	if err != nil {
-		return err
-	}
-
-	cacheVersionDir := filepath.Join(cacheDir, PHP, version)
-	stagingDir, err := os.MkdirTemp(filepath.Join(cacheDir, PHP), version+"-tmp-")
-	if err != nil {
-		return fmt.Errorf("create php staging dir: %w", err)
-	}
-	defer os.RemoveAll(stagingDir)
-
-	archivePath := filepath.Join(stagingDir, filepath.Base(asset.Path))
-	archiveURL := fmt.Sprintf("%s/%s", phpWindowsBaseURL, asset.Path)
-	if err := downloadFile(client, archiveURL, archivePath); err != nil {
-		return err
-	}
-	if err := verifyChecksum(asset.SHA256, archivePath); err != nil {
-		return err
-	}
-	if err := extractZipArchive(archivePath, stagingDir); err != nil {
-		return err
-	}
-	if _, err := os.Stat(filepath.Join(stagingDir, "php.exe")); err != nil {
-		return fmt.Errorf("downloaded php archive did not contain php.exe: %w", err)
-	}
-
-	return finalizeCacheVersion(cacheVersionDir, stagingDir)
-}
-
-func fetchPHPWindowsReleaseIndex(client *http.Client) (phpWindowsReleaseIndex, error) {
-	response, err := client.Get(phpWindowsReleaseURL)
-	if err != nil {
-		return nil, fmt.Errorf("download php release index: %w", err)
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("download php release index: unexpected status %s", response.Status)
-	}
-
-	var index phpWindowsReleaseIndex
-	if err := json.NewDecoder(response.Body).Decode(&index); err != nil {
-		return nil, fmt.Errorf("decode php release index: %w", err)
-	}
-
-	return index, nil
-}
-
-func (r *phpWindowsRelease) UnmarshalJSON(data []byte) error {
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-
-	r.Variants = map[string]phpWindowsVariant{}
-	for key, value := range raw {
-		switch key {
-		case "version":
-			if err := json.Unmarshal(value, &r.Version); err != nil {
-				return err
-			}
-		case "source", "test_pack":
-			continue
-		default:
-			var variant phpWindowsVariant
-			if err := json.Unmarshal(value, &variant); err != nil {
-				continue
-			}
-			if variant.Zip.Path != "" {
-				r.Variants[key] = variant
-			}
-		}
-	}
-
-	return nil
-}
-
-func selectPHPWindowsAsset(release phpWindowsRelease) (phpWindowsAsset, error) {
-	architecture := "x64"
-	if runtime.GOARCH == "386" {
-		architecture = "x86"
-	}
-
-	preferences := []string{
-		"nts-vs17-" + architecture,
-		"nts-vs16-" + architecture,
-		"nts-vc15-" + architecture,
-		"ts-vs17-" + architecture,
-		"ts-vs16-" + architecture,
-		"ts-vc15-" + architecture,
-	}
-
-	for _, key := range preferences {
-		if variant, ok := release.Variants[key]; ok && variant.Zip.Path != "" {
-			return variant.Zip, nil
-		}
-	}
-
-	return phpWindowsAsset{}, fmt.Errorf("no compatible Windows PHP binary found for %s on %s", release.Version, architecture)
-}
-
-func phpSeries(version string) string {
-	parts := strings.Split(strings.TrimSpace(version), ".")
-	if len(parts) >= 2 {
-		return parts[0] + "." + parts[1]
-	}
-
-	return strings.TrimSpace(version)
 }
 
 func finalizeCacheVersion(targetDir, stagingDir string) error {

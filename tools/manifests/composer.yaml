@@ -1,0 +1,20 @@
+id: composer
+version:
+  source: composer
+install-candidates:
+  windows-amd64:
+    - bin/composer.cmd
+    - bin/composer.bat
+    - bin/composer.exe
+    - bin/composer.phar
+    - composer.cmd
+    - composer.bat
+    - composer.exe
+    - composer.phar
+  linux-amd64:
+    - bin/composer
+    - bin/composer.phar
+    - composer
+    - composer.phar
+dispatch-commands:
+  - composer

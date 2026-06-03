@@ -1,0 +1,16 @@
+id: php
+version:
+  source: php
+install-candidates:
+  windows-amd64:
+    - bin/php.exe
+    - bin/php.cmd
+    - bin/php.bat
+    - php.exe
+    - php.cmd
+    - php.bat
+  linux-amd64:
+    - bin/php
+    - php
+dispatch-commands:
+  - php

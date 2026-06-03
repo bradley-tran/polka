@@ -1,0 +1,24 @@
+id: nginx
+version:
+  source: nginx
+install-candidates:
+  windows-amd64:
+    - nginx.exe
+    - sbin/nginx.exe
+  linux-amd64:
+    - sbin/nginx
+    - nginx
+dispatch-commands:
+  - nginx
+download:
+  catalog:
+    1.30.2:
+      windows-amd64:
+        filename: nginx-1.30.2.zip
+        url: https://nginx.org/download/nginx-1.30.2.zip
+        archive-format: zip
+    1.28.3:
+      windows-amd64:
+        filename: nginx-1.28.3.zip
+        url: https://nginx.org/download/nginx-1.28.3.zip
+        archive-format: zip

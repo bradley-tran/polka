@@ -54,14 +54,14 @@ The `tools` package owns managed tool behavior:
 
 - tool IDs such as `PHP`, `Composer`, `NodeJS`, `Nginx`, `Mailpit`, `PHPMyAdmin`, `MySQL`, and `MariaDB`
 - plugin interfaces and registry
-- built-in plugin definitions
+- embedded YAML manifests for built-in plugin metadata
 - install candidate paths
 - dispatch command mappings
 - download catalogs and archive extraction
-- per-tool downloader hooks
+- per-tool Go hooks for dynamic downloads or post-install behavior
 - PHP extension post-install config generation
 
-The current plugin system is internal and compile-time only. Polka does not load third-party plugins from disk or from `polka.yaml`.
+The current plugin system is internal and compile-time only. Built-in plugin metadata lives in `tools/manifests/*.yaml` and is embedded into the binary; Polka does not load third-party plugins from disk or from `polka.yaml`. The manifest parser accepts bytes so future external loading can reuse the schema, but that loading behavior is intentionally not implemented yet.
 
 ## Tool Install Flow
 
@@ -133,10 +133,11 @@ To add a new managed tool:
 3. Implement version lookup from `config.Environment`.
 4. Implement validation if the tool has nested config.
 5. Implement install candidates and dispatch candidates.
-6. Add a download hook and catalog entries if Polka should download it automatically.
-7. Register the plugin in `tools.DefaultPlugins`.
-8. Add tests in `tools` for registry, candidate, and downloader behavior.
-9. Add backend or CLI tests only when the new tool changes project state, shims, command output, or runtime behavior.
+6. Add embedded manifest download catalog entries if Polka should download it automatically.
+7. Add a focused per-tool Go file only for hook wiring, dynamic download logic, validation, or post-install behavior.
+8. Register the plugin in `tools.DefaultPlugins`.
+9. Add tests in `tools` for registry, manifest, candidate, and downloader behavior.
+10. Add backend or CLI tests only when the new tool changes project state, shims, command output, or runtime behavior.
 
 Do not add runtime plugin loading without a separate design. That would need config schema, trust/security rules, loading behavior, versioning, and error reporting.
 

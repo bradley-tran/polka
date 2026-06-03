@@ -1,0 +1,371 @@
+package tools
+
+import (
+	"embed"
+	"fmt"
+	"path/filepath"
+	"runtime"
+	"strings"
+
+	"github.com/goccy/go-yaml"
+
+	"polka/config"
+)
+
+//go:embed manifests/*.yaml
+var builtinManifestFiles embed.FS
+
+type pluginHooks struct {
+	validate    func(config.Environment) error
+	download    func(DownloadContext) error
+	postInstall func(InstallContext) error
+}
+
+type pluginManifest struct {
+	ID                 string                           `yaml:"id"`
+	Version            manifestVersionBinding           `yaml:"version"`
+	InstallCandidates  manifestPlatformPaths            `yaml:"install-candidates"`
+	DispatchCommands   []string                         `yaml:"dispatch-commands"`
+	CleanupCommands    []string                         `yaml:"cleanup-commands"`
+	ActiveCommands     []string                         `yaml:"active-commands"`
+	DispatchCandidates map[string]manifestPlatformPaths `yaml:"dispatch-candidates"`
+	Download           manifestDownload                 `yaml:"download"`
+}
+
+type manifestVersionBinding struct {
+	Source         string `yaml:"source"`
+	DatabaseEngine string `yaml:"database-engine"`
+}
+
+type manifestPlatformPaths map[string][]string
+
+type manifestDownload struct {
+	Catalog downloadCatalog `yaml:"catalog"`
+}
+
+type downloadCatalog map[string]map[string]downloadAsset
+
+type downloadAsset struct {
+	FileName          string            `yaml:"filename"`
+	URL               string            `yaml:"url"`
+	Checksum          string            `yaml:"checksum"`
+	ChecksumAlgorithm checksumAlgorithm `yaml:"checksum-algorithm"`
+	ArchiveFormat     archiveFormat     `yaml:"archive-format"`
+}
+
+type databaseDownloadAsset = downloadAsset
+
+func newManifestPlugin(name string, hooks pluginHooks) Plugin {
+	manifest, err := loadBuiltinManifest(name)
+	if err != nil {
+		panic(err)
+	}
+	plugin, err := manifest.toPlugin(hooks)
+	if err != nil {
+		panic(err)
+	}
+
+	return plugin
+}
+
+func loadBuiltinManifest(name string) (pluginManifest, error) {
+	path := "manifests/" + strings.TrimSpace(name) + ".yaml"
+	data, err := builtinManifestFiles.ReadFile(path)
+	if err != nil {
+		return pluginManifest{}, fmt.Errorf("read builtin tool manifest %s: %w", path, err)
+	}
+
+	return parsePluginManifest(data)
+}
+
+func parsePluginManifest(data []byte) (pluginManifest, error) {
+	var manifest pluginManifest
+	if err := yaml.Unmarshal(data, &manifest); err != nil {
+		return pluginManifest{}, fmt.Errorf("parse tool manifest: %w", err)
+	}
+	if err := manifest.validate(); err != nil {
+		return pluginManifest{}, err
+	}
+
+	return manifest, nil
+}
+
+func (m pluginManifest) validate() error {
+	id := strings.ToLower(strings.TrimSpace(m.ID))
+	if id == "" {
+		return fmt.Errorf("tool manifest id cannot be empty")
+	}
+	if !validName.MatchString(id) {
+		return fmt.Errorf("invalid tool manifest id %q: use letters, numbers, dots, dashes, or underscores", m.ID)
+	}
+	if strings.TrimSpace(m.Version.Source) == "" {
+		return fmt.Errorf("tool manifest %q requires version.source", id)
+	}
+	if err := validateManifestVersionBinding(id, m.Version); err != nil {
+		return err
+	}
+	if len(m.InstallCandidates) == 0 {
+		return fmt.Errorf("tool manifest %q requires install-candidates", id)
+	}
+	if err := validateManifestPlatformPaths(id, "install-candidates", m.InstallCandidates); err != nil {
+		return err
+	}
+	for command, paths := range m.DispatchCandidates {
+		if strings.TrimSpace(command) == "" {
+			return fmt.Errorf("tool manifest %q has empty dispatch-candidates command", id)
+		}
+		if err := validateManifestPlatformPaths(id, "dispatch-candidates."+command, paths); err != nil {
+			return err
+		}
+	}
+	for version, platformAssets := range m.Download.Catalog {
+		if strings.TrimSpace(version) == "" {
+			return fmt.Errorf("tool manifest %q has empty download catalog version", id)
+		}
+		if len(platformAssets) == 0 {
+			return fmt.Errorf("tool manifest %q download catalog version %q has no assets", id, version)
+		}
+		for platform, asset := range platformAssets {
+			if !validDownloadPlatform(platform) {
+				return fmt.Errorf("tool manifest %q download version %q has unsupported platform %q", id, version, platform)
+			}
+			if err := validateDownloadAsset(id, version, platform, asset); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func validateManifestVersionBinding(tool string, binding manifestVersionBinding) error {
+	source := strings.ToLower(strings.TrimSpace(binding.Source))
+	switch source {
+	case PHP, Composer, NodeJS, Nginx, Mailpit, PHPMyAdmin:
+		return nil
+	case "database":
+		engine := strings.ToLower(strings.TrimSpace(binding.DatabaseEngine))
+		if engine == "" {
+			return fmt.Errorf("tool manifest %q database version source requires database-engine", tool)
+		}
+		if !validName.MatchString(engine) {
+			return fmt.Errorf("tool manifest %q has invalid database-engine %q", tool, binding.DatabaseEngine)
+		}
+		return nil
+	default:
+		return fmt.Errorf("tool manifest %q has unsupported version.source %q", tool, binding.Source)
+	}
+}
+
+func validateManifestPlatformPaths(tool, field string, paths manifestPlatformPaths) error {
+	for platform, candidates := range paths {
+		if strings.TrimSpace(platform) == "" {
+			return fmt.Errorf("tool manifest %q has empty %s platform", tool, field)
+		}
+		if len(candidates) == 0 {
+			return fmt.Errorf("tool manifest %q %s platform %q has no paths", tool, field, platform)
+		}
+		for _, candidate := range candidates {
+			if err := validateManifestRelativePath(candidate); err != nil {
+				return fmt.Errorf("tool manifest %q %s platform %q: %w", tool, field, platform, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func validateManifestRelativePath(candidate string) error {
+	trimmed := strings.TrimSpace(candidate)
+	if trimmed == "" {
+		return fmt.Errorf("candidate path cannot be empty")
+	}
+	if filepath.IsAbs(trimmed) {
+		return fmt.Errorf("candidate path %q must be relative", candidate)
+	}
+	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(trimmed)))
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
+		return fmt.Errorf("candidate path %q must stay inside the install directory", candidate)
+	}
+
+	return nil
+}
+
+func validateDownloadAsset(tool, version, platform string, asset downloadAsset) error {
+	if strings.TrimSpace(asset.FileName) == "" {
+		return fmt.Errorf("tool manifest %q download %q/%s requires filename", tool, version, platform)
+	}
+	if strings.TrimSpace(asset.URL) == "" {
+		return fmt.Errorf("tool manifest %q download %q/%s requires url", tool, version, platform)
+	}
+	switch asset.ChecksumAlgorithm {
+	case checksumAlgorithmNone, checksumAlgorithmMD5, checksumAlgorithmSHA256:
+	default:
+		return fmt.Errorf("tool manifest %q download %q/%s has unsupported checksum algorithm %q", tool, version, platform, asset.ChecksumAlgorithm)
+	}
+	switch asset.ArchiveFormat {
+	case archiveFormatZip, archiveFormatTarGz, archiveFormatTarXz:
+	default:
+		return fmt.Errorf("tool manifest %q download %q/%s has unsupported archive format %q", tool, version, platform, asset.ArchiveFormat)
+	}
+	if asset.ChecksumAlgorithm != checksumAlgorithmNone && strings.TrimSpace(asset.Checksum) == "" {
+		return fmt.Errorf("tool manifest %q download %q/%s requires checksum", tool, version, platform)
+	}
+
+	return nil
+}
+
+func validDownloadPlatform(platform string) bool {
+	switch strings.TrimSpace(platform) {
+	case "windows-amd64", "linux-amd64", "all":
+		return true
+	default:
+		return false
+	}
+}
+
+func (m pluginManifest) toPlugin(hooks pluginHooks) (Plugin, error) {
+	manifestID := strings.ToLower(strings.TrimSpace(m.ID))
+	download := hooks.download
+	if download == nil && len(m.Download.Catalog) > 0 {
+		download = func(ctx DownloadContext) error {
+			return downloadManifestCatalogAsset(ctx.Client, ctx.CacheDir, manifestID, ctx.Version, m.Download.Catalog, runtime.GOOS, runtime.GOARCH)
+		}
+	}
+
+	return builtinPlugin{
+		id:                 manifestID,
+		version:            manifestVersionFunc(m),
+		validate:           hooks.validate,
+		installCandidates:  manifestInstallCandidatesFunc(m),
+		dispatchCommands:   normalizeCommands(m.DispatchCommands),
+		cleanupCommands:    normalizeCommands(m.CleanupCommands),
+		activeCommands:     manifestActiveCommandsFunc(m),
+		dispatchCandidates: manifestDispatchCandidatesFunc(m),
+		download:           download,
+		postInstall:        hooks.postInstall,
+	}, nil
+}
+
+func manifestVersionFunc(m pluginManifest) func(config.Environment) string {
+	id := strings.ToLower(strings.TrimSpace(m.ID))
+	source := strings.ToLower(strings.TrimSpace(m.Version.Source))
+	databaseEngine := strings.ToLower(strings.TrimSpace(m.Version.DatabaseEngine))
+
+	return func(environment config.Environment) string {
+		switch source {
+		case PHP:
+			return environment.PHPVersion
+		case Composer:
+			return environment.ComposerVersion
+		case NodeJS:
+			return environment.NodeJSVersion
+		case Nginx:
+			return environment.NginxVersion
+		case Mailpit:
+			if environment.Mailpit == nil {
+				return ""
+			}
+			return environment.Mailpit.Version
+		case PHPMyAdmin:
+			if environment.PHPMyAdmin == nil {
+				return ""
+			}
+			return environment.PHPMyAdmin.Version
+		case "database":
+			if environment.Database == nil || strings.ToLower(strings.TrimSpace(environment.Database.Engine)) != databaseEngine {
+				return ""
+			}
+			return environment.Database.Version
+		default:
+			if source == id {
+				return ""
+			}
+			return ""
+		}
+	}
+}
+
+func manifestInstallCandidatesFunc(m pluginManifest) func(root, version string) []string {
+	tool := strings.ToLower(strings.TrimSpace(m.ID))
+	paths := m.InstallCandidates
+
+	return func(root, version string) []string {
+		return manifestCandidatePaths(filepath.Join(root, tool, version), paths, runtime.GOOS, runtime.GOARCH)
+	}
+}
+
+func manifestActiveCommandsFunc(m pluginManifest) func(config.Environment) []string {
+	version := manifestVersionFunc(m)
+	activeCommands := normalizeCommands(m.ActiveCommands)
+	dispatchCommands := normalizeCommands(m.DispatchCommands)
+
+	return func(environment config.Environment) []string {
+		if strings.TrimSpace(version(environment)) == "" {
+			return nil
+		}
+		if len(activeCommands) > 0 {
+			return copyStrings(activeCommands)
+		}
+
+		return copyStrings(dispatchCommands)
+	}
+}
+
+func manifestDispatchCandidatesFunc(m pluginManifest) func(root, executable, version string) []string {
+	tool := strings.ToLower(strings.TrimSpace(m.ID))
+	dispatchCandidates := make(map[string]manifestPlatformPaths, len(m.DispatchCandidates))
+	for command, paths := range m.DispatchCandidates {
+		dispatchCandidates[strings.ToLower(strings.TrimSpace(command))] = paths
+	}
+	installPaths := m.InstallCandidates
+
+	return func(root, executable, version string) []string {
+		normalizedExecutable := strings.ToLower(strings.TrimSpace(executable))
+		installDir := filepath.Join(root, tool, version)
+		if paths, ok := dispatchCandidates[normalizedExecutable]; ok {
+			return manifestCandidatePaths(installDir, paths, runtime.GOOS, runtime.GOARCH)
+		}
+		if normalizedExecutable == tool {
+			return manifestCandidatePaths(installDir, installPaths, runtime.GOOS, runtime.GOARCH)
+		}
+
+		return nil
+	}
+}
+
+func manifestCandidatePaths(baseDir string, platformPaths manifestPlatformPaths, goos, goarch string) []string {
+	relativePaths := selectManifestPlatformPaths(platformPaths, goos, goarch)
+	if len(relativePaths) == 0 {
+		return nil
+	}
+
+	candidates := make([]string, 0, len(relativePaths))
+	for _, relativePath := range relativePaths {
+		candidates = append(candidates, filepath.Join(baseDir, filepath.FromSlash(relativePath)))
+	}
+
+	return candidates
+}
+
+func selectManifestPlatformPaths(platformPaths manifestPlatformPaths, goos, goarch string) []string {
+	for _, key := range []string{platformKey(goos, goarch), strings.TrimSpace(goos), "all"} {
+		if paths, ok := platformPaths[key]; ok {
+			return copyStrings(paths)
+		}
+	}
+
+	return nil
+}
+
+func normalizeCommands(commands []string) []string {
+	normalized := make([]string, 0, len(commands))
+	for _, command := range commands {
+		trimmed := strings.ToLower(strings.TrimSpace(command))
+		if trimmed != "" {
+			normalized = append(normalized, trimmed)
+		}
+	}
+
+	return normalized
+}

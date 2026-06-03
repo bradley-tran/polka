@@ -1,0 +1,15 @@
+id: phpmyadmin
+version:
+  source: phpmyadmin
+install-candidates:
+  all:
+    - index.php
+download:
+  catalog:
+    5.2.3:
+      all:
+        filename: phpMyAdmin-5.2.3-all-languages.zip
+        url: https://files.phpmyadmin.net/phpMyAdmin/5.2.3/phpMyAdmin-5.2.3-all-languages.zip
+        checksum: 2d2e13c735366d318425c78e4ee2cc8fc648d77faba3ddea2cd516e43885733f
+        checksum-algorithm: sha256
+        archive-format: zip

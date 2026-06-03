@@ -1,0 +1,32 @@
+id: mailpit
+version:
+  source: mailpit
+install-candidates:
+  windows-amd64:
+    - mailpit.exe
+    - bin/mailpit.exe
+  linux-amd64:
+    - mailpit
+    - bin/mailpit
+dispatch-commands:
+  - mailpit
+download:
+  catalog:
+    1.30.1:
+      windows-amd64:
+        filename: mailpit-windows-amd64.zip
+        url: https://github.com/axllent/mailpit/releases/download/v1.30.1/mailpit-windows-amd64.zip
+        archive-format: zip
+      linux-amd64:
+        filename: mailpit-linux-amd64.tar.gz
+        url: https://github.com/axllent/mailpit/releases/download/v1.30.1/mailpit-linux-amd64.tar.gz
+        archive-format: tar.gz
+    1.30.0:
+      windows-amd64:
+        filename: mailpit-windows-amd64.zip
+        url: https://github.com/axllent/mailpit/releases/download/v1.30.0/mailpit-windows-amd64.zip
+        archive-format: zip
+      linux-amd64:
+        filename: mailpit-linux-amd64.tar.gz
+        url: https://github.com/axllent/mailpit/releases/download/v1.30.0/mailpit-linux-amd64.tar.gz
+        archive-format: tar.gz

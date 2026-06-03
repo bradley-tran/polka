@@ -1,0 +1,32 @@
+id: mysql
+version:
+  source: database
+  database-engine: mysql
+install-candidates:
+  windows-amd64:
+    - bin/mysql.cmd
+    - bin/mysql.bat
+    - bin/mysql.exe
+    - mysql.cmd
+    - mysql.bat
+    - mysql.exe
+  linux-amd64:
+    - bin/mysql
+    - mysql
+dispatch-commands:
+  - mysql
+download:
+  catalog:
+    8.4.9:
+      windows-amd64:
+        filename: mysql-8.4.9-winx64.zip
+        url: https://dev.mysql.com/get/Downloads/MySQL-8.4/mysql-8.4.9-winx64.zip
+        checksum: fe14853279d1704e0f0eb253ea8c8d33
+        checksum-algorithm: md5
+        archive-format: zip
+      linux-amd64:
+        filename: mysql-8.4.9-linux-glibc2.17-x86_64.tar.xz
+        url: https://dev.mysql.com/get/Downloads/MySQL-8.4/mysql-8.4.9-linux-glibc2.17-x86_64.tar.xz
+        checksum: 9d88f7a1b06d6620a92f88b7f5a6050f
+        checksum-algorithm: md5
+        archive-format: tar.xz
