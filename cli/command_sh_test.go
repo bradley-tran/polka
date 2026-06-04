@@ -19,10 +19,11 @@ func TestRunShLaunchesInteractiveShellWithPreferredPath(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	configPath := filepath.Join(projectDir, "polka.yaml")
-	configData := []byte("version: 1\nroot: .polka\ncurrent: demo\nenvironments:\n  demo:\n    php: \"8.4\"\n")
+	configData := []byte("version: 1\nroot: .polka\nenvironments:\n  demo:\n    php: \"8.4\"\n")
 	if err := os.WriteFile(configPath, configData, 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
+	writeTestActiveEnvironment(t, root, "demo")
 
 	t.Setenv("PATH", systemPath)
 	if runtime.GOOS != "windows" {
@@ -121,10 +122,11 @@ func TestRunShUsesConfiguredNestedRootForPathLoading(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	configPath := filepath.Join(projectDir, "polka.yaml")
-	configData := []byte("version: 1\nroot: test-site/.polka\ncurrent: demo\nenvironments:\n  demo:\n    php: \"8.4\"\n")
+	configData := []byte("version: 1\nroot: test-site/.polka\nenvironments:\n  demo:\n    php: \"8.4\"\n")
 	if err := os.WriteFile(configPath, configData, 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
+	writeTestActiveEnvironment(t, root, "demo")
 
 	t.Setenv("PATH", systemPath)
 	if runtime.GOOS != "windows" {
@@ -188,10 +190,11 @@ func TestRunShellAliasLaunchesInteractiveShell(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	configPath := filepath.Join(projectDir, "polka.yaml")
-	configData := []byte("version: 1\nroot: .polka\ncurrent: demo\nenvironments:\n  demo:\n    php: \"8.4\"\n")
+	configData := []byte("version: 1\nroot: .polka\nenvironments:\n  demo:\n    php: \"8.4\"\n")
 	if err := os.WriteFile(configPath, configData, 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
+	writeTestActiveEnvironment(t, root, "demo")
 
 	oldLaunch := launchInteractiveShellFunc
 	t.Cleanup(func() {

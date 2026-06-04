@@ -118,7 +118,6 @@ func TestRunServeUsesConfiguredDocrootWhenArgumentOmitted(t *testing.T) {
 	config := testConfigFile{
 		Version: 1,
 		Root:    ".polka",
-		Current: "demo",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
 				PHP:     "8.4",
@@ -135,6 +134,7 @@ func TestRunServeUsesConfiguredDocrootWhenArgumentOmitted(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
+	writeTestActiveEnvironment(t, root, "demo")
 
 	stdout.Reset()
 	stderr.Reset()
@@ -189,7 +189,6 @@ func TestRunServeArgumentOverridesConfiguredDocroot(t *testing.T) {
 	config := testConfigFile{
 		Version: 1,
 		Root:    ".polka",
-		Current: "demo",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
 				PHP:     "8.4",
@@ -206,6 +205,7 @@ func TestRunServeArgumentOverridesConfiguredDocroot(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
+	writeTestActiveEnvironment(t, root, "demo")
 
 	stdout.Reset()
 	stderr.Reset()
@@ -242,7 +242,6 @@ func TestRunServeRequiresDocrootArgumentOrConfig(t *testing.T) {
 	config := testConfigFile{
 		Version: 1,
 		Root:    ".polka",
-		Current: "demo",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
 				PHP: "8.4",
@@ -257,6 +256,7 @@ func TestRunServeRequiresDocrootArgumentOrConfig(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
+	writeTestActiveEnvironment(t, root, "demo")
 
 	if code := Run(stdout, stderr, []string{"--root", root, "start"}); code != 1 {
 		t.Fatalf("Run(serve without docroot) code = %d, stderr = %q", code, stderr.String())
@@ -352,7 +352,6 @@ func TestRunServeUsesNginxWhenConfigured(t *testing.T) {
 	config := testConfigFile{
 		Version: 1,
 		Root:    ".polka",
-		Current: "demo",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
 				PHP:    "8.4",
@@ -369,6 +368,7 @@ func TestRunServeUsesNginxWhenConfigured(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
+	writeTestActiveEnvironment(t, root, "demo")
 
 	oldPHPServe := runPHPRuntimeServeFunc
 	oldNginxServe := runNginxServeFunc
@@ -584,7 +584,6 @@ func TestRunServeRejectsHTTPSWithoutNginx(t *testing.T) {
 	config := testConfigFile{
 		Version: 1,
 		Root:    ".polka",
-		Current: "demo",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
 				PHP:     "8.4",
@@ -601,6 +600,7 @@ func TestRunServeRejectsHTTPSWithoutNginx(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
+	writeTestActiveEnvironment(t, root, "demo")
 
 	if code := Run(stdout, stderr, []string{"--root", root, "start"}); code != 1 {
 		t.Fatalf("Run(serve https without nginx) code = %d, stderr = %q", code, stderr.String())
@@ -798,7 +798,6 @@ func TestRunServeStartsConfiguredMailpitBeforeWebserver(t *testing.T) {
 	config := testConfigFile{
 		Version: 1,
 		Root:    ".polka",
-		Current: "demo",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
 				PHP:     "8.4",
@@ -821,6 +820,7 @@ func TestRunServeStartsConfiguredMailpitBeforeWebserver(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
+	writeTestActiveEnvironment(t, root, "demo")
 	for _, path := range []string{
 		projectInstalledPHPPath(root, "8.4"),
 		filepath.Join(root, "envs", "mailpit", "1.30", "mailpit"),
@@ -916,7 +916,6 @@ func TestRunServeStartsConfiguredPHPMyAdminBeforeWebserver(t *testing.T) {
 	config := testConfigFile{
 		Version: 1,
 		Root:    ".polka",
-		Current: "demo",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
 				PHP:     "8.4",
@@ -937,6 +936,7 @@ func TestRunServeStartsConfiguredPHPMyAdminBeforeWebserver(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
+	writeTestActiveEnvironment(t, root, "demo")
 	phpMyAdminIndex := filepath.Join(root, "envs", "phpmyadmin", "5.2", "index.php")
 	if err := os.MkdirAll(filepath.Dir(phpMyAdminIndex), 0o755); err != nil {
 		t.Fatalf("MkdirAll(phpmyadmin docroot) error = %v", err)
@@ -1053,7 +1053,6 @@ func TestRunServeStartsInBackgroundByDefaultAndStopStopsIt(t *testing.T) {
 	config := testConfigFile{
 		Version: 1,
 		Root:    ".polka",
-		Current: "demo",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
 				PHP:     "8.4",
@@ -1070,6 +1069,7 @@ func TestRunServeStartsInBackgroundByDefaultAndStopStopsIt(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
+	writeTestActiveEnvironment(t, root, "demo")
 
 	oldStartPHP := startBackgroundPHPRuntimeServe
 	oldStopServe := stopServeRuntimeFunc

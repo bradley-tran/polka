@@ -47,7 +47,6 @@ type ServerConfig struct {
 type Config struct {
 	Version      int                    `yaml:"version"`
 	Root         string                 `yaml:"root"`
-	Current      string                 `yaml:"current,omitempty"`
 	Environments map[string]Environment `yaml:"environments,omitempty"`
 }
 

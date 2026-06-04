@@ -67,7 +67,6 @@ func TestResolveRuntimeEnvironmentAppliesConfiguredPrecedence(t *testing.T) {
 	config := testConfigFile{
 		Version: 1,
 		Root:    ".polka",
-		Current: "demo",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
 				PHP:     "8.4",
@@ -88,6 +87,7 @@ func TestResolveRuntimeEnvironmentAppliesConfiguredPrecedence(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
+	writeTestActiveEnvironment(t, filepath.Join(projectDir, ".polka"), "demo")
 
 	resolved, err := resolveRuntimeEnvironment("linux", []string{"APP_ENV=os", "OS_ONLY=1"}, store)
 	if err != nil {
@@ -120,7 +120,6 @@ func TestResolveRuntimeEnvironmentUsesWindowsKeyReplacement(t *testing.T) {
 	config := testConfigFile{
 		Version: 1,
 		Root:    ".polka",
-		Current: "demo",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
 				PHP: "8.4",
@@ -138,6 +137,7 @@ func TestResolveRuntimeEnvironmentUsesWindowsKeyReplacement(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
+	writeTestActiveEnvironment(t, filepath.Join(projectDir, ".polka"), "demo")
 
 	resolved, err := resolveRuntimeEnvironment("windows", []string{"App_ENV=os"}, store)
 	if err != nil {

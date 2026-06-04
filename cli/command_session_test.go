@@ -18,10 +18,11 @@ func TestRunSessionStartWritesActivationScriptAndState(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	configPath := filepath.Join(projectDir, "polka.yaml")
-	configData := []byte("version: 1\nroot: .polka\ncurrent: demo\nenvironments:\n  demo:\n    php: \"8.4\"\n")
+	configData := []byte("version: 1\nroot: .polka\nenvironments:\n  demo:\n    php: \"8.4\"\n")
 	if err := os.WriteFile(configPath, configData, 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
+	writeTestActiveEnvironment(t, root, "demo")
 
 	oldSessionIDFunc := newShellSessionIDFunc
 	t.Cleanup(func() {
@@ -113,10 +114,11 @@ func TestRunSessionStartUsesConfiguredNestedRootFromExplicitRoot(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	configPath := filepath.Join(projectDir, "polka.yaml")
-	configData := []byte("version: 1\nroot: test-site/.polka\ncurrent: demo\nenvironments:\n  demo:\n    php: \"8.4\"\n")
+	configData := []byte("version: 1\nroot: test-site/.polka\nenvironments:\n  demo:\n    php: \"8.4\"\n")
 	if err := os.WriteFile(configPath, configData, 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
+	writeTestActiveEnvironment(t, root, "demo")
 
 	oldSessionIDFunc := newShellSessionIDFunc
 	t.Cleanup(func() {
@@ -179,10 +181,11 @@ func TestRunSessionStopWritesDeactivationScriptFromActiveSessionState(t *testing
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	configPath := filepath.Join(projectDir, "polka.yaml")
-	configData := []byte("version: 1\nroot: .polka\ncurrent: demo\nenvironments:\n  demo:\n    php: \"8.4\"\n")
+	configData := []byte("version: 1\nroot: .polka\nenvironments:\n  demo:\n    php: \"8.4\"\n")
 	if err := os.WriteFile(configPath, configData, 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
+	writeTestActiveEnvironment(t, root, "demo")
 
 	oldSessionIDFunc := newShellSessionIDFunc
 	t.Cleanup(func() {
@@ -257,7 +260,6 @@ func TestRunSessionStopRestoresAndUnsetsMergedEnvironmentVariables(t *testing.T)
 	configData := []byte(strings.Join([]string{
 		"version: 1",
 		"root: .polka",
-		"current: demo",
 		"environments:",
 		"  demo:",
 		"    php: \"8.4\"",
@@ -268,6 +270,7 @@ func TestRunSessionStopRestoresAndUnsetsMergedEnvironmentVariables(t *testing.T)
 	if err := os.WriteFile(configPath, configData, 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
+	writeTestActiveEnvironment(t, root, "demo")
 
 	oldSessionIDFunc := newShellSessionIDFunc
 	t.Cleanup(func() {

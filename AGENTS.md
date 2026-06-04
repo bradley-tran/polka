@@ -12,7 +12,7 @@ See [docs/architecture.md](docs/architecture.md) for a detailed overview of the 
 ## Code Style Guidelines
 
 1. **Use Go idioms**: Follow standard Go conventions for naming, error handling, and structuring code.
-2. **Add comments**: Provide clear comments for all non-trivial functions, types, and complex logic.
+2. **Add comments**: Provide clear comments for all non-trivial functions, types, and complex logic. Retroactively add comments to existing code as needed.
 3. **Write tests**: Ensure all new code is covered by tests, and existing tests pass before committing.
 
 ## Testing

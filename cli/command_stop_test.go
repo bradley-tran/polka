@@ -232,7 +232,6 @@ func writeStopTestConfig(t *testing.T, projectDir string, environment testEnviro
 	config := testConfigFile{
 		Version: 1,
 		Root:    ".polka",
-		Current: "demo",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": environment,
 		},
@@ -245,4 +244,5 @@ func writeStopTestConfig(t *testing.T, projectDir string, environment testEnviro
 	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
+	writeTestActiveEnvironment(t, filepath.Join(projectDir, ".polka"), "demo")
 }

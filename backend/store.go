@@ -23,6 +23,8 @@ const (
 	configFileName           = "polka.yaml"
 	binDirectoryName         = "bin"
 	envsDirectoryName        = "envs"
+	runDirectoryName         = "run"
+	currentEnvironmentName   = "current"
 	configVersion            = 1
 	dispatcherBinaryName     = "polka"
 	dispatcherBatchFileName  = "polka.cmd"
@@ -519,9 +521,11 @@ func (s Store) Use(name string) error {
 		return fmt.Errorf("environment %q does not exist in %s", name, filepath.Base(s.ConfigFile))
 	}
 
-	config.Current = name
+	if err := s.writeActiveEnvironmentName(name); err != nil {
+		return fmt.Errorf("write active environment: %w", err)
+	}
 	if err := s.writeConfig(config); err != nil {
-		return fmt.Errorf("write current environment: %w", err)
+		return fmt.Errorf("write config file: %w", err)
 	}
 	if err := s.syncManagedBinaries(config); err != nil {
 		return fmt.Errorf("sync managed binaries: %w", err)
@@ -535,16 +539,21 @@ func (s Store) Current() (*Environment, error) {
 	if err != nil {
 		return nil, err
 	}
-	if config.Current == "" {
+
+	name, err := s.activeEnvironmentName()
+	if err != nil {
+		return nil, err
+	}
+	if name == "" {
 		return nil, nil
 	}
 
-	environment, ok := config.Environments[config.Current]
+	environment, ok := config.Environments[name]
 	if !ok {
-		return nil, fmt.Errorf("current environment %q is not defined in %s", config.Current, filepath.Base(s.ConfigFile))
+		return nil, fmt.Errorf("current environment %q is not defined in %s", name, filepath.Base(s.ConfigFile))
 	}
 
-	normalized := s.normalizeEnvironment(config.Current, environment)
+	normalized := s.normalizeEnvironment(name, environment)
 	return &normalized, nil
 }
 
@@ -562,13 +571,19 @@ func (s Store) Remove(name string) error {
 		return fmt.Errorf("environment %q does not exist in %s", name, filepath.Base(s.ConfigFile))
 	}
 
-	delete(config.Environments, name)
-	if config.Current == name {
-		config.Current = ""
+	currentName, err := s.activeEnvironmentName()
+	if err != nil {
+		return err
 	}
+	delete(config.Environments, name)
 
 	if err := s.writeConfig(config); err != nil {
 		return fmt.Errorf("write config file: %w", err)
+	}
+	if currentName == name {
+		if err := s.clearActiveEnvironmentName(); err != nil {
+			return fmt.Errorf("clear active environment: %w", err)
+		}
 	}
 	if err := s.syncManagedBinaries(config); err != nil {
 		return fmt.Errorf("sync managed binaries: %w", err)
@@ -652,6 +667,48 @@ func (s Store) readConfig() (Config, error) {
 
 func (s Store) writeConfig(config Config) error {
 	return writeYAML(s.ConfigFile, config)
+}
+
+func (s Store) activeEnvironmentPath() string {
+	return filepath.Join(s.RootDir, runDirectoryName, currentEnvironmentName)
+}
+
+func (s Store) activeEnvironmentName() (string, error) {
+	data, err := os.ReadFile(s.activeEnvironmentPath())
+	switch {
+	case err == nil:
+		name := strings.TrimSpace(string(data))
+		if name == "" {
+			return "", nil
+		}
+		if err := validateName(name); err != nil {
+			return "", fmt.Errorf("read active environment: %w", err)
+		}
+		return name, nil
+	case os.IsNotExist(err):
+		return "", nil
+	default:
+		return "", fmt.Errorf("read active environment: %w", err)
+	}
+}
+
+func (s Store) writeActiveEnvironmentName(name string) error {
+	if err := os.MkdirAll(filepath.Dir(s.activeEnvironmentPath()), 0o755); err != nil {
+		return fmt.Errorf("create runtime state directory: %w", err)
+	}
+	if err := os.WriteFile(s.activeEnvironmentPath(), []byte(strings.TrimSpace(name)+"\n"), 0o644); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s Store) clearActiveEnvironmentName() error {
+	if err := os.Remove(s.activeEnvironmentPath()); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	return nil
 }
 
 func (s Store) defaultConfig() Config {
@@ -771,7 +828,11 @@ func (s Store) syncManagedBinaries(config Config) error {
 		}
 	}
 
-	for _, binary := range s.managedBinariesForEnvironment(s.currentEnvironmentFromConfig(config)) {
+	activeEnvironment, err := s.activeEnvironmentFromConfig(config)
+	if err != nil {
+		return err
+	}
+	for _, binary := range s.managedBinariesForEnvironment(activeEnvironment) {
 		binaryPath := filepath.Join(s.BinDir, binary.Name)
 		if err := os.WriteFile(binaryPath, []byte(binary.Contents), binary.Mode); err != nil {
 			return fmt.Errorf("write binary %q: %w", binary.Name, err)
@@ -942,18 +1003,22 @@ func (s Store) managedBinariesForEnvironment(environment *Environment) []install
 	return binaries
 }
 
-func (s Store) currentEnvironmentFromConfig(config Config) *Environment {
-	if config.Current == "" {
-		return nil
+func (s Store) activeEnvironmentFromConfig(config Config) (*Environment, error) {
+	name, err := s.activeEnvironmentName()
+	if err != nil {
+		return nil, err
+	}
+	if name == "" {
+		return nil, nil
 	}
 
-	environment, ok := config.Environments[config.Current]
+	environment, ok := config.Environments[name]
 	if !ok {
-		return nil
+		return nil, nil
 	}
 
-	normalized := s.normalizeEnvironment(config.Current, environment)
-	return &normalized
+	normalized := s.normalizeEnvironment(name, environment)
+	return &normalized, nil
 }
 
 func managedToolsForEnvironment(environment *Environment) []string {

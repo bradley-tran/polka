@@ -146,13 +146,12 @@ func TestStoreUseSyncsManagedBinariesForCurrentEnvironment(t *testing.T) {
 	assertPathMissing(t, filepath.Join(store.BinDir, toolMySQL+".cmd"))
 }
 
-func TestStoreUsePreservesExistingConfigComments(t *testing.T) {
+func TestStoreUseStoresActiveEnvironmentOutsideConfig(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
 	configData := []byte(strings.Join([]string{
 		"version: 1",
 		"root: .polka",
-		"current: demo # active environment",
 		"environments:",
 		"  demo:",
 		"    php: \"8.4\"",
@@ -175,15 +174,15 @@ func TestStoreUsePreservesExistingConfigComments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile(config) error = %v", err)
 	}
-	if !strings.Contains(string(updatedConfig), "# active environment") {
-		t.Fatalf("config after Use() = %q, want current comment preserved", string(updatedConfig))
+	if strings.Contains(string(updatedConfig), "current:") {
+		t.Fatalf("config after Use() = %q, want no current entry", string(updatedConfig))
 	}
-	config, err := store.readConfig()
+	activeName, err := os.ReadFile(store.activeEnvironmentPath())
 	if err != nil {
-		t.Fatalf("readConfig() error = %v", err)
+		t.Fatalf("ReadFile(active environment) error = %v", err)
 	}
-	if config.Current != "web" {
-		t.Fatalf("config.Current = %q, want web", config.Current)
+	if strings.TrimSpace(string(activeName)) != "web" {
+		t.Fatalf("active environment = %q, want web", string(activeName))
 	}
 }
 
@@ -230,7 +229,6 @@ func TestStoreInstallPreservesExistingConfigComments(t *testing.T) {
 		"# keep this comment",
 		"version: 1",
 		"root: .polka",
-		"current: demo",
 		"environments:",
 		"  demo:",
 		"    php: \"8.4\"",
@@ -260,7 +258,6 @@ func TestStoreConfigurePreservesExistingConfigComments(t *testing.T) {
 		"# top comment",
 		"version: 1",
 		"root: .polka",
-		"current: demo",
 		"environments:",
 		"  demo:",
 		"    # php version comment",
@@ -600,10 +597,12 @@ func TestStoreInstallCopiesConfiguredNodeJSIntoVersionedLayout(t *testing.T) {
 	writeCachedNodeJSCommand(t, store.CacheDir, "24", toolNode)
 
 	config := store.defaultConfig()
-	config.Current = "demo"
 	config.Environments["demo"] = Environment{NodeJSVersion: "24"}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
+	}
+	if err := store.writeActiveEnvironmentName("demo"); err != nil {
+		t.Fatalf("writeActiveEnvironmentName() error = %v", err)
 	}
 
 	results, err := store.Install("demo")
@@ -887,7 +886,6 @@ func TestStoreCurrentNormalizesServerConfig(t *testing.T) {
 	store := NewProjectStore(projectDir)
 
 	config := store.defaultConfig()
-	config.Current = "demo"
 	config.Environments["demo"] = Environment{
 		PHPVersion: "8.4",
 		Server: &ServerConfig{
@@ -898,6 +896,9 @@ func TestStoreCurrentNormalizesServerConfig(t *testing.T) {
 	}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
+	}
+	if err := store.writeActiveEnvironmentName("demo"); err != nil {
+		t.Fatalf("writeActiveEnvironmentName() error = %v", err)
 	}
 
 	current, err := store.Current()
@@ -917,7 +918,6 @@ func TestStoreCurrentNormalizesPHPMyAdminConfig(t *testing.T) {
 	store := NewProjectStore(projectDir)
 
 	config := store.defaultConfig()
-	config.Current = "demo"
 	config.Environments["demo"] = Environment{
 		PHPMyAdmin: &PHPMyAdminConfig{
 			Version: " 5.2 ",
@@ -927,6 +927,9 @@ func TestStoreCurrentNormalizesPHPMyAdminConfig(t *testing.T) {
 	}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
+	}
+	if err := store.writeActiveEnvironmentName("demo"); err != nil {
+		t.Fatalf("writeActiveEnvironmentName() error = %v", err)
 	}
 
 	current, err := store.Current()
@@ -946,7 +949,6 @@ func TestStoreCurrentNormalizesEnvironmentVariables(t *testing.T) {
 	store := NewProjectStore(projectDir)
 
 	config := store.defaultConfig()
-	config.Current = "demo"
 	config.Environments["demo"] = Environment{
 		PHPVersion: "8.4",
 		EnvFile:    " .env.local ",
@@ -957,6 +959,9 @@ func TestStoreCurrentNormalizesEnvironmentVariables(t *testing.T) {
 	}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
+	}
+	if err := store.writeActiveEnvironmentName("demo"); err != nil {
+		t.Fatalf("writeActiveEnvironmentName() error = %v", err)
 	}
 
 	current, err := store.Current()
@@ -1020,7 +1025,6 @@ func TestStoreCreatePreservesExistingConfigComments(t *testing.T) {
 		"# project comment",
 		"version: 1",
 		"root: .polka",
-		"current: demo",
 		"environments:",
 		"  # existing environment comment",
 		"  demo:",
@@ -1173,7 +1177,6 @@ func TestStoreRemovePreservesRemainingConfigComments(t *testing.T) {
 		"# project comment",
 		"version: 1",
 		"root: .polka",
-		"current: demo",
 		"environments:",
 		"  demo:",
 		"    php: \"8.4\"",
@@ -1184,6 +1187,9 @@ func TestStoreRemovePreservesRemainingConfigComments(t *testing.T) {
 	}, "\n"))
 	if err := os.WriteFile(store.ConfigFile, configData, 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+	if err := store.writeActiveEnvironmentName("demo"); err != nil {
+		t.Fatalf("writeActiveEnvironmentName() error = %v", err)
 	}
 	if err := store.Init(); err != nil {
 		t.Fatalf("Init() error = %v", err)
@@ -1245,13 +1251,15 @@ func TestResolveToolRequiresConfiguredVersion(t *testing.T) {
 
 	config := `version: 1
 root: .polka
-current: demo
 environments:
   demo:
     composer: 2.8
 `
 	if err := os.WriteFile(store.ConfigFile, []byte(config), 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+	if err := store.writeActiveEnvironmentName("demo"); err != nil {
+		t.Fatalf("writeActiveEnvironmentName() error = %v", err)
 	}
 
 	if _, err := store.ResolveTool("php"); err == nil {
@@ -1362,7 +1370,7 @@ func TestDefaultStoreUsesConfiguredNestedRootFromProjectConfig(t *testing.T) {
 func TestStoreForRootUsesConfiguredNestedRootFromAncestorConfig(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, "test-site", ".polka")
-	configData := []byte("version: 1\nroot: test-site/.polka\ncurrent: demo\nenvironments:\n  demo:\n    php: \"8.4\"\n")
+	configData := []byte("version: 1\nroot: test-site/.polka\nenvironments:\n  demo:\n    php: \"8.4\"\n")
 	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
@@ -1381,6 +1389,9 @@ func TestStoreForRootUsesConfiguredNestedRootFromAncestorConfig(t *testing.T) {
 	if store.ConfigFile != filepath.Join(projectDir, "polka.yaml") {
 		t.Fatalf("StoreForRoot() ConfigFile = %q, want %q", store.ConfigFile, filepath.Join(projectDir, "polka.yaml"))
 	}
+	if err := store.writeActiveEnvironmentName("demo"); err != nil {
+		t.Fatalf("writeActiveEnvironmentName() error = %v", err)
+	}
 	current, err := store.Current()
 	if err != nil {
 		t.Fatalf("store.Current() error = %v", err)
@@ -1396,7 +1407,7 @@ func TestDefaultStoreIgnoresNestedRuntimeDotPolkaWhenParentHasProjectConfig(t *t
 	if err := os.MkdirAll(filepath.Join(nestedDir, ".polka", "run"), 0o755); err != nil {
 		t.Fatalf("MkdirAll(nested runtime) error = %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), []byte("version: 1\nroot: .polka\ncurrent: default\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), []byte("version: 1\nroot: .polka\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
 

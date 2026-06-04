@@ -1,14 +1,16 @@
 package cli
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"testing"
 )
 
 type testConfigFile struct {
 	Version      int                              `yaml:"version,omitempty"`
 	Root         string                           `yaml:"root,omitempty"`
-	Current      string                           `yaml:"current,omitempty"`
 	Environments map[string]testEnvironmentConfig `yaml:"environments"`
 }
 
@@ -59,6 +61,29 @@ func cachedPHPPath(root, version string) string {
 	}
 
 	return filepath.Join(root, "php", version, "bin", "php")
+}
+
+func readTestActiveEnvironment(t *testing.T, root string) string {
+	t.Helper()
+
+	data, err := os.ReadFile(filepath.Join(root, "run", "current"))
+	if err != nil {
+		t.Fatalf("ReadFile(active environment) error = %v", err)
+	}
+
+	return strings.TrimSpace(string(data))
+}
+
+func writeTestActiveEnvironment(t *testing.T, root, name string) {
+	t.Helper()
+
+	path := filepath.Join(root, "run", "current")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll(active environment dir) error = %v", err)
+	}
+	if err := os.WriteFile(path, []byte(name+"\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(active environment) error = %v", err)
+	}
 }
 
 func cachedComposerPath(root, version string) string {

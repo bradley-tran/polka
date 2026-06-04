@@ -19,7 +19,7 @@ Commands:
   sh, shell            open an interactive shell with local binaries first
   session [start|stop] generate shell scripts that activate or deactivate local binaries
   list                 list environments
-  use <name>           mark an environment as current
+  use <name>           select the active environment
   status, info         show the active environment status
   remove <name>        remove an environment
   help                 show this help
@@ -65,14 +65,14 @@ const configUsage = `Usage:
   polka config [name] [--php VERSION] [--composer VERSION] [--nodejs VERSION] [--db-engine mysql|mariadb --db-version VERSION [--db-port PORT]]
 
 Create or update an environment definition in polka.yaml.
-When name is omitted, Polka updates the current environment. If no current environment is selected, Polka uses default and marks it current after a successful config.
+When name is omitted, Polka updates the current environment. If no current environment is selected, Polka uses default and records it in .polka/run/current after a successful config.
 `
 
 const installUsage = `Usage:
    polka install [name]
 
 Install all configured tool versions for an environment.
-When name is omitted, Polka installs the current environment. If no current environment is selected, Polka uses default and marks it current after a successful install.
+When name is omitted, Polka installs the current environment. If no current environment is selected, Polka uses default and records it in .polka/run/current after a successful install.
 Polka copies them from the global cache when available, otherwise downloads them into the cache first.
 `
 
@@ -195,7 +195,8 @@ const statusUsage = `Usage:
   polka status
   polka info
 
-Show the active environment from polka.yaml, including one line per configured tool and the resolved server URL.
+Show the active environment, including one line per configured tool and the resolved server URL.
+The active environment name is stored in .polka/run/current.
 Also shows whether the active environment's webserver, phpMyAdmin, managed database, and mailpit are currently running.
 `
 

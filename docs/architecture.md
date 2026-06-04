@@ -25,7 +25,7 @@ The `backend` package owns Polka project state and orchestration:
 
 - locating the project and `polka.yaml`
 - reading, normalizing, and writing config
-- managing `.polka/envs`, `.polka/bin`, runtime state, secrets, and logs
+- managing `.polka/envs`, `.polka/bin`, `.polka/run`, secrets, and logs
 - installing tools from the global cache into the project
 - syncing dispatch shims for the active environment
 - resolving active tool executable paths
@@ -89,7 +89,7 @@ Managed command shims in `.polka/bin` call back into Polka:
         `-- tools.Registry.ResolveDispatchRequest("php")
 ```
 
-Dispatch resolution uses the active environment from `polka.yaml`, maps command names to their config tool, and locates the installed executable under `.polka/envs`.
+Dispatch resolution uses the active environment recorded in `.polka/run/current`, maps command names to their config tool, reads that environment's definition from `polka.yaml`, and locates the installed executable under `.polka/envs`.
 
 Node.js is config-only as `nodejs`, but it exposes `node`, `npm`, and `npx` dispatch commands. The `nodejs` command itself is not generated as an active shim. Mago is configured with `mago` and exposes the `mago` dispatch command. phpMyAdmin does not generate a command shim either; Polka installs its web app archive, writes its generated `config.inc.php`, and uses its UI port/HTTPS settings when the CLI starts the managed phpMyAdmin service.
 

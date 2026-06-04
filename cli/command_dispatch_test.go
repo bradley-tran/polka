@@ -132,7 +132,6 @@ func TestRunDispatchLoadsProjectAndConfiguredEnvironmentVariables(t *testing.T) 
 	config := testConfigFile{
 		Version: 1,
 		Root:    ".polka",
-		Current: "demo",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
 				PHP:     "8.4",
@@ -149,6 +148,7 @@ func TestRunDispatchLoadsProjectAndConfiguredEnvironmentVariables(t *testing.T) 
 	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
+	writeTestActiveEnvironment(t, root, "demo")
 
 	if code := Run(stdout, stderr, []string{"--root", root, "install", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
