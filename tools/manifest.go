@@ -275,10 +275,7 @@ func manifestVersionFunc(m pluginManifest) func(config.Environment) string {
 			}
 			return environment.PHPMyAdmin.Version
 		case "database":
-			if environment.Database == nil || strings.ToLower(strings.TrimSpace(environment.Database.Engine)) != databaseEngine {
-				return ""
-			}
-			return environment.Database.Version
+			return config.DatabaseToolVersion(environment, databaseEngine)
 		default:
 			if source == id {
 				return ""

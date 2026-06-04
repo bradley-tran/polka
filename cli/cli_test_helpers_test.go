@@ -22,6 +22,8 @@ type testEnvironmentConfig struct {
 	NodeJS        string                `yaml:"nodejs,omitempty"`
 	Mago          string                `yaml:"mago,omitempty"`
 	Nginx         string                `yaml:"nginx,omitempty"`
+	MySQL         string                `yaml:"mysql,omitempty"`
+	MariaDB       string                `yaml:"mariadb,omitempty"`
 	PHPMyAdmin    *testPHPMyAdminConfig `yaml:"phpmyadmin,omitempty"`
 	Docroot       string                `yaml:"docroot,omitempty"`
 	EnvFile       string                `yaml:"env-file,omitempty"`
@@ -58,23 +60,25 @@ type testPHPMyAdminConfig struct {
 }
 
 type testProjectConfigData struct {
-	Version       int               `yaml:"version,omitempty"`
-	Root          string            `yaml:"root,omitempty"`
-	Tools         *testToolsConfig  `yaml:"tools,omitempty"`
-	Docroot       string            `yaml:"docroot,omitempty"`
-	EnvFile       string            `yaml:"env-file,omitempty"`
-	EnvVars       map[string]string `yaml:"env-vars,omitempty"`
-	PHPExtensions map[string]bool   `yaml:"php-extensions,omitempty"`
-	Server        *testServerConfig `yaml:"server,omitempty"`
+	Version       int                 `yaml:"version,omitempty"`
+	Root          string              `yaml:"root,omitempty"`
+	Tools         *testToolsConfig    `yaml:"tools,omitempty"`
+	Docroot       string              `yaml:"docroot,omitempty"`
+	EnvFile       string              `yaml:"env-file,omitempty"`
+	EnvVars       map[string]string   `yaml:"env-vars,omitempty"`
+	Database      *testDatabaseConfig `yaml:"database,omitempty"`
+	PHPExtensions map[string]bool     `yaml:"php-extensions,omitempty"`
+	Server        *testServerConfig   `yaml:"server,omitempty"`
 }
 
 type testEnvironmentConfigData struct {
-	Tools         *testToolsConfig  `yaml:"tools,omitempty"`
-	Docroot       string            `yaml:"docroot,omitempty"`
-	EnvFile       string            `yaml:"env-file,omitempty"`
-	EnvVars       map[string]string `yaml:"env-vars,omitempty"`
-	PHPExtensions map[string]bool   `yaml:"php-extensions,omitempty"`
-	Server        *testServerConfig `yaml:"server,omitempty"`
+	Tools         *testToolsConfig    `yaml:"tools,omitempty"`
+	Docroot       string              `yaml:"docroot,omitempty"`
+	EnvFile       string              `yaml:"env-file,omitempty"`
+	EnvVars       map[string]string   `yaml:"env-vars,omitempty"`
+	Database      *testDatabaseConfig `yaml:"database,omitempty"`
+	PHPExtensions map[string]bool     `yaml:"php-extensions,omitempty"`
+	Server        *testServerConfig   `yaml:"server,omitempty"`
 }
 
 type testToolsConfig struct {
@@ -83,6 +87,8 @@ type testToolsConfig struct {
 	NodeJS     string                `yaml:"nodejs,omitempty"`
 	Mago       string                `yaml:"mago,omitempty"`
 	Nginx      string                `yaml:"nginx,omitempty"`
+	MySQL      string                `yaml:"mysql,omitempty"`
+	MariaDB    string                `yaml:"mariadb,omitempty"`
 	Database   *testDatabaseConfig   `yaml:"database,omitempty"`
 	Mailpit    *testMailpitConfig    `yaml:"mailpit,omitempty"`
 	PHPMyAdmin *testPHPMyAdminConfig `yaml:"phpmyadmin,omitempty"`
@@ -106,6 +112,7 @@ func writeTestConfigFile(t *testing.T, projectDir string, config testConfigFile)
 		projectConfig.Docroot = defaultEnvironment.Docroot
 		projectConfig.EnvFile = defaultEnvironment.EnvFile
 		projectConfig.EnvVars = defaultEnvironment.EnvVars
+		projectConfig.Database = testDatabaseRuntimeFromEnvironment(defaultEnvironment)
 		projectConfig.PHPExtensions = defaultEnvironment.PHPExtensions
 		projectConfig.Server = defaultEnvironment.Server
 	}
@@ -174,6 +181,7 @@ func writeTestEnvironmentConfig(t *testing.T, projectDir, name string, environme
 		projectConfig.Docroot = environment.Docroot
 		projectConfig.EnvFile = environment.EnvFile
 		projectConfig.EnvVars = environment.EnvVars
+		projectConfig.Database = testDatabaseRuntimeFromEnvironment(environment)
 		projectConfig.PHPExtensions = environment.PHPExtensions
 		projectConfig.Server = environment.Server
 		writeTestYAML(t, filepath.Join(projectDir, "polka.yaml"), projectConfig)
@@ -185,6 +193,7 @@ func writeTestEnvironmentConfig(t *testing.T, projectDir, name string, environme
 		Docroot:       environment.Docroot,
 		EnvFile:       environment.EnvFile,
 		EnvVars:       environment.EnvVars,
+		Database:      testDatabaseRuntimeFromEnvironment(environment),
 		PHPExtensions: environment.PHPExtensions,
 		Server:        environment.Server,
 	})
@@ -216,18 +225,19 @@ func writeTestYAML(t *testing.T, path string, value any) {
 }
 
 func testEnvironmentFromProjectConfig(projectConfig testProjectConfigData) testEnvironmentConfig {
-	return testEnvironmentFromParts(projectConfig.Tools, projectConfig.Docroot, projectConfig.EnvFile, projectConfig.EnvVars, projectConfig.PHPExtensions, projectConfig.Server)
+	return testEnvironmentFromParts(projectConfig.Tools, projectConfig.Docroot, projectConfig.EnvFile, projectConfig.EnvVars, projectConfig.Database, projectConfig.PHPExtensions, projectConfig.Server)
 }
 
 func testEnvironmentFromEnvironmentConfig(environmentConfig testEnvironmentConfigData) testEnvironmentConfig {
-	return testEnvironmentFromParts(environmentConfig.Tools, environmentConfig.Docroot, environmentConfig.EnvFile, environmentConfig.EnvVars, environmentConfig.PHPExtensions, environmentConfig.Server)
+	return testEnvironmentFromParts(environmentConfig.Tools, environmentConfig.Docroot, environmentConfig.EnvFile, environmentConfig.EnvVars, environmentConfig.Database, environmentConfig.PHPExtensions, environmentConfig.Server)
 }
 
-func testEnvironmentFromParts(tools *testToolsConfig, docroot, envFile string, envVars map[string]string, phpExtensions map[string]bool, server *testServerConfig) testEnvironmentConfig {
+func testEnvironmentFromParts(tools *testToolsConfig, docroot, envFile string, envVars map[string]string, database *testDatabaseConfig, phpExtensions map[string]bool, server *testServerConfig) testEnvironmentConfig {
 	environment := testEnvironmentConfig{
 		Docroot:       docroot,
 		EnvFile:       envFile,
 		EnvVars:       envVars,
+		Database:      database,
 		PHPExtensions: phpExtensions,
 		Server:        server,
 	}
@@ -237,7 +247,10 @@ func testEnvironmentFromParts(tools *testToolsConfig, docroot, envFile string, e
 		environment.NodeJS = tools.NodeJS
 		environment.Mago = tools.Mago
 		environment.Nginx = tools.Nginx
-		environment.Database = tools.Database
+		environment.MySQL = tools.MySQL
+		environment.MariaDB = tools.MariaDB
+		environment.Database = testDatabaseFromTools(tools, database)
+		environment = testPopulateDatabaseToolVersion(environment)
 		environment.Mailpit = tools.Mailpit
 		environment.PHPMyAdmin = tools.PHPMyAdmin
 	}
@@ -252,7 +265,8 @@ func testToolsFromEnvironment(environment testEnvironmentConfig) *testToolsConfi
 		NodeJS:     environment.NodeJS,
 		Mago:       environment.Mago,
 		Nginx:      environment.Nginx,
-		Database:   environment.Database,
+		MySQL:      testDatabaseToolVersion(environment, "mysql"),
+		MariaDB:    testDatabaseToolVersion(environment, "mariadb"),
 		Mailpit:    environment.Mailpit,
 		PHPMyAdmin: environment.PHPMyAdmin,
 	}
@@ -261,6 +275,8 @@ func testToolsFromEnvironment(environment testEnvironmentConfig) *testToolsConfi
 		strings.TrimSpace(tools.NodeJS) == "" &&
 		strings.TrimSpace(tools.Mago) == "" &&
 		strings.TrimSpace(tools.Nginx) == "" &&
+		strings.TrimSpace(tools.MySQL) == "" &&
+		strings.TrimSpace(tools.MariaDB) == "" &&
 		tools.Database == nil &&
 		tools.Mailpit == nil &&
 		tools.PHPMyAdmin == nil {
@@ -268,6 +284,103 @@ func testToolsFromEnvironment(environment testEnvironmentConfig) *testToolsConfi
 	}
 
 	return tools
+}
+
+func testDatabaseToolVersion(environment testEnvironmentConfig, engine string) string {
+	switch strings.ToLower(strings.TrimSpace(engine)) {
+	case "mysql":
+		if strings.TrimSpace(environment.MySQL) != "" {
+			return environment.MySQL
+		}
+	case "mariadb":
+		if strings.TrimSpace(environment.MariaDB) != "" {
+			return environment.MariaDB
+		}
+	default:
+		return ""
+	}
+	if environment.Database == nil || !strings.EqualFold(environment.Database.Engine, engine) {
+		return ""
+	}
+
+	return environment.Database.Version
+}
+
+func testDatabaseRuntimeFromEnvironment(environment testEnvironmentConfig) *testDatabaseConfig {
+	if environment.Database == nil {
+		return nil
+	}
+
+	runtime := &testDatabaseConfig{Engine: environment.Database.Engine, Port: environment.Database.Port}
+	if strings.TrimSpace(runtime.Engine) == "" && runtime.Port == 0 {
+		return nil
+	}
+
+	return runtime
+}
+
+func testDatabaseFromTools(tools *testToolsConfig, database *testDatabaseConfig) *testDatabaseConfig {
+	if tools == nil {
+		return database
+	}
+
+	merged := &testDatabaseConfig{}
+	if database != nil {
+		*merged = *database
+	}
+	if tools.Database != nil {
+		if merged.Engine == "" {
+			merged.Engine = tools.Database.Engine
+		}
+		if merged.Version == "" {
+			merged.Version = tools.Database.Version
+		}
+		if merged.Port == 0 {
+			merged.Port = tools.Database.Port
+		}
+	}
+	if strings.TrimSpace(merged.Engine) == "" {
+		switch {
+		case strings.TrimSpace(tools.MySQL) != "" && strings.TrimSpace(tools.MariaDB) == "":
+			merged.Engine = "mysql"
+		case strings.TrimSpace(tools.MariaDB) != "" && strings.TrimSpace(tools.MySQL) == "":
+			merged.Engine = "mariadb"
+		}
+	}
+	switch strings.ToLower(strings.TrimSpace(merged.Engine)) {
+	case "mysql":
+		if strings.TrimSpace(merged.Version) == "" {
+			merged.Version = tools.MySQL
+		}
+	case "mariadb":
+		if strings.TrimSpace(merged.Version) == "" {
+			merged.Version = tools.MariaDB
+		}
+	}
+	if strings.TrimSpace(merged.Engine) == "" && strings.TrimSpace(merged.Version) == "" && merged.Port == 0 {
+		return nil
+	}
+
+	return merged
+}
+
+func testPopulateDatabaseToolVersion(environment testEnvironmentConfig) testEnvironmentConfig {
+	if environment.Database == nil || strings.TrimSpace(environment.Database.Version) == "" {
+		return environment
+	}
+
+	switch strings.ToLower(strings.TrimSpace(environment.Database.Engine)) {
+	case "mysql":
+		if strings.TrimSpace(environment.MySQL) == "" {
+			environment.MySQL = environment.Database.Version
+		}
+	case "mariadb":
+		if strings.TrimSpace(environment.MariaDB) == "" {
+			environment.MariaDB = environment.Database.Version
+		}
+	}
+
+	return environment
 }
 
 func testEnvironmentConfigPath(projectDir, name string) string {

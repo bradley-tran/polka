@@ -58,6 +58,10 @@ When an environment defines `php-extensions`, `polka install` also writes a gene
 
 Use `polka config [name] --php <version> --composer <version> --nodejs <version>` to update an existing environment definition. When `name` is omitted, Polka updates the current environment, or `default` from `polka.yaml` when no local override is selected. Config files store version labels, not machine-specific executable paths or the active environment selection:
 
+Managed database versions are stored as `tools.mysql` and/or `tools.mariadb`; root-level `database.engine` selects the primary database for runtime commands, and shared options such as `database.port` live alongside it.
+
+Note that current schema is not yet stable, so expect breaking changes to config file structure and field names until version 1.0.
+
 ```yaml
 # polka.yaml
 version: 0.1
@@ -68,6 +72,7 @@ tools:
   nodejs: 24
   mago: "1.27"
   nginx: 1.30
+  mariadb: "11.8"
   phpmyadmin:
     version: 5.2
     port: 8082
@@ -78,6 +83,9 @@ tools:
     ui-port: 8025
     https: true
 docroot: public
+database:
+  engine: mariadb
+  port: 3306
 env-file: .env.local
 env-vars:
   APP_ENV: development

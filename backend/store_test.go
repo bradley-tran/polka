@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -483,6 +484,42 @@ func TestStoreInstallDownloadsConfiguredDatabase(t *testing.T) {
 	}
 	if resolvedPath != result.TargetPath {
 		t.Fatalf("ResolveTool(mysql) = %q, want %q", resolvedPath, result.TargetPath)
+	}
+}
+
+func TestStoreInstallDownloadsMultipleConfiguredDatabases(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+	store.Downloader = fakeDownloader(func(cacheDir, tool, version string) error {
+		_ = writeCachedTool(t, cacheDir, tool, version)
+		return nil
+	})
+
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{
+		MySQLVersion:   "8.4",
+		MariaDBVersion: "11.8",
+		Database:       &DatabaseConfig{Engine: toolMariaDB, Version: "11.8", Port: 3307},
+	}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	results, err := store.Install("demo")
+	if err != nil {
+		t.Fatalf("Install(demo) error = %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("Install(demo) length = %d, want 2", len(results))
+	}
+	got := []string{
+		results[0].Tool + ":" + results[0].Version,
+		results[1].Tool + ":" + results[1].Version,
+	}
+	want := []string{"mysql:8.4", "mariadb:11.8"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Install(demo) results = %#v, want %#v", got, want)
 	}
 }
 
@@ -1347,6 +1384,94 @@ func TestStoreConfigureNormalizesDatabaseConfig(t *testing.T) {
 	stored := config.Environments["data"].Database
 	if stored == nil || stored.Engine != toolMySQL || stored.Version != "8.0" || stored.Port != 3306 {
 		t.Fatalf("stored database = %#v, want normalized database config", stored)
+	}
+}
+
+func TestStoreWritesDatabaseToolVersionAndRootRuntimeConfig(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+
+	if _, err := store.Configure("data", "", "", &DatabaseConfig{Engine: toolMariaDB, Version: "11.8", Port: 3307}); err != nil {
+		t.Fatalf("Configure(data) error = %v", err)
+	}
+
+	configData, err := os.ReadFile(store.environmentConfigFile("data"))
+	if err != nil {
+		t.Fatalf("ReadFile(config) error = %v", err)
+	}
+	configText := string(configData)
+	if !strings.Contains(configText, "tools:\n  mariadb: \"11.8\"") {
+		t.Fatalf("config = %q, want mariadb version under tools", configText)
+	}
+	if !strings.Contains(configText, "database:\n  engine: mariadb\n  port: 3307") {
+		t.Fatalf("config = %q, want root-level database engine and port", configText)
+	}
+	if strings.Contains(configText, "  version:") {
+		t.Fatalf("config = %q, want no root-level database version entry", configText)
+	}
+}
+
+func TestStoreReadsDatabaseToolVersionAndRootRuntimeConfig(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	configData := []byte(strings.Join([]string{
+		"tools:",
+		"  mysql: \"8.4\"",
+		"  mariadb: \"11.8\"",
+		"database:",
+		"  engine: mariadb",
+		"  port: 3307",
+		"",
+	}, "\n"))
+	if err := os.WriteFile(store.environmentConfigFile("data"), configData, 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+	if err := os.WriteFile(store.ConfigFile, []byte("version: 1\nroot: .polka\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(project config) error = %v", err)
+	}
+
+	environment, ok, err := store.readEnvironment("data")
+	if err != nil {
+		t.Fatalf("readEnvironment(data) error = %v", err)
+	}
+	if !ok {
+		t.Fatal("readEnvironment(data) ok = false, want true")
+	}
+	if environment.Database == nil || environment.Database.Engine != toolMariaDB || environment.Database.Version != "11.8" || environment.Database.Port != 3307 {
+		t.Fatalf("environment.Database = %#v, want mariadb 11.8 on port 3307", environment.Database)
+	}
+	if environment.MySQLVersion != "8.4" || environment.MariaDBVersion != "11.8" {
+		t.Fatalf("environment database tool versions = mysql:%q mariadb:%q, want mysql:8.4 mariadb:11.8", environment.MySQLVersion, environment.MariaDBVersion)
+	}
+}
+
+func TestStoreReadsLegacyToolsDatabaseConfig(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	configData := []byte(strings.Join([]string{
+		"tools:",
+		"  database:",
+		"    engine: mysql",
+		"    version: \"8.0\"",
+		"    port: 3306",
+		"",
+	}, "\n"))
+	if err := os.WriteFile(store.environmentConfigFile("data"), configData, 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+	if err := os.WriteFile(store.ConfigFile, []byte("version: 1\nroot: .polka\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(project config) error = %v", err)
+	}
+
+	environment, ok, err := store.readEnvironment("data")
+	if err != nil {
+		t.Fatalf("readEnvironment(data) error = %v", err)
+	}
+	if !ok {
+		t.Fatal("readEnvironment(data) ok = false, want true")
+	}
+	if environment.Database == nil || environment.Database.Engine != toolMySQL || environment.Database.Version != "8.0" || environment.Database.Port != 3306 {
+		t.Fatalf("environment.Database = %#v, want mysql 8.0 on port 3306", environment.Database)
 	}
 }
 

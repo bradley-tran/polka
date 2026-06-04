@@ -381,6 +381,20 @@ func TestRunConfigPersistsDatabaseSettings(t *testing.T) {
 	if stored.Engine != "mysql" || stored.Version != "8.0" || stored.Port != 3306 {
 		t.Fatalf("database = %#v, want mysql 8.0 on port 3306", stored)
 	}
+	configData, err := os.ReadFile(testEnvironmentConfigPath(projectDir, "demo"))
+	if err != nil {
+		t.Fatalf("ReadFile(config) error = %v", err)
+	}
+	configText := string(configData)
+	if !strings.Contains(configText, "tools:\n  mysql: \"8.0\"") {
+		t.Fatalf("config = %q, want mysql version under tools", configText)
+	}
+	if !strings.Contains(configText, "database:\n  engine: mysql\n  port: 3306") {
+		t.Fatalf("config = %q, want root-level database engine and port", configText)
+	}
+	if strings.Contains(configText, "  version:") {
+		t.Fatalf("config = %q, want no root-level database version entry", configText)
+	}
 	if !strings.Contains(stdout.String(), "db=mysql:8.0@3306") {
 		t.Fatalf("Run(config) stdout = %q, want database summary", stdout.String())
 	}

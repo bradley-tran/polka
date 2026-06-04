@@ -37,6 +37,21 @@ func validateDatabaseConfig(database *DatabaseConfig) error {
 	return nil
 }
 
+func setDatabaseToolVersion(environment Environment, database *DatabaseConfig) Environment {
+	if database == nil || strings.TrimSpace(database.Version) == "" {
+		return environment
+	}
+
+	switch strings.ToLower(strings.TrimSpace(database.Engine)) {
+	case toolMySQL:
+		environment.MySQLVersion = strings.TrimSpace(database.Version)
+	case toolMariaDB:
+		environment.MariaDBVersion = strings.TrimSpace(database.Version)
+	}
+
+	return environment
+}
+
 func normalizeDatabaseEngine(engine string) (string, error) {
 	trimmed := strings.ToLower(strings.TrimSpace(engine))
 	switch trimmed {

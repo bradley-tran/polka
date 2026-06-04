@@ -93,7 +93,7 @@ const dbUsage = `Usage:
   polka db status
 
 Run or manage the active environment's configured database tool.
-Polka dispatches to mysql or mariadb based on the current environment's tools.database.engine setting.
+Polka dispatches to the primary database selected by the current environment's database.engine setting.
 
 Subcommands:
   client   force client dispatch, even for reserved words such as status

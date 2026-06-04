@@ -9,6 +9,8 @@ type ToolsConfig struct {
 	NodeJSVersion   string            `yaml:"nodejs,omitempty"`
 	MagoVersion     string            `yaml:"mago,omitempty"`
 	NginxVersion    string            `yaml:"nginx,omitempty"`
+	MySQLVersion    string            `yaml:"mysql,omitempty"`
+	MariaDBVersion  string            `yaml:"mariadb,omitempty"`
 	Database        *DatabaseConfig   `yaml:"database,omitempty"`
 	Mailpit         *MailpitConfig    `yaml:"mailpit,omitempty"`
 	PHPMyAdmin      *PHPMyAdminConfig `yaml:"phpmyadmin,omitempty"`
@@ -22,6 +24,7 @@ type ProjectFile struct {
 	Docroot       string            `yaml:"docroot,omitempty"`
 	EnvFile       string            `yaml:"env-file,omitempty"`
 	EnvVars       map[string]string `yaml:"env-vars,omitempty"`
+	Database      *DatabaseConfig   `yaml:"database,omitempty"`
 	PHPExtensions map[string]bool   `yaml:"php-extensions,omitempty"`
 	Server        *ServerConfig     `yaml:"server,omitempty"`
 }
@@ -32,6 +35,7 @@ type EnvironmentFile struct {
 	Docroot       string            `yaml:"docroot,omitempty"`
 	EnvFile       string            `yaml:"env-file,omitempty"`
 	EnvVars       map[string]string `yaml:"env-vars,omitempty"`
+	Database      *DatabaseConfig   `yaml:"database,omitempty"`
 	PHPExtensions map[string]bool   `yaml:"php-extensions,omitempty"`
 	Server        *ServerConfig     `yaml:"server,omitempty"`
 }
@@ -43,6 +47,8 @@ type Environment struct {
 	NodeJSVersion   string            `yaml:"nodejs,omitempty"`
 	MagoVersion     string            `yaml:"mago,omitempty"`
 	NginxVersion    string            `yaml:"nginx,omitempty"`
+	MySQLVersion    string            `yaml:"mysql,omitempty"`
+	MariaDBVersion  string            `yaml:"mariadb,omitempty"`
 	Docroot         string            `yaml:"docroot,omitempty"`
 	EnvFile         string            `yaml:"env-file,omitempty"`
 	EnvVars         map[string]string `yaml:"env-vars,omitempty"`
@@ -92,6 +98,7 @@ func ProjectFileToEnvironment(name string, file ProjectFile) Environment {
 		file.Docroot,
 		file.EnvFile,
 		file.EnvVars,
+		file.Database,
 		file.PHPExtensions,
 		file.Server,
 	)
@@ -106,6 +113,7 @@ func ProjectFileFromEnvironment(version int, root string, environment Environmen
 		Docroot:       environment.Docroot,
 		EnvFile:       environment.EnvFile,
 		EnvVars:       environment.EnvVars,
+		Database:      DatabaseRuntimeConfigFromEnvironment(environment),
 		PHPExtensions: environment.PHPExtensions,
 		Server:        environment.Server,
 	}
@@ -121,6 +129,7 @@ func EnvironmentFileToEnvironment(name string, file EnvironmentFile) Environment
 		file.Docroot,
 		file.EnvFile,
 		file.EnvVars,
+		file.Database,
 		file.PHPExtensions,
 		file.Server,
 	)
@@ -133,6 +142,7 @@ func EnvironmentFileFromEnvironment(environment Environment) EnvironmentFile {
 		Docroot:       environment.Docroot,
 		EnvFile:       environment.EnvFile,
 		EnvVars:       environment.EnvVars,
+		Database:      DatabaseRuntimeConfigFromEnvironment(environment),
 		PHPExtensions: environment.PHPExtensions,
 		Server:        environment.Server,
 	}
@@ -146,7 +156,8 @@ func ToolsConfigFromEnvironment(environment Environment) *ToolsConfig {
 		NodeJSVersion:   environment.NodeJSVersion,
 		MagoVersion:     environment.MagoVersion,
 		NginxVersion:    environment.NginxVersion,
-		Database:        environment.Database,
+		MySQLVersion:    DatabaseToolVersion(environment, "mysql"),
+		MariaDBVersion:  DatabaseToolVersion(environment, "mariadb"),
 		Mailpit:         environment.Mailpit,
 		PHPMyAdmin:      environment.PHPMyAdmin,
 	}
@@ -164,17 +175,20 @@ func (tools ToolsConfig) IsZero() bool {
 		strings.TrimSpace(tools.NodeJSVersion) == "" &&
 		strings.TrimSpace(tools.MagoVersion) == "" &&
 		strings.TrimSpace(tools.NginxVersion) == "" &&
+		strings.TrimSpace(tools.MySQLVersion) == "" &&
+		strings.TrimSpace(tools.MariaDBVersion) == "" &&
 		tools.Database == nil &&
 		tools.Mailpit == nil &&
 		tools.PHPMyAdmin == nil
 }
 
-func environmentFromFileParts(name string, tools *ToolsConfig, docroot, envFile string, envVars map[string]string, phpExtensions map[string]bool, server *ServerConfig) Environment {
+func environmentFromFileParts(name string, tools *ToolsConfig, docroot, envFile string, envVars map[string]string, database *DatabaseConfig, phpExtensions map[string]bool, server *ServerConfig) Environment {
 	environment := Environment{
 		Name:          name,
 		Docroot:       docroot,
 		EnvFile:       envFile,
 		EnvVars:       envVars,
+		Database:      database,
 		PHPExtensions: phpExtensions,
 		Server:        server,
 	}
@@ -184,7 +198,10 @@ func environmentFromFileParts(name string, tools *ToolsConfig, docroot, envFile 
 		environment.NodeJSVersion = tools.NodeJSVersion
 		environment.MagoVersion = tools.MagoVersion
 		environment.NginxVersion = tools.NginxVersion
-		environment.Database = tools.Database
+		environment.MySQLVersion = tools.MySQLVersion
+		environment.MariaDBVersion = tools.MariaDBVersion
+		environment.Database = PrimaryDatabaseConfigFromTools(tools, database)
+		environment = populateDatabaseToolVersion(environment)
 		environment.Mailpit = tools.Mailpit
 		environment.PHPMyAdmin = tools.PHPMyAdmin
 	}
@@ -192,14 +209,117 @@ func environmentFromFileParts(name string, tools *ToolsConfig, docroot, envFile 
 	return environment
 }
 
+func populateDatabaseToolVersion(environment Environment) Environment {
+	if environment.Database == nil || strings.TrimSpace(environment.Database.Version) == "" {
+		return environment
+	}
+
+	switch strings.ToLower(strings.TrimSpace(environment.Database.Engine)) {
+	case "mysql":
+		if strings.TrimSpace(environment.MySQLVersion) == "" {
+			environment.MySQLVersion = environment.Database.Version
+		}
+	case "mariadb":
+		if strings.TrimSpace(environment.MariaDBVersion) == "" {
+			environment.MariaDBVersion = environment.Database.Version
+		}
+	}
+
+	return environment
+}
+
+// DatabaseToolVersion returns the configured database version for the requested engine.
+func DatabaseToolVersion(environment Environment, engine string) string {
+	switch strings.ToLower(strings.TrimSpace(engine)) {
+	case "mysql":
+		if strings.TrimSpace(environment.MySQLVersion) != "" {
+			return environment.MySQLVersion
+		}
+	case "mariadb":
+		if strings.TrimSpace(environment.MariaDBVersion) != "" {
+			return environment.MariaDBVersion
+		}
+	default:
+		return ""
+	}
+	if environment.Database != nil && strings.EqualFold(strings.TrimSpace(environment.Database.Engine), strings.TrimSpace(engine)) {
+		return environment.Database.Version
+	}
+
+	return ""
+}
+
+// DatabaseRuntimeConfigFromEnvironment extracts root-level database runtime settings.
+func DatabaseRuntimeConfigFromEnvironment(environment Environment) *DatabaseConfig {
+	if environment.Database == nil {
+		return nil
+	}
+
+	runtime := &DatabaseConfig{
+		Engine: environment.Database.Engine,
+		Port:   environment.Database.Port,
+	}
+	if runtime.Engine == "" && runtime.Port == 0 {
+		return nil
+	}
+
+	return runtime
+}
+
+// PrimaryDatabaseConfigFromTools combines database runtime settings with the selected database tool.
+func PrimaryDatabaseConfigFromTools(tools *ToolsConfig, database *DatabaseConfig) *DatabaseConfig {
+	if tools == nil {
+		return database
+	}
+
+	merged := &DatabaseConfig{}
+	if database != nil {
+		*merged = *database
+	}
+	if tools.Database != nil {
+		legacy := NormalizeDatabaseConfig(tools.Database)
+		if legacy != nil {
+			if merged.Engine == "" {
+				merged.Engine = legacy.Engine
+			}
+			if merged.Version == "" {
+				merged.Version = legacy.Version
+			}
+			if merged.Port == 0 {
+				merged.Port = legacy.Port
+			}
+		}
+	}
+	if merged.Engine == "" {
+		switch {
+		case strings.TrimSpace(tools.MySQLVersion) != "" && strings.TrimSpace(tools.MariaDBVersion) == "":
+			merged.Engine = "mysql"
+		case strings.TrimSpace(tools.MariaDBVersion) != "" && strings.TrimSpace(tools.MySQLVersion) == "":
+			merged.Engine = "mariadb"
+		}
+	}
+	if merged.Version == "" {
+		switch strings.ToLower(strings.TrimSpace(merged.Engine)) {
+		case "mysql":
+			merged.Version = tools.MySQLVersion
+		case "mariadb":
+			merged.Version = tools.MariaDBVersion
+		}
+	}
+
+	return NormalizeDatabaseConfig(merged)
+}
+
 func NormalizeEnvironment(name string, environment Environment) Environment {
-	return Environment{
+	normalized := Environment{
 		Name:            name,
 		PHPVersion:      strings.TrimSpace(environment.PHPVersion),
 		ComposerVersion: strings.TrimSpace(environment.ComposerVersion),
 		NodeJSVersion:   strings.TrimSpace(environment.NodeJSVersion),
 		MagoVersion:     strings.TrimSpace(environment.MagoVersion),
 		NginxVersion:    strings.TrimSpace(environment.NginxVersion),
+		MySQLVersion:    strings.TrimSpace(environment.MySQLVersion),
+		MariaDBVersion:  strings.TrimSpace(environment.MariaDBVersion),
 		Docroot:         strings.TrimSpace(environment.Docroot),
 		EnvFile:         strings.TrimSpace(environment.EnvFile),
 		EnvVars:         NormalizeEnvironmentVariables(environment.EnvVars),
@@ -209,6 +329,8 @@ func NormalizeEnvironment(name string, environment Environment) Environment {
 		PHPExtensions:   NormalizePHPExtensions(environment.PHPExtensions),
 		Server:          NormalizeServerConfig(environment.Server),
 	}
+
+	return populateDatabaseToolVersion(normalized)
 }
 
 func NormalizeEnvironmentVariables(values map[string]string) map[string]string {

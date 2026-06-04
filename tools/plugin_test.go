@@ -18,6 +18,8 @@ func TestDefaultRegistryInstallRequestsUseConfiguredToolOrder(t *testing.T) {
 		NginxVersion:    "1.30",
 		PHPMyAdmin:      &config.PHPMyAdminConfig{Version: "5.2", Port: 8081, HTTPS: true},
 		Mailpit:         &config.MailpitConfig{Version: "1.30"},
+		MySQLVersion:    "8.4",
+		MariaDBVersion:  "11.8",
 		Database:        &config.DatabaseConfig{Engine: MariaDB, Version: "11.8"},
 	}
 
@@ -35,6 +37,7 @@ func TestDefaultRegistryInstallRequestsUseConfiguredToolOrder(t *testing.T) {
 		"nginx:1.30",
 		"mailpit:1.30",
 		"phpmyadmin:5.2",
+		"mysql:8.4",
 		"mariadb:11.8",
 	}
 	if !reflect.DeepEqual(got, want) {
