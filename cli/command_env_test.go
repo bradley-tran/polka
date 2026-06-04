@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/goccy/go-yaml"
 )
 
 func TestRunInitUsesDotPolkaByDefault(t *testing.T) {
@@ -126,10 +124,13 @@ func TestRunInstallUsesConfiguredNestedRootFromProjectConfig(t *testing.T) {
 		t.Fatalf("WriteFile(cache php) error = %v", err)
 	}
 
-	configData := []byte("version: 1\nroot: test-site/.polka\nenvironments:\n  demo:\n    php: \"8.4\"\n")
-	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
-		t.Fatalf("WriteFile(config) error = %v", err)
-	}
+	writeTestConfigFile(t, projectDir, testConfigFile{
+		Version: 1,
+		Root:    "test-site/.polka",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {PHP: "8.4"},
+		},
+	})
 	writeTestActiveEnvironment(t, root, "demo")
 
 	originalWorkingDir, err := os.Getwd()
@@ -175,10 +176,13 @@ func TestRunInstallUsesConfiguredNestedRootFromExplicitRoot(t *testing.T) {
 		t.Fatalf("WriteFile(cache php) error = %v", err)
 	}
 
-	configData := []byte("version: 1\nroot: test-site/.polka\nenvironments:\n  demo:\n    php: \"8.4\"\n")
-	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
-		t.Fatalf("WriteFile(config) error = %v", err)
-	}
+	writeTestConfigFile(t, projectDir, testConfigFile{
+		Version: 1,
+		Root:    "test-site/.polka",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {PHP: "8.4"},
+		},
+	})
 	writeTestActiveEnvironment(t, root, "demo")
 
 	if code := Run(stdout, stderr, []string{"--root", root, "install"}); code != 0 {
@@ -227,16 +231,13 @@ func TestRunConfigUsesCurrentEnvironmentWhenNameOmitted(t *testing.T) {
 		t.Fatalf("Run(config current) stdout = %q, want configured summary", output)
 	}
 
-	configData, err := os.ReadFile(filepath.Join(projectDir, "polka.yaml"))
+	configData, err := os.ReadFile(testEnvironmentConfigPath(projectDir, "demo"))
 	if err != nil {
 		t.Fatalf("ReadFile(config) error = %v", err)
 	}
-	var config testConfigFile
-	if err := yaml.Unmarshal(configData, &config); err != nil {
-		t.Fatalf("yaml.Unmarshal(config) error = %v", err)
-	}
-	if config.Environments["demo"].Composer != "2.8" {
-		t.Fatalf("config = %#v, want composer set on current environment", config)
+	environment := readTestEnvironmentConfig(t, projectDir, "demo")
+	if environment.Composer != "2.8" {
+		t.Fatalf("environment = %#v, want composer set on current environment", environment)
 	}
 	if strings.Contains(string(configData), "current:") {
 		t.Fatalf("config = %q, want no current entry", string(configData))
@@ -268,18 +269,15 @@ func TestRunConfigUsesDefaultEnvironmentWhenCurrentMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile(config) error = %v", err)
 	}
-	var config testConfigFile
-	if err := yaml.Unmarshal(configData, &config); err != nil {
-		t.Fatalf("yaml.Unmarshal(config) error = %v", err)
-	}
 	if strings.Contains(string(configData), "current:") {
 		t.Fatalf("config = %q, want no current entry", string(configData))
 	}
-	if active := readTestActiveEnvironment(t, root); active != defaultEnvironmentName {
-		t.Fatalf("active environment = %q, want %q", active, defaultEnvironmentName)
+	if _, err := os.Stat(filepath.Join(root, "run", "current")); !os.IsNotExist(err) {
+		t.Fatalf("Stat(active environment) error = %v, want missing default fallback state", err)
 	}
-	if config.Environments[defaultEnvironmentName].PHP != "8.4" {
-		t.Fatalf("config = %#v, want php configured on default environment", config)
+	environment := readTestEnvironmentConfig(t, projectDir, defaultEnvironmentName)
+	if environment.PHP != "8.4" {
+		t.Fatalf("environment = %#v, want php configured on default environment", environment)
 	}
 }
 
@@ -321,15 +319,11 @@ func TestRunInstallUsesDefaultEnvironmentWhenCurrentMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile(config after install) error = %v", err)
 	}
-	var config testConfigFile
-	if err := yaml.Unmarshal(configData, &config); err != nil {
-		t.Fatalf("yaml.Unmarshal(config after install) error = %v", err)
-	}
 	if strings.Contains(string(configData), "current:") {
 		t.Fatalf("config after install = %q, want no current entry", string(configData))
 	}
-	if active := readTestActiveEnvironment(t, root); active != defaultEnvironmentName {
-		t.Fatalf("active environment after install = %q, want %q", active, defaultEnvironmentName)
+	if _, err := os.Stat(filepath.Join(root, "run", "current")); !os.IsNotExist(err) {
+		t.Fatalf("Stat(active environment after install) error = %v, want missing default fallback state", err)
 	}
 }
 
@@ -343,22 +337,29 @@ func TestRunNewUsesDefaultVersions(t *testing.T) {
 		t.Fatalf("Run(new) code = %d, stderr = %q", code, stderr.String())
 	}
 
-	configData, err := os.ReadFile(filepath.Join(projectDir, "polka.yaml"))
-	if err != nil {
-		t.Fatalf("ReadFile(config) error = %v", err)
-	}
-	var config testConfigFile
-	if err := yaml.Unmarshal(configData, &config); err != nil {
-		t.Fatalf("yaml.Unmarshal(config) error = %v", err)
-	}
-	if config.Environments["demo"].PHP != "8.4" || config.Environments["demo"].Composer != "2.8" || config.Environments["demo"].NodeJS != "24" {
-		t.Fatalf("config = %#v, want default versions for demo", config)
+	environment := readTestEnvironmentConfig(t, projectDir, "demo")
+	if environment.PHP != "8.4" || environment.Composer != "2.8" || environment.NodeJS != "24" {
+		t.Fatalf("environment = %#v, want default versions for demo", environment)
 	}
 	if !strings.Contains(stdout.String(), "nodejs=24") {
 		t.Fatalf("Run(new) stdout = %q, want default nodejs summary", stdout.String())
 	}
 	if !strings.Contains(stdout.String(), "Created demo") {
 		t.Fatalf("Run(new) stdout = %q, want created summary", stdout.String())
+	}
+}
+
+func TestRunNewRejectsDefaultEnvironmentName(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "new", defaultEnvironmentName}); code == 0 {
+		t.Fatal("Run(new default) code = 0, want reserved default rejection")
+	}
+	if !strings.Contains(stderr.String(), "environment \"default\" already exists") {
+		t.Fatalf("Run(new default) stderr = %q, want already exists error", stderr.String())
 	}
 }
 
@@ -372,17 +373,10 @@ func TestRunConfigPersistsDatabaseSettings(t *testing.T) {
 		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
 	}
 
-	configData, err := os.ReadFile(filepath.Join(projectDir, "polka.yaml"))
-	if err != nil {
-		t.Fatalf("ReadFile(config) error = %v", err)
-	}
-	var config testConfigFile
-	if err := yaml.Unmarshal(configData, &config); err != nil {
-		t.Fatalf("yaml.Unmarshal(config) error = %v", err)
-	}
-	stored := config.Environments["demo"].Database
+	environment := readTestEnvironmentConfig(t, projectDir, "demo")
+	stored := environment.Database
 	if stored == nil {
-		t.Fatalf("config = %#v, want database config for demo", config)
+		t.Fatalf("environment = %#v, want database config for demo", environment)
 	}
 	if stored.Engine != "mysql" || stored.Version != "8.0" || stored.Port != 3306 {
 		t.Fatalf("database = %#v, want mysql 8.0 on port 3306", stored)
@@ -402,16 +396,9 @@ func TestRunConfigPersistsNodeJSSetting(t *testing.T) {
 		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
 	}
 
-	configData, err := os.ReadFile(filepath.Join(projectDir, "polka.yaml"))
-	if err != nil {
-		t.Fatalf("ReadFile(config) error = %v", err)
-	}
-	var config testConfigFile
-	if err := yaml.Unmarshal(configData, &config); err != nil {
-		t.Fatalf("yaml.Unmarshal(config) error = %v", err)
-	}
-	if config.Environments["demo"].NodeJS != "24" {
-		t.Fatalf("config = %#v, want nodejs configured for demo", config)
+	environment := readTestEnvironmentConfig(t, projectDir, "demo")
+	if environment.NodeJS != "24" {
+		t.Fatalf("environment = %#v, want nodejs configured for demo", environment)
 	}
 	if !strings.Contains(stdout.String(), "nodejs=24") {
 		t.Fatalf("Run(config) stdout = %q, want nodejs summary", stdout.String())
@@ -440,14 +427,7 @@ func TestRunStatusShowsToolsEachOnOwnLine(t *testing.T) {
 			},
 		},
 	}
-	configData, err := yaml.Marshal(config)
-	if err != nil {
-		t.Fatalf("yaml.Marshal(config) error = %v", err)
-	}
-	configData = append(configData, '\n')
-	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
-		t.Fatalf("WriteFile(config) error = %v", err)
-	}
+	writeTestConfigFile(t, projectDir, config)
 	writeTestActiveEnvironment(t, root, "demo")
 
 	if code := Run(stdout, stderr, []string{"--root", root, "status"}); code != 0 {
@@ -492,14 +472,7 @@ func TestRunInfoAliasShowsStatus(t *testing.T) {
 			},
 		},
 	}
-	configData, err := yaml.Marshal(config)
-	if err != nil {
-		t.Fatalf("yaml.Marshal(config) error = %v", err)
-	}
-	configData = append(configData, '\n')
-	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
-		t.Fatalf("WriteFile(config) error = %v", err)
-	}
+	writeTestConfigFile(t, projectDir, config)
 	writeTestActiveEnvironment(t, root, "demo")
 
 	if code := Run(stdout, stderr, []string{"--root", root, "info"}); code != 0 {
@@ -578,14 +551,7 @@ func TestRunStatusShowsRunningWebserverAndDatabase(t *testing.T) {
 			},
 		},
 	}
-	configData, err := yaml.Marshal(config)
-	if err != nil {
-		t.Fatalf("yaml.Marshal(config) error = %v", err)
-	}
-	configData = append(configData, '\n')
-	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
-		t.Fatalf("WriteFile(config) error = %v", err)
-	}
+	writeTestConfigFile(t, projectDir, config)
 	writeTestActiveEnvironment(t, root, "demo")
 	if err := writeServeState(serveStatePath(root, "demo"), serveRuntimeState{
 		EnvironmentName: "demo",
@@ -648,14 +614,7 @@ func TestRunStatusShowsMailpitUIURL(t *testing.T) {
 			},
 		},
 	}
-	configData, err := yaml.Marshal(config)
-	if err != nil {
-		t.Fatalf("yaml.Marshal(config) error = %v", err)
-	}
-	configData = append(configData, '\n')
-	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
-		t.Fatalf("WriteFile(config) error = %v", err)
-	}
+	writeTestConfigFile(t, projectDir, config)
 	writeTestActiveEnvironment(t, root, "demo")
 	if err := writeMailpitState(mailpitStatePath(root, "demo"), mailpitRuntimeState{
 		EnvironmentName: "demo",
@@ -711,26 +670,9 @@ func TestRunInstallAppliesPHPExtensionsFromConfigFile(t *testing.T) {
 		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
 	}
 
-	configPath := filepath.Join(projectDir, "polka.yaml")
-	configData, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatalf("ReadFile(config) error = %v", err)
-	}
-	var config testConfigFile
-	if err := yaml.Unmarshal(configData, &config); err != nil {
-		t.Fatalf("yaml.Unmarshal(config) error = %v", err)
-	}
-	environment := config.Environments["demo"]
+	environment := readTestEnvironmentConfig(t, projectDir, "demo")
 	environment.PHPExtensions = map[string]bool{"openssl": true, "xdebug": false}
-	config.Environments["demo"] = environment
-	updatedConfig, err := yaml.Marshal(config)
-	if err != nil {
-		t.Fatalf("yaml.Marshal(config) error = %v", err)
-	}
-	updatedConfig = append(updatedConfig, '\n')
-	if err := os.WriteFile(configPath, updatedConfig, 0o644); err != nil {
-		t.Fatalf("WriteFile(config) error = %v", err)
-	}
+	writeTestEnvironmentConfig(t, projectDir, "demo", environment)
 
 	stdout.Reset()
 	stderr.Reset()

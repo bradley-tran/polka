@@ -10,8 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/goccy/go-yaml"
-
 	"polka/backend"
 )
 
@@ -38,30 +36,13 @@ func TestRunServeUsesCurrentServerConfig(t *testing.T) {
 	if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--php", "8.4"}); code != 0 {
 		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
 	}
-	configPath := filepath.Join(projectDir, "polka.yaml")
 	if err := os.WriteFile(filepath.Join(projectDir, ".env"), []byte("APP_ENV=project\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(project .env) error = %v", err)
 	}
-	configData, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatalf("ReadFile(config) error = %v", err)
-	}
-	var config testConfigFile
-	if err := yaml.Unmarshal(configData, &config); err != nil {
-		t.Fatalf("yaml.Unmarshal(config) error = %v", err)
-	}
-	environment := config.Environments["demo"]
+	environment := readTestEnvironmentConfig(t, projectDir, "demo")
 	environment.Server = &testServerConfig{Hostname: "localhost", Port: 8080}
 	environment.EnvVars = map[string]string{"APP_ENV": "start"}
-	config.Environments["demo"] = environment
-	updatedConfig, err := yaml.Marshal(config)
-	if err != nil {
-		t.Fatalf("yaml.Marshal(config) error = %v", err)
-	}
-	updatedConfig = append(updatedConfig, '\n')
-	if err := os.WriteFile(configPath, updatedConfig, 0o644); err != nil {
-		t.Fatalf("WriteFile(config) error = %v", err)
-	}
+	writeTestEnvironmentConfig(t, projectDir, "demo", environment)
 
 	stdout.Reset()
 	stderr.Reset()
@@ -126,14 +107,7 @@ func TestRunServeUsesConfiguredDocrootWhenArgumentOmitted(t *testing.T) {
 			},
 		},
 	}
-	configData, err := yaml.Marshal(config)
-	if err != nil {
-		t.Fatalf("yaml.Marshal(config) error = %v", err)
-	}
-	configData = append(configData, '\n')
-	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
-		t.Fatalf("WriteFile(config) error = %v", err)
-	}
+	writeTestConfigFile(t, projectDir, config)
 	writeTestActiveEnvironment(t, root, "demo")
 
 	stdout.Reset()
@@ -197,14 +171,7 @@ func TestRunServeArgumentOverridesConfiguredDocroot(t *testing.T) {
 			},
 		},
 	}
-	configData, err := yaml.Marshal(config)
-	if err != nil {
-		t.Fatalf("yaml.Marshal(config) error = %v", err)
-	}
-	configData = append(configData, '\n')
-	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
-		t.Fatalf("WriteFile(config) error = %v", err)
-	}
+	writeTestConfigFile(t, projectDir, config)
 	writeTestActiveEnvironment(t, root, "demo")
 
 	stdout.Reset()
@@ -248,20 +215,13 @@ func TestRunServeRequiresDocrootArgumentOrConfig(t *testing.T) {
 			},
 		},
 	}
-	configData, err := yaml.Marshal(config)
-	if err != nil {
-		t.Fatalf("yaml.Marshal(config) error = %v", err)
-	}
-	configData = append(configData, '\n')
-	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
-		t.Fatalf("WriteFile(config) error = %v", err)
-	}
+	writeTestConfigFile(t, projectDir, config)
 	writeTestActiveEnvironment(t, root, "demo")
 
 	if code := Run(stdout, stderr, []string{"--root", root, "start"}); code != 1 {
 		t.Fatalf("Run(serve without docroot) code = %d, stderr = %q", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "docroot argument or environments.<name>.docroot") {
+	if !strings.Contains(stderr.String(), "docroot argument or docroot in the current environment file") {
 		t.Fatalf("Run(serve without docroot) stderr = %q, want docroot config guidance", stderr.String())
 	}
 }
@@ -289,26 +249,9 @@ func TestRunServeAllowsServerOverride(t *testing.T) {
 	if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--php", "8.4"}); code != 0 {
 		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
 	}
-	configPath := filepath.Join(projectDir, "polka.yaml")
-	configData, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatalf("ReadFile(config) error = %v", err)
-	}
-	var config testConfigFile
-	if err := yaml.Unmarshal(configData, &config); err != nil {
-		t.Fatalf("yaml.Unmarshal(config) error = %v", err)
-	}
-	environment := config.Environments["demo"]
+	environment := readTestEnvironmentConfig(t, projectDir, "demo")
 	environment.Server = &testServerConfig{Hostname: "localhost", Port: 8080}
-	config.Environments["demo"] = environment
-	updatedConfig, err := yaml.Marshal(config)
-	if err != nil {
-		t.Fatalf("yaml.Marshal(config) error = %v", err)
-	}
-	updatedConfig = append(updatedConfig, '\n')
-	if err := os.WriteFile(configPath, updatedConfig, 0o644); err != nil {
-		t.Fatalf("WriteFile(config) error = %v", err)
-	}
+	writeTestEnvironmentConfig(t, projectDir, "demo", environment)
 
 	stdout.Reset()
 	stderr.Reset()
@@ -360,14 +303,7 @@ func TestRunServeUsesNginxWhenConfigured(t *testing.T) {
 			},
 		},
 	}
-	configData, err := yaml.Marshal(config)
-	if err != nil {
-		t.Fatalf("yaml.Marshal(config) error = %v", err)
-	}
-	configData = append(configData, '\n')
-	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
-		t.Fatalf("WriteFile(config) error = %v", err)
-	}
+	writeTestConfigFile(t, projectDir, config)
 	writeTestActiveEnvironment(t, root, "demo")
 
 	oldPHPServe := runPHPRuntimeServeFunc
@@ -592,14 +528,7 @@ func TestRunServeRejectsHTTPSWithoutNginx(t *testing.T) {
 			},
 		},
 	}
-	configData, err := yaml.Marshal(config)
-	if err != nil {
-		t.Fatalf("yaml.Marshal(config) error = %v", err)
-	}
-	configData = append(configData, '\n')
-	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
-		t.Fatalf("WriteFile(config) error = %v", err)
-	}
+	writeTestConfigFile(t, projectDir, config)
 	writeTestActiveEnvironment(t, root, "demo")
 
 	if code := Run(stdout, stderr, []string{"--root", root, "start"}); code != 1 {
@@ -812,14 +741,7 @@ func TestRunServeStartsConfiguredMailpitBeforeWebserver(t *testing.T) {
 			},
 		},
 	}
-	configData, err := yaml.Marshal(config)
-	if err != nil {
-		t.Fatalf("yaml.Marshal(config) error = %v", err)
-	}
-	configData = append(configData, '\n')
-	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
-		t.Fatalf("WriteFile(config) error = %v", err)
-	}
+	writeTestConfigFile(t, projectDir, config)
 	writeTestActiveEnvironment(t, root, "demo")
 	for _, path := range []string{
 		projectInstalledPHPPath(root, "8.4"),
@@ -928,14 +850,7 @@ func TestRunServeStartsConfiguredPHPMyAdminBeforeWebserver(t *testing.T) {
 			},
 		},
 	}
-	configData, err := yaml.Marshal(config)
-	if err != nil {
-		t.Fatalf("yaml.Marshal(config) error = %v", err)
-	}
-	configData = append(configData, '\n')
-	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
-		t.Fatalf("WriteFile(config) error = %v", err)
-	}
+	writeTestConfigFile(t, projectDir, config)
 	writeTestActiveEnvironment(t, root, "demo")
 	phpMyAdminIndex := filepath.Join(root, "envs", "phpmyadmin", "5.2", "index.php")
 	if err := os.MkdirAll(filepath.Dir(phpMyAdminIndex), 0o755); err != nil {
@@ -1061,14 +976,7 @@ func TestRunServeStartsInBackgroundByDefaultAndStopStopsIt(t *testing.T) {
 			},
 		},
 	}
-	configData, err := yaml.Marshal(config)
-	if err != nil {
-		t.Fatalf("yaml.Marshal(config) error = %v", err)
-	}
-	configData = append(configData, '\n')
-	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
-		t.Fatalf("WriteFile(config) error = %v", err)
-	}
+	writeTestConfigFile(t, projectDir, config)
 	writeTestActiveEnvironment(t, root, "demo")
 
 	oldStartPHP := startBackgroundPHPRuntimeServe

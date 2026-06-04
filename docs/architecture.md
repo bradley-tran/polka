@@ -41,6 +41,9 @@ The `config` package contains shared YAML schema types and normalization helpers
 
 - `Config`
 - `Environment`
+- `ProjectFile`
+- `EnvironmentFile`
+- `ToolsConfig`
 - `DatabaseConfig`
 - `MailpitConfig`
 - `PHPMyAdminConfig`
@@ -68,7 +71,7 @@ The current plugin system is internal and compile-time only. Built-in plugin met
 `polka install <environment>` follows this flow:
 
 1. `cli` resolves the requested environment name and calls `backend.Store.InstallWithProgress`.
-2. `backend.Store` loads and normalizes `polka.yaml`.
+2. `backend.Store` loads and normalizes `polka.yaml` for the default environment or `polka.<name>.yaml` for named environments.
 3. `backend.Store` asks `tools.Registry` to validate the environment and produce ordered install requests.
 4. For each requested tool, `backend.Store` checks the global cache.
 5. If the cache is missing, `tools.HTTPDownloader` invokes the matching plugin download hook.
@@ -76,7 +79,7 @@ The current plugin system is internal and compile-time only. Built-in plugin met
 7. The tool plugin may run a post-install hook using `tools.InstallContext`.
 8. `backend.Store` returns install results to the CLI.
 
-The global cache and project-local install layouts are intentionally separate. The cache stores reusable downloaded payloads; `.polka/envs` stores project-local copies selected by `polka.yaml`.
+The global cache and project-local install layouts are intentionally separate. The cache stores reusable downloaded payloads; `.polka/envs` stores project-local copies selected by the active environment config.
 
 ## Dispatch Flow
 
@@ -89,7 +92,7 @@ Managed command shims in `.polka/bin` call back into Polka:
         `-- tools.Registry.ResolveDispatchRequest("php")
 ```
 
-Dispatch resolution uses the active environment recorded in `.polka/run/current`, maps command names to their config tool, reads that environment's definition from `polka.yaml`, and locates the installed executable under `.polka/envs`.
+Dispatch resolution uses the active environment recorded in `.polka/run/current`, or `default` from `polka.yaml` when no local override is selected. It maps command names to their config tool, reads that environment's definition from `polka.yaml` or `polka.<name>.yaml`, and locates the installed executable under `.polka/envs`.
 
 Node.js is config-only as `nodejs`, but it exposes `node`, `npm`, and `npx` dispatch commands. The `nodejs` command itself is not generated as an active shim. Mago is configured with `mago` and exposes the `mago` dispatch command. phpMyAdmin does not generate a command shim either; Polka installs its web app archive, writes its generated `config.inc.php`, and uses its UI port/HTTPS settings when the CLI starts the managed phpMyAdmin service.
 

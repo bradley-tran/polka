@@ -24,9 +24,9 @@ go run . status
 
 `polka init` creates a local `.polka/` directory, writes dispatcher shims in `.polka/bin` that forward to the current `polka` executable, syncs the active environment's dispatch shims in `.polka/bin`, and writes `polka.yaml` if it does not exist.
 
-Use `polka new <name> [--php VERSION] [--composer VERSION] [--nodejs VERSION]` to create a new environment definition. When the flags are omitted, Polka currently defaults to `php=8.4`, `composer=2.8`, and `nodejs=24`.
+Use `polka new <name> [--php VERSION] [--composer VERSION] [--nodejs VERSION]` to create a new named environment definition in `polka.<name>.yaml`. When the flags are omitted, Polka currently defaults to `php=8.4`, `composer=2.8`, and `nodejs=24`.
 
-Use `polka install [name]` to install every configured tool version for an environment. When `name` is omitted, Polka installs the current environment and prints which one it selected. If no current environment is selected, Polka uses `default` and records it in `.polka/run/current` after a successful install. Polka first checks the global cache, then downloads any missing versions into that cache, and finally copies the cached payloads into the project-local `.polka/envs` layout. The `mago` config key installs the Mago binary and creates a `mago` command shim. The `phpmyadmin` config key installs the phpMyAdmin web app archive under `.polka/envs/phpmyadmin/<version>`, writes a generated `config.inc.php` with a fresh `blowfish_secret`, and carries its UI `port` and `https` settings; it does not create a command shim.
+Use `polka install [name]` to install every configured tool version for an environment. When `name` is omitted, Polka installs the current environment and prints which one it selected. If no current environment is selected, Polka uses `default` from `polka.yaml`. Polka first checks the global cache, then downloads any missing versions into that cache, and finally copies the cached payloads into the project-local `.polka/envs` layout. The `mago` tool key installs the Mago binary and creates a `mago` command shim. The `phpmyadmin` tool key installs the phpMyAdmin web app archive under `.polka/envs/phpmyadmin/<version>`, writes a generated `config.inc.php` with a fresh `blowfish_secret`, and carries its UI `port` and `https` settings; it does not create a command shim.
 
 The shims in `.polka/bin` mirror the active environment's configured tools. A configured `nodejs` version produces `node`, `npm`, and `npx` shims, while the `nodejs` name itself remains config-only. If the current environment does not define a managed tool, Polka removes that local shim instead of leaving a dispatcher that would fail at runtime.
 
@@ -34,7 +34,7 @@ Use `polka sh` to open an interactive shell that resolves commands in this order
 
 Use `polka exec <command> [args...]` when you want that same resolution order and runtime environment for a single command without opening an interactive shell. For example, `polka exec drush status` and `polka exec php -v` resolve tools through `.polka/bin`, the nearest `vendor/bin`, and then the inherited system `PATH` exactly the same way as `polka sh`.
 
-Polka also composes custom runtime environment variables for the active environment from four sources in this precedence order (lowest to highest): inherited process env, project `.env`, `environments.<name>.env-file`, and `environments.<name>.env-vars`. The `.env` file is loaded automatically from the directory containing `polka.yaml` when present, `env-file` paths are resolved relative to that same directory (unless absolute), and `env-vars` always win when keys overlap.
+Polka also composes custom runtime environment variables for the active environment from four sources in this precedence order (lowest to highest): inherited process env, project `.env`, the current environment file's `env-file`, and the current environment file's `env-vars`. The `.env` file is loaded automatically from the directory containing `polka.yaml` when present, `env-file` paths are resolved relative to that same directory (unless absolute), and `env-vars` always win when keys overlap.
 
 Use the stable helper scripts in `.polka/` when you want to activate that same command resolution in the current shell instead of opening a child shell. Polka installs these wrappers when it initializes the local state directory:
 
@@ -50,48 +50,52 @@ To deactivate the current shell session and restore the exact pre-session values
 
 The lower-level `polka session start` and `polka session stop` commands remain available for now; they print the transient activation or deactivation script path that the stable wrappers source for you.
 
-Use `polka serve [docroot] [--server HOST:PORT] [--watch]` to start the active environment's web server. When `docroot` is omitted, Polka uses `environments.<name>.docroot` from `polka.yaml`. By default, Polka starts the webserver in the background, waits for it to begin listening, and records runtime state so `polka stop` can stop it later. Pass `--watch` to keep the previous foreground behavior in the current terminal. When the current environment defines `nginx`, Polka starts `php-cgi` on an internal loopback port and runs nginx with a generated FastCGI config; otherwise it falls back to PHP's built-in web server with a generated router that serves existing static files with explicit MIME types and forwards missing requests into the app router or front controller. When the current environment defines `mailpit`, Polka starts Mailpit before the webserver and records runtime state so `polka stop` can stop it later. Mailpit listens on `127.0.0.1:1025` for SMTP and `127.0.0.1:8025` for the web UI by default; set `mailpit.smtp-port` or `mailpit.ui-port` to override those ports. Set `mailpit.https: true` to serve the Mailpit UI over HTTPS and enable SMTP STARTTLS using Polka's generated local certificate. When the current environment defines `phpmyadmin`, Polka starts the installed phpMyAdmin web app before the webserver; if a managed database is configured, Polka also imports phpMyAdmin's bundled `sql/create_tables.sql` into the managed database before starting the UI. Set `phpmyadmin.port` to choose the UI port and `phpmyadmin.https: true` to serve it through nginx with Polka's local certificate. `polka status` prints the full Mailpit and phpMyAdmin UI URLs. Polka reads `server.hostname`, `server.port`, and `server.https` from the current environment in `polka.yaml`, and falls back to `http://localhost:8000` when that config is absent. HTTPS requires nginx at start time. Polka uses one generated server certificate from the global Polka cache for all HTTPS environments; it covers `localhost`, `*.localhost`, `127.0.0.1`, and `::1`, and is signed by a generated local Polka CA. With the default cache layout, the certificate material lives under the cache's `polka/cert` directory. Run `polka cert-install` at any time to clear and regenerate that global CA/server certificate pair, then install the CA certificate into the current user's trust store on Windows or macOS. Hostnames ending in `.localhost`, such as `blog.localhost`, are bound to `127.0.0.1` so the site is local-only and works without editing the hosts file. Automatic nginx downloads are currently implemented on Windows amd64. Automatic Mailpit downloads are currently implemented for Windows amd64 and Linux amd64. Automatic phpMyAdmin downloads use the official cross-platform zip archive. The same runtime env composition used by `polka sh` also applies to `polka serve`, generated `.polka/bin` dispatch shims, and database client/import/export commands.
+Use `polka serve [docroot] [--server HOST:PORT] [--watch]` to start the active environment's web server. When `docroot` is omitted, Polka uses `docroot` from the current environment file. By default, Polka starts the webserver in the background, waits for it to begin listening, and records runtime state so `polka stop` can stop it later. Pass `--watch` to keep the previous foreground behavior in the current terminal. When the current environment defines `nginx`, Polka starts `php-cgi` on an internal loopback port and runs nginx with a generated FastCGI config; otherwise it falls back to PHP's built-in web server with a generated router that serves existing static files with explicit MIME types and forwards missing requests into the app router or front controller. When the current environment defines `mailpit`, Polka starts Mailpit before the webserver and records runtime state so `polka stop` can stop it later. Mailpit listens on `127.0.0.1:1025` for SMTP and `127.0.0.1:8025` for the web UI by default; set `mailpit.smtp-port` or `mailpit.ui-port` to override those ports. Set `mailpit.https: true` to serve the Mailpit UI over HTTPS and enable SMTP STARTTLS using Polka's generated local certificate. When the current environment defines `phpmyadmin`, Polka starts the installed phpMyAdmin web app before the webserver; if a managed database is configured, Polka also imports phpMyAdmin's bundled `sql/create_tables.sql` into the managed database before starting the UI. Set `phpmyadmin.port` to choose the UI port and `phpmyadmin.https: true` to serve it through nginx with Polka's local certificate. `polka status` prints the full Mailpit and phpMyAdmin UI URLs. Polka reads `server.hostname`, `server.port`, and `server.https` from the current environment file, and falls back to `http://localhost:8000` when that config is absent. HTTPS requires nginx at start time. Polka uses one generated server certificate from the global Polka cache for all HTTPS environments; it covers `localhost`, `*.localhost`, `127.0.0.1`, and `::1`, and is signed by a generated local Polka CA. With the default cache layout, the certificate material lives under the cache's `polka/cert` directory. Run `polka cert-install` at any time to clear and regenerate that global CA/server certificate pair, then install the CA certificate into the current user's trust store on Windows or macOS. Hostnames ending in `.localhost`, such as `blog.localhost`, are bound to `127.0.0.1` so the site is local-only and works without editing the hosts file. Automatic nginx downloads are currently implemented on Windows amd64. Automatic Mailpit downloads are currently implemented for Windows amd64 and Linux amd64. Automatic phpMyAdmin downloads use the official cross-platform zip archive. The same runtime env composition used by `polka sh` also applies to `polka serve`, generated `.polka/bin` dispatch shims, and database client/import/export commands.
 
 Use `polka stop` to stop the active environment's background webserver, phpMyAdmin, managed database, and Mailpit when configured.
 
 When an environment defines `php-extensions`, `polka install` also writes a generated `php.ini` next to the installed PHP executable so those extensions are explicitly enabled or disabled for that environment. If `composer` is configured for that environment, `openssl` and `zip` are enabled by default unless `php-extensions` explicitly sets either one to `false`.
 
-Use `polka config [name] --php <version> --composer <version> --nodejs <version>` to update an existing environment definition. When `name` is omitted, Polka updates the current environment, or `default` when no environment is selected yet. The config file stores version labels, not machine-specific executable paths or the active environment selection:
+Use `polka config [name] --php <version> --composer <version> --nodejs <version>` to update an existing environment definition. When `name` is omitted, Polka updates the current environment, or `default` from `polka.yaml` when no local override is selected. Config files store version labels, not machine-specific executable paths or the active environment selection:
 
 ```yaml
-version: 1
+# polka.yaml
+version: 0.1
 root: .polka
-environments:
-  blog:
-    php: 8.4
-    composer: 2.8
-    nodejs: 24
-    mago: "1.27"
-    nginx: 1.30
-    phpmyadmin:
-      version: 5.2
-      port: 8082
-      https: true
-    mailpit:
-      version: "1.30"
-      smtp-port: 1025
-      ui-port: 8025
-      https: true
-    docroot: public
-    env-file: .env.local
-    env-vars:
-      APP_ENV: development
-      APP_DEBUG: "1"
-    server:
-      hostname: blog.localhost
-      port: 8443
-      https: true
-    php-extensions:
-      openssl: true
-      xdebug: false
-  legacy:
-    php: 8.2
-    composer: 2.6
+tools:
+  php: 8.4
+  composer: 2.8
+  nodejs: 24
+  mago: "1.27"
+  nginx: 1.30
+  phpmyadmin:
+    version: 5.2
+    port: 8082
+    https: true
+  mailpit:
+    version: "1.30"
+    smtp-port: 1025
+    ui-port: 8025
+    https: true
+docroot: public
+env-file: .env.local
+env-vars:
+  APP_ENV: development
+  APP_DEBUG: "1"
+server:
+  hostname: blog.localhost
+  port: 8443
+  https: true
+php-extensions:
+  openssl: true
+  xdebug: false
+```
+
+```yaml
+# polka.legacy.yaml
+tools:
+  php: 8.2
+  composer: 2.6
 ```
 
 Polka resolves those versions against the local install layout under `.polka/envs`:
@@ -117,7 +121,7 @@ Polka resolves those versions against the local install layout under `.polka/env
   `-- npx[.cmd]
 ```
 
-For example, this sequence records a version label in `polka.yaml`, installs that environment from cache or download, and then dispatches through the generated shim:
+For example, this sequence records version labels in `polka.blog.yaml`, installs that environment from cache or download, and then dispatches through the generated shim:
 
 ```bash
 go run . new blog
@@ -132,7 +136,7 @@ If you want non-default versions at creation time, pass them explicitly:
 go run . new legacy --php 8.2 --composer 2.6 --nodejs 22
 ```
 
-That keeps `polka.yaml` portable across machines while letting each machine reuse a shared cache and install project-local copies from it.
+That keeps Polka config files portable across machines while letting each machine reuse a shared cache and install project-local copies from it.
 
 During development you can override the state directory while keeping the config file next to it:
 

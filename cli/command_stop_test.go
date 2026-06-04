@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/goccy/go-yaml"
-
 	"polka/backend"
 )
 
@@ -236,13 +234,6 @@ func writeStopTestConfig(t *testing.T, projectDir string, environment testEnviro
 			"demo": environment,
 		},
 	}
-	configData, err := yaml.Marshal(config)
-	if err != nil {
-		t.Fatalf("yaml.Marshal(config) error = %v", err)
-	}
-	configData = append(configData, '\n')
-	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
-		t.Fatalf("WriteFile(config) error = %v", err)
-	}
+	writeTestConfigFile(t, projectDir, config)
 	writeTestActiveEnvironment(t, filepath.Join(projectDir, ".polka"), "demo")
 }

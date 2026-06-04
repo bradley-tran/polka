@@ -8,8 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/goccy/go-yaml"
-
 	"polka/backend"
 )
 
@@ -50,14 +48,7 @@ func TestRunExecRunsCommandWithShellEnvironment(t *testing.T) {
 			},
 		},
 	}
-	configData, err := yaml.Marshal(config)
-	if err != nil {
-		t.Fatalf("yaml.Marshal(config) error = %v", err)
-	}
-	configData = append(configData, '\n')
-	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
-		t.Fatalf("WriteFile(config) error = %v", err)
-	}
+	writeTestConfigFile(t, projectDir, config)
 	writeTestActiveEnvironment(t, root, "demo")
 
 	if code := Run(stdout, stderr, []string{"--root", root, "exec", "php", "-v"}); code != 0 {
@@ -76,10 +67,13 @@ func TestRunExecUsesNearestNestedVendorBin(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	configData := []byte("version: 1\nroot: .polka\nenvironments:\n  demo: {}\n")
-	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
-		t.Fatalf("WriteFile(config) error = %v", err)
-	}
+	writeTestConfigFile(t, projectDir, testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {},
+		},
+	})
 	writeTestActiveEnvironment(t, root, "demo")
 	if err := os.MkdirAll(filepath.Join(root, "bin"), 0o755); err != nil {
 		t.Fatalf("MkdirAll(root/bin) error = %v", err)

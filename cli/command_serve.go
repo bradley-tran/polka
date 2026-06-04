@@ -1494,7 +1494,7 @@ func resolveServeDocroot(projectDir, configuredDocroot, overrideDocroot string) 
 		trimmed = strings.TrimSpace(configuredDocroot)
 	}
 	if trimmed == "" {
-		return "", fmt.Errorf("start requires a docroot argument or environments.<name>.docroot in polka.yaml")
+		return "", fmt.Errorf("start requires a docroot argument or docroot in the current environment file")
 	}
 
 	resolved := filepath.Clean(trimmed)

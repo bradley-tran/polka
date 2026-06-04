@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/goccy/go-yaml"
 )
 
 func TestRunConfigSetsVersionLabelsAndDispatchesPhp(t *testing.T) {
@@ -37,16 +35,13 @@ func TestRunConfigSetsVersionLabelsAndDispatchesPhp(t *testing.T) {
 		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
 	}
 
-	configData, err := os.ReadFile(filepath.Join(projectDir, "polka.yaml"))
+	environment := readTestEnvironmentConfig(t, projectDir, "demo")
+	if environment.PHP != "8.4" || environment.Composer != "2.8" {
+		t.Fatalf("environment = %#v, want version labels for demo", environment)
+	}
+	configData, err := os.ReadFile(testEnvironmentConfigPath(projectDir, "demo"))
 	if err != nil {
-		t.Fatalf("ReadFile(config) error = %v", err)
-	}
-	var config testConfigFile
-	if err := yaml.Unmarshal(configData, &config); err != nil {
-		t.Fatalf("yaml.Unmarshal(config) error = %v", err)
-	}
-	if config.Environments["demo"].PHP != "8.4" || config.Environments["demo"].Composer != "2.8" {
-		t.Fatalf("config = %#v, want version labels for demo", config)
+		t.Fatalf("ReadFile(demo config) error = %v", err)
 	}
 	if strings.Contains(string(configData), fakePHP) {
 		t.Fatalf("config contents = %q, want versions rather than paths", string(configData))
@@ -140,14 +135,7 @@ func TestRunDispatchLoadsProjectAndConfiguredEnvironmentVariables(t *testing.T) 
 			},
 		},
 	}
-	configData, err := yaml.Marshal(config)
-	if err != nil {
-		t.Fatalf("yaml.Marshal(config) error = %v", err)
-	}
-	configData = append(configData, '\n')
-	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
-		t.Fatalf("WriteFile(config) error = %v", err)
-	}
+	writeTestConfigFile(t, projectDir, config)
 	writeTestActiveEnvironment(t, root, "demo")
 
 	if code := Run(stdout, stderr, []string{"--root", root, "install", "demo"}); code != 0 {

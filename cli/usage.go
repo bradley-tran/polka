@@ -57,22 +57,22 @@ Create the local .polka directory, bootstrap polka.yaml, and sync the active env
 const newUsage = `Usage:
   polka new <name> [--php VERSION] [--composer VERSION] [--nodejs VERSION] [--db-engine mysql|mariadb --db-version VERSION [--db-port PORT]]
 
-Create a new environment definition in polka.yaml.
+Create a new named environment definition in polka.<name>.yaml.
 When omitted, --php defaults to 8.4, --composer defaults to 2.8, and --nodejs defaults to 24.
 `
 
 const configUsage = `Usage:
   polka config [name] [--php VERSION] [--composer VERSION] [--nodejs VERSION] [--db-engine mysql|mariadb --db-version VERSION [--db-port PORT]]
 
-Create or update an environment definition in polka.yaml.
-When name is omitted, Polka updates the current environment. If no current environment is selected, Polka uses default and records it in .polka/run/current after a successful config.
+Create or update an environment definition. The default environment is stored in polka.yaml; named environments are stored in polka.<name>.yaml.
+When name is omitted, Polka updates the current environment, falling back to default when no local override is selected.
 `
 
 const installUsage = `Usage:
    polka install [name]
 
 Install all configured tool versions for an environment.
-When name is omitted, Polka installs the current environment. If no current environment is selected, Polka uses default and records it in .polka/run/current after a successful install.
+When name is omitted, Polka installs the current environment, falling back to default when no local override is selected.
 Polka copies them from the global cache when available, otherwise downloads them into the cache first.
 `
 
@@ -93,7 +93,7 @@ const dbUsage = `Usage:
   polka db status
 
 Run or manage the active environment's configured database tool.
-Polka dispatches to mysql or mariadb based on the current environment's database.engine setting in polka.yaml.
+Polka dispatches to mysql or mariadb based on the current environment's tools.database.engine setting.
 
 Subcommands:
   client   force client dispatch, even for reserved words such as status
@@ -114,8 +114,8 @@ const startUsage = `Usage:
   polka start [docroot] [--server HOST:PORT] [--watch]
 
 Start the active environment's local web server.
-When docroot is omitted, Polka uses environments.<name>.docroot from polka.yaml.
-When --server is omitted, Polka uses the current environment's server.hostname and server.port from polka.yaml, defaulting to localhost:8000.
+When docroot is omitted, Polka uses docroot from the current environment file.
+When --server is omitted, Polka uses the current environment's server.hostname and server.port, defaulting to localhost:8000.
 When the current environment defines a database, mailpit, or phpmyadmin, Polka starts those managed local services first.
 Set mailpit.https to true to serve the Mailpit UI over HTTPS and enable SMTP STARTTLS with Polka's generated local certificate.
 Set phpmyadmin.https to true to serve phpMyAdmin over HTTPS through nginx with Polka's generated local certificate.
@@ -182,13 +182,15 @@ On Windows, session start also generates the same temporary vendor/bin .cmd wrap
 const listUsage = `Usage:
   polka list
 
-List the environments configured in polka.yaml.
+List the environments configured by Polka config files.
+The default environment is polka.yaml; named environments are polka.<name>.yaml.
 `
 
 const useUsage = `Usage:
   polka use <name>
 
-Select one of the environments defined in polka.yaml.
+Select one of the environments defined by polka.yaml or polka.<name>.yaml.
+Use default to clear the local override and fall back to polka.yaml.
 `
 
 const statusUsage = `Usage:
@@ -196,12 +198,12 @@ const statusUsage = `Usage:
   polka info
 
 Show the active environment, including one line per configured tool and the resolved server URL.
-The active environment name is stored in .polka/run/current.
+The active environment name is stored in .polka/run/current when a local override is selected; otherwise Polka uses default.
 Also shows whether the active environment's webserver, phpMyAdmin, managed database, and mailpit are currently running.
 `
 
 const removeUsage = `Usage:
   polka remove <name>
 
-Remove an environment definition from polka.yaml.
+Remove a named environment definition. The default environment in polka.yaml cannot be removed.
 `

@@ -21,6 +21,9 @@ import (
 const (
 	defaultRootDirectoryName = ".polka"
 	configFileName           = "polka.yaml"
+	namedConfigPrefix        = "polka."
+	namedConfigSuffix        = ".yaml"
+	defaultEnvironmentName   = "default"
 	binDirectoryName         = "bin"
 	envsDirectoryName        = "envs"
 	runDirectoryName         = "run"
@@ -310,14 +313,12 @@ func (s Store) writeEnvironment(name, phpVersion, composerVersion, nodeJSVersion
 		}
 	}
 
-	config, err := s.loadConfig()
+	storedEnvironment, exists, err := s.readEnvironment(name)
 	if err != nil {
 		return Environment{}, err
 	}
-
-	storedEnvironment, exists := config.Environments[name]
 	if exists && !allowUpdate {
-		return Environment{}, fmt.Errorf("environment %q already exists in %s", name, filepath.Base(s.ConfigFile))
+		return Environment{}, fmt.Errorf("environment %q already exists", name)
 	}
 
 	environment := s.normalizeEnvironment(name, storedEnvironment)
@@ -340,9 +341,12 @@ func (s Store) writeEnvironment(name, phpVersion, composerVersion, nodeJSVersion
 		return Environment{}, err
 	}
 
-	config.Environments[name] = environment
-	if err := s.writeConfig(config); err != nil {
+	if err := s.writeEnvironmentConfig(name, environment); err != nil {
 		return Environment{}, fmt.Errorf("write config file: %w", err)
+	}
+	config, err := s.loadConfig()
+	if err != nil {
+		return Environment{}, err
 	}
 	if err := s.syncManagedBinaries(config); err != nil {
 		return Environment{}, fmt.Errorf("sync managed binaries: %w", err)
@@ -367,13 +371,12 @@ func (s Store) install(name string, report func(InstallProgress)) ([]InstallResu
 		return nil, err
 	}
 
-	config, err := s.loadConfig()
+	environment, ok, err := s.readEnvironment(name)
 	if err != nil {
 		return nil, err
 	}
-	environment, ok := config.Environments[name]
 	if !ok {
-		return nil, fmt.Errorf("environment %q does not exist in %s", name, filepath.Base(s.ConfigFile))
+		return nil, fmt.Errorf("environment %q does not exist", name)
 	}
 	normalized := s.normalizeEnvironment(name, environment)
 	registry := s.toolRegistry()
@@ -512,20 +515,26 @@ func (s Store) Use(name string) error {
 		return err
 	}
 
-	config, err := s.loadConfig()
+	_, ok, err := s.readEnvironment(name)
 	if err != nil {
 		return err
 	}
-
-	if _, ok := config.Environments[name]; !ok {
-		return fmt.Errorf("environment %q does not exist in %s", name, filepath.Base(s.ConfigFile))
+	if !ok {
+		return fmt.Errorf("environment %q does not exist", name)
 	}
 
-	if err := s.writeActiveEnvironmentName(name); err != nil {
-		return fmt.Errorf("write active environment: %w", err)
+	if name == defaultEnvironmentName {
+		if err := s.clearActiveEnvironmentName(); err != nil {
+			return fmt.Errorf("clear active environment: %w", err)
+		}
+	} else {
+		if err := s.writeActiveEnvironmentName(name); err != nil {
+			return fmt.Errorf("write active environment: %w", err)
+		}
 	}
-	if err := s.writeConfig(config); err != nil {
-		return fmt.Errorf("write config file: %w", err)
+	config, err := s.loadConfig()
+	if err != nil {
+		return err
 	}
 	if err := s.syncManagedBinaries(config); err != nil {
 		return fmt.Errorf("sync managed binaries: %w", err)
@@ -535,22 +544,20 @@ func (s Store) Use(name string) error {
 }
 
 func (s Store) Current() (*Environment, error) {
-	config, err := s.loadConfig()
-	if err != nil {
-		return nil, err
-	}
-
 	name, err := s.activeEnvironmentName()
 	if err != nil {
 		return nil, err
 	}
 	if name == "" {
-		return nil, nil
+		name = defaultEnvironmentName
 	}
 
-	environment, ok := config.Environments[name]
+	environment, ok, err := s.readEnvironment(name)
+	if err != nil {
+		return nil, err
+	}
 	if !ok {
-		return nil, fmt.Errorf("current environment %q is not defined in %s", name, filepath.Base(s.ConfigFile))
+		return nil, fmt.Errorf("current environment %q is not defined", name)
 	}
 
 	normalized := s.normalizeEnvironment(name, environment)
@@ -561,29 +568,33 @@ func (s Store) Remove(name string) error {
 	if err := validateName(name); err != nil {
 		return err
 	}
+	if name == defaultEnvironmentName {
+		return fmt.Errorf("environment %q is stored in %s and cannot be removed", defaultEnvironmentName, filepath.Base(s.ConfigFile))
+	}
 
-	config, err := s.loadConfig()
+	_, ok, err := s.readEnvironment(name)
 	if err != nil {
 		return err
 	}
-
-	if _, ok := config.Environments[name]; !ok {
-		return fmt.Errorf("environment %q does not exist in %s", name, filepath.Base(s.ConfigFile))
+	if !ok {
+		return fmt.Errorf("environment %q does not exist", name)
 	}
 
 	currentName, err := s.activeEnvironmentName()
 	if err != nil {
 		return err
 	}
-	delete(config.Environments, name)
-
-	if err := s.writeConfig(config); err != nil {
-		return fmt.Errorf("write config file: %w", err)
+	if err := os.Remove(s.environmentConfigFile(name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove config file: %w", err)
 	}
 	if currentName == name {
 		if err := s.clearActiveEnvironmentName(); err != nil {
 			return fmt.Errorf("clear active environment: %w", err)
 		}
+	}
+	config, err := s.loadConfig()
+	if err != nil {
+		return err
 	}
 	if err := s.syncManagedBinaries(config); err != nil {
 		return fmt.Errorf("sync managed binaries: %w", err)
@@ -622,7 +633,7 @@ func (s Store) ResolveTool(tool string) (string, error) {
 }
 
 func (s Store) loadConfig() (Config, error) {
-	config, err := s.readConfig()
+	loadedConfig, err := s.readConfig()
 	if errors.Is(err, os.ErrNotExist) {
 		return s.defaultConfig(), nil
 	}
@@ -630,43 +641,249 @@ func (s Store) loadConfig() (Config, error) {
 		return Config{}, err
 	}
 
-	if config.Version == 0 {
-		config.Version = configVersion
+	if loadedConfig.Version == 0 {
+		loadedConfig.Version = configVersion
 	}
-	if strings.TrimSpace(config.Root) == "" {
-		config.Root = s.defaultConfig().Root
+	if strings.TrimSpace(loadedConfig.Root) == "" {
+		loadedConfig.Root = s.defaultConfig().Root
 	}
-	if config.Environments == nil {
-		config.Environments = map[string]Environment{}
+	if loadedConfig.Environments == nil {
+		loadedConfig.Environments = map[string]Environment{}
+	}
+	if _, ok := loadedConfig.Environments[defaultEnvironmentName]; !ok {
+		loadedConfig.Environments[defaultEnvironmentName] = Environment{Name: defaultEnvironmentName}
 	}
 
-	return config, nil
+	return loadedConfig, nil
 }
 
 func (s Store) readConfig() (Config, error) {
+	projectFile, defaultEnvironment, err := s.readProjectFile()
+	if err != nil {
+		return Config{}, err
+	}
+
+	loadedConfig := Config{
+		Version: projectFile.Version,
+		Root:    projectFile.Root,
+		Environments: map[string]Environment{
+			defaultEnvironmentName: defaultEnvironment,
+		},
+	}
+
+	names, err := s.namedEnvironmentNames()
+	if err != nil {
+		return Config{}, err
+	}
+	for _, name := range names {
+		environment, err := s.readNamedEnvironmentFile(name)
+		if err != nil {
+			return Config{}, err
+		}
+		loadedConfig.Environments[name] = environment
+	}
+
+	return loadedConfig, nil
+}
+
+func (s Store) readEnvironment(name string) (Environment, bool, error) {
+	if err := validateName(name); err != nil {
+		return Environment{}, false, err
+	}
+	if name == defaultEnvironmentName {
+		_, environment, err := s.readProjectFile()
+		if errors.Is(err, os.ErrNotExist) {
+			return Environment{Name: defaultEnvironmentName}, true, nil
+		}
+		if err != nil {
+			return Environment{}, false, err
+		}
+
+		return environment, true, nil
+	}
+
+	path := s.environmentConfigFile(name)
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return Environment{}, false, nil
+		}
+		return Environment{}, false, fmt.Errorf("stat %s: %w", path, err)
+	}
+
+	environment, err := s.readNamedEnvironmentFile(name)
+	if err != nil {
+		return Environment{}, false, err
+	}
+
+	return environment, true, nil
+}
+
+func (s Store) readProjectFile() (config.ProjectFile, Environment, error) {
 	data, err := os.ReadFile(s.ConfigFile)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return Config{}, err
+			return config.ProjectFile{}, Environment{}, err
 		}
 
-		return Config{}, fmt.Errorf("read config file: %w", err)
+		return config.ProjectFile{}, Environment{}, fmt.Errorf("read config file: %w", err)
 	}
 
-	var config Config
+	var projectFile config.ProjectFile
 	if len(data) == 0 {
-		return config, nil
+		return projectFile, config.ProjectFileToEnvironment(defaultEnvironmentName, projectFile), nil
 	}
 
-	if err := yaml.Unmarshal(data, &config); err != nil {
-		return Config{}, fmt.Errorf("decode config file: %w", err)
+	hasLegacyEnvironments, err := yamlHasTopLevelKey(data, "environments")
+	if err != nil {
+		return config.ProjectFile{}, Environment{}, fmt.Errorf("decode config file: %w", err)
+	}
+	if hasLegacyEnvironments {
+		return config.ProjectFile{}, Environment{}, legacyConfigError(s.ConfigFile)
 	}
 
-	return config, nil
+	if err := yaml.Unmarshal(data, &projectFile); err != nil {
+		return config.ProjectFile{}, Environment{}, fmt.Errorf("decode config file: %w", err)
+	}
+
+	return projectFile, config.ProjectFileToEnvironment(defaultEnvironmentName, projectFile), nil
 }
 
-func (s Store) writeConfig(config Config) error {
-	return writeYAML(s.ConfigFile, config)
+func (s Store) readNamedEnvironmentFile(name string) (Environment, error) {
+	path := s.environmentConfigFile(name)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Environment{}, fmt.Errorf("read config file %s: %w", path, err)
+	}
+
+	var environmentFile config.EnvironmentFile
+	if len(data) == 0 {
+		return config.EnvironmentFileToEnvironment(name, environmentFile), nil
+	}
+
+	hasLegacyEnvironments, err := yamlHasTopLevelKey(data, "environments")
+	if err != nil {
+		return Environment{}, fmt.Errorf("decode config file %s: %w", path, err)
+	}
+	if hasLegacyEnvironments {
+		return Environment{}, legacyConfigError(path)
+	}
+
+	if err := yaml.Unmarshal(data, &environmentFile); err != nil {
+		return Environment{}, fmt.Errorf("decode config file %s: %w", path, err)
+	}
+
+	return config.EnvironmentFileToEnvironment(name, environmentFile), nil
+}
+
+func (s Store) writeConfig(loadedConfig Config) error {
+	if loadedConfig.Version == 0 {
+		loadedConfig.Version = configVersion
+	}
+	if strings.TrimSpace(loadedConfig.Root) == "" {
+		loadedConfig.Root = s.relativeRootDir()
+	}
+	if loadedConfig.Environments == nil {
+		loadedConfig.Environments = map[string]Environment{}
+	}
+
+	defaultEnvironment := loadedConfig.Environments[defaultEnvironmentName]
+	if err := writeYAML(s.ConfigFile, config.ProjectFileFromEnvironment(loadedConfig.Version, loadedConfig.Root, defaultEnvironment)); err != nil {
+		return err
+	}
+
+	names := make([]string, 0, len(loadedConfig.Environments))
+	for name := range loadedConfig.Environments {
+		if name != defaultEnvironmentName {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if err := writeYAML(s.environmentConfigFile(name), config.EnvironmentFileFromEnvironment(loadedConfig.Environments[name])); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s Store) writeEnvironmentConfig(name string, environment Environment) error {
+	if name == defaultEnvironmentName {
+		projectFile, _, err := s.readProjectFile()
+		if errors.Is(err, os.ErrNotExist) {
+			projectFile = config.ProjectFile{Version: configVersion, Root: s.relativeRootDir()}
+		} else if err != nil {
+			return err
+		}
+		if projectFile.Version == 0 {
+			projectFile.Version = configVersion
+		}
+		if strings.TrimSpace(projectFile.Root) == "" {
+			projectFile.Root = s.relativeRootDir()
+		}
+
+		return writeYAML(s.ConfigFile, config.ProjectFileFromEnvironment(projectFile.Version, projectFile.Root, environment))
+	}
+
+	return writeYAML(s.environmentConfigFile(name), config.EnvironmentFileFromEnvironment(environment))
+}
+
+func (s Store) namedEnvironmentNames() ([]string, error) {
+	entries, err := os.ReadDir(s.ProjectDir)
+	if err != nil {
+		return nil, fmt.Errorf("read project directory: %w", err)
+	}
+
+	names := []string{}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name, ok := namedEnvironmentNameFromFile(entry.Name())
+		if !ok {
+			continue
+		}
+		if name == defaultEnvironmentName {
+			return nil, fmt.Errorf("environment name %q is reserved for %s", defaultEnvironmentName, filepath.Base(s.ConfigFile))
+		}
+		if err := validateName(name); err != nil {
+			return nil, fmt.Errorf("invalid environment config file %q: %w", entry.Name(), err)
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	return names, nil
+}
+
+func namedEnvironmentNameFromFile(fileName string) (string, bool) {
+	if fileName == configFileName || !strings.HasPrefix(fileName, namedConfigPrefix) || !strings.HasSuffix(fileName, namedConfigSuffix) {
+		return "", false
+	}
+
+	return strings.TrimSuffix(strings.TrimPrefix(fileName, namedConfigPrefix), namedConfigSuffix), true
+}
+
+func (s Store) environmentConfigFile(name string) string {
+	if name == defaultEnvironmentName {
+		return s.ConfigFile
+	}
+
+	return filepath.Join(s.ProjectDir, namedConfigPrefix+name+namedConfigSuffix)
+}
+
+func yamlHasTopLevelKey(data []byte, key string) (bool, error) {
+	var raw map[string]any
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return false, err
+	}
+	_, ok := raw[key]
+
+	return ok, nil
+}
+
+func legacyConfigError(path string) error {
+	return fmt.Errorf("legacy environments config in %s is no longer supported; move default settings to polka.yaml and named settings to polka.<name>.yaml", path)
 }
 
 func (s Store) activeEnvironmentPath() string {
@@ -713,9 +930,11 @@ func (s Store) clearActiveEnvironmentName() error {
 
 func (s Store) defaultConfig() Config {
 	return Config{
-		Version:      configVersion,
-		Root:         s.relativeRootDir(),
-		Environments: map[string]Environment{},
+		Version: configVersion,
+		Root:    s.relativeRootDir(),
+		Environments: map[string]Environment{
+			defaultEnvironmentName: {Name: defaultEnvironmentName},
+		},
 	}
 }
 
@@ -1009,7 +1228,7 @@ func (s Store) activeEnvironmentFromConfig(config Config) (*Environment, error) 
 		return nil, err
 	}
 	if name == "" {
-		return nil, nil
+		name = defaultEnvironmentName
 	}
 
 	environment, ok := config.Environments[name]

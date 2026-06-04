@@ -18,11 +18,13 @@ func TestRunShLaunchesInteractiveShellWithPreferredPath(t *testing.T) {
 	systemPath := filepath.Join(projectDir, "system-bin")
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
-	configPath := filepath.Join(projectDir, "polka.yaml")
-	configData := []byte("version: 1\nroot: .polka\nenvironments:\n  demo:\n    php: \"8.4\"\n")
-	if err := os.WriteFile(configPath, configData, 0o644); err != nil {
-		t.Fatalf("WriteFile(config) error = %v", err)
-	}
+	writeTestConfigFile(t, projectDir, testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {PHP: "8.4"},
+		},
+	})
 	writeTestActiveEnvironment(t, root, "demo")
 
 	t.Setenv("PATH", systemPath)
@@ -121,11 +123,13 @@ func TestRunShUsesConfiguredNestedRootForPathLoading(t *testing.T) {
 	systemPath := filepath.Join(projectDir, "system-bin")
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
-	configPath := filepath.Join(projectDir, "polka.yaml")
-	configData := []byte("version: 1\nroot: test-site/.polka\nenvironments:\n  demo:\n    php: \"8.4\"\n")
-	if err := os.WriteFile(configPath, configData, 0o644); err != nil {
-		t.Fatalf("WriteFile(config) error = %v", err)
-	}
+	writeTestConfigFile(t, projectDir, testConfigFile{
+		Version: 1,
+		Root:    "test-site/.polka",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {PHP: "8.4"},
+		},
+	})
 	writeTestActiveEnvironment(t, root, "demo")
 
 	t.Setenv("PATH", systemPath)
@@ -189,11 +193,13 @@ func TestRunShellAliasLaunchesInteractiveShell(t *testing.T) {
 	root := filepath.Join(projectDir, ".polka")
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
-	configPath := filepath.Join(projectDir, "polka.yaml")
-	configData := []byte("version: 1\nroot: .polka\nenvironments:\n  demo:\n    php: \"8.4\"\n")
-	if err := os.WriteFile(configPath, configData, 0o644); err != nil {
-		t.Fatalf("WriteFile(config) error = %v", err)
-	}
+	writeTestConfigFile(t, projectDir, testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {PHP: "8.4"},
+		},
+	})
 	writeTestActiveEnvironment(t, root, "demo")
 
 	oldLaunch := launchInteractiveShellFunc
