@@ -148,7 +148,7 @@ func isUnknownCommandError(err error) bool {
 func exactArgsError(message string, count int) cobra.PositionalArgs {
 	return func(cmd *cobra.Command, args []string) error {
 		if len(args) != count {
-			return &statusError{code: 1, err: fmt.Errorf(message)}
+			return &statusError{code: 1, err: fmt.Errorf("%s", message)}
 		}
 
 		return nil
@@ -158,7 +158,7 @@ func exactArgsError(message string, count int) cobra.PositionalArgs {
 func maximumArgsError(message string, count int) cobra.PositionalArgs {
 	return func(cmd *cobra.Command, args []string) error {
 		if len(args) > count {
-			return &statusError{code: 1, err: fmt.Errorf(message)}
+			return &statusError{code: 1, err: fmt.Errorf("%s", message)}
 		}
 
 		return nil
