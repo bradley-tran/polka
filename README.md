@@ -26,7 +26,7 @@ go run . status
 
 Use `polka new <name> [--php VERSION] [--composer VERSION] [--nodejs VERSION]` to create a new named environment definition in `polka.<name>.yaml`. When the flags are omitted, Polka currently defaults to `php=8.4`, `composer=2.8`, and `nodejs=24`.
 
-Use `polka install [name]` to install every configured tool version for an environment. When `name` is omitted, Polka installs the current environment and prints which one it selected. If no current environment is selected, Polka uses `default` from `polka.yaml`. Polka first checks the global cache, then downloads any missing versions into that cache, and finally copies the cached payloads into the project-local `.polka/envs` layout. The `mago` tool key installs the Mago binary and creates a `mago` command shim. The `phpmyadmin` tool key installs the phpMyAdmin web app archive under `.polka/envs/phpmyadmin/<version>`, writes a generated `config.inc.php` with a fresh `blowfish_secret`, and carries its UI `port` and `https` settings; it does not create a command shim.
+Use `polka install [name]` to install every configured tool version for an environment. When `name` is omitted, Polka installs the current environment and prints which one it selected. If no current environment is selected, Polka uses `default` from `polka.yaml`. Polka first checks the global cache, then downloads any missing versions into that cache, and finally copies the cached payloads into the project-local `.polka/envs` layout. The `mago` tool key installs the Mago binary and creates a `mago` command shim. The `sqlite` tool key installs SQLite's command-line tools and creates a `sqlite3` command shim. The `phpmyadmin` tool key installs the phpMyAdmin web app archive under `.polka/envs/phpmyadmin/<version>`, writes a generated `config.inc.php` with a fresh `blowfish_secret`, and carries its UI `port` and `https` settings; it does not create a command shim.
 
 The shims in `.polka/bin` mirror the active environment's configured tools. A configured `nodejs` version produces `node`, `npm`, and `npx` shims, while the `nodejs` name itself remains config-only. If the current environment does not define a managed tool, Polka removes that local shim instead of leaving a dispatcher that would fail at runtime.
 
@@ -72,6 +72,7 @@ tools:
   nodejs: 24
   mago: "1.27"
   nginx: 1.30
+  sqlite: "3.53"
   mariadb: "11.8"
   phpmyadmin:
     version: 5.2
@@ -120,13 +121,17 @@ Polka resolves those versions against the local install layout under `.polka/env
 |   |-- phpmyadmin/
 |   |   `-- 5.2/
 |   |       `-- index.php
-|   `-- php/
-|       `-- 8.4/
-|           `-- bin/php[.exe|.cmd|.bat]
+|   |-- php/
+|   |   `-- 8.4/
+|   |       `-- bin/php[.exe|.cmd|.bat]
+|   `-- sqlite/
+|       `-- 3.53/
+|           `-- sqlite3[.exe]
 `-- bin/
   |-- node[.cmd]
   |-- npm[.cmd]
-  `-- npx[.cmd]
+  |-- npx[.cmd]
+  `-- sqlite3[.cmd]
 ```
 
 For example, this sequence records version labels in `polka.blog.yaml`, installs that environment from cache or download, and then dispatches through the generated shim:

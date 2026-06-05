@@ -335,8 +335,8 @@ func (s Store) writeEnvironment(name, phpVersion, composerVersion, nodeJSVersion
 		environment.Database = mergeDatabaseConfig(environment.Database, database)
 		environment = setDatabaseToolVersion(environment, database)
 	}
-	if environment.PHPVersion == "" && environment.ComposerVersion == "" && environment.NodeJSVersion == "" && environment.MagoVersion == "" && environment.NginxVersion == "" && environment.MySQLVersion == "" && environment.MariaDBVersion == "" && environment.PHPMyAdmin == nil && environment.Database == nil && environment.Mailpit == nil {
-		return Environment{}, fmt.Errorf("environment requires at least one of php, composer, nodejs, mago, nginx, mysql, mariadb, phpmyadmin, database, or mailpit")
+	if environment.PHPVersion == "" && environment.ComposerVersion == "" && environment.NodeJSVersion == "" && environment.MagoVersion == "" && environment.NginxVersion == "" && environment.MySQLVersion == "" && environment.MariaDBVersion == "" && environment.SQLiteVersion == "" && environment.PHPMyAdmin == nil && environment.Database == nil && environment.Mailpit == nil {
+		return Environment{}, fmt.Errorf("environment requires at least one of php, composer, nodejs, mago, nginx, mysql, mariadb, sqlite, phpmyadmin, database, or mailpit")
 	}
 	if err := s.toolRegistry().ValidateEnvironment(environment); err != nil {
 		return Environment{}, err

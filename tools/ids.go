@@ -19,6 +19,7 @@ const (
 	PHPMyAdmin = "phpmyadmin"
 	MySQL      = "mysql"
 	MariaDB    = "mariadb"
+	SQLite     = "sqlite"
 )
 
 var (

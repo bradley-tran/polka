@@ -20,6 +20,7 @@ func TestDefaultRegistryInstallRequestsUseConfiguredToolOrder(t *testing.T) {
 		Mailpit:         &config.MailpitConfig{Version: "1.30"},
 		MySQLVersion:    "8.4",
 		MariaDBVersion:  "11.8",
+		SQLiteVersion:   "3.53",
 		Database:        &config.DatabaseConfig{Engine: MariaDB, Version: "11.8"},
 	}
 
@@ -39,6 +40,7 @@ func TestDefaultRegistryInstallRequestsUseConfiguredToolOrder(t *testing.T) {
 		"phpmyadmin:5.2",
 		"mysql:8.4",
 		"mariadb:11.8",
+		"sqlite:3.53",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("InstallRequests() = %#v, want %#v", got, want)

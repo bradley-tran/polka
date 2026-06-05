@@ -24,6 +24,7 @@ type testEnvironmentConfig struct {
 	Nginx         string                `yaml:"nginx,omitempty"`
 	MySQL         string                `yaml:"mysql,omitempty"`
 	MariaDB       string                `yaml:"mariadb,omitempty"`
+	SQLite        string                `yaml:"sqlite,omitempty"`
 	PHPMyAdmin    *testPHPMyAdminConfig `yaml:"phpmyadmin,omitempty"`
 	Docroot       string                `yaml:"docroot,omitempty"`
 	EnvFile       string                `yaml:"env-file,omitempty"`
@@ -89,6 +90,7 @@ type testToolsConfig struct {
 	Nginx      string                `yaml:"nginx,omitempty"`
 	MySQL      string                `yaml:"mysql,omitempty"`
 	MariaDB    string                `yaml:"mariadb,omitempty"`
+	SQLite     string                `yaml:"sqlite,omitempty"`
 	Database   *testDatabaseConfig   `yaml:"database,omitempty"`
 	Mailpit    *testMailpitConfig    `yaml:"mailpit,omitempty"`
 	PHPMyAdmin *testPHPMyAdminConfig `yaml:"phpmyadmin,omitempty"`
@@ -249,6 +251,7 @@ func testEnvironmentFromParts(tools *testToolsConfig, docroot, envFile string, e
 		environment.Nginx = tools.Nginx
 		environment.MySQL = tools.MySQL
 		environment.MariaDB = tools.MariaDB
+		environment.SQLite = tools.SQLite
 		environment.Database = testDatabaseFromTools(tools, database)
 		environment = testPopulateDatabaseToolVersion(environment)
 		environment.Mailpit = tools.Mailpit
@@ -267,6 +270,7 @@ func testToolsFromEnvironment(environment testEnvironmentConfig) *testToolsConfi
 		Nginx:      environment.Nginx,
 		MySQL:      testDatabaseToolVersion(environment, "mysql"),
 		MariaDB:    testDatabaseToolVersion(environment, "mariadb"),
+		SQLite:     environment.SQLite,
 		Mailpit:    environment.Mailpit,
 		PHPMyAdmin: environment.PHPMyAdmin,
 	}
@@ -277,6 +281,7 @@ func testToolsFromEnvironment(environment testEnvironmentConfig) *testToolsConfi
 		strings.TrimSpace(tools.Nginx) == "" &&
 		strings.TrimSpace(tools.MySQL) == "" &&
 		strings.TrimSpace(tools.MariaDB) == "" &&
+		strings.TrimSpace(tools.SQLite) == "" &&
 		tools.Database == nil &&
 		tools.Mailpit == nil &&
 		tools.PHPMyAdmin == nil {

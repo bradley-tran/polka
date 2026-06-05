@@ -141,7 +141,7 @@ func (m pluginManifest) validate() error {
 func validateManifestVersionBinding(tool string, binding manifestVersionBinding) error {
 	source := strings.ToLower(strings.TrimSpace(binding.Source))
 	switch source {
-	case PHP, Composer, NodeJS, Mago, Nginx, Mailpit, PHPMyAdmin:
+	case PHP, Composer, NodeJS, Mago, Nginx, Mailpit, PHPMyAdmin, SQLite:
 		return nil
 	case "database":
 		engine := strings.ToLower(strings.TrimSpace(binding.DatabaseEngine))
@@ -199,7 +199,7 @@ func validateDownloadAsset(tool, version, platform string, asset downloadAsset) 
 		return fmt.Errorf("tool manifest %q download %q/%s requires url", tool, version, platform)
 	}
 	switch asset.ChecksumAlgorithm {
-	case checksumAlgorithmNone, checksumAlgorithmMD5, checksumAlgorithmSHA256:
+	case checksumAlgorithmNone, checksumAlgorithmMD5, checksumAlgorithmSHA256, checksumAlgorithmSHA3_256:
 	default:
 		return fmt.Errorf("tool manifest %q download %q/%s has unsupported checksum algorithm %q", tool, version, platform, asset.ChecksumAlgorithm)
 	}
@@ -264,6 +264,8 @@ func manifestVersionFunc(m pluginManifest) func(config.Environment) string {
 			return environment.MagoVersion
 		case Nginx:
 			return environment.NginxVersion
+		case SQLite:
+			return environment.SQLiteVersion
 		case Mailpit:
 			if environment.Mailpit == nil {
 				return ""

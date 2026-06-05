@@ -7,6 +7,7 @@ import (
 	"compress/gzip"
 	"crypto/md5"
 	"crypto/sha256"
+	"crypto/sha3"
 	"encoding/hex"
 	"io"
 	"net/http"
@@ -143,6 +144,52 @@ func TestResolveDatabaseDownloadAssetSupportsSeriesLabels(t *testing.T) {
 			}
 			if asset.ChecksumAlgorithm != test.wantAlgorithm {
 				t.Fatalf("resolveDatabaseDownloadAsset(%s, %s) checksum algorithm = %q, want %q", test.tool, test.version, asset.ChecksumAlgorithm, test.wantAlgorithm)
+			}
+		})
+	}
+}
+
+func TestResolveSQLiteDownloadAssetSupportsSeriesLabels(t *testing.T) {
+	tests := []struct {
+		name                string
+		version             string
+		goos                string
+		goarch              string
+		wantResolvedVersion string
+		wantFileName        string
+	}{
+		{
+			name:                "windows",
+			version:             "3.53",
+			goos:                "windows",
+			goarch:              "amd64",
+			wantResolvedVersion: "3.53.2",
+			wantFileName:        "sqlite-tools-win-x64-3530200.zip",
+		},
+		{
+			name:                "linux",
+			version:             "3.53",
+			goos:                "linux",
+			goarch:              "amd64",
+			wantResolvedVersion: "3.53.2",
+			wantFileName:        "sqlite-tools-linux-x64-3530200.zip",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resolvedVersion, asset, err := resolveSQLiteDownloadAsset(test.version, test.goos, test.goarch)
+			if err != nil {
+				t.Fatalf("resolveSQLiteDownloadAsset(%s) error = %v", test.version, err)
+			}
+			if resolvedVersion != test.wantResolvedVersion {
+				t.Fatalf("resolveSQLiteDownloadAsset(%s) resolved version = %q, want %q", test.version, resolvedVersion, test.wantResolvedVersion)
+			}
+			if asset.FileName != test.wantFileName {
+				t.Fatalf("resolveSQLiteDownloadAsset(%s) file = %q, want %q", test.version, asset.FileName, test.wantFileName)
+			}
+			if asset.ChecksumAlgorithm != checksumAlgorithmSHA3_256 {
+				t.Fatalf("resolveSQLiteDownloadAsset(%s) checksum algorithm = %q, want %q", test.version, asset.ChecksumAlgorithm, checksumAlgorithmSHA3_256)
 			}
 		})
 	}
@@ -524,6 +571,9 @@ func checksumForBytes(t *testing.T, algorithm checksumAlgorithm, data []byte) st
 		return hex.EncodeToString(sum[:])
 	case checksumAlgorithmSHA256:
 		sum := sha256.Sum256(data)
+		return hex.EncodeToString(sum[:])
+	case checksumAlgorithmSHA3_256:
+		sum := sha3.Sum256(data)
 		return hex.EncodeToString(sum[:])
 	default:
 		t.Fatalf("unsupported checksum algorithm %q", algorithm)

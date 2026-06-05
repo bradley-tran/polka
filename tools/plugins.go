@@ -11,5 +11,6 @@ func DefaultPlugins() []Plugin {
 		phpMyAdminPlugin(),
 		mysqlPlugin(),
 		mariaDBPlugin(),
+		sqlitePlugin(),
 	}
 }

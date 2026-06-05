@@ -11,6 +11,7 @@ type ToolsConfig struct {
 	NginxVersion    string            `yaml:"nginx,omitempty"`
 	MySQLVersion    string            `yaml:"mysql,omitempty"`
 	MariaDBVersion  string            `yaml:"mariadb,omitempty"`
+	SQLiteVersion   string            `yaml:"sqlite,omitempty"`
 	Database        *DatabaseConfig   `yaml:"database,omitempty"`
 	Mailpit         *MailpitConfig    `yaml:"mailpit,omitempty"`
 	PHPMyAdmin      *PHPMyAdminConfig `yaml:"phpmyadmin,omitempty"`
@@ -49,6 +50,7 @@ type Environment struct {
 	NginxVersion    string            `yaml:"nginx,omitempty"`
 	MySQLVersion    string            `yaml:"mysql,omitempty"`
 	MariaDBVersion  string            `yaml:"mariadb,omitempty"`
+	SQLiteVersion   string            `yaml:"sqlite,omitempty"`
 	Docroot         string            `yaml:"docroot,omitempty"`
 	EnvFile         string            `yaml:"env-file,omitempty"`
 	EnvVars         map[string]string `yaml:"env-vars,omitempty"`
@@ -158,6 +160,7 @@ func ToolsConfigFromEnvironment(environment Environment) *ToolsConfig {
 		NginxVersion:    environment.NginxVersion,
 		MySQLVersion:    DatabaseToolVersion(environment, "mysql"),
 		MariaDBVersion:  DatabaseToolVersion(environment, "mariadb"),
+		SQLiteVersion:   environment.SQLiteVersion,
 		Mailpit:         environment.Mailpit,
 		PHPMyAdmin:      environment.PHPMyAdmin,
 	}
@@ -177,6 +180,7 @@ func (tools ToolsConfig) IsZero() bool {
 		strings.TrimSpace(tools.NginxVersion) == "" &&
 		strings.TrimSpace(tools.MySQLVersion) == "" &&
 		strings.TrimSpace(tools.MariaDBVersion) == "" &&
+		strings.TrimSpace(tools.SQLiteVersion) == "" &&
 		tools.Database == nil &&
 		tools.Mailpit == nil &&
 		tools.PHPMyAdmin == nil
@@ -200,6 +204,7 @@ func environmentFromFileParts(name string, tools *ToolsConfig, docroot, envFile 
 		environment.NginxVersion = tools.NginxVersion
 		environment.MySQLVersion = tools.MySQLVersion
 		environment.MariaDBVersion = tools.MariaDBVersion
+		environment.SQLiteVersion = tools.SQLiteVersion
 		environment.Database = PrimaryDatabaseConfigFromTools(tools, database)
 		environment = populateDatabaseToolVersion(environment)
 		environment.Mailpit = tools.Mailpit
@@ -320,6 +325,7 @@ func NormalizeEnvironment(name string, environment Environment) Environment {
 		NginxVersion:    strings.TrimSpace(environment.NginxVersion),
 		MySQLVersion:    strings.TrimSpace(environment.MySQLVersion),
 		MariaDBVersion:  strings.TrimSpace(environment.MariaDBVersion),
+		SQLiteVersion:   strings.TrimSpace(environment.SQLiteVersion),
 		Docroot:         strings.TrimSpace(environment.Docroot),
 		EnvFile:         strings.TrimSpace(environment.EnvFile),
 		EnvVars:         NormalizeEnvironmentVariables(environment.EnvVars),

@@ -90,6 +90,7 @@ func defaultCLIHookRegistry() cliHookRegistry {
 			{id: "nodejs", run: statusNodeJSConfigHook},
 			{id: "mago", run: statusMagoConfigHook},
 			{id: "nginx", run: statusNginxConfigHook},
+			{id: "sqlite", run: statusSQLiteConfigHook},
 			{id: "phpmyadmin", run: statusPHPMyAdminConfigHook},
 			{id: "database", run: statusDatabaseConfigHook},
 			{id: "mailpit", run: statusMailpitConfigHook},
@@ -353,6 +354,11 @@ func statusMagoConfigHook(ctx statusHookContext) error {
 
 func statusNginxConfigHook(ctx statusHookContext) error {
 	_, _ = fmt.Fprintf(ctx.Stdout, "nginx %s\n", labelOrUnset(ctx.Environment.NginxVersion))
+	return nil
+}
+
+func statusSQLiteConfigHook(ctx statusHookContext) error {
+	_, _ = fmt.Fprintf(ctx.Stdout, "sqlite %s\n", labelOrUnset(ctx.Environment.SQLiteVersion))
 	return nil
 }
 

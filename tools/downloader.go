@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"crypto/md5"
 	"crypto/sha256"
+	"crypto/sha3"
 	"encoding/hex"
 	"fmt"
 	"hash"
@@ -33,9 +34,10 @@ type HTTPDownloader struct {
 type checksumAlgorithm string
 
 const (
-	checksumAlgorithmNone   checksumAlgorithm = ""
-	checksumAlgorithmMD5    checksumAlgorithm = "md5"
-	checksumAlgorithmSHA256 checksumAlgorithm = "sha256"
+	checksumAlgorithmNone     checksumAlgorithm = ""
+	checksumAlgorithmMD5      checksumAlgorithm = "md5"
+	checksumAlgorithmSHA256   checksumAlgorithm = "sha256"
+	checksumAlgorithmSHA3_256 checksumAlgorithm = "sha3-256"
 )
 
 type archiveFormat string
@@ -521,6 +523,8 @@ func checksumHasher(algorithm checksumAlgorithm) (func() hash.Hash, int, error) 
 		return md5.New, md5.Size, nil
 	case checksumAlgorithmSHA256:
 		return sha256.New, sha256.Size, nil
+	case checksumAlgorithmSHA3_256:
+		return func() hash.Hash { return sha3.New256() }, sha256.Size, nil
 	default:
 		return nil, 0, fmt.Errorf("unsupported checksum algorithm %q", algorithm)
 	}

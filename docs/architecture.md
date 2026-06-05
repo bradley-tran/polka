@@ -55,7 +55,7 @@ This package exists to avoid import cycles. Both `backend` and `tools` can depen
 
 The `tools` package owns managed tool behavior:
 
-- tool IDs such as `PHP`, `Composer`, `NodeJS`, `Mago`, `Nginx`, `Mailpit`, `PHPMyAdmin`, `MySQL`, and `MariaDB`
+- tool IDs such as `PHP`, `Composer`, `NodeJS`, `Mago`, `Nginx`, `Mailpit`, `PHPMyAdmin`, `MySQL`, `MariaDB`, and `SQLite`
 - plugin interfaces and registry
 - embedded YAML manifests for built-in plugin metadata
 - install candidate paths

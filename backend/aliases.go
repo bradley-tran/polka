@@ -35,6 +35,7 @@ const (
 	toolPHPMyAdmin = tools.PHPMyAdmin
 	toolMySQL      = tools.MySQL
 	toolMariaDB    = tools.MariaDB
+	toolSQLite     = tools.SQLite
 )
 
 func NewToolRegistry(plugins ...ToolPlugin) (*ToolRegistry, error) {

@@ -487,6 +487,45 @@ func TestStoreInstallDownloadsConfiguredDatabase(t *testing.T) {
 	}
 }
 
+func TestStoreInstallDownloadsConfiguredSQLite(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+	store.Downloader = fakeDownloader(func(cacheDir, tool, version string) error {
+		_ = writeCachedTool(t, cacheDir, tool, version)
+		return nil
+	})
+
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{SQLiteVersion: "3.53"}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	results, err := store.Install("demo")
+	if err != nil {
+		t.Fatalf("Install(demo) error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("Install(demo) length = %d, want 1", len(results))
+	}
+	result := results[0]
+	if result.Tool != toolSQLite || result.Version != "3.53" {
+		t.Fatalf("Install(demo) result = %#v, want sqlite 3.53", result)
+	}
+	if err := store.Use("demo"); err != nil {
+		t.Fatalf("Use(demo) error = %v", err)
+	}
+
+	resolvedPath, err := store.ResolveTool("sqlite3")
+	if err != nil {
+		t.Fatalf("ResolveTool(sqlite3) error = %v", err)
+	}
+	if resolvedPath != result.TargetPath {
+		t.Fatalf("ResolveTool(sqlite3) = %q, want %q", resolvedPath, result.TargetPath)
+	}
+}
+
 func TestStoreInstallDownloadsMultipleConfiguredDatabases(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
