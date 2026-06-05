@@ -18,6 +18,7 @@ const (
 	phpMyAdminDatabaseHost   = "127.0.0.1"
 	phpMyAdminDefaultDBPort  = 3306
 	phpMyAdminStorageDBName  = "phpmyadmin"
+	phpMyAdminManagedDBUser  = "polka"
 )
 
 var phpMyAdminStorageTables = []struct {
@@ -55,7 +56,11 @@ func configureInstalledPHPMyAdmin(ctx InstallContext) error {
 	if err != nil {
 		return err
 	}
-	configData := renderPHPMyAdminConfig(secret, ctx.Environment.Database)
+	credentialsPath, err := phpMyAdminManagedDatabaseCredentialsPath(ctx.RootDir, ctx.Environment.Name, ctx.Environment.Database)
+	if err != nil {
+		return err
+	}
+	configData := renderPHPMyAdminConfig(secret, ctx.Environment.Database, credentialsPath)
 	configPath := filepath.Join(installDir, phpMyAdminConfigFileName)
 	if err := os.WriteFile(configPath, configData, 0o644); err != nil {
 		return fmt.Errorf("write phpmyadmin config: %w", err)
@@ -76,7 +81,22 @@ func generatePHPMyAdminBlowfishSecret() (string, error) {
 	return base64.RawStdEncoding.EncodeToString(buffer), nil
 }
 
-func renderPHPMyAdminConfig(blowfishSecret string, database *config.DatabaseConfig) []byte {
+// phpMyAdminManagedDatabaseCredentialsPath resolves the runtime credentials file
+// that Polka writes before starting phpMyAdmin for a managed database.
+func phpMyAdminManagedDatabaseCredentialsPath(rootDir, environmentName string, database *config.DatabaseConfig) (string, error) {
+	if database == nil || strings.TrimSpace(database.Engine) == "" || strings.TrimSpace(environmentName) == "" {
+		return "", nil
+	}
+
+	absoluteRoot, err := filepath.Abs(rootDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve phpmyadmin database credentials path: %w", err)
+	}
+
+	return filepath.Join(absoluteRoot, "secrets", "db", strings.TrimSpace(environmentName)+".json"), nil
+}
+
+func renderPHPMyAdminConfig(blowfishSecret string, database *config.DatabaseConfig, credentialsPath string) []byte {
 	port := phpMyAdminDefaultDBPort
 	enableStorage := false
 	if database != nil && strings.TrimSpace(database.Engine) != "" {
@@ -85,6 +105,7 @@ func renderPHPMyAdminConfig(blowfishSecret string, database *config.DatabaseConf
 			port = database.Port
 		}
 	}
+	enableManagedLogin := enableStorage && strings.TrimSpace(credentialsPath) != ""
 
 	var builder strings.Builder
 	builder.WriteString("<?php\n")
@@ -97,13 +118,37 @@ func renderPHPMyAdminConfig(blowfishSecret string, database *config.DatabaseConf
 	builder.WriteString(";\n\n")
 	builder.WriteString("$i = 0;\n")
 	builder.WriteString("$i++;\n")
-	builder.WriteString("$cfg['Servers'][$i]['auth_type'] = 'cookie';\n")
+	if enableManagedLogin {
+		builder.WriteString("$polkaCredentials = [];\n")
+		builder.WriteString("$polkaCredentialsPath = ")
+		builder.WriteString(phpSingleQuotedString(credentialsPath))
+		builder.WriteString(";\n")
+		builder.WriteString("if (is_readable($polkaCredentialsPath)) {\n")
+		builder.WriteString("    $polkaCredentialsData = json_decode((string) file_get_contents($polkaCredentialsPath), true);\n")
+		builder.WriteString("    if (is_array($polkaCredentialsData)) {\n")
+		builder.WriteString("        $polkaCredentials = $polkaCredentialsData;\n")
+		builder.WriteString("    }\n")
+		builder.WriteString("}\n\n")
+		builder.WriteString("$cfg['Servers'][$i]['auth_type'] = 'config';\n")
+		builder.WriteString("$cfg['Servers'][$i]['user'] = (string) ($polkaCredentials['user'] ?? ")
+		builder.WriteString(phpSingleQuotedString(phpMyAdminManagedDBUser))
+		builder.WriteString(");\n")
+		builder.WriteString("$cfg['Servers'][$i]['password'] = (string) ($polkaCredentials['password'] ?? '');\n")
+	} else {
+		builder.WriteString("$cfg['Servers'][$i]['auth_type'] = 'cookie';\n")
+	}
 	builder.WriteString("$cfg['Servers'][$i]['host'] = ")
 	builder.WriteString(phpSingleQuotedString(phpMyAdminDatabaseHost))
 	builder.WriteString(";\n")
-	builder.WriteString("$cfg['Servers'][$i]['port'] = ")
-	builder.WriteString(phpSingleQuotedString(strconv.Itoa(port)))
-	builder.WriteString(";\n")
+	if enableManagedLogin {
+		builder.WriteString("$cfg['Servers'][$i]['port'] = (string) ($polkaCredentials['port'] ?? ")
+		builder.WriteString(phpSingleQuotedString(strconv.Itoa(port)))
+		builder.WriteString(");\n")
+	} else {
+		builder.WriteString("$cfg['Servers'][$i]['port'] = ")
+		builder.WriteString(phpSingleQuotedString(strconv.Itoa(port)))
+		builder.WriteString(";\n")
+	}
 	builder.WriteString("$cfg['Servers'][$i]['compress'] = false;\n")
 	builder.WriteString("$cfg['Servers'][$i]['AllowNoPassword'] = false;\n")
 	if enableStorage {

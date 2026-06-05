@@ -12,13 +12,16 @@ import (
 
 func TestConfigureInstalledPHPMyAdminWritesGeneratedConfig(t *testing.T) {
 	installDir := t.TempDir()
+	rootDir := t.TempDir()
 	indexPath := filepath.Join(installDir, "index.php")
 	if err := os.WriteFile(indexPath, []byte("<?php\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(index.php) error = %v", err)
 	}
 
 	err := configureInstalledPHPMyAdmin(InstallContext{
+		RootDir: rootDir,
 		Environment: config.Environment{
+			Name:     "demo",
 			Database: &config.DatabaseConfig{Engine: MariaDB, Version: "11.8", Port: 3307},
 		},
 		Result: InstallResult{
@@ -41,8 +44,12 @@ func TestConfigureInstalledPHPMyAdminWritesGeneratedConfig(t *testing.T) {
 		t.Fatalf("config.inc.php = %q, want generated 32 character blowfish secret", configText)
 	}
 	for _, expected := range []string{
+		"$polkaCredentialsPath = " + phpSingleQuotedString(filepath.Join(rootDir, "secrets", "db", "demo.json")) + ";",
+		"$cfg['Servers'][$i]['auth_type'] = 'config';",
+		"$cfg['Servers'][$i]['user'] = (string) ($polkaCredentials['user'] ?? 'polka');",
+		"$cfg['Servers'][$i]['password'] = (string) ($polkaCredentials['password'] ?? '');",
 		"$cfg['Servers'][$i]['host'] = '127.0.0.1';",
-		"$cfg['Servers'][$i]['port'] = '3307';",
+		"$cfg['Servers'][$i]['port'] = (string) ($polkaCredentials['port'] ?? '3307');",
 		"$cfg['Servers'][$i]['pmadb'] = 'phpmyadmin';",
 		"$cfg['Servers'][$i]['relation'] = 'pma__relation';",
 		"$cfg['Servers'][$i]['table_info'] = 'pma__table_info';",
@@ -58,10 +65,16 @@ func TestConfigureInstalledPHPMyAdminWritesGeneratedConfig(t *testing.T) {
 }
 
 func TestRenderPHPMyAdminConfigSkipsStorageWithoutManagedDatabase(t *testing.T) {
-	configText := string(renderPHPMyAdminConfig("abcdefghijklmnopqrstuvwxyz123456", nil))
+	configText := string(renderPHPMyAdminConfig("abcdefghijklmnopqrstuvwxyz123456", nil, ""))
 
 	if strings.Contains(configText, "['pmadb']") {
 		t.Fatalf("renderPHPMyAdminConfig() = %q, want storage disabled without database", configText)
+	}
+	if strings.Contains(configText, "$polkaCredentials") {
+		t.Fatalf("renderPHPMyAdminConfig() = %q, want managed credential loading disabled without database", configText)
+	}
+	if !strings.Contains(configText, "$cfg['Servers'][$i]['auth_type'] = 'cookie';") {
+		t.Fatalf("renderPHPMyAdminConfig() = %q, want cookie auth without managed database", configText)
 	}
 	if !strings.Contains(configText, "$cfg['Servers'][$i]['port'] = '3306';") {
 		t.Fatalf("renderPHPMyAdminConfig() = %q, want default database port", configText)

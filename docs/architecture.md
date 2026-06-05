@@ -94,7 +94,7 @@ Managed command shims in `.polka/bin` call back into Polka:
 
 Dispatch resolution uses the active environment recorded in `.polka/run/current`, or `default` from `polka.yaml` when no local override is selected. It maps command names to their config tool, reads that environment's definition from `polka.yaml` or `polka.<name>.yaml`, and locates the installed executable under `.polka/envs`.
 
-Node.js is config-only as `nodejs`, but it exposes `node`, `npm`, and `npx` dispatch commands. The `nodejs` command itself is not generated as an active shim. Mago is configured with `mago` and exposes the `mago` dispatch command. phpMyAdmin does not generate a command shim either; Polka installs its web app archive, writes its generated `config.inc.php`, and uses its UI port/HTTPS settings when the CLI starts the managed phpMyAdmin service.
+Node.js is config-only as `nodejs`, but it exposes `node`, `npm`, and `npx` dispatch commands. The `nodejs` command itself is not generated as an active shim. Mago is configured with `mago` and exposes the `mago` dispatch command. phpMyAdmin does not generate a command shim either; Polka installs its web app archive, writes its generated `config.inc.php`, reads managed database credentials from Polka's runtime secrets when a managed database is configured, and uses its UI port/HTTPS settings when the CLI starts the managed phpMyAdmin service.
 
 ## Runtime Services
 
