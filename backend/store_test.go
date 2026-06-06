@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -427,6 +428,9 @@ func TestStoreInstallWithProgressReportsStages(t *testing.T) {
 		"2/2 mysql 8.4 installing",
 		"2/2 mysql 8.4 installed",
 	}
+	sort.Strings(progressEvents)
+	sort.Strings(want)
+
 	if len(progressEvents) != len(want) {
 		t.Fatalf("InstallWithProgress(demo) events = %#v, want %#v", progressEvents, want)
 	}

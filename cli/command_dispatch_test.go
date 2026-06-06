@@ -58,25 +58,19 @@ func TestRunConfigSetsVersionLabelsAndDispatchesPhp(t *testing.T) {
 	}
 	installOutput := stdout.String()
 	expectedProgress := []string{
-		"[1/2] php 8.4: using cache",
-		"[1/2] php 8.4: installing",
-		"[1/2] php 8.4: configuring",
-		"[1/2] php 8.4: installed",
-		"[2/2] composer 2.8: using cache",
-		"[2/2] composer 2.8: installing",
-		"[2/2] composer 2.8: installed",
+		"php 8.4: using cache",
+		"php 8.4: installing",
+		"php 8.4: configuring",
+		"php 8.4: installed",
+		"composer 2.8: using cache",
+		"composer 2.8: installing",
+		"composer 2.8: installed",
 		"Installed 'demo' environment",
 	}
-	previousIndex := -1
 	for _, expected := range expectedProgress {
-		currentIndex := strings.Index(installOutput, expected)
-		if currentIndex < 0 {
+		if !strings.Contains(installOutput, expected) {
 			t.Fatalf("Run(install) stdout = %q, want %q", installOutput, expected)
 		}
-		if currentIndex < previousIndex {
-			t.Fatalf("Run(install) stdout = %q, want ordered progress lines %#v", installOutput, expectedProgress)
-		}
-		previousIndex = currentIndex
 	}
 
 	stdout.Reset()

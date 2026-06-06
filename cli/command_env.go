@@ -260,9 +260,26 @@ func runInstall(stdout io.Writer, store backend.Store, input installCommandInput
 	}
 	input.Name = resolvedName
 
+	// Determine the ordered list of install requests so the spinner can
+	// pre-register them and print placeholder lines before work begins.
+	requests, err := store.InstallRequests(input.Name)
+	if err != nil {
+		return err
+	}
+
+	spinner := newInstallSpinner(stdout, len(requests))
+	for _, req := range requests {
+		spinner.Register(req.Tool, req.Version)
+	}
+	spinner.printInitialLines()
+	spinner.Start()
+
 	results, err := store.InstallWithProgress(input.Name, func(progress backend.InstallProgress) {
-		_, _ = fmt.Fprintf(stdout, "[%d/%d] %s %s: %s\n", progress.Index, progress.Total, progress.Tool, progress.Version, progress.Stage)
+		spinner.Update(progress.Tool, progress.Version, progress.Stage)
 	})
+
+	spinner.Stop()
+
 	if err != nil {
 		return err
 	}
@@ -282,6 +299,7 @@ func runInstall(stdout io.Writer, store backend.Store, input installCommandInput
 
 	return nil
 }
+
 
 func runNew(stdout io.Writer, store backend.Store, input newCommandInput) error {
 	environment, err := store.CreateWithNodeJS(input.Name, input.PHPVersion, input.ComposerVersion, input.NodeJSVersion, input.Database)

@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/goccy/go-yaml"
 
@@ -57,6 +58,12 @@ type InstallProgress struct {
 	Tool    string
 	Version string
 	Stage   InstallProgressStage
+}
+
+// InstallRequest describes a single tool that will be installed.
+type InstallRequest struct {
+	Tool    string
+	Version string
 }
 
 type Store struct {
@@ -364,6 +371,30 @@ func (s Store) InstallWithProgress(name string, report func(InstallProgress)) ([
 	return s.install(name, report)
 }
 
+// InstallRequests returns the ordered list of tools that would be installed for
+// the named environment, without performing any installation. This is useful for
+// pre-registering tools in a progress display before installation begins.
+func (s Store) InstallRequests(name string) ([]InstallRequest, error) {
+	if err := validateName(name); err != nil {
+		return nil, err
+	}
+	environment, ok, err := s.readEnvironment(name)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, fmt.Errorf("environment %q does not exist", name)
+	}
+	normalized := s.normalizeEnvironment(name, environment)
+	registry := s.toolRegistry()
+	requests := registry.InstallRequests(normalized)
+	result := make([]InstallRequest, len(requests))
+	for i, r := range requests {
+		result[i] = InstallRequest{Tool: r.Tool, Version: r.Version}
+	}
+	return result, nil
+}
+
 func (s Store) install(name string, report func(InstallProgress)) ([]InstallResult, error) {
 	if err := s.Init(); err != nil {
 		return nil, err
@@ -394,58 +425,93 @@ func (s Store) install(name string, report func(InstallProgress)) ([]InstallResu
 		return nil, fmt.Errorf("environment %q does not define any installable tool versions", name)
 	}
 
-	results := make([]InstallResult, 0, len(requests))
+	results := make([]InstallResult, len(requests))
+	var wg sync.WaitGroup
+	errs := make([]error, len(requests))
+	var mu sync.Mutex
+
+	safeReport := func(progress InstallProgress) {
+		if report == nil {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		report(progress)
+	}
+
 	for index, request := range requests {
-		plugin, ok := registry.Plugin(request.Tool)
-		if !ok {
-			return nil, fmt.Errorf("unsupported tool %q", request.Tool)
-		}
-		baseProgress := InstallProgress{
-			Index:   index + 1,
-			Total:   len(requests),
-			Tool:    request.Tool,
-			Version: request.Version,
-		}
+		wg.Add(1)
+		i, req := index, request
+		go func() {
+			defer wg.Done()
 
-		cachedToolPath, downloaded, err := s.ensureCachedTool(request.Tool, request.Version, func(stage InstallProgressStage) {
-			emitInstallProgress(report, baseProgress, stage)
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		emitInstallProgress(report, baseProgress, InstallProgressInstalling)
-		targetPath, err := s.installToolFromCache(request.Tool, request.Version)
-		if err != nil {
-			return nil, err
-		}
-
-		results = append(results, InstallResult{
-			Tool:       request.Tool,
-			Version:    request.Version,
-			CachePath:  cachedToolPath,
-			TargetPath: targetPath,
-			Downloaded: downloaded,
-		})
-
-		if request.Tool == toolPHP {
-			if len(installPHPExtensions) > 0 {
-				emitInstallProgress(report, baseProgress, InstallProgressConfiguring)
+			plugin, ok := registry.Plugin(req.Tool)
+			if !ok {
+				errs[i] = fmt.Errorf("unsupported tool %q", req.Tool)
+				return
 			}
-		}
-		if err := plugin.PostInstall(ToolInstallContext{
-			ProjectDir:  s.ProjectDir,
-			RootDir:     s.RootDir,
-			EnvsDir:     s.EnvsDir,
-			BinDir:      s.BinDir,
-			CacheDir:    s.CacheDir,
-			Environment: normalized,
-			Result:      results[len(results)-1],
-		}); err != nil {
+			baseProgress := InstallProgress{
+				Index:   i + 1,
+				Total:   len(requests),
+				Tool:    req.Tool,
+				Version: req.Version,
+			}
+
+			cachedToolPath, downloaded, err := s.ensureCachedTool(req.Tool, req.Version, func(stage InstallProgressStage) {
+				baseProgress.Stage = stage
+				safeReport(baseProgress)
+			})
+			if err != nil {
+				errs[i] = err
+				return
+			}
+
+			baseProgress.Stage = InstallProgressInstalling
+			safeReport(baseProgress)
+			targetPath, err := s.installToolFromCache(req.Tool, req.Version)
+			if err != nil {
+				errs[i] = err
+				return
+			}
+
+			results[i] = InstallResult{
+				Tool:       req.Tool,
+				Version:    req.Version,
+				CachePath:  cachedToolPath,
+				TargetPath: targetPath,
+				Downloaded: downloaded,
+			}
+
+			if req.Tool == toolPHP {
+				if len(installPHPExtensions) > 0 {
+					baseProgress.Stage = InstallProgressConfiguring
+					safeReport(baseProgress)
+				}
+			}
+			if err := plugin.PostInstall(ToolInstallContext{
+				ProjectDir:  s.ProjectDir,
+				RootDir:     s.RootDir,
+				EnvsDir:     s.EnvsDir,
+				BinDir:      s.BinDir,
+				CacheDir:    s.CacheDir,
+				Environment: normalized,
+				Result:      results[i],
+			}); err != nil {
+				errs[i] = err
+				return
+			}
+
+			baseProgress.Stage = InstallProgressInstalled
+			safeReport(baseProgress)
+		}()
+	}
+
+	wg.Wait()
+
+	for _, err := range errs {
+		if err != nil {
 			return nil, err
 		}
-
-		emitInstallProgress(report, baseProgress, InstallProgressInstalled)
 	}
 
 	return results, nil
