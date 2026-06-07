@@ -9,11 +9,12 @@ This is a Go CLI program for managing project-local PHP development environments
 ## Architecture
 See [docs/architecture.md](docs/architecture.md) for a detailed overview of the project architecture, including package responsibilities and interactions.
 
-## Code Style Guidelines
+## Coding Guidelines
 
 1. **Use Go idioms**: Follow standard Go conventions for naming, error handling, and structuring code.
 2. **Add comments**: Provide clear comments for all non-trivial functions, types, and complex logic. Retroactively add comments to existing code as needed.
-3. **Write tests**: Ensure all new code is covered by tests, and existing tests pass before committing.
+3. **Don't ignore errors**: Always check and handle errors appropriately. Avoid using `_` to ignore errors unless it's intentional and justified.
+4. **Write tests**: Ensure all new code is covered by tests, and existing tests pass before committing.
 
 ## Testing
 
