@@ -23,6 +23,7 @@ type ProjectFile struct {
 	Root          string            `yaml:"root"`
 	Tools         *ToolsConfig      `yaml:"tools,omitempty"`
 	Docroot       string            `yaml:"docroot,omitempty"`
+	HTTPS         bool              `yaml:"https,omitempty"`
 	EnvFile       string            `yaml:"env-file,omitempty"`
 	EnvVars       map[string]string `yaml:"env-vars,omitempty"`
 	Database      *DatabaseConfig   `yaml:"database,omitempty"`
@@ -34,6 +35,7 @@ type ProjectFile struct {
 type EnvironmentFile struct {
 	Tools         *ToolsConfig      `yaml:"tools,omitempty"`
 	Docroot       string            `yaml:"docroot,omitempty"`
+	HTTPS         bool              `yaml:"https,omitempty"`
 	EnvFile       string            `yaml:"env-file,omitempty"`
 	EnvVars       map[string]string `yaml:"env-vars,omitempty"`
 	Database      *DatabaseConfig   `yaml:"database,omitempty"`
@@ -52,6 +54,7 @@ type Environment struct {
 	MariaDBVersion  string            `yaml:"mariadb,omitempty"`
 	SQLiteVersion   string            `yaml:"sqlite,omitempty"`
 	Docroot         string            `yaml:"docroot,omitempty"`
+	HTTPS           bool              `yaml:"https,omitempty"`
 	EnvFile         string            `yaml:"env-file,omitempty"`
 	EnvVars         map[string]string `yaml:"env-vars,omitempty"`
 	Database        *DatabaseConfig   `yaml:"database,omitempty"`
@@ -98,6 +101,7 @@ func ProjectFileToEnvironment(name string, file ProjectFile) Environment {
 		name,
 		file.Tools,
 		file.Docroot,
+		file.HTTPS,
 		file.EnvFile,
 		file.EnvVars,
 		file.Database,
@@ -113,11 +117,12 @@ func ProjectFileFromEnvironment(version int, root string, environment Environmen
 		Root:          root,
 		Tools:         ToolsConfigFromEnvironment(environment),
 		Docroot:       environment.Docroot,
+		HTTPS:         environment.HTTPS,
 		EnvFile:       environment.EnvFile,
 		EnvVars:       environment.EnvVars,
 		Database:      DatabaseRuntimeConfigFromEnvironment(environment),
 		PHPExtensions: environment.PHPExtensions,
-		Server:        environment.Server,
+		Server:        ServerConfigFromEnvironment(environment),
 	}
 
 	return file
@@ -129,6 +134,7 @@ func EnvironmentFileToEnvironment(name string, file EnvironmentFile) Environment
 		name,
 		file.Tools,
 		file.Docroot,
+		file.HTTPS,
 		file.EnvFile,
 		file.EnvVars,
 		file.Database,
@@ -142,11 +148,12 @@ func EnvironmentFileFromEnvironment(environment Environment) EnvironmentFile {
 	return EnvironmentFile{
 		Tools:         ToolsConfigFromEnvironment(environment),
 		Docroot:       environment.Docroot,
+		HTTPS:         environment.HTTPS,
 		EnvFile:       environment.EnvFile,
 		EnvVars:       environment.EnvVars,
 		Database:      DatabaseRuntimeConfigFromEnvironment(environment),
 		PHPExtensions: environment.PHPExtensions,
-		Server:        environment.Server,
+		Server:        ServerConfigFromEnvironment(environment),
 	}
 }
 
@@ -161,14 +168,66 @@ func ToolsConfigFromEnvironment(environment Environment) *ToolsConfig {
 		MySQLVersion:    DatabaseToolVersion(environment, "mysql"),
 		MariaDBVersion:  DatabaseToolVersion(environment, "mariadb"),
 		SQLiteVersion:   environment.SQLiteVersion,
-		Mailpit:         environment.Mailpit,
-		PHPMyAdmin:      environment.PHPMyAdmin,
+		Mailpit:         MailpitConfigFromEnvironment(environment),
+		PHPMyAdmin:      PHPMyAdminConfigFromEnvironment(environment),
 	}
 	if tools.IsZero() {
 		return nil
 	}
 
 	return tools
+}
+
+// MailpitConfigFromEnvironment extracts Mailpit settings that belong in YAML.
+func MailpitConfigFromEnvironment(environment Environment) *MailpitConfig {
+	if environment.Mailpit == nil {
+		return nil
+	}
+
+	mailpit := &MailpitConfig{
+		Version:  strings.TrimSpace(environment.Mailpit.Version),
+		SMTPPort: environment.Mailpit.SMTPPort,
+		UIPort:   environment.Mailpit.UIPort,
+	}
+	if mailpit.Version == "" && mailpit.SMTPPort == 0 && mailpit.UIPort == 0 {
+		return nil
+	}
+
+	return mailpit
+}
+
+// PHPMyAdminConfigFromEnvironment extracts phpMyAdmin settings that belong in YAML.
+func PHPMyAdminConfigFromEnvironment(environment Environment) *PHPMyAdminConfig {
+	if environment.PHPMyAdmin == nil {
+		return nil
+	}
+
+	phpMyAdmin := &PHPMyAdminConfig{
+		Version: strings.TrimSpace(environment.PHPMyAdmin.Version),
+		Port:    environment.PHPMyAdmin.Port,
+	}
+	if phpMyAdmin.Version == "" && phpMyAdmin.Port == 0 {
+		return nil
+	}
+
+	return phpMyAdmin
+}
+
+// ServerConfigFromEnvironment extracts server settings that belong in YAML.
+func ServerConfigFromEnvironment(environment Environment) *ServerConfig {
+	if environment.Server == nil {
+		return nil
+	}
+
+	server := &ServerConfig{
+		Hostname: strings.TrimSpace(environment.Server.Hostname),
+		Port:     environment.Server.Port,
+	}
+	if server.Hostname == "" && server.Port == 0 {
+		return nil
+	}
+
+	return server
 }
 
 // IsZero reports whether no managed tool settings are configured.
@@ -186,10 +245,11 @@ func (tools ToolsConfig) IsZero() bool {
 		tools.PHPMyAdmin == nil
 }
 
-func environmentFromFileParts(name string, tools *ToolsConfig, docroot, envFile string, envVars map[string]string, database *DatabaseConfig, phpExtensions map[string]bool, server *ServerConfig) Environment {
+func environmentFromFileParts(name string, tools *ToolsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *DatabaseConfig, phpExtensions map[string]bool, server *ServerConfig) Environment {
 	environment := Environment{
 		Name:          name,
 		Docroot:       docroot,
+		HTTPS:         https,
 		EnvFile:       envFile,
 		EnvVars:       envVars,
 		Database:      database,
@@ -211,7 +271,7 @@ func environmentFromFileParts(name string, tools *ToolsConfig, docroot, envFile 
 		environment.PHPMyAdmin = tools.PHPMyAdmin
 	}
 
-	return environment
+	return inheritEnvironmentHTTPS(environment)
 }
 
 func populateDatabaseToolVersion(environment Environment) Environment {
@@ -327,6 +387,7 @@ func NormalizeEnvironment(name string, environment Environment) Environment {
 		MariaDBVersion:  strings.TrimSpace(environment.MariaDBVersion),
 		SQLiteVersion:   strings.TrimSpace(environment.SQLiteVersion),
 		Docroot:         strings.TrimSpace(environment.Docroot),
+		HTTPS:           environment.HTTPS,
 		EnvFile:         strings.TrimSpace(environment.EnvFile),
 		EnvVars:         NormalizeEnvironmentVariables(environment.EnvVars),
 		Database:        NormalizeDatabaseConfig(environment.Database),
@@ -336,7 +397,27 @@ func NormalizeEnvironment(name string, environment Environment) Environment {
 		Server:          NormalizeServerConfig(environment.Server),
 	}
 
-	return populateDatabaseToolVersion(normalized)
+	return populateDatabaseToolVersion(inheritEnvironmentHTTPS(normalized))
+}
+
+func inheritEnvironmentHTTPS(environment Environment) Environment {
+	if !environment.HTTPS {
+		return environment
+	}
+
+	if environment.Server == nil {
+		environment.Server = &ServerConfig{}
+	}
+	environment.Server.HTTPS = true
+
+	if environment.Mailpit != nil {
+		environment.Mailpit.HTTPS = true
+	}
+	if environment.PHPMyAdmin != nil {
+		environment.PHPMyAdmin.HTTPS = true
+	}
+
+	return environment
 }
 
 func NormalizeEnvironmentVariables(values map[string]string) map[string]string {

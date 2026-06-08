@@ -182,7 +182,7 @@ func runStart(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 		return 1
 	}
 	if endpoint.HTTPS && strings.TrimSpace(current.NginxVersion) == "" {
-		fmt.Fprintln(stderr, "error: server.https requires nginx in the current environment")
+		fmt.Fprintln(stderr, "error: https requires nginx in the current environment")
 		return 1
 	}
 	docroot, err := resolveServeDocroot(store.ProjectDir, current.Docroot, input.Docroot)

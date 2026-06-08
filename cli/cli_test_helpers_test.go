@@ -27,6 +27,7 @@ type testEnvironmentConfig struct {
 	SQLite        string                `yaml:"sqlite,omitempty"`
 	PHPMyAdmin    *testPHPMyAdminConfig `yaml:"phpmyadmin,omitempty"`
 	Docroot       string                `yaml:"docroot,omitempty"`
+	HTTPS         bool                  `yaml:"https,omitempty"`
 	EnvFile       string                `yaml:"env-file,omitempty"`
 	EnvVars       map[string]string     `yaml:"env-vars,omitempty"`
 	Database      *testDatabaseConfig   `yaml:"database,omitempty"`
@@ -65,6 +66,7 @@ type testProjectConfigData struct {
 	Root          string              `yaml:"root,omitempty"`
 	Tools         *testToolsConfig    `yaml:"tools,omitempty"`
 	Docroot       string              `yaml:"docroot,omitempty"`
+	HTTPS         bool                `yaml:"https,omitempty"`
 	EnvFile       string              `yaml:"env-file,omitempty"`
 	EnvVars       map[string]string   `yaml:"env-vars,omitempty"`
 	Database      *testDatabaseConfig `yaml:"database,omitempty"`
@@ -75,6 +77,7 @@ type testProjectConfigData struct {
 type testEnvironmentConfigData struct {
 	Tools         *testToolsConfig    `yaml:"tools,omitempty"`
 	Docroot       string              `yaml:"docroot,omitempty"`
+	HTTPS         bool                `yaml:"https,omitempty"`
 	EnvFile       string              `yaml:"env-file,omitempty"`
 	EnvVars       map[string]string   `yaml:"env-vars,omitempty"`
 	Database      *testDatabaseConfig `yaml:"database,omitempty"`
@@ -112,6 +115,7 @@ func writeTestConfigFile(t *testing.T, projectDir string, config testConfigFile)
 	if defaultEnvironment, ok := config.Environments[defaultEnvironmentName]; ok {
 		projectConfig.Tools = testToolsFromEnvironment(defaultEnvironment)
 		projectConfig.Docroot = defaultEnvironment.Docroot
+		projectConfig.HTTPS = defaultEnvironment.HTTPS
 		projectConfig.EnvFile = defaultEnvironment.EnvFile
 		projectConfig.EnvVars = defaultEnvironment.EnvVars
 		projectConfig.Database = testDatabaseRuntimeFromEnvironment(defaultEnvironment)
@@ -181,6 +185,7 @@ func writeTestEnvironmentConfig(t *testing.T, projectDir, name string, environme
 		readTestYAML(t, filepath.Join(projectDir, "polka.yaml"), &projectConfig)
 		projectConfig.Tools = testToolsFromEnvironment(environment)
 		projectConfig.Docroot = environment.Docroot
+		projectConfig.HTTPS = environment.HTTPS
 		projectConfig.EnvFile = environment.EnvFile
 		projectConfig.EnvVars = environment.EnvVars
 		projectConfig.Database = testDatabaseRuntimeFromEnvironment(environment)
@@ -193,6 +198,7 @@ func writeTestEnvironmentConfig(t *testing.T, projectDir, name string, environme
 	writeTestYAML(t, testEnvironmentConfigPath(projectDir, name), testEnvironmentConfigData{
 		Tools:         testToolsFromEnvironment(environment),
 		Docroot:       environment.Docroot,
+		HTTPS:         environment.HTTPS,
 		EnvFile:       environment.EnvFile,
 		EnvVars:       environment.EnvVars,
 		Database:      testDatabaseRuntimeFromEnvironment(environment),
@@ -227,16 +233,17 @@ func writeTestYAML(t *testing.T, path string, value any) {
 }
 
 func testEnvironmentFromProjectConfig(projectConfig testProjectConfigData) testEnvironmentConfig {
-	return testEnvironmentFromParts(projectConfig.Tools, projectConfig.Docroot, projectConfig.EnvFile, projectConfig.EnvVars, projectConfig.Database, projectConfig.PHPExtensions, projectConfig.Server)
+	return testEnvironmentFromParts(projectConfig.Tools, projectConfig.Docroot, projectConfig.HTTPS, projectConfig.EnvFile, projectConfig.EnvVars, projectConfig.Database, projectConfig.PHPExtensions, projectConfig.Server)
 }
 
 func testEnvironmentFromEnvironmentConfig(environmentConfig testEnvironmentConfigData) testEnvironmentConfig {
-	return testEnvironmentFromParts(environmentConfig.Tools, environmentConfig.Docroot, environmentConfig.EnvFile, environmentConfig.EnvVars, environmentConfig.Database, environmentConfig.PHPExtensions, environmentConfig.Server)
+	return testEnvironmentFromParts(environmentConfig.Tools, environmentConfig.Docroot, environmentConfig.HTTPS, environmentConfig.EnvFile, environmentConfig.EnvVars, environmentConfig.Database, environmentConfig.PHPExtensions, environmentConfig.Server)
 }
 
-func testEnvironmentFromParts(tools *testToolsConfig, docroot, envFile string, envVars map[string]string, database *testDatabaseConfig, phpExtensions map[string]bool, server *testServerConfig) testEnvironmentConfig {
+func testEnvironmentFromParts(tools *testToolsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *testDatabaseConfig, phpExtensions map[string]bool, server *testServerConfig) testEnvironmentConfig {
 	environment := testEnvironmentConfig{
 		Docroot:       docroot,
+		HTTPS:         https,
 		EnvFile:       envFile,
 		EnvVars:       envVars,
 		Database:      database,
@@ -256,6 +263,18 @@ func testEnvironmentFromParts(tools *testToolsConfig, docroot, envFile string, e
 		environment = testPopulateDatabaseToolVersion(environment)
 		environment.Mailpit = tools.Mailpit
 		environment.PHPMyAdmin = tools.PHPMyAdmin
+	}
+	if environment.HTTPS {
+		if environment.Server == nil {
+			environment.Server = &testServerConfig{}
+		}
+		environment.Server.HTTPS = true
+		if environment.Mailpit != nil {
+			environment.Mailpit.HTTPS = true
+		}
+		if environment.PHPMyAdmin != nil {
+			environment.PHPMyAdmin.HTTPS = true
+		}
 	}
 
 	return environment

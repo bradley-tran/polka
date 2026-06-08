@@ -435,7 +435,8 @@ func TestRunStatusShowsToolsEachOnOwnLine(t *testing.T) {
 				NodeJS:     "24",
 				Mago:       "1.27",
 				Nginx:      "1.30",
-				PHPMyAdmin: &testPHPMyAdminConfig{Version: "5.2", Port: 8082, HTTPS: true},
+				HTTPS:      true,
+				PHPMyAdmin: &testPHPMyAdminConfig{Version: "5.2", Port: 8082},
 				Database:   &testDatabaseConfig{Engine: "mysql", Version: "8.0", Port: 3306},
 				Server:     &testServerConfig{Hostname: "localhost", Port: 8080},
 			},
@@ -459,7 +460,7 @@ func TestRunStatusShowsToolsEachOnOwnLine(t *testing.T) {
 		"phpmyadmin 5.2 ui=https://127.0.0.1:8082\n",
 		"database mysql:8.0@3306\n",
 		"mailpit unset\n",
-		"server http://localhost:8080\n",
+		"server https://localhost:8080\n",
 		"webserver stopped\n",
 		"phpmyadmin-server stopped\n",
 		"database-server stopped\n",
@@ -624,7 +625,8 @@ func TestRunStatusShowsMailpitUIURL(t *testing.T) {
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
 				PHP:     "8.4",
-				Mailpit: &testMailpitConfig{Version: "1.30", SMTPPort: 1125, UIPort: 8125, HTTPS: true},
+				HTTPS:   true,
+				Mailpit: &testMailpitConfig{Version: "1.30", SMTPPort: 1125, UIPort: 8125},
 			},
 		},
 	}

@@ -136,7 +136,7 @@ polka serve public --server blog.localhost:8443
 polka serve --watch
 ```
 
-When `docroot` is omitted, Polka uses `docroot` from the current environment file. When `--server` is omitted, Polka reads `server.hostname`, `server.port`, and `server.https` from the current environment file, defaulting to `http://localhost:8000`.
+When `docroot` is omitted, Polka uses `docroot` from the current environment file. When `--server` is omitted, Polka reads `server.hostname`, `server.port`, and the root-level `https` setting from the current environment file, defaulting to `http://localhost:8000`.
 
 By default, Polka starts the webserver in the background, waits for it to begin listening, and records runtime state so `polka stop` can stop it later. Pass `--watch` to keep the webserver attached to the current terminal.
 
@@ -196,7 +196,7 @@ The `mago` tool key installs the Mago binary and creates a `mago` command shim.
 
 The `sqlite` tool key installs SQLite's command-line tools and creates a `sqlite3` command shim.
 
-The `phpmyadmin` tool key installs the phpMyAdmin web app archive under `.polka/envs/phpmyadmin/<version>`, writes a generated `config.inc.php` with a fresh `blowfish_secret`, uses managed database credentials to skip the phpMyAdmin login screen when a managed database is configured, and carries its UI `port` and `https` settings. It does not create a command shim.
+The `phpmyadmin` tool key installs the phpMyAdmin web app archive under `.polka/envs/phpmyadmin/<version>`, writes a generated `config.inc.php` with a fresh `blowfish_secret`, uses managed database credentials to skip the phpMyAdmin login screen when a managed database is configured, and carries its UI `port` setting. It inherits HTTPS from the environment's root-level `https` setting. It does not create a command shim.
 
 When an environment defines `php-extensions`, `polka install` writes a generated `php.ini` next to the installed PHP executable so those extensions are explicitly enabled or disabled for that environment. If `composer` is configured for that environment, `openssl` and `zip` are enabled by default unless `php-extensions` explicitly sets either one to `false`.
 

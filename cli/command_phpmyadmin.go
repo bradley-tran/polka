@@ -98,7 +98,7 @@ func startPHPMyAdminServe(store backend.Store, environment backend.Environment, 
 	runtimeDir := phpMyAdminRuntimeDir(store.RootDir, environment.Name)
 	if endpoint.HTTPS {
 		if strings.TrimSpace(environment.NginxVersion) == "" {
-			return serveRuntimeState{}, fmt.Errorf("phpmyadmin.https requires nginx in the current environment")
+			return serveRuntimeState{}, fmt.Errorf("https requires nginx in the current environment")
 		}
 
 		return startNginxServeInBackgroundAt(store, environment, endpoint, layout, runtimeDir)

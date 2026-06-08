@@ -1,6 +1,6 @@
 # Polka
 
-Polka is a CLI tool for managingl PHP virtual environments. It provides a consistent interface for installing and managing multiple local versions of PHP, Composer, Node.js, and other development tools on a per-project basis. Polka also includes support for serving web applications with nginx, phpMyAdmin, managed databases, and Mailpit.
+Polka is a CLI tool for managing PHP virtual environments. It provides a consistent interface for installing and managing multiple local versions of PHP, Composer, Node.js, and other development tools on a per-project basis. Polka also includes support for serving web applications with nginx, phpMyAdmin, managed databases, and Mailpit.
 
 ## Quick start
 
@@ -40,6 +40,7 @@ Polka config files store portable version labels. The default environment lives 
 # polka.yaml
 version: 0.1
 root: .polka
+https: true
 tools:
   php: 8.4
   composer: 2.8
@@ -51,12 +52,10 @@ tools:
   phpmyadmin:
     version: 5.2
     port: 8082
-    https: true
   mailpit:
     version: "1.30"
     smtp-port: 1025
     ui-port: 8025
-    https: true
 docroot: public
 database:
   engine: mariadb
@@ -68,7 +67,6 @@ env-vars:
 server:
   hostname: blog.localhost
   port: 8443
-  https: true
 php-extensions:
   openssl: true
   xdebug: false

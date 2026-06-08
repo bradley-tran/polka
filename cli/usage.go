@@ -115,10 +115,9 @@ const startUsage = `Usage:
 
 Start the active environment's local web server.
 When docroot is omitted, Polka uses docroot from the current environment file.
-When --server is omitted, Polka uses the current environment's server.hostname and server.port, defaulting to localhost:8000.
+When --server is omitted, Polka uses the current environment's server.hostname, server.port, and root-level https setting, defaulting to localhost:8000.
 When the current environment defines a database, mailpit, or phpmyadmin, Polka starts those managed local services first.
-Set mailpit.https to true to serve the Mailpit UI over HTTPS and enable SMTP STARTTLS with Polka's generated local certificate.
-Set phpmyadmin.https to true to serve phpMyAdmin over HTTPS through nginx with Polka's generated local certificate.
+Set root-level https to true to serve the webserver and applicable managed services over HTTPS with Polka's generated local certificate.
 By default, Polka starts the webserver in the background and returns once it is listening.
 Pass --watch to keep the webserver attached to the current terminal with the previous foreground behavior.
 `

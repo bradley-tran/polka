@@ -717,7 +717,7 @@ func TestStoreInstallDownloadsConfiguredPHPMyAdmin(t *testing.T) {
 	})
 
 	config := store.defaultConfig()
-	config.Environments["demo"] = Environment{PHPMyAdmin: &PHPMyAdminConfig{Version: "5.2", Port: 8082, HTTPS: true}}
+	config.Environments["demo"] = Environment{PHPMyAdmin: &PHPMyAdminConfig{Version: "5.2", Port: 8082}}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
 	}
@@ -1049,10 +1049,10 @@ func TestStoreCurrentNormalizesServerConfig(t *testing.T) {
 	config := store.defaultConfig()
 	config.Environments["demo"] = Environment{
 		PHPVersion: "8.4",
+		HTTPS:      true,
 		Server: &ServerConfig{
 			Hostname: " localhost ",
 			Port:     8080,
-			HTTPS:    true,
 		},
 	}
 	if err := store.writeConfig(config); err != nil {
@@ -1080,10 +1080,10 @@ func TestStoreCurrentNormalizesPHPMyAdminConfig(t *testing.T) {
 
 	config := store.defaultConfig()
 	config.Environments["demo"] = Environment{
+		HTTPS: true,
 		PHPMyAdmin: &PHPMyAdminConfig{
 			Version: " 5.2 ",
 			Port:    8082,
-			HTTPS:   true,
 		},
 	}
 	if err := store.writeConfig(config); err != nil {
@@ -1102,6 +1102,70 @@ func TestStoreCurrentNormalizesPHPMyAdminConfig(t *testing.T) {
 	}
 	if current.PHPMyAdmin.Version != "5.2" || current.PHPMyAdmin.Port != 8082 || !current.PHPMyAdmin.HTTPS {
 		t.Fatalf("Current().PHPMyAdmin = %#v, want normalized version, port, and https", current.PHPMyAdmin)
+	}
+}
+
+func TestStoreCurrentInheritsRootHTTPS(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{
+		HTTPS:      true,
+		Server:     &ServerConfig{Hostname: "localhost", Port: 8443},
+		Mailpit:    &MailpitConfig{Version: "1.30", SMTPPort: 1125, UIPort: 8125},
+		PHPMyAdmin: &PHPMyAdminConfig{Version: "5.2", Port: 8082},
+	}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+	if err := store.writeActiveEnvironmentName("demo"); err != nil {
+		t.Fatalf("writeActiveEnvironmentName() error = %v", err)
+	}
+
+	current, err := store.Current()
+	if err != nil {
+		t.Fatalf("Current() error = %v", err)
+	}
+	if current == nil || !current.HTTPS {
+		t.Fatalf("Current() = %#v, want root https enabled", current)
+	}
+	if current.Server == nil || !current.Server.HTTPS {
+		t.Fatalf("Current().Server = %#v, want inherited https", current.Server)
+	}
+	if current.Mailpit == nil || !current.Mailpit.HTTPS {
+		t.Fatalf("Current().Mailpit = %#v, want inherited https", current.Mailpit)
+	}
+	if current.PHPMyAdmin == nil || !current.PHPMyAdmin.HTTPS {
+		t.Fatalf("Current().PHPMyAdmin = %#v, want inherited https", current.PHPMyAdmin)
+	}
+}
+
+func TestStoreWriteConfigPersistsHTTPSAtEnvironmentRoot(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{
+		HTTPS:      true,
+		Server:     &ServerConfig{Hostname: "localhost", Port: 8443, HTTPS: true},
+		Mailpit:    &MailpitConfig{Version: "1.30", SMTPPort: 1125, UIPort: 8125, HTTPS: true},
+		PHPMyAdmin: &PHPMyAdminConfig{Version: "5.2", Port: 8082, HTTPS: true},
+	}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	data, err := os.ReadFile(store.environmentConfigFile("demo"))
+	if err != nil {
+		t.Fatalf("ReadFile(demo config) error = %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "\nhttps: true\n") {
+		t.Fatalf("config = %q, want root-level https", text)
+	}
+	if strings.Contains(text, "    https: true") || strings.Contains(text, "  https: true") {
+		t.Fatalf("config = %q, want no nested https keys", text)
 	}
 }
 

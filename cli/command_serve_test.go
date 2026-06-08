@@ -524,7 +524,8 @@ func TestRunServeRejectsHTTPSWithoutNginx(t *testing.T) {
 			"demo": {
 				PHP:     "8.4",
 				Docroot: filepath.ToSlash(filepath.Join("site", "public")),
-				Server:  &testServerConfig{Hostname: "site.localhost", Port: 8443, HTTPS: true},
+				HTTPS:   true,
+				Server:  &testServerConfig{Hostname: "site.localhost", Port: 8443},
 			},
 		},
 	}
@@ -534,7 +535,7 @@ func TestRunServeRejectsHTTPSWithoutNginx(t *testing.T) {
 	if code := Run(stdout, stderr, []string{"--root", root, "start"}); code != 1 {
 		t.Fatalf("Run(serve https without nginx) code = %d, stderr = %q", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "server.https requires nginx") {
+	if !strings.Contains(stderr.String(), "https requires nginx") {
 		t.Fatalf("Run(serve https without nginx) stderr = %q, want nginx guidance", stderr.String())
 	}
 }
@@ -730,12 +731,13 @@ func TestRunServeStartsConfiguredMailpitBeforeWebserver(t *testing.T) {
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
 				PHP:     "8.4",
+				Nginx:   "1.30",
 				Docroot: filepath.ToSlash(filepath.Join("site", "public")),
+				HTTPS:   true,
 				Mailpit: &testMailpitConfig{
 					Version:  "1.30",
 					SMTPPort: 1125,
 					UIPort:   8125,
-					HTTPS:    true,
 				},
 				Server: &testServerConfig{Hostname: "localhost", Port: 8080},
 			},
@@ -762,14 +764,14 @@ func TestRunServeStartsConfiguredMailpitBeforeWebserver(t *testing.T) {
 	oldStopMailpit := stopMailpitRuntimeFunc
 	oldPingMailpit := pingMailpitAddressFunc
 	oldMailpitNow := mailpitNowFunc
-	oldStartPHP := startBackgroundPHPRuntimeServe
+	oldStartNginx := startBackgroundNginxServe
 	oldPingServe := pingServeAddressFunc
 	t.Cleanup(func() {
 		startMailpitServerFunc = oldStartMailpit
 		stopMailpitRuntimeFunc = oldStopMailpit
 		pingMailpitAddressFunc = oldPingMailpit
 		mailpitNowFunc = oldMailpitNow
-		startBackgroundPHPRuntimeServe = oldStartPHP
+		startBackgroundNginxServe = oldStartNginx
 		pingServeAddressFunc = oldPingServe
 	})
 
@@ -795,9 +797,9 @@ func TestRunServeStartsConfiguredMailpitBeforeWebserver(t *testing.T) {
 	mailpitNowFunc = func() time.Time {
 		return time.Date(2026, time.May, 29, 12, 0, 0, 0, time.UTC)
 	}
-	startBackgroundPHPRuntimeServe = func(store backend.Store, environment backend.Environment, serverAddress string, layout serveAppLayout) (serveRuntimeState, error) {
+	startBackgroundNginxServe = func(store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout) (serveRuntimeState, error) {
 		order = append(order, "web")
-		serveRunning[serverAddress] = true
+		serveRunning[endpoint.Address] = true
 		return serveRuntimeState{PrimaryPID: 4242}, nil
 	}
 	pingServeAddressFunc = func(address string) bool {
