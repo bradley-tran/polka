@@ -40,6 +40,20 @@ func downloadMailpit(client *http.Client, cacheDir, version string) error {
 	return downloadBuiltinManifestTool(client, cacheDir, Mailpit, version)
 }
 
-func resolveMailpitDownloadAsset(requestedVersion, goos, goarch string) (string, databaseDownloadAsset, error) {
-	return resolveBuiltinManifestDownloadAsset(Mailpit, requestedVersion, goos, goarch)
+func resolveMailpitDownloadAsset(client *http.Client, requestedVersion, goos, goarch string) (string, databaseDownloadAsset, error) {
+	manifest, err := loadBuiltinManifest(Mailpit)
+	if err != nil {
+		return "", databaseDownloadAsset{}, err
+	}
+	resolvedVersion, tag, githubAssets, err := resolveManifestDownloadVersion(client, Mailpit, requestedVersion, manifest.Download)
+	if err != nil {
+		return "", databaseDownloadAsset{}, err
+	}
+	asset, err := resolveManifestDownloadAsset(Mailpit, manifest.Download.Assets, requestedVersion, resolvedVersion, tag, goos, goarch, nil)
+	if err != nil {
+		return "", databaseDownloadAsset{}, err
+	}
+	applyGitHubAssetDigest(&asset, githubAssets)
+
+	return resolvedVersion, asset, nil
 }

@@ -59,15 +59,35 @@ install-candidates:
   all:
     - bin/demo
 download:
-  catalog:
-    1.2.3:
-      darwin-arm64:
-        filename: demo.tar.gz
-        url: https://example.test/demo.tar.gz
-        archive-format: tar.gz
+  assets:
+    darwin-arm64:
+      filename: demo.tar.gz
+      url: https://example.test/demo.tar.gz
+      archive-format: tar.gz
 `))
 	if err == nil || !strings.Contains(err.Error(), "unsupported platform") {
 		t.Fatalf("parsePluginManifest(unknown platform) error = %v, want platform error", err)
+	}
+}
+
+func TestParsePluginManifestRejectsDeprecatedDownloadCatalog(t *testing.T) {
+	_, err := parsePluginManifest([]byte(`
+id: demo
+version:
+  source: php
+install-candidates:
+  all:
+    - bin/demo
+download:
+  catalog:
+    1.2.3:
+      windows-amd64:
+        filename: demo.zip
+        url: https://example.test/demo.zip
+        archive-format: zip
+`))
+	if err == nil || !strings.Contains(err.Error(), "deprecated download.catalog") {
+		t.Fatalf("parsePluginManifest(deprecated catalog) error = %v, want catalog error", err)
 	}
 }
 
@@ -111,7 +131,7 @@ dispatch-candidates:
 	}
 }
 
-func TestManifestDownloadCatalogResolvesVersionAndPlatform(t *testing.T) {
+func TestManifestDownloadTemplateResolvesPlatform(t *testing.T) {
 	manifest, err := parsePluginManifest([]byte(`
 id: demo
 version:
@@ -120,27 +140,26 @@ install-candidates:
   all:
     - bin/demo
 download:
-  catalog:
-    1.2.3:
-      windows-amd64:
-        filename: demo.zip
-        url: https://example.test/demo.zip
-        checksum: 0123456789abcdef0123456789abcdef
-        checksum-algorithm: md5
-        archive-format: zip
+  assets:
+    windows-amd64:
+      filename: demo-{version}.zip
+      url: https://example.test/{tag}/demo-{version}.zip
+      checksum-url: https://example.test/{tag}/checksums.txt
+      checksum-algorithm: md5
+      archive-format: zip
 `))
 	if err != nil {
 		t.Fatalf("parsePluginManifest() error = %v", err)
 	}
 
-	resolvedVersion, asset, err := resolveDownloadCatalogAsset("demo", manifest.Download.Catalog, "1.2", "windows", "amd64")
+	asset, err := resolveManifestDownloadAsset("demo", manifest.Download.Assets, "1.2", "1.2.3", "v1.2.3", "windows", "amd64", nil)
 	if err != nil {
-		t.Fatalf("resolveDownloadCatalogAsset() error = %v", err)
+		t.Fatalf("resolveManifestDownloadAsset() error = %v", err)
 	}
-	if resolvedVersion != "1.2.3" {
-		t.Fatalf("resolved version = %q, want 1.2.3", resolvedVersion)
+	if asset.FileName != "demo-1.2.3.zip" || asset.ChecksumAlgorithm != checksumAlgorithmMD5 || asset.ArchiveFormat != archiveFormatZip {
+		t.Fatalf("asset = %#v, want rendered manifest archive asset", asset)
 	}
-	if asset.FileName != "demo.zip" || asset.ChecksumAlgorithm != checksumAlgorithmMD5 || asset.ArchiveFormat != archiveFormatZip {
-		t.Fatalf("asset = %#v, want manifest archive asset", asset)
+	if asset.URL != "https://example.test/v1.2.3/demo-1.2.3.zip" || asset.ChecksumURL != "https://example.test/v1.2.3/checksums.txt" {
+		t.Fatalf("asset URLs = (%q, %q), want rendered template URLs", asset.URL, asset.ChecksumURL)
 	}
 }

@@ -58,6 +58,28 @@ func TestParseChecksumValueAcceptsSha256sumFormat(t *testing.T) {
 }
 
 func TestResolveDatabaseDownloadAssetSupportsSeriesLabels(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/mysql/8.4.html":
+			_, _ = w.Write([]byte(strings.Join([]string{
+				`<a href="mysql-8.4.8-winx64.zip">mysql</a>`,
+				`<a href="mysql-8.4.9-winx64.zip">mysql</a>`,
+			}, "\n")))
+		case "/mariadb/":
+			_, _ = w.Write([]byte(strings.Join([]string{
+				`<a href="mariadb-11.4.10/">mariadb-11.4.10/</a>`,
+				`<a href="mariadb-11.4.11/">mariadb-11.4.11/</a>`,
+				`<a href="mariadb-11.8.7/">mariadb-11.8.7/</a>`,
+			}, "\n")))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	withTemporaryString(t, &mysqlDownloadPageURLPattern, server.URL+"/mysql/%s.html")
+	withTemporaryString(t, &mariaDBArchiveIndexURL, server.URL+"/mariadb/")
+
 	tests := []struct {
 		name                string
 		tool                string
@@ -132,7 +154,7 @@ func TestResolveDatabaseDownloadAssetSupportsSeriesLabels(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			resolvedVersion, asset, err := resolveDatabaseDownloadAsset(test.tool, test.version, test.goos, test.goarch)
+			resolvedVersion, asset, err := resolveDatabaseDownloadAsset(server.Client(), test.tool, test.version, test.goos, test.goarch)
 			if err != nil {
 				t.Fatalf("resolveDatabaseDownloadAsset(%s, %s) error = %v", test.tool, test.version, err)
 			}
@@ -150,6 +172,16 @@ func TestResolveDatabaseDownloadAssetSupportsSeriesLabels(t *testing.T) {
 }
 
 func TestResolveSQLiteDownloadAssetSupportsSeriesLabels(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(strings.Join([]string{
+			"PRODUCT,3.53.2,2026/sqlite-tools-linux-x64-3530200.zip,4262741," + strings.Repeat("a", 64),
+			"PRODUCT,3.53.2,2026/sqlite-tools-win-x64-3530200.zip,6556897," + strings.Repeat("b", 64),
+		}, "\n")))
+	}))
+	defer server.Close()
+
+	withTemporaryString(t, &sqliteDownloadPageURL, server.URL)
+
 	tests := []struct {
 		name                string
 		version             string
@@ -178,7 +210,7 @@ func TestResolveSQLiteDownloadAssetSupportsSeriesLabels(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			resolvedVersion, asset, err := resolveSQLiteDownloadAsset(test.version, test.goos, test.goarch)
+			resolvedVersion, asset, err := resolveSQLiteDownloadAsset(server.Client(), test.version, test.goos, test.goarch)
 			if err != nil {
 				t.Fatalf("resolveSQLiteDownloadAsset(%s) error = %v", test.version, err)
 			}
@@ -196,6 +228,17 @@ func TestResolveSQLiteDownloadAssetSupportsSeriesLabels(t *testing.T) {
 }
 
 func TestResolveNginxDownloadAssetSupportsSeriesLabels(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(strings.Join([]string{
+			`<a href="nginx-1.30.1.zip">nginx-1.30.1.zip</a>`,
+			`<a href="nginx-1.30.2.zip">nginx-1.30.2.zip</a>`,
+			`<a href="nginx-1.28.3.zip">nginx-1.28.3.zip</a>`,
+		}, "\n")))
+	}))
+	defer server.Close()
+
+	withTemporaryString(t, &nginxDownloadIndexURL, server.URL)
+
 	tests := []struct {
 		name                string
 		version             string
@@ -218,7 +261,7 @@ func TestResolveNginxDownloadAssetSupportsSeriesLabels(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			resolvedVersion, asset, err := resolveNginxDownloadAsset(test.version, "windows", "amd64")
+			resolvedVersion, asset, err := resolveNginxDownloadAsset(server.Client(), test.version, "windows", "amd64")
 			if err != nil {
 				t.Fatalf("resolveNginxDownloadAsset(%s) error = %v", test.version, err)
 			}
@@ -236,6 +279,17 @@ func TestResolveNginxDownloadAssetSupportsSeriesLabels(t *testing.T) {
 }
 
 func TestResolveNodeJSDownloadAssetSupportsSeriesLabels(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[
+			{"version":"v24.16.0"},
+			{"version":"v24.15.0"},
+			{"version":"v22.22.3"}
+		]`))
+	}))
+	defer server.Close()
+
+	withTemporaryString(t, &nodeJSReleaseIndexURL, server.URL)
+
 	tests := []struct {
 		name                string
 		version             string
@@ -280,7 +334,7 @@ func TestResolveNodeJSDownloadAssetSupportsSeriesLabels(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			resolvedVersion, asset, err := resolveNodeJSDownloadAsset(test.version, test.goos, test.goarch)
+			resolvedVersion, asset, err := resolveNodeJSDownloadAsset(server.Client(), test.version, test.goos, test.goarch)
 			if err != nil {
 				t.Fatalf("resolveNodeJSDownloadAsset(%s) error = %v", test.version, err)
 			}
@@ -298,6 +352,22 @@ func TestResolveNodeJSDownloadAssetSupportsSeriesLabels(t *testing.T) {
 }
 
 func TestResolveMailpitDownloadAssetSupportsSeriesLabels(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[
+			{
+				"tag_name":"v1.30.1",
+				"assets":[
+					{"name":"mailpit-windows-amd64.zip","digest":"sha256:` + strings.Repeat("c", 64) + `"},
+					{"name":"mailpit-linux-amd64.tar.gz","digest":"sha256:` + strings.Repeat("d", 64) + `"}
+				]
+			},
+			{"tag_name":"v1.30.0","assets":[]}
+		]`))
+	}))
+	defer server.Close()
+
+	withTemporaryString(t, &githubAPIBaseURL, server.URL)
+
 	tests := []struct {
 		name                string
 		version             string
@@ -313,7 +383,7 @@ func TestResolveMailpitDownloadAssetSupportsSeriesLabels(t *testing.T) {
 			goos:                "windows",
 			goarch:              "amd64",
 			wantResolvedVersion: "1.30.1",
-			wantFileName:        "mailpit-windows-amd64.zip",
+			wantFileName:        "mailpit-1.30.1-windows-amd64.zip",
 			wantFormat:          archiveFormatZip,
 		},
 		{
@@ -322,14 +392,14 @@ func TestResolveMailpitDownloadAssetSupportsSeriesLabels(t *testing.T) {
 			goos:                "linux",
 			goarch:              "amd64",
 			wantResolvedVersion: "1.30.1",
-			wantFileName:        "mailpit-linux-amd64.tar.gz",
+			wantFileName:        "mailpit-1.30.1-linux-amd64.tar.gz",
 			wantFormat:          archiveFormatTarGz,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			resolvedVersion, asset, err := resolveMailpitDownloadAsset(test.version, test.goos, test.goarch)
+			resolvedVersion, asset, err := resolveMailpitDownloadAsset(server.Client(), test.version, test.goos, test.goarch)
 			if err != nil {
 				t.Fatalf("resolveMailpitDownloadAsset(%s) error = %v", test.version, err)
 			}
@@ -342,14 +412,30 @@ func TestResolveMailpitDownloadAssetSupportsSeriesLabels(t *testing.T) {
 			if asset.ArchiveFormat != test.wantFormat {
 				t.Fatalf("resolveMailpitDownloadAsset(%s) archive format = %q, want %q", test.version, asset.ArchiveFormat, test.wantFormat)
 			}
-			if asset.ChecksumAlgorithm != checksumAlgorithmNone {
-				t.Fatalf("resolveMailpitDownloadAsset(%s) checksum algorithm = %q, want none", test.version, asset.ChecksumAlgorithm)
+			if asset.ChecksumAlgorithm != checksumAlgorithmSHA256 || asset.Checksum == "" {
+				t.Fatalf("resolveMailpitDownloadAsset(%s) checksum = (%q, %q), want github sha256 digest", test.version, asset.ChecksumAlgorithm, asset.Checksum)
 			}
 		})
 	}
 }
 
 func TestResolveMagoDownloadAssetSupportsSeriesLabels(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[
+			{
+				"tag_name":"1.27.0",
+				"assets":[
+					{"name":"mago-1.27.0-x86_64-pc-windows-msvc.zip","digest":"sha256:` + strings.Repeat("e", 64) + `"},
+					{"name":"mago-1.27.0-x86_64-unknown-linux-gnu.tar.gz","digest":"sha256:` + strings.Repeat("f", 64) + `"}
+				]
+			},
+			{"tag_name":"1.27.1-RC1","prerelease":true,"assets":[]}
+		]`))
+	}))
+	defer server.Close()
+
+	withTemporaryString(t, &githubAPIBaseURL, server.URL)
+
 	tests := []struct {
 		name                string
 		version             string
@@ -381,7 +467,7 @@ func TestResolveMagoDownloadAssetSupportsSeriesLabels(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			resolvedVersion, asset, err := resolveMagoDownloadAsset(test.version, test.goos, test.goarch)
+			resolvedVersion, asset, err := resolveMagoDownloadAsset(server.Client(), test.version, test.goos, test.goarch)
 			if err != nil {
 				t.Fatalf("resolveMagoDownloadAsset(%s) error = %v", test.version, err)
 			}
@@ -402,7 +488,17 @@ func TestResolveMagoDownloadAssetSupportsSeriesLabels(t *testing.T) {
 }
 
 func TestResolvePHPMyAdminDownloadAssetSupportsSeriesLabels(t *testing.T) {
-	resolvedVersion, asset, err := resolvePHPMyAdminDownloadAsset("5.2")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(strings.Join([]string{
+			`<a href="phpMyAdmin-5.2.2-all-languages.zip">old</a>`,
+			`<a href="phpMyAdmin-5.2.3-all-languages.zip">new</a>`,
+		}, "\n")))
+	}))
+	defer server.Close()
+
+	withTemporaryString(t, &phpMyAdminDownloadsURL, server.URL)
+
+	resolvedVersion, asset, err := resolvePHPMyAdminDownloadAsset(server.Client(), "5.2")
 	if err != nil {
 		t.Fatalf("resolvePHPMyAdminDownloadAsset(5.2) error = %v", err)
 	}
@@ -560,6 +656,16 @@ func writeTarArchive(t *testing.T, writer io.Writer, rootDir, filePath string, c
 	if err := tarWriter.Close(); err != nil {
 		t.Fatalf("Close(tar writer) error = %v", err)
 	}
+}
+
+func withTemporaryString(t *testing.T, target *string, value string) {
+	t.Helper()
+
+	original := *target
+	*target = value
+	t.Cleanup(func() {
+		*target = original
+	})
 }
 
 func checksumForBytes(t *testing.T, algorithm checksumAlgorithm, data []byte) string {

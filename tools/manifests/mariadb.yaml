@@ -24,30 +24,16 @@ install-candidates:
 dispatch-commands:
   - mariadb
 download:
-  catalog:
-    11.4.11:
-      windows-amd64:
-        filename: mariadb-11.4.11-winx64.zip
-        url: https://archive.mariadb.org/mariadb-11.4.11/winx64-packages/mariadb-11.4.11-winx64.zip
-        checksum: dc8b121a2c0c34a12bd8f4aec37592e00734468aee578030a7f5c971adf68255
-        checksum-algorithm: sha256
-        archive-format: zip
-      linux-amd64:
-        filename: mariadb-11.4.11-linux-systemd-x86_64.tar.gz
-        url: https://archive.mariadb.org/mariadb-11.4.11/bintar-linux-systemd-x86_64/mariadb-11.4.11-linux-systemd-x86_64.tar.gz
-        checksum: aceffff76d478d462ceb6f4e5f7807c83cf3087f6953c75e0473f9d5aa3cf63e
-        checksum-algorithm: sha256
-        archive-format: tar.gz
-    11.8.7:
-      windows-amd64:
-        filename: mariadb-11.8.7-winx64.zip
-        url: https://archive.mariadb.org/mariadb-11.8.7/winx64-packages/mariadb-11.8.7-winx64.zip
-        checksum: a613dd4179294dceb023b66bebaea0926c0a89dfb5f6a4d3bc96f63cdb07ea04
-        checksum-algorithm: sha256
-        archive-format: zip
-      linux-amd64:
-        filename: mariadb-11.8.7-linux-systemd-x86_64.tar.gz
-        url: https://archive.mariadb.org/mariadb-11.8.7/bintar-linux-systemd-x86_64/mariadb-11.8.7-linux-systemd-x86_64.tar.gz
-        checksum: 2763b3f21a79732dea55eb093ce6d1c1bd323182d2bc75f40fd0c52fe65e2462
-        checksum-algorithm: sha256
-        archive-format: tar.gz
+  assets:
+    windows-amd64:
+      filename: mariadb-{version}-winx64.zip
+      url: https://archive.mariadb.org/mariadb-{version}/winx64-packages/mariadb-{version}-winx64.zip
+      checksum-url: https://archive.mariadb.org/mariadb-{version}/winx64-packages/sha256sums.txt
+      checksum-algorithm: sha256
+      archive-format: zip
+    linux-amd64:
+      filename: mariadb-{version}-linux-systemd-x86_64.tar.gz
+      url: https://archive.mariadb.org/mariadb-{version}/bintar-linux-systemd-x86_64/mariadb-{version}-linux-systemd-x86_64.tar.gz
+      checksum-url: https://archive.mariadb.org/mariadb-{version}/bintar-linux-systemd-x86_64/sha256sums.txt
+      checksum-algorithm: sha256
+      archive-format: tar.gz

@@ -11,14 +11,8 @@ install-candidates:
 dispatch-commands:
   - nginx
 download:
-  catalog:
-    1.30.2:
-      windows-amd64:
-        filename: nginx-1.30.2.zip
-        url: https://nginx.org/download/nginx-1.30.2.zip
-        archive-format: zip
-    1.28.3:
-      windows-amd64:
-        filename: nginx-1.28.3.zip
-        url: https://nginx.org/download/nginx-1.28.3.zip
-        archive-format: zip
+  assets:
+    windows-amd64:
+      filename: nginx-{version}.zip
+      url: https://nginx.org/download/nginx-{version}.zip
+      archive-format: zip

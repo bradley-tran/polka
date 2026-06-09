@@ -50,30 +50,16 @@ dispatch-candidates:
       - bin/npx
       - npx
 download:
-  catalog:
-    24.16.0:
-      windows-amd64:
-        filename: node-v24.16.0-win-x64.zip
-        url: https://nodejs.org/dist/v24.16.0/node-v24.16.0-win-x64.zip
-        checksum: edaca9bd58ec8e92037dac4e877d52f6b8f430b81c18b57e264b4e2fb111cd56
-        checksum-algorithm: sha256
-        archive-format: zip
-      linux-amd64:
-        filename: node-v24.16.0-linux-x64.tar.xz
-        url: https://nodejs.org/dist/v24.16.0/node-v24.16.0-linux-x64.tar.xz
-        checksum: d804845d34eddc21dc1092b519d643ef40b1f58ec5dec5c22b1f4bd8fabde6c9
-        checksum-algorithm: sha256
-        archive-format: tar.xz
-    22.22.3:
-      windows-amd64:
-        filename: node-v22.22.3-win-x64.zip
-        url: https://nodejs.org/dist/v22.22.3/node-v22.22.3-win-x64.zip
-        checksum: 6c8d54f635feff4df76c2ca80f45332eb2ff57d25226edce36592e51a177ee33
-        checksum-algorithm: sha256
-        archive-format: zip
-      linux-amd64:
-        filename: node-v22.22.3-linux-x64.tar.xz
-        url: https://nodejs.org/dist/v22.22.3/node-v22.22.3-linux-x64.tar.xz
-        checksum: 2e5d13569282d016861fae7c8f935e741693c269101a5bebcf761a5376d1f99f
-        checksum-algorithm: sha256
-        archive-format: tar.xz
+  assets:
+    windows-amd64:
+      filename: node-v{version}-win-x64.zip
+      url: https://nodejs.org/dist/v{version}/node-v{version}-win-x64.zip
+      checksum-url: https://nodejs.org/dist/v{version}/SHASUMS256.txt
+      checksum-algorithm: sha256
+      archive-format: zip
+    linux-amd64:
+      filename: node-v{version}-linux-x64.tar.xz
+      url: https://nodejs.org/dist/v{version}/node-v{version}-linux-x64.tar.xz
+      checksum-url: https://nodejs.org/dist/v{version}/SHASUMS256.txt
+      checksum-algorithm: sha256
+      archive-format: tar.xz

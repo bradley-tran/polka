@@ -40,15 +40,23 @@ type manifestVersionBinding struct {
 type manifestPlatformPaths map[string][]string
 
 type manifestDownload struct {
-	Catalog downloadCatalog `yaml:"catalog"`
+	GitHub  manifestGitHubDownload    `yaml:"github"`
+	Assets  map[string]downloadAsset  `yaml:"assets"`
+	Catalog map[string]map[string]any `yaml:"catalog"`
 }
 
-type downloadCatalog map[string]map[string]downloadAsset
+type manifestGitHubDownload struct {
+	Owner     string `yaml:"owner"`
+	Repo      string `yaml:"repo"`
+	TagPrefix string `yaml:"tag-prefix"`
+}
 
 type downloadAsset struct {
 	FileName          string            `yaml:"filename"`
+	SourceFileName    string            `yaml:"source-filename"`
 	URL               string            `yaml:"url"`
 	Checksum          string            `yaml:"checksum"`
+	ChecksumURL       string            `yaml:"checksum-url"`
 	ChecksumAlgorithm checksumAlgorithm `yaml:"checksum-algorithm"`
 	ArchiveFormat     archiveFormat     `yaml:"archive-format"`
 }
@@ -118,24 +126,31 @@ func (m pluginManifest) validate() error {
 			return err
 		}
 	}
-	for version, platformAssets := range m.Download.Catalog {
-		if strings.TrimSpace(version) == "" {
-			return fmt.Errorf("tool manifest %q has empty download catalog version", id)
+	if len(m.Download.Catalog) > 0 {
+		return fmt.Errorf("tool manifest %q uses deprecated download.catalog; use download.assets", id)
+	}
+	if m.Download.hasGitHub() {
+		if strings.TrimSpace(m.Download.GitHub.Owner) == "" {
+			return fmt.Errorf("tool manifest %q download.github requires owner", id)
 		}
-		if len(platformAssets) == 0 {
-			return fmt.Errorf("tool manifest %q download catalog version %q has no assets", id, version)
+		if strings.TrimSpace(m.Download.GitHub.Repo) == "" {
+			return fmt.Errorf("tool manifest %q download.github requires repo", id)
 		}
-		for platform, asset := range platformAssets {
-			if !validDownloadPlatform(platform) {
-				return fmt.Errorf("tool manifest %q download version %q has unsupported platform %q", id, version, platform)
-			}
-			if err := validateDownloadAsset(id, version, platform, asset); err != nil {
-				return err
-			}
+	}
+	for platform, asset := range m.Download.Assets {
+		if !validDownloadPlatform(platform) {
+			return fmt.Errorf("tool manifest %q download assets has unsupported platform %q", id, platform)
+		}
+		if err := validateDownloadAsset(id, platform, asset); err != nil {
+			return err
 		}
 	}
 
 	return nil
+}
+
+func (d manifestDownload) hasGitHub() bool {
+	return strings.TrimSpace(d.GitHub.Owner) != "" || strings.TrimSpace(d.GitHub.Repo) != ""
 }
 
 func validateManifestVersionBinding(tool string, binding manifestVersionBinding) error {
@@ -191,25 +206,25 @@ func validateManifestRelativePath(candidate string) error {
 	return nil
 }
 
-func validateDownloadAsset(tool, version, platform string, asset downloadAsset) error {
+func validateDownloadAsset(tool, platform string, asset downloadAsset) error {
 	if strings.TrimSpace(asset.FileName) == "" {
-		return fmt.Errorf("tool manifest %q download %q/%s requires filename", tool, version, platform)
+		return fmt.Errorf("tool manifest %q download assets %s requires filename", tool, platform)
 	}
 	if strings.TrimSpace(asset.URL) == "" {
-		return fmt.Errorf("tool manifest %q download %q/%s requires url", tool, version, platform)
+		return fmt.Errorf("tool manifest %q download assets %s requires url", tool, platform)
 	}
 	switch asset.ChecksumAlgorithm {
 	case checksumAlgorithmNone, checksumAlgorithmMD5, checksumAlgorithmSHA256, checksumAlgorithmSHA3_256:
 	default:
-		return fmt.Errorf("tool manifest %q download %q/%s has unsupported checksum algorithm %q", tool, version, platform, asset.ChecksumAlgorithm)
+		return fmt.Errorf("tool manifest %q download assets %s has unsupported checksum algorithm %q", tool, platform, asset.ChecksumAlgorithm)
 	}
 	switch asset.ArchiveFormat {
 	case archiveFormatZip, archiveFormatTarGz, archiveFormatTarXz:
 	default:
-		return fmt.Errorf("tool manifest %q download %q/%s has unsupported archive format %q", tool, version, platform, asset.ArchiveFormat)
+		return fmt.Errorf("tool manifest %q download assets %s has unsupported archive format %q", tool, platform, asset.ArchiveFormat)
 	}
-	if asset.ChecksumAlgorithm != checksumAlgorithmNone && strings.TrimSpace(asset.Checksum) == "" {
-		return fmt.Errorf("tool manifest %q download %q/%s requires checksum", tool, version, platform)
+	if strings.TrimSpace(asset.Checksum) != "" {
+		return fmt.Errorf("tool manifest %q download assets %s uses deprecated checksum; use checksum-url or resolver-provided checksum", tool, platform)
 	}
 
 	return nil
@@ -227,9 +242,9 @@ func validDownloadPlatform(platform string) bool {
 func (m pluginManifest) toPlugin(hooks pluginHooks) (Plugin, error) {
 	manifestID := strings.ToLower(strings.TrimSpace(m.ID))
 	download := hooks.download
-	if download == nil && len(m.Download.Catalog) > 0 {
+	if download == nil && len(m.Download.Assets) > 0 {
 		download = func(ctx DownloadContext) error {
-			return downloadManifestCatalogAsset(ctx.Client, ctx.CacheDir, manifestID, ctx.Version, m.Download.Catalog, runtime.GOOS, runtime.GOARCH)
+			return downloadManifestAssetForRequest(ctx.Client, ctx.CacheDir, manifestID, ctx.Version, m.Download, runtime.GOOS, runtime.GOARCH)
 		}
 	}
 

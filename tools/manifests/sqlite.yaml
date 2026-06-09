@@ -27,17 +27,14 @@ dispatch-candidates:
       - sqlite3
       - bin/sqlite3
 download:
-  catalog:
-    3.53.2:
-      windows-amd64:
-        filename: sqlite-tools-win-x64-3530200.zip
-        url: https://www.sqlite.org/2026/sqlite-tools-win-x64-3530200.zip
-        checksum: 5092175a1e4c10776b3cf5a5c2b8cb9be489124ec90f6791fef27c356fad25a4
-        checksum-algorithm: sha3-256
-        archive-format: zip
-      linux-amd64:
-        filename: sqlite-tools-linux-x64-3530200.zip
-        url: https://www.sqlite.org/2026/sqlite-tools-linux-x64-3530200.zip
-        checksum: d4fdefa87d439713a376cb83cfa214853ccb946bfd67ba6edec40169d5348b62
-        checksum-algorithm: sha3-256
-        archive-format: zip
+  assets:
+    windows-amd64:
+      filename: sqlite-tools-win-x64-{sqlite_numeric}.zip
+      url: https://www.sqlite.org/{sqlite_relative_url}
+      checksum-algorithm: sha3-256
+      archive-format: zip
+    linux-amd64:
+      filename: sqlite-tools-linux-x64-{sqlite_numeric}.zip
+      url: https://www.sqlite.org/{sqlite_relative_url}
+      checksum-algorithm: sha3-256
+      archive-format: zip

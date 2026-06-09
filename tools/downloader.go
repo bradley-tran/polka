@@ -8,12 +8,14 @@ import (
 	"crypto/sha256"
 	"crypto/sha3"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"hash"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -48,6 +50,11 @@ const (
 	archiveFormatTarXz archiveFormat = "tar.xz"
 )
 
+var (
+	downloadTemplatePattern = regexp.MustCompile(`\{([A-Za-z0-9_]+)\}`)
+	githubAPIBaseURL        = "https://api.github.com"
+)
+
 func (d HTTPDownloader) Download(cacheDir, tool, version string) error {
 	client := d.Client
 	if client == nil {
@@ -77,16 +84,25 @@ func downloadBuiltinManifestTool(client *http.Client, cacheDir, tool, version st
 		return err
 	}
 
-	return downloadManifestCatalogAsset(client, cacheDir, tool, version, manifest.Download.Catalog, runtime.GOOS, runtime.GOARCH)
+	return downloadManifestAssetForRequest(client, cacheDir, tool, version, manifest.Download, runtime.GOOS, runtime.GOARCH)
 }
 
-func downloadManifestCatalogAsset(client *http.Client, cacheDir, tool, version string, catalog downloadCatalog, goos, goarch string) error {
-	_, asset, err := resolveDownloadCatalogAsset(tool, catalog, version, goos, goarch)
+func downloadBuiltinManifestToolResolved(client *http.Client, cacheDir, tool, requestedVersion, resolvedVersion string, values map[string]string) error {
+	return downloadBuiltinManifestToolResolvedWithTag(client, cacheDir, tool, requestedVersion, resolvedVersion, resolvedVersion, values)
+}
+
+func downloadBuiltinManifestToolResolvedWithTag(client *http.Client, cacheDir, tool, requestedVersion, resolvedVersion, tag string, values map[string]string) error {
+	manifest, err := loadBuiltinManifest(tool)
 	if err != nil {
 		return err
 	}
 
-	return downloadManifestAsset(client, cacheDir, tool, version, asset)
+	asset, err := resolveManifestDownloadAsset(tool, manifest.Download.Assets, requestedVersion, resolvedVersion, tag, runtime.GOOS, runtime.GOARCH, values)
+	if err != nil {
+		return err
+	}
+
+	return downloadManifestAsset(client, cacheDir, tool, requestedVersion, asset)
 }
 
 func resolveBuiltinManifestDownloadAsset(tool, requestedVersion, goos, goarch string) (string, databaseDownloadAsset, error) {
@@ -95,31 +111,65 @@ func resolveBuiltinManifestDownloadAsset(tool, requestedVersion, goos, goarch st
 		return "", databaseDownloadAsset{}, err
 	}
 
-	return resolveDownloadCatalogAsset(tool, manifest.Download.Catalog, requestedVersion, goos, goarch)
+	asset, err := resolveManifestDownloadAsset(tool, manifest.Download.Assets, requestedVersion, requestedVersion, requestedVersion, goos, goarch, nil)
+	if err != nil {
+		return "", databaseDownloadAsset{}, err
+	}
+
+	return requestedVersion, asset, nil
 }
 
-func resolveDownloadCatalogAsset(tool string, catalog downloadCatalog, requestedVersion, goos, goarch string) (string, databaseDownloadAsset, error) {
+func downloadManifestAssetForRequest(client *http.Client, cacheDir, tool, requestedVersion string, download manifestDownload, goos, goarch string) error {
+	resolvedVersion, tag, githubAssets, err := resolveManifestDownloadVersion(client, tool, requestedVersion, download)
+	if err != nil {
+		return err
+	}
+
+	asset, err := resolveManifestDownloadAsset(tool, download.Assets, requestedVersion, resolvedVersion, tag, goos, goarch, nil)
+	if err != nil {
+		return err
+	}
+	if len(githubAssets) > 0 {
+		applyGitHubAssetDigest(&asset, githubAssets)
+	}
+
+	return downloadManifestAsset(client, cacheDir, tool, requestedVersion, asset)
+}
+
+func resolveManifestDownloadVersion(client *http.Client, tool, requestedVersion string, download manifestDownload) (string, string, []githubReleaseAsset, error) {
 	requestedVersion = strings.TrimSpace(requestedVersion)
 	if requestedVersion == "" {
-		return "", databaseDownloadAsset{}, fmt.Errorf("%s version cannot be empty", tool)
+		return "", "", nil, fmt.Errorf("%s version cannot be empty", tool)
 	}
-	if len(catalog) == 0 {
-		return "", databaseDownloadAsset{}, fmt.Errorf("%s does not define automatic downloads", tool)
+	if !download.hasGitHub() {
+		return requestedVersion, requestedVersion, nil, nil
 	}
 
-	resolvedVersion, err := resolveCatalogVersion(catalog, requestedVersion)
+	version, tag, assets, err := resolveGitHubReleaseVersion(client, download.GitHub, requestedVersion)
 	if err != nil {
-		return "", databaseDownloadAsset{}, fmt.Errorf("resolve %s version %q: %w", tool, requestedVersion, err)
+		return "", "", nil, fmt.Errorf("resolve %s version %q: %w", tool, requestedVersion, err)
 	}
 
-	platformAssets := catalog[resolvedVersion]
+	return version, tag, assets, nil
+}
+
+func resolveManifestDownloadAsset(tool string, assets map[string]downloadAsset, requestedVersion, resolvedVersion, tag, goos, goarch string, values map[string]string) (databaseDownloadAsset, error) {
+	if len(assets) == 0 {
+		return databaseDownloadAsset{}, fmt.Errorf("%s does not define automatic downloads", tool)
+	}
+
 	for _, key := range downloadPlatformKeys(goos, goarch) {
-		if asset, ok := platformAssets[key]; ok {
-			return resolvedVersion, asset, nil
+		if asset, ok := assets[key]; ok {
+			renderedAsset, err := renderDownloadAsset(asset, requestedVersion, resolvedVersion, tag, values)
+			if err != nil {
+				return databaseDownloadAsset{}, fmt.Errorf("render %s download asset for %s: %w", tool, key, err)
+			}
+
+			return renderedAsset, nil
 		}
 	}
 
-	return "", databaseDownloadAsset{}, fmt.Errorf("%s version %q is not available for %s/%s", tool, resolvedVersion, goos, goarch)
+	return databaseDownloadAsset{}, fmt.Errorf("%s version %q is not available for %s/%s", tool, resolvedVersion, goos, goarch)
 }
 
 func downloadPlatformKeys(goos, goarch string) []string {
@@ -135,19 +185,76 @@ func platformKey(goos, goarch string) string {
 	return strings.TrimSpace(goos) + "-" + strings.TrimSpace(goarch)
 }
 
-func resolveDatabaseCatalogVersion(catalog map[string]map[string]databaseDownloadAsset, requested string) (string, error) {
-	return resolveCatalogVersion(downloadCatalog(catalog), requested)
-}
-
-func resolveCatalogVersion(catalog downloadCatalog, requested string) (string, error) {
-	if _, ok := catalog[requested]; ok {
-		return requested, nil
+func renderDownloadAsset(asset downloadAsset, requestedVersion, resolvedVersion, tag string, values map[string]string) (downloadAsset, error) {
+	templateValues := map[string]string{
+		"requested": strings.TrimSpace(requestedVersion),
+		"version":   strings.TrimSpace(resolvedVersion),
+		"tag":       strings.TrimSpace(tag),
+	}
+	if templateValues["tag"] == "" {
+		templateValues["tag"] = templateValues["version"]
+	}
+	for key, value := range values {
+		templateValues[key] = value
 	}
 
-	candidates := make([]string, 0, len(catalog))
-	for version := range catalog {
-		if strings.HasPrefix(version, requested+".") {
-			candidates = append(candidates, version)
+	var err error
+	asset.FileName, err = renderDownloadTemplate("filename", asset.FileName, templateValues)
+	if err != nil {
+		return downloadAsset{}, err
+	}
+	asset.URL, err = renderDownloadTemplate("url", asset.URL, templateValues)
+	if err != nil {
+		return downloadAsset{}, err
+	}
+	asset.ChecksumURL, err = renderDownloadTemplate("checksum-url", asset.ChecksumURL, templateValues)
+	if err != nil {
+		return downloadAsset{}, err
+	}
+	asset.SourceFileName, err = renderDownloadTemplate("source-filename", asset.SourceFileName, templateValues)
+	if err != nil {
+		return downloadAsset{}, err
+	}
+	if strings.TrimSpace(asset.SourceFileName) == "" {
+		asset.SourceFileName = asset.FileName
+	}
+
+	return asset, nil
+}
+
+func renderDownloadTemplate(field, value string, values map[string]string) (string, error) {
+	if strings.TrimSpace(value) == "" {
+		return strings.TrimSpace(value), nil
+	}
+
+	missing := ""
+	rendered := downloadTemplatePattern.ReplaceAllStringFunc(value, func(match string) string {
+		key := match[1 : len(match)-1]
+		replacement, ok := values[key]
+		if !ok {
+			missing = key
+			return match
+		}
+		return replacement
+	})
+	if missing != "" {
+		return "", fmt.Errorf("%s references unknown template value %q", field, missing)
+	}
+
+	return rendered, nil
+}
+
+func resolveMatchingVersion(versions []string, requested string) (string, error) {
+	requested = strings.TrimSpace(strings.TrimPrefix(requested, "v"))
+	if requested == "" {
+		return "", fmt.Errorf("requested version is empty")
+	}
+
+	candidates := make([]string, 0, len(versions))
+	for _, version := range versions {
+		normalizedVersion := strings.TrimSpace(strings.TrimPrefix(version, "v"))
+		if versionMatchesRequest(normalizedVersion, requested) {
+			candidates = append(candidates, normalizedVersion)
 		}
 	}
 	if len(candidates) == 0 {
@@ -156,7 +263,7 @@ func resolveCatalogVersion(catalog downloadCatalog, requested string) (string, e
 
 	best := candidates[0]
 	for _, candidate := range candidates[1:] {
-		if compareCatalogVersions(candidate, best) > 0 {
+		if compareVersions(candidate, best) > 0 {
 			best = candidate
 		}
 	}
@@ -164,7 +271,29 @@ func resolveCatalogVersion(catalog downloadCatalog, requested string) (string, e
 	return best, nil
 }
 
-func compareCatalogVersions(left, right string) int {
+func versionMatchesRequest(version, requested string) bool {
+	return version == requested || strings.HasPrefix(version, requested+".")
+}
+
+func versionNeedsResolution(version string) bool {
+	version = strings.TrimSpace(version)
+	if version == "" {
+		return false
+	}
+
+	return !strings.Contains(version, "-") && strings.Count(version, ".") < 2
+}
+
+func versionMajorMinor(version string) string {
+	parts := strings.Split(strings.TrimSpace(version), ".")
+	if len(parts) >= 2 {
+		return parts[0] + "." + parts[1]
+	}
+
+	return strings.TrimSpace(version)
+}
+
+func compareVersions(left, right string) int {
 	leftParts := strings.Split(strings.TrimSpace(left), ".")
 	rightParts := strings.Split(strings.TrimSpace(right), ".")
 	count := len(leftParts)
@@ -203,6 +332,128 @@ func compareCatalogVersions(left, right string) int {
 	return 0
 }
 
+type githubRelease struct {
+	TagName    string               `json:"tag_name"`
+	Draft      bool                 `json:"draft"`
+	Prerelease bool                 `json:"prerelease"`
+	Assets     []githubReleaseAsset `json:"assets"`
+}
+
+type githubReleaseAsset struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
+	Digest             string `json:"digest"`
+}
+
+func resolveGitHubReleaseVersion(client *http.Client, config manifestGitHubDownload, requested string) (string, string, []githubReleaseAsset, error) {
+	requested = strings.TrimPrefix(strings.TrimSpace(requested), strings.TrimSpace(config.TagPrefix))
+	releases, err := fetchGitHubReleases(client, config)
+	if err != nil {
+		return "", "", nil, err
+	}
+
+	allowPrerelease := strings.Contains(strings.TrimSpace(requested), "-")
+	var selected *githubRelease
+	selectedVersion := ""
+	for index := range releases {
+		release := &releases[index]
+		if release.Draft {
+			continue
+		}
+		if release.Prerelease && !allowPrerelease {
+			continue
+		}
+
+		version := versionFromGitHubTag(release.TagName, config.TagPrefix)
+		if !versionMatchesRequest(version, requested) {
+			continue
+		}
+		if selected == nil || compareVersions(version, selectedVersion) > 0 {
+			selected = release
+			selectedVersion = version
+		}
+	}
+	if selected == nil {
+		return "", "", nil, fmt.Errorf("no matching release found")
+	}
+
+	return selectedVersion, strings.TrimSpace(selected.TagName), selected.Assets, nil
+}
+
+func fetchGitHubReleases(client *http.Client, config manifestGitHubDownload) ([]githubRelease, error) {
+	owner := strings.TrimSpace(config.Owner)
+	repo := strings.TrimSpace(config.Repo)
+	if owner == "" || repo == "" {
+		return nil, fmt.Errorf("github download resolver requires owner and repo")
+	}
+
+	releases := []githubRelease{}
+	for page := 1; ; page++ {
+		url := fmt.Sprintf("%s/repos/%s/%s/releases?per_page=100&page=%d", strings.TrimRight(githubAPIBaseURL, "/"), owner, repo, page)
+		var pageReleases []githubRelease
+		if err := downloadJSON(client, url, "github releases", &pageReleases); err != nil {
+			return nil, err
+		}
+		releases = append(releases, pageReleases...)
+		if len(pageReleases) < 100 {
+			break
+		}
+	}
+
+	return releases, nil
+}
+
+func versionFromGitHubTag(tag, tagPrefix string) string {
+	version := strings.TrimSpace(tag)
+	prefix := strings.TrimSpace(tagPrefix)
+	if prefix != "" {
+		version = strings.TrimPrefix(version, prefix)
+	}
+
+	return strings.TrimSpace(version)
+}
+
+func applyGitHubAssetDigest(asset *downloadAsset, githubAssets []githubReleaseAsset) {
+	sourceFileName := normalizeChecksumFileName(asset.SourceFileName)
+	for _, githubAsset := range githubAssets {
+		if normalizeChecksumFileName(githubAsset.Name) != sourceFileName {
+			continue
+		}
+
+		algorithm, checksum, ok := parseGitHubAssetDigest(githubAsset.Digest)
+		if !ok {
+			return
+		}
+		if asset.ChecksumAlgorithm != checksumAlgorithmNone && asset.ChecksumAlgorithm != algorithm {
+			return
+		}
+
+		asset.ChecksumAlgorithm = algorithm
+		asset.Checksum = checksum
+		return
+	}
+}
+
+func parseGitHubAssetDigest(digest string) (checksumAlgorithm, string, bool) {
+	algorithmText, checksum, ok := strings.Cut(strings.TrimSpace(digest), ":")
+	if !ok {
+		return checksumAlgorithmNone, "", false
+	}
+
+	algorithm := checksumAlgorithm(strings.ToLower(strings.TrimSpace(algorithmText)))
+	switch algorithm {
+	case checksumAlgorithmMD5, checksumAlgorithmSHA256, checksumAlgorithmSHA3_256:
+	default:
+		return checksumAlgorithmNone, "", false
+	}
+
+	if _, _, err := validateChecksumValue(algorithm, checksum); err != nil {
+		return checksumAlgorithmNone, "", false
+	}
+
+	return algorithm, strings.TrimSpace(checksum), true
+}
+
 func downloadDatabaseAsset(client *http.Client, cacheDir, tool, version string, asset databaseDownloadAsset) error {
 	return downloadManifestAsset(client, cacheDir, tool, version, asset)
 }
@@ -228,8 +479,18 @@ func downloadManifestAsset(client *http.Client, cacheDir, tool, version string, 
 	if err := downloadFile(client, asset.URL, archivePath); err != nil {
 		return err
 	}
-	if err := verifyFileChecksum(asset.ChecksumAlgorithm, asset.Checksum, archivePath); err != nil {
-		return err
+	checksum := strings.TrimSpace(asset.Checksum)
+	if checksum == "" && strings.TrimSpace(asset.ChecksumURL) != "" {
+		var err error
+		checksum, err = downloadChecksumValue(client, asset.ChecksumURL, asset.ChecksumAlgorithm, asset.SourceFileName)
+		if err != nil {
+			return err
+		}
+	}
+	if checksum != "" {
+		if err := verifyFileChecksum(asset.ChecksumAlgorithm, checksum, archivePath); err != nil {
+			return err
+		}
 	}
 	if err := extractArchive(archivePath, payloadDir, asset.ArchiveFormat); err != nil {
 		return err
@@ -409,7 +670,14 @@ func collapseSingleDirectory(root string) error {
 }
 
 func downloadFile(client *http.Client, url, targetPath string) error {
-	response, err := client.Get(url)
+	client = effectiveHTTPClient(client)
+	request, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("download %s: %w", url, err)
+	}
+	setDownloadRequestHeaders(request)
+
+	response, err := client.Do(request)
 	if err != nil {
 		return fmt.Errorf("download %s: %w", url, err)
 	}
@@ -435,23 +703,90 @@ func downloadFile(client *http.Client, url, targetPath string) error {
 	return nil
 }
 
-func verifyFileSHA256(client *http.Client, filePath, checksumURL string) error {
-	response, err := client.Get(checksumURL)
+func downloadText(client *http.Client, url, description string) (string, error) {
+	client = effectiveHTTPClient(client)
+	request, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
-		return fmt.Errorf("download checksum %s: %w", checksumURL, err)
+		return "", fmt.Errorf("download %s %s: %w", description, url, err)
+	}
+	setDownloadRequestHeaders(request)
+
+	response, err := client.Do(request)
+	if err != nil {
+		return "", fmt.Errorf("download %s %s: %w", description, url, err)
 	}
 	defer response.Body.Close()
 
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("download checksum %s: unexpected status %s", checksumURL, response.Status)
+		return "", fmt.Errorf("download %s %s: unexpected status %s", description, url, response.Status)
 	}
 
-	checksumData, err := io.ReadAll(response.Body)
+	data, err := io.ReadAll(response.Body)
 	if err != nil {
-		return fmt.Errorf("read checksum %s: %w", checksumURL, err)
+		return "", fmt.Errorf("read %s %s: %w", description, url, err)
 	}
 
-	expected, err := parseChecksumValue(string(checksumData))
+	return string(data), nil
+}
+
+func downloadJSON(client *http.Client, url, description string, target any) error {
+	client = effectiveHTTPClient(client)
+	request, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("download %s %s: %w", description, url, err)
+	}
+	setDownloadRequestHeaders(request)
+	request.Header.Set("Accept", "application/vnd.github+json")
+
+	response, err := client.Do(request)
+	if err != nil {
+		return fmt.Errorf("download %s %s: %w", description, url, err)
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("download %s %s: unexpected status %s", description, url, response.Status)
+	}
+	if err := json.NewDecoder(response.Body).Decode(target); err != nil {
+		return fmt.Errorf("decode %s %s: %w", description, url, err)
+	}
+
+	return nil
+}
+
+func setDownloadRequestHeaders(request *http.Request) {
+	request.Header.Set("User-Agent", "polka")
+}
+
+func effectiveHTTPClient(client *http.Client) *http.Client {
+	if client != nil {
+		return client
+	}
+
+	return &http.Client{Timeout: 10 * time.Minute}
+}
+
+func downloadChecksumValue(client *http.Client, checksumURL string, algorithm checksumAlgorithm, sourceFileName string) (string, error) {
+	checksumData, err := downloadText(client, checksumURL, "checksum")
+	if err != nil {
+		return "", err
+	}
+
+	checksum, err := parseChecksumValueForAlgorithm(algorithm, checksumData, sourceFileName)
+	if err != nil {
+		return "", fmt.Errorf("parse checksum %s: %w", checksumURL, err)
+	}
+
+	return checksum, nil
+}
+
+func verifyFileSHA256(client *http.Client, filePath, checksumURL string) error {
+	checksumData, err := downloadText(client, checksumURL, "checksum")
+	if err != nil {
+		return err
+	}
+
+	expected, err := parseChecksumValue(checksumData)
 	if err != nil {
 		return fmt.Errorf("parse checksum %s: %w", checksumURL, err)
 	}
@@ -460,20 +795,78 @@ func verifyFileSHA256(client *http.Client, filePath, checksumURL string) error {
 }
 
 func parseChecksumValue(value string) (string, error) {
-	fields := strings.Fields(strings.TrimSpace(value))
-	if len(fields) == 0 {
+	return parseChecksumValueForAlgorithm(checksumAlgorithmSHA256, value, "")
+}
+
+func parseChecksumValueForAlgorithm(algorithm checksumAlgorithm, value, sourceFileName string) (string, error) {
+	normalizedSourceFileName := normalizeChecksumFileName(sourceFileName)
+	lines := strings.Split(strings.TrimSpace(value), "\n")
+	firstChecksum := ""
+	for _, line := range lines {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) == 0 {
+			continue
+		}
+
+		checksum := fields[0]
+		if firstChecksum == "" {
+			firstChecksum = checksum
+		}
+		if normalizedSourceFileName == "" || checksumLineMatchesSource(fields[1:], normalizedSourceFileName) {
+			normalizedChecksum, _, err := validateChecksumValue(algorithm, checksum)
+			if err != nil {
+				return "", err
+			}
+			return normalizedChecksum, nil
+		}
+	}
+	if normalizedSourceFileName != "" {
+		return "", fmt.Errorf("no checksum found for %s", sourceFileName)
+	}
+	if firstChecksum == "" {
 		return "", fmt.Errorf("empty checksum response")
 	}
 
-	checksum := fields[0]
-	if len(checksum) != sha256.Size*2 {
-		return "", fmt.Errorf("invalid checksum length %d", len(checksum))
-	}
-	if _, err := hex.DecodeString(checksum); err != nil {
-		return "", fmt.Errorf("invalid checksum encoding: %w", err)
+	normalizedChecksum, _, err := validateChecksumValue(algorithm, firstChecksum)
+	return normalizedChecksum, err
+}
+
+func checksumLineMatchesSource(fields []string, sourceFileName string) bool {
+	for _, field := range fields {
+		if normalizeChecksumFileName(field) == sourceFileName {
+			return true
+		}
 	}
 
-	return checksum, nil
+	return false
+}
+
+func normalizeChecksumFileName(fileName string) string {
+	normalized := strings.TrimSpace(fileName)
+	if normalized == "" {
+		return ""
+	}
+	normalized = strings.TrimPrefix(normalized, "*")
+	normalized = strings.TrimPrefix(normalized, "./")
+	normalized = strings.ReplaceAll(normalized, "\\", "/")
+	return strings.TrimSpace(filepath.Base(normalized))
+}
+
+func validateChecksumValue(algorithm checksumAlgorithm, checksum string) (string, int, error) {
+	_, checksumSize, err := checksumHasher(algorithm)
+	if err != nil {
+		return "", 0, err
+	}
+
+	checksum = strings.TrimSpace(checksum)
+	if len(checksum) != checksumSize*2 {
+		return "", 0, fmt.Errorf("invalid %s checksum length %d", algorithm, len(checksum))
+	}
+	if _, err := hex.DecodeString(checksum); err != nil {
+		return "", 0, fmt.Errorf("invalid %s checksum encoding: %w", algorithm, err)
+	}
+
+	return checksum, checksumSize, nil
 }
 
 func verifyChecksum(expected, filePath string) error {

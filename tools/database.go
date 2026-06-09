@@ -8,10 +8,6 @@ import (
 	"polka/config"
 )
 
-func databasePlugin(tool string) Plugin {
-	return newManifestPlugin(tool, pluginHooks{})
-}
-
 func validateDatabaseConfig(database *config.DatabaseConfig) error {
 	if database == nil {
 		return nil
@@ -50,6 +46,31 @@ func downloadDatabaseTool(client *http.Client, cacheDir, tool, version string) e
 	return downloadBuiltinManifestTool(client, cacheDir, tool, version)
 }
 
-func resolveDatabaseDownloadAsset(tool, requestedVersion, goos, goarch string) (string, databaseDownloadAsset, error) {
-	return resolveBuiltinManifestDownloadAsset(tool, requestedVersion, goos, goarch)
+func resolveDatabaseDownloadAsset(client *http.Client, tool, requestedVersion, goos, goarch string) (string, databaseDownloadAsset, error) {
+	var resolvedVersion string
+	var err error
+	switch tool {
+	case MySQL:
+		resolvedVersion, err = resolveMySQLReleaseVersion(client, requestedVersion)
+	case MariaDB:
+		resolvedVersion, err = resolveMariaDBReleaseVersion(client, requestedVersion)
+	default:
+		return "", databaseDownloadAsset{}, fmt.Errorf("unsupported database tool %q", tool)
+	}
+	if err != nil {
+		return "", databaseDownloadAsset{}, err
+	}
+
+	manifest, err := loadBuiltinManifest(tool)
+	if err != nil {
+		return "", databaseDownloadAsset{}, err
+	}
+	asset, err := resolveManifestDownloadAsset(tool, manifest.Download.Assets, requestedVersion, resolvedVersion, resolvedVersion, goos, goarch, map[string]string{
+		"major_minor": versionMajorMinor(resolvedVersion),
+	})
+	if err != nil {
+		return "", databaseDownloadAsset{}, err
+	}
+
+	return resolvedVersion, asset, nil
 }

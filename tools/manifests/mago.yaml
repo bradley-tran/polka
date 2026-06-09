@@ -11,17 +11,17 @@ install-candidates:
 dispatch-commands:
   - mago
 download:
-  catalog:
-    1.27.0:
-      windows-amd64:
-        filename: mago-1.27.0-x86_64-pc-windows-msvc.zip
-        url: https://github.com/carthage-software/mago/releases/download/1.27.0/mago-1.27.0-x86_64-pc-windows-msvc.zip
-        checksum: 6428fb85baeb3442fbf55c6e6db9a803e9e91501e0df6006b0f5017d6509c1e3
-        checksum-algorithm: sha256
-        archive-format: zip
-      linux-amd64:
-        filename: mago-1.27.0-x86_64-unknown-linux-gnu.tar.gz
-        url: https://github.com/carthage-software/mago/releases/download/1.27.0/mago-1.27.0-x86_64-unknown-linux-gnu.tar.gz
-        checksum: d9180089c4c54915612a04b2ece997b899179773a45b11f5894b3766f80a1c1a
-        checksum-algorithm: sha256
-        archive-format: tar.gz
+  github:
+    owner: carthage-software
+    repo: mago
+  assets:
+    windows-amd64:
+      filename: mago-{version}-x86_64-pc-windows-msvc.zip
+      url: https://github.com/carthage-software/mago/releases/download/{tag}/mago-{version}-x86_64-pc-windows-msvc.zip
+      checksum-algorithm: sha256
+      archive-format: zip
+    linux-amd64:
+      filename: mago-{version}-x86_64-unknown-linux-gnu.tar.gz
+      url: https://github.com/carthage-software/mago/releases/download/{tag}/mago-{version}-x86_64-unknown-linux-gnu.tar.gz
+      checksum-algorithm: sha256
+      archive-format: tar.gz
