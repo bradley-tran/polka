@@ -1,7 +1,4 @@
 id: mysql
-version:
-  source: database
-  database-engine: mysql
 install-candidates:
   windows-amd64:
     - bin/mysql.cmd

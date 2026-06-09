@@ -23,18 +23,12 @@ type pluginHooks struct {
 
 type pluginManifest struct {
 	ID                 string                           `yaml:"id"`
-	Version            manifestVersionBinding           `yaml:"version"`
 	InstallCandidates  manifestPlatformPaths            `yaml:"install-candidates"`
 	DispatchCommands   []string                         `yaml:"dispatch-commands"`
 	CleanupCommands    []string                         `yaml:"cleanup-commands"`
 	ActiveCommands     []string                         `yaml:"active-commands"`
 	DispatchCandidates map[string]manifestPlatformPaths `yaml:"dispatch-candidates"`
 	Download           manifestDownload                 `yaml:"download"`
-}
-
-type manifestVersionBinding struct {
-	Source         string `yaml:"source"`
-	DatabaseEngine string `yaml:"database-engine"`
 }
 
 type manifestPlatformPaths map[string][]string
@@ -106,12 +100,6 @@ func (m pluginManifest) validate() error {
 	if !validName.MatchString(id) {
 		return fmt.Errorf("invalid tool manifest id %q: use letters, numbers, dots, dashes, or underscores", m.ID)
 	}
-	if strings.TrimSpace(m.Version.Source) == "" {
-		return fmt.Errorf("tool manifest %q requires version.source", id)
-	}
-	if err := validateManifestVersionBinding(id, m.Version); err != nil {
-		return err
-	}
 	if len(m.InstallCandidates) == 0 {
 		return fmt.Errorf("tool manifest %q requires install-candidates", id)
 	}
@@ -151,25 +139,6 @@ func (m pluginManifest) validate() error {
 
 func (d manifestDownload) hasGitHub() bool {
 	return strings.TrimSpace(d.GitHub.Owner) != "" || strings.TrimSpace(d.GitHub.Repo) != ""
-}
-
-func validateManifestVersionBinding(tool string, binding manifestVersionBinding) error {
-	source := strings.ToLower(strings.TrimSpace(binding.Source))
-	switch source {
-	case PHP, Composer, NodeJS, Mago, Nginx, Mailpit, PHPMyAdmin, SQLite:
-		return nil
-	case "database":
-		engine := strings.ToLower(strings.TrimSpace(binding.DatabaseEngine))
-		if engine == "" {
-			return fmt.Errorf("tool manifest %q database version source requires database-engine", tool)
-		}
-		if !validName.MatchString(engine) {
-			return fmt.Errorf("tool manifest %q has invalid database-engine %q", tool, binding.DatabaseEngine)
-		}
-		return nil
-	default:
-		return fmt.Errorf("tool manifest %q has unsupported version.source %q", tool, binding.Source)
-	}
 }
 
 func validateManifestPlatformPaths(tool, field string, paths manifestPlatformPaths) error {
@@ -264,11 +233,9 @@ func (m pluginManifest) toPlugin(hooks pluginHooks) (Plugin, error) {
 
 func manifestVersionFunc(m pluginManifest) func(config.Environment) string {
 	id := strings.ToLower(strings.TrimSpace(m.ID))
-	source := strings.ToLower(strings.TrimSpace(m.Version.Source))
-	databaseEngine := strings.ToLower(strings.TrimSpace(m.Version.DatabaseEngine))
 
 	return func(environment config.Environment) string {
-		switch source {
+		switch id {
 		case PHP:
 			return environment.PHPVersion
 		case Composer:
@@ -291,12 +258,9 @@ func manifestVersionFunc(m pluginManifest) func(config.Environment) string {
 				return ""
 			}
 			return environment.PHPMyAdmin.Version
-		case "database":
-			return config.DatabaseToolVersion(environment, databaseEngine)
+		case MySQL, MariaDB:
+			return config.DatabaseToolVersion(environment, id)
 		default:
-			if source == id {
-				return ""
-			}
 			return ""
 		}
 	}

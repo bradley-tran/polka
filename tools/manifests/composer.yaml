@@ -1,6 +1,4 @@
 id: composer
-version:
-  source: composer
 install-candidates:
   windows-amd64:
     - bin/composer.cmd

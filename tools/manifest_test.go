@@ -25,8 +25,6 @@ func TestBuiltinManifestsLoad(t *testing.T) {
 
 func TestParsePluginManifestRequiresID(t *testing.T) {
 	_, err := parsePluginManifest([]byte(`
-version:
-  source: php
 install-candidates:
   all:
     - bin/demo
@@ -39,8 +37,6 @@ install-candidates:
 func TestParsePluginManifestRejectsInvalidID(t *testing.T) {
 	_, err := parsePluginManifest([]byte(`
 id: "not a tool"
-version:
-  source: php
 install-candidates:
   all:
     - bin/demo
@@ -53,8 +49,6 @@ install-candidates:
 func TestParsePluginManifestRejectsUnknownDownloadPlatform(t *testing.T) {
 	_, err := parsePluginManifest([]byte(`
 id: demo
-version:
-  source: php
 install-candidates:
   all:
     - bin/demo
@@ -73,8 +67,6 @@ download:
 func TestParsePluginManifestRejectsDeprecatedDownloadCatalog(t *testing.T) {
 	_, err := parsePluginManifest([]byte(`
 id: demo
-version:
-  source: php
 install-candidates:
   all:
     - bin/demo
@@ -93,9 +85,7 @@ download:
 
 func TestManifestPluginBuildsCandidatesAndDispatch(t *testing.T) {
 	manifest, err := parsePluginManifest([]byte(`
-id: demo
-version:
-  source: php
+id: php
 install-candidates:
   all:
     - bin/demo
@@ -119,23 +109,45 @@ dispatch-candidates:
 	}
 
 	installCandidates := plugin.InstallCandidates("root", "1.2.3")
-	wantInstallCandidates := []string{filepath.Join("root", "demo", "1.2.3", "bin", "demo")}
+	wantInstallCandidates := []string{filepath.Join("root", "php", "1.2.3", "bin", "demo")}
 	if !reflect.DeepEqual(installCandidates, wantInstallCandidates) {
 		t.Fatalf("InstallCandidates() = %#v, want %#v", installCandidates, wantInstallCandidates)
 	}
 
 	dispatchCandidates := plugin.DispatchCandidates("root", "demo", "1.2.3")
-	wantDispatchCandidates := []string{filepath.Join("root", "demo", "1.2.3", "shims", "demo")}
+	wantDispatchCandidates := []string{filepath.Join("root", "php", "1.2.3", "shims", "demo")}
 	if !reflect.DeepEqual(dispatchCandidates, wantDispatchCandidates) {
 		t.Fatalf("DispatchCandidates() = %#v, want %#v", dispatchCandidates, wantDispatchCandidates)
+	}
+}
+
+func TestManifestVersionFuncInfersDatabaseToolVersion(t *testing.T) {
+	manifest, err := parsePluginManifest([]byte(`
+id: mariadb
+install-candidates:
+  all:
+    - bin/mariadb
+`))
+	if err != nil {
+		t.Fatalf("parsePluginManifest() error = %v", err)
+	}
+
+	plugin, err := manifest.toPlugin(pluginHooks{})
+	if err != nil {
+		t.Fatalf("toPlugin() error = %v", err)
+	}
+	version := plugin.Version(config.Environment{
+		MariaDBVersion: "11.8",
+		Database:       &config.DatabaseConfig{Engine: MariaDB, Version: "11.8"},
+	})
+	if version != "11.8" {
+		t.Fatalf("Version() = %q, want 11.8", version)
 	}
 }
 
 func TestManifestDownloadTemplateResolvesPlatform(t *testing.T) {
 	manifest, err := parsePluginManifest([]byte(`
 id: demo
-version:
-  source: php
 install-candidates:
   all:
     - bin/demo

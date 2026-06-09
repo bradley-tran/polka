@@ -1,7 +1,4 @@
 id: mariadb
-version:
-  source: database
-  database-engine: mariadb
 install-candidates:
   windows-amd64:
     - bin/mariadb.cmd

@@ -1,6 +1,4 @@
 id: nodejs
-version:
-  source: nodejs
 install-candidates:
   windows-amd64:
     - node.exe

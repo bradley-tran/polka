@@ -1,6 +1,4 @@
 id: mago
-version:
-  source: mago
 install-candidates:
   windows-amd64:
     - mago.exe

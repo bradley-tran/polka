@@ -1,6 +1,4 @@
 id: phpmyadmin
-version:
-  source: phpmyadmin
 install-candidates:
   all:
     - index.php

@@ -1,6 +1,4 @@
 id: sqlite
-version:
-  source: sqlite
 install-candidates:
   windows-amd64:
     - sqlite3.cmd

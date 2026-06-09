@@ -1,6 +1,4 @@
 id: nginx
-version:
-  source: nginx
 install-candidates:
   windows-amd64:
     - nginx.exe

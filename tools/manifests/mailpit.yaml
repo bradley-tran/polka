@@ -1,6 +1,4 @@
 id: mailpit
-version:
-  source: mailpit
 install-candidates:
   windows-amd64:
     - mailpit.exe
