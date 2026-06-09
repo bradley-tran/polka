@@ -327,6 +327,91 @@ func TestRunInstallUsesDefaultEnvironmentWhenCurrentMissing(t *testing.T) {
 	}
 }
 
+func TestRunInstallAcceptsExplicitToolVersion(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	cacheDir := filepath.Join(projectDir, "global-cache")
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	fakePHP := cachedPHPPath(cacheDir, "8.4")
+	if err := os.MkdirAll(filepath.Dir(fakePHP), 0o755); err != nil {
+		t.Fatalf("MkdirAll(cache php) error = %v", err)
+	}
+	if err := os.WriteFile(fakePHP, fakePHPScript(), 0o755); err != nil {
+		t.Fatalf("WriteFile(cache php) error = %v", err)
+	}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "install", "php:8.4"}); code != 0 {
+		t.Fatalf("Run(install php:8.4) code = %d, stderr = %q", code, stderr.String())
+	}
+	if _, err := os.Stat(projectInstalledPHPPath(root, "8.4")); err != nil {
+		t.Fatalf("Stat(installed php) error = %v", err)
+	}
+	environment := readTestEnvironmentConfig(t, projectDir, defaultEnvironmentName)
+	if environment.PHP != "8.4" {
+		t.Fatalf("default environment = %#v, want php 8.4 persisted", environment)
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "Installed php:8.4 for 'default' environment") {
+		t.Fatalf("Run(install php:8.4) stdout = %q, want explicit install summary", output)
+	}
+	if !strings.Contains(output, "php 8.4\t(cached)") {
+		t.Fatalf("Run(install php:8.4) stdout = %q, want cached tool result", output)
+	}
+}
+
+func TestRunInstallUsesEnvFlagForNamedEnvironment(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	cacheDir := filepath.Join(projectDir, "global-cache")
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	fakePHP := cachedPHPPath(cacheDir, "8.4")
+	if err := os.MkdirAll(filepath.Dir(fakePHP), 0o755); err != nil {
+		t.Fatalf("MkdirAll(cache php) error = %v", err)
+	}
+	if err := os.WriteFile(fakePHP, fakePHPScript(), 0o755); err != nil {
+		t.Fatalf("WriteFile(cache php) error = %v", err)
+	}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--php", "8.4"}); code != 0 {
+		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
+		t.Fatalf("Run(install --env demo) code = %d, stderr = %q", code, stderr.String())
+	}
+	if _, err := os.Stat(projectInstalledPHPPath(root, "8.4")); err != nil {
+		t.Fatalf("Stat(installed php) error = %v", err)
+	}
+	if !strings.Contains(stdout.String(), "Installed 'demo' environment") {
+		t.Fatalf("Run(install --env demo) stdout = %q, want install summary", stdout.String())
+	}
+}
+
+func TestRunInstallRejectsEnvironmentNameArgument(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "install", "demo"}); code == 0 {
+		t.Fatal("Run(install demo) code = 0, want tool version parse error")
+	}
+	if !strings.Contains(stderr.String(), "install argument must be TOOL:VERSION") {
+		t.Fatalf("Run(install demo) stderr = %q, want tool version parse error", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "use --env NAME to select an environment") {
+		t.Fatalf("Run(install demo) stderr = %q, want --env guidance", stderr.String())
+	}
+}
+
 func TestRunNewUsesDefaultVersions(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
@@ -693,7 +778,7 @@ func TestRunInstallAppliesPHPExtensionsFromConfigFile(t *testing.T) {
 	stdout.Reset()
 	stderr.Reset()
 
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -746,7 +831,7 @@ func TestRunInstallEnablesComposerPHPExtensionsByDefault(t *testing.T) {
 	stdout.Reset()
 	stderr.Reset()
 
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 

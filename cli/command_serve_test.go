@@ -46,7 +46,7 @@ func TestRunServeUsesCurrentServerConfig(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 	stdout.Reset()
@@ -112,7 +112,7 @@ func TestRunServeUsesConfiguredDocrootWhenArgumentOmitted(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 	stdout.Reset()
@@ -176,7 +176,7 @@ func TestRunServeArgumentOverridesConfiguredDocroot(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 	stdout.Reset()
@@ -255,7 +255,7 @@ func TestRunServeAllowsServerOverride(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 	stdout.Reset()
@@ -641,7 +641,7 @@ func TestRunServeStartsConfiguredDatabaseBeforePhp(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 

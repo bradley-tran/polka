@@ -50,7 +50,7 @@ func TestRunConfigSetsVersionLabelsAndDispatchesPhp(t *testing.T) {
 	stdout.Reset()
 	stderr.Reset()
 
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 	if _, err := os.Stat(projectInstalledPHPPath(root, "8.4")); err != nil {
@@ -132,7 +132,7 @@ func TestRunDispatchLoadsProjectAndConfiguredEnvironmentVariables(t *testing.T) 
 	writeTestConfigFile(t, projectDir, config)
 	writeTestActiveEnvironment(t, root, "demo")
 
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 	stdout.Reset()

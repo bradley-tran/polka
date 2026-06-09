@@ -35,7 +35,7 @@ func TestRunDBDispatchesConfiguredDatabaseTool(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -79,7 +79,7 @@ func TestRunDBPreservesExplicitConnectionArguments(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -126,7 +126,7 @@ func TestRunDBTranslatesDatabaseNameOverride(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -173,7 +173,7 @@ func TestRunDBClientSubcommandDispatchesReservedWord(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -237,7 +237,7 @@ func TestRunDBImportAcceptsSQLAndGzip(t *testing.T) {
 
 			stdout.Reset()
 			stderr.Reset()
-			if code := Run(stdout, stderr, []string{"--root", root, "install", "demo"}); code != 0 {
+			if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
 				t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 			}
 
@@ -347,7 +347,7 @@ func TestRunDBExportWritesSQLAndGzip(t *testing.T) {
 
 			stdout.Reset()
 			stderr.Reset()
-			if code := Run(stdout, stderr, []string{"--root", root, "install", "demo"}); code != 0 {
+			if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
 				t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 			}
 
@@ -453,7 +453,7 @@ func TestRunDBLifecycleSubcommandsManageState(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 

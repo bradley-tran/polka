@@ -371,6 +371,45 @@ func (s Store) InstallWithProgress(name string, report func(InstallProgress)) ([
 	return s.install(name, report)
 }
 
+func (s Store) InstallTool(name, tool, version string) (InstallResult, error) {
+	return s.InstallToolWithProgress(name, tool, version, nil)
+}
+
+func (s Store) InstallToolWithProgress(name, tool, version string, report func(InstallProgress)) (InstallResult, error) {
+	environment, registry, err := s.installEnvironment(name)
+	if err != nil {
+		return InstallResult{}, err
+	}
+	request, err := normalizeInstallRequest(registry, tool, version)
+	if err != nil {
+		return InstallResult{}, err
+	}
+	environment = environmentWithInstallRequest(environment, request)
+	if err := validateInstallEnvironment(name, environment, []tools.InstallRequest{request}, registry); err != nil {
+		return InstallResult{}, err
+	}
+	if err := s.writeEnvironmentConfig(name, environment); err != nil {
+		return InstallResult{}, fmt.Errorf("write config file: %w", err)
+	}
+	config, err := s.loadConfig()
+	if err != nil {
+		return InstallResult{}, err
+	}
+	if err := s.syncManagedBinaries(config); err != nil {
+		return InstallResult{}, fmt.Errorf("sync managed binaries: %w", err)
+	}
+
+	results, err := s.installRequests(environment, []tools.InstallRequest{request}, report)
+	if err != nil {
+		return InstallResult{}, err
+	}
+	if len(results) == 0 {
+		return InstallResult{}, fmt.Errorf("no install result produced for %s %s", request.Tool, request.Version)
+	}
+
+	return results[0], nil
+}
+
 // InstallRequests returns the ordered list of tools that would be installed for
 // the named environment, without performing any installation. This is useful for
 // pre-registering tools in a progress display before installation begins.
@@ -396,34 +435,67 @@ func (s Store) InstallRequests(name string) ([]InstallRequest, error) {
 }
 
 func (s Store) install(name string, report func(InstallProgress)) ([]InstallResult, error) {
-	if err := s.Init(); err != nil {
+	environment, registry, err := s.installEnvironment(name)
+	if err != nil {
 		return nil, err
 	}
-	if err := validateName(name); err != nil {
+
+	requests := registry.InstallRequests(environment)
+	if len(requests) == 0 {
+		return nil, fmt.Errorf("environment %q does not define any installable tool versions", name)
+	}
+	if err := validateInstallEnvironment(name, environment, requests, registry); err != nil {
 		return nil, err
+	}
+
+	return s.installRequests(environment, requests, report)
+}
+
+func (s Store) installEnvironment(name string) (Environment, *ToolRegistry, error) {
+	if err := s.Init(); err != nil {
+		return Environment{}, nil, err
+	}
+	if err := validateName(name); err != nil {
+		return Environment{}, nil, err
 	}
 
 	environment, ok, err := s.readEnvironment(name)
 	if err != nil {
-		return nil, err
+		return Environment{}, nil, err
 	}
 	if !ok {
-		return nil, fmt.Errorf("environment %q does not exist", name)
+		return Environment{}, nil, fmt.Errorf("environment %q does not exist", name)
 	}
 	normalized := s.normalizeEnvironment(name, environment)
 	registry := s.toolRegistry()
-	installPHPExtensions := tools.EffectivePHPExtensionsForInstall(normalized)
-	if len(normalized.PHPExtensions) > 0 && normalized.PHPVersion == "" {
-		return nil, fmt.Errorf("environment %q defines php-extensions but does not define a php version", name)
+
+	return normalized, registry, nil
+}
+
+func validateInstallEnvironment(name string, environment Environment, requests []tools.InstallRequest, registry *ToolRegistry) error {
+	if len(environment.PHPExtensions) > 0 && environment.PHPVersion == "" && !installRequestsIncludeTool(requests, toolPHP) {
+		return fmt.Errorf("environment %q defines php-extensions but does not define a php version", name)
 	}
-	if err := registry.ValidateEnvironment(normalized); err != nil {
-		return nil, err
+	if err := registry.ValidateEnvironment(environment); err != nil {
+		return err
 	}
 
-	requests := registry.InstallRequests(normalized)
-	if len(requests) == 0 {
-		return nil, fmt.Errorf("environment %q does not define any installable tool versions", name)
+	return nil
+}
+
+func installRequestsIncludeTool(requests []tools.InstallRequest, tool string) bool {
+	for _, request := range requests {
+		if strings.EqualFold(strings.TrimSpace(request.Tool), strings.TrimSpace(tool)) {
+			return true
+		}
 	}
+
+	return false
+}
+
+func (s Store) installRequests(environment Environment, requests []tools.InstallRequest, report func(InstallProgress)) ([]InstallResult, error) {
+	installPHPExtensions := tools.EffectivePHPExtensionsForInstall(environment)
+	registry := s.toolRegistry()
 
 	results := make([]InstallResult, len(requests))
 	var wg sync.WaitGroup
@@ -494,7 +566,7 @@ func (s Store) install(name string, report func(InstallProgress)) ([]InstallResu
 				EnvsDir:     s.EnvsDir,
 				BinDir:      s.BinDir,
 				CacheDir:    s.CacheDir,
-				Environment: normalized,
+				Environment: environment,
 				Result:      results[i],
 			}); err != nil {
 				errs[i] = err
@@ -515,6 +587,61 @@ func (s Store) install(name string, report func(InstallProgress)) ([]InstallResu
 	}
 
 	return results, nil
+}
+
+func normalizeInstallRequest(registry *ToolRegistry, tool, version string) (tools.InstallRequest, error) {
+	normalizedTool := strings.ToLower(strings.TrimSpace(tool))
+	normalizedVersion := strings.TrimSpace(version)
+	if normalizedTool == "" {
+		return tools.InstallRequest{}, fmt.Errorf("tool cannot be empty")
+	}
+	if _, ok := registry.Plugin(normalizedTool); !ok {
+		return tools.InstallRequest{}, fmt.Errorf("unsupported tool %q", tool)
+	}
+	if err := validateVersion(normalizedTool, normalizedVersion); err != nil {
+		return tools.InstallRequest{}, err
+	}
+
+	return tools.InstallRequest{Tool: normalizedTool, Version: normalizedVersion}, nil
+}
+
+func environmentWithInstallRequest(environment Environment, request tools.InstallRequest) Environment {
+	switch request.Tool {
+	case toolPHP:
+		environment.PHPVersion = request.Version
+	case toolComposer:
+		environment.ComposerVersion = request.Version
+	case toolNodeJS:
+		environment.NodeJSVersion = request.Version
+	case toolMago:
+		environment.MagoVersion = request.Version
+	case toolNginx:
+		environment.NginxVersion = request.Version
+	case toolMySQL:
+		environment.MySQLVersion = request.Version
+		if environment.Database != nil && strings.EqualFold(strings.TrimSpace(environment.Database.Engine), toolMySQL) {
+			environment.Database.Version = request.Version
+		}
+	case toolMariaDB:
+		environment.MariaDBVersion = request.Version
+		if environment.Database != nil && strings.EqualFold(strings.TrimSpace(environment.Database.Engine), toolMariaDB) {
+			environment.Database.Version = request.Version
+		}
+	case toolSQLite:
+		environment.SQLiteVersion = request.Version
+	case toolMailpit:
+		if environment.Mailpit == nil {
+			environment.Mailpit = &MailpitConfig{}
+		}
+		environment.Mailpit.Version = request.Version
+	case toolPHPMyAdmin:
+		if environment.PHPMyAdmin == nil {
+			environment.PHPMyAdmin = &PHPMyAdminConfig{}
+		}
+		environment.PHPMyAdmin.Version = request.Version
+	}
+
+	return environment
 }
 
 func (s Store) installToolFromCache(tool, version string) (string, error) {

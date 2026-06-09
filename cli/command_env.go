@@ -149,23 +149,32 @@ func newConfigCommand(ctx *commandContext) *cobra.Command {
 }
 
 func newInstallCommand(ctx *commandContext) *cobra.Command {
+	var input installCommandInput
+
 	cmd := &cobra.Command{
-		Use:  "install [name]",
-		Args: maximumArgsError("install accepts at most one environment name", 1),
+		Use:  "install [tool:version]",
+		Args: maximumArgsError("install accepts at most one tool:version argument", 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store, err := ctx.store()
 			if err != nil {
 				return &statusError{code: 1, err: err}
 			}
 
-			input := installCommandInput{}
+			input.Tool = ""
+			input.Version = ""
 			if len(args) > 0 {
-				input.Name = strings.TrimSpace(args[0])
+				tool, version, err := parseInstallToolVersion(args[0])
+				if err != nil {
+					return &statusError{code: 1, err: err}
+				}
+				input.Tool = tool
+				input.Version = version
 			}
 
 			return runInstall(cmd.OutOrStdout(), store, input)
 		},
 	}
+	cmd.Flags().StringVar(&input.Name, "env", "", "environment name")
 	configureCommand(cmd, installUsage)
 
 	return cmd
@@ -260,11 +269,16 @@ func runInstall(stdout io.Writer, store backend.Store, input installCommandInput
 	}
 	input.Name = resolvedName
 
-	// Determine the ordered list of install requests so the spinner can
-	// pre-register them and print placeholder lines before work begins.
-	requests, err := store.InstallRequests(input.Name)
-	if err != nil {
-		return err
+	var requests []backend.InstallRequest
+	if input.Tool != "" {
+		requests = []backend.InstallRequest{{Tool: input.Tool, Version: input.Version}}
+	} else {
+		// Determine the ordered list of install requests so the spinner can
+		// pre-register them and print placeholder lines before work begins.
+		requests, err = store.InstallRequests(input.Name)
+		if err != nil {
+			return err
+		}
 	}
 
 	spinner := newInstallSpinner(stdout, len(requests))
@@ -274,9 +288,20 @@ func runInstall(stdout io.Writer, store backend.Store, input installCommandInput
 	spinner.printInitialLines()
 	spinner.Start()
 
-	results, err := store.InstallWithProgress(input.Name, func(progress backend.InstallProgress) {
-		spinner.Update(progress.Tool, progress.Version, progress.Stage)
-	})
+	var results []backend.InstallResult
+	if input.Tool != "" {
+		result, installErr := store.InstallToolWithProgress(input.Name, input.Tool, input.Version, func(progress backend.InstallProgress) {
+			spinner.Update(progress.Tool, progress.Version, progress.Stage)
+		})
+		err = installErr
+		if err == nil {
+			results = []backend.InstallResult{result}
+		}
+	} else {
+		results, err = store.InstallWithProgress(input.Name, func(progress backend.InstallProgress) {
+			spinner.Update(progress.Tool, progress.Version, progress.Stage)
+		})
+	}
 
 	spinner.Stop()
 
@@ -288,7 +313,11 @@ func runInstall(stdout io.Writer, store backend.Store, input installCommandInput
 			return err
 		}
 	}
-	_, _ = fmt.Fprintf(stdout, "Installed '%s' environment\n", input.Name)
+	if input.Tool != "" {
+		_, _ = fmt.Fprintf(stdout, "Installed %s:%s for '%s' environment\n", input.Tool, input.Version, input.Name)
+	} else {
+		_, _ = fmt.Fprintf(stdout, "Installed '%s' environment\n", input.Name)
+	}
 	for _, result := range results {
 		if result.Downloaded {
 			_, _ = fmt.Fprintf(stdout, "%s %s\n", result.Tool, result.Version)
@@ -299,7 +328,6 @@ func runInstall(stdout io.Writer, store backend.Store, input installCommandInput
 
 	return nil
 }
-
 
 func runNew(stdout io.Writer, store backend.Store, input newCommandInput) error {
 	environment, err := store.CreateWithNodeJS(input.Name, input.PHPVersion, input.ComposerVersion, input.NodeJSVersion, input.Database)
@@ -452,7 +480,19 @@ type newCommandInput struct {
 }
 
 type installCommandInput struct {
-	Name string
+	Name    string
+	Tool    string
+	Version string
+}
+
+func parseInstallToolVersion(value string) (string, string, error) {
+	trimmed := strings.TrimSpace(value)
+	tool, version, ok := strings.Cut(trimmed, ":")
+	if !ok || strings.TrimSpace(tool) == "" || strings.TrimSpace(version) == "" || strings.Contains(version, ":") {
+		return "", "", fmt.Errorf("install argument must be TOOL:VERSION, for example php:8.4; use --env NAME to select an environment")
+	}
+
+	return strings.ToLower(strings.TrimSpace(tool)), strings.TrimSpace(version), nil
 }
 
 func labelOrUnset(value string) string {

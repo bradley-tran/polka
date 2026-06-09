@@ -39,16 +39,17 @@ polka config blog --db-engine mysql --db-version 8.0 --db-port 3306
 
 When `name` is omitted, Polka updates the current environment, falling back to `default` when no local override is selected.
 
-### `polka install [name]`
+### `polka install [tool:version] [--env name]`
 
-Installs every configured tool version for an environment.
+Installs one explicit tool version, or every configured tool version for an environment when no `tool:version` argument is provided.
 
 ```bash
 polka install
-polka install blog
+polka install php:8.4
+polka install --env blog
 ```
 
-When `name` is omitted, Polka installs the current environment and prints which one it selected. If no current environment is selected, Polka uses `default` from `polka.yaml`. Polka first checks the global cache, downloads missing versions into that cache, and copies cached payloads into the project-local `.polka/envs` layout.
+Use `--env name` to select a named environment. When `--env` is omitted, Polka installs against the current environment and prints which one it selected. If no current environment is selected, Polka uses `default` from `polka.yaml`. Polka first checks the global cache, downloads missing versions into that cache, and copies cached payloads into the project-local `.polka/envs` layout.
 
 The `.polka/bin` shims mirror the active environment's configured tools. A configured `nodejs` version produces `node`, `npm`, and `npx` shims, while `nodejs` itself remains config-only. If the current environment does not define a managed tool, Polka removes that local shim instead of leaving a dispatcher that would fail at runtime.
 

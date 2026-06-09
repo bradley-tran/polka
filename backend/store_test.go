@@ -287,6 +287,79 @@ func TestStoreInstallCopiesToolIntoVersionedLayout(t *testing.T) {
 	}
 }
 
+func TestStoreInstallToolCopiesExplicitVersionIntoLayout(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+	cachePHP := writeCachedTool(t, store.CacheDir, toolPHP, "8.4")
+
+	result, err := store.InstallTool(defaultEnvironmentName, toolPHP, "8.4")
+	if err != nil {
+		t.Fatalf("InstallTool(default, php, 8.4) error = %v", err)
+	}
+	if result.Tool != toolPHP || result.Version != "8.4" {
+		t.Fatalf("InstallTool(default, php, 8.4) = %#v, want php 8.4", result)
+	}
+	if result.Downloaded {
+		t.Fatalf("InstallTool(default, php, 8.4) Downloaded = true, want cache hit")
+	}
+	if result.CachePath != cachePHP {
+		t.Fatalf("InstallTool(default, php, 8.4) CachePath = %q, want %q", result.CachePath, cachePHP)
+	}
+	assertPathExists(t, result.TargetPath)
+	if !strings.Contains(result.TargetPath, filepath.Join("envs", toolPHP, "8.4")) {
+		t.Fatalf("InstallTool(default, php, 8.4) target = %q, want versioned env path", result.TargetPath)
+	}
+	config, err := store.readConfig()
+	if err != nil {
+		t.Fatalf("readConfig() error = %v", err)
+	}
+	if config.Environments[defaultEnvironmentName].PHPVersion != "8.4" {
+		t.Fatalf("default environment php version = %q, want 8.4", config.Environments[defaultEnvironmentName].PHPVersion)
+	}
+}
+
+func TestStoreInstallToolAppliesEnvironmentPostInstallSettings(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+	writeCachedTool(t, store.CacheDir, toolPHP, "8.4")
+	if err := os.MkdirAll(filepath.Join(store.CacheDir, toolPHP, "8.4", "ext"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(cache ext) error = %v", err)
+	}
+
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{
+		PHPExtensions: map[string]bool{"openssl": true, "xdebug": false},
+	}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	result, err := store.InstallTool("demo", toolPHP, "8.4")
+	if err != nil {
+		t.Fatalf("InstallTool(demo, php, 8.4) error = %v", err)
+	}
+	phpIniData, err := os.ReadFile(filepath.Join(filepath.Dir(result.TargetPath), "php.ini"))
+	if err != nil {
+		t.Fatalf("ReadFile(installed php.ini) error = %v", err)
+	}
+	phpIni := string(phpIniData)
+	if !strings.Contains(phpIni, "extension=openssl") {
+		t.Fatalf("php.ini = %q, want enabled openssl extension", phpIni)
+	}
+	if !strings.Contains(phpIni, ";extension=xdebug") {
+		t.Fatalf("php.ini = %q, want disabled xdebug extension", phpIni)
+	}
+	loadedConfig, err := store.readConfig()
+	if err != nil {
+		t.Fatalf("readConfig() error = %v", err)
+	}
+	if loadedConfig.Environments["demo"].PHPVersion != "8.4" {
+		t.Fatalf("demo environment php version = %q, want 8.4", loadedConfig.Environments["demo"].PHPVersion)
+	}
+}
+
 func TestStoreInstallPreservesExistingConfigComments(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)

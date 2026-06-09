@@ -9,7 +9,8 @@ Commands:
   init                 create the local .polka directory and sync the active shims
   new <name>           create an environment with default or explicit versions
   config [name]        set php, composer, nodejs, and database settings for an environment
-  install [name]       install all tools for an environment
+  install [tool:version]
+                       install one tool version or all tools for an environment
   cert-install         install Polka's local HTTPS certificate into the user trust store
   db [args...]         run the active environment's database client or manage its local server
   serve, start [docroot]
@@ -29,7 +30,8 @@ Examples:
   polka new api
   polka config api --php 8.4 --composer 2.8 --nodejs 24
   polka config api --db-engine mysql --db-version 8.0 --db-port 3306
-  polka install api
+  polka install php:8.4
+  polka install --env api
   polka cert-install
   polka db start
   polka db status
@@ -69,11 +71,11 @@ When name is omitted, Polka updates the current environment, falling back to def
 `
 
 const installUsage = `Usage:
-   polka install [name]
+  polka install [tool:version] [--env NAME]
 
-Install all configured tool versions for an environment.
-When name is omitted, Polka installs the current environment, falling back to default when no local override is selected.
-Polka copies them from the global cache when available, otherwise downloads them into the cache first.
+Install one explicit tool version, such as php:8.4, or install every configured tool version for an environment when no tool argument is provided.
+Use --env NAME to select a named environment. When --env is omitted, Polka uses the current environment, falling back to default when no local override is selected.
+Polka copies tools from the global cache when available, otherwise downloads them into the cache first.
 `
 
 const certInstallUsage = `Usage:

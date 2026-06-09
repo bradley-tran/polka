@@ -71,11 +71,11 @@ The current plugin system is internal and compile-time only. Built-in plugin met
 
 ## Tool Install Flow
 
-`polka install <environment>` follows this flow:
+`polka install [tool:version] [--env <environment>]` follows this flow:
 
-1. `cli` resolves the requested environment name and calls `backend.Store.InstallWithProgress`.
-2. `backend.Store` loads and normalizes `polka.yaml` for the default environment or `polka.<name>.yaml` for named environments.
-3. `backend.Store` asks `tools.Registry` to validate the environment and produce ordered install requests.
+1. `cli` resolves the requested environment name from `--env`, the active environment, or `default`.
+2. For an explicit `tool:version`, `cli` calls `backend.Store.InstallToolWithProgress`; otherwise it calls `backend.Store.InstallWithProgress`.
+3. `backend.Store` loads and normalizes `polka.yaml` for the default environment or `polka.<name>.yaml` for named environments, then validates the install request(s).
 4. For each requested tool, `backend.Store` checks the global cache.
 5. If the cache is missing, `tools.HTTPDownloader` invokes the matching plugin download hook.
 6. `backend.Store` copies the cached tool into `.polka/envs/<tool>/<version>`.

@@ -9,12 +9,12 @@ From a PHP project directory:
 ```bash
 go run . init
 go run . new blog
-go run . install blog
+go run . install --env blog
 go run . use blog
 go run . exec php -v
 ```
 
-That creates `polka.yaml`, adds a named `blog` environment in `polka.blog.yaml`, installs its configured tools into `.polka/envs`, selects it as the active environment, and runs PHP through Polka's local command resolution.
+That creates `polka.yaml`, adds a named `blog` environment in `polka.blog.yaml`, installs its configured tools into `.polka/envs`, selects it as the active environment, and runs PHP through Polka's local command resolution. To install a single tool version directly, use a `tool:version` argument such as `go run . install php:8.4`.
 
 Start a local web server when your project has a document root:
 
