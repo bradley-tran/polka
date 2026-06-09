@@ -196,7 +196,9 @@ The `mago` tool key installs the Mago binary and creates a `mago` command shim.
 
 The `sqlite` tool key installs SQLite's command-line tools and creates a `sqlite3` command shim.
 
-The `phpmyadmin` tool key installs the phpMyAdmin web app archive under `.polka/envs/phpmyadmin/<version>`, writes a generated `config.inc.php` with a fresh `blowfish_secret`, uses managed database credentials to skip the phpMyAdmin login screen when a managed database is configured, and carries its UI `port` setting. It inherits HTTPS from the environment's root-level `https` setting. It does not create a command shim.
+The `phpmyadmin` tool key installs the phpMyAdmin web app archive under `.polka/envs/phpmyadmin/<version>`, writes a generated `config.inc.php` with a fresh `blowfish_secret`, and uses managed database credentials to skip the phpMyAdmin login screen when a managed database is configured. Its UI `port` setting lives under `settings.phpmyadmin`. It inherits HTTPS from the environment's root-level `https` setting. It does not create a command shim.
+
+The `mailpit` tool key installs Mailpit and creates a `mailpit` command shim. Its SMTP and UI port settings live under `settings.mailpit`.
 
 When an environment defines `php-extensions`, `polka install` writes a generated `php.ini` next to the installed PHP executable so those extensions are explicitly enabled or disabled for that environment. If `composer` is configured for that environment, `openssl` and `zip` are enabled by default unless `php-extensions` explicitly sets either one to `false`.
 

@@ -2,19 +2,35 @@ package config
 
 import "strings"
 
-// ToolsConfig is the YAML shape for managed tools inside an environment file.
+// ToolsConfig is the YAML shape for managed tool version labels inside an environment file.
 type ToolsConfig struct {
-	PHPVersion      string            `yaml:"php,omitempty"`
-	ComposerVersion string            `yaml:"composer,omitempty"`
-	NodeJSVersion   string            `yaml:"nodejs,omitempty"`
-	MagoVersion     string            `yaml:"mago,omitempty"`
-	NginxVersion    string            `yaml:"nginx,omitempty"`
-	MySQLVersion    string            `yaml:"mysql,omitempty"`
-	MariaDBVersion  string            `yaml:"mariadb,omitempty"`
-	SQLiteVersion   string            `yaml:"sqlite,omitempty"`
-	Database        *DatabaseConfig   `yaml:"database,omitempty"`
-	Mailpit         *MailpitConfig    `yaml:"mailpit,omitempty"`
-	PHPMyAdmin      *PHPMyAdminConfig `yaml:"phpmyadmin,omitempty"`
+	PHPVersion        string `yaml:"php,omitempty"`
+	ComposerVersion   string `yaml:"composer,omitempty"`
+	NodeJSVersion     string `yaml:"nodejs,omitempty"`
+	MagoVersion       string `yaml:"mago,omitempty"`
+	NginxVersion      string `yaml:"nginx,omitempty"`
+	MySQLVersion      string `yaml:"mysql,omitempty"`
+	MariaDBVersion    string `yaml:"mariadb,omitempty"`
+	SQLiteVersion     string `yaml:"sqlite,omitempty"`
+	MailpitVersion    string `yaml:"mailpit,omitempty"`
+	PHPMyAdminVersion string `yaml:"phpmyadmin,omitempty"`
+}
+
+// SettingsConfig is the YAML shape for versionless per-tool settings.
+type SettingsConfig struct {
+	Mailpit    *MailpitSettingsConfig    `yaml:"mailpit,omitempty"`
+	PHPMyAdmin *PHPMyAdminSettingsConfig `yaml:"phpmyadmin,omitempty"`
+}
+
+// MailpitSettingsConfig is the YAML shape for Mailpit runtime settings.
+type MailpitSettingsConfig struct {
+	SMTPPort int `yaml:"smtp-port,omitempty"`
+	UIPort   int `yaml:"ui-port,omitempty"`
+}
+
+// PHPMyAdminSettingsConfig is the YAML shape for phpMyAdmin runtime settings.
+type PHPMyAdminSettingsConfig struct {
+	Port int `yaml:"port,omitempty"`
 }
 
 // ProjectFile is the YAML shape of polka.yaml, which also defines the default environment.
@@ -22,6 +38,7 @@ type ProjectFile struct {
 	Version       int               `yaml:"version"`
 	Root          string            `yaml:"root"`
 	Tools         *ToolsConfig      `yaml:"tools,omitempty"`
+	Settings      *SettingsConfig   `yaml:"settings,omitempty"`
 	Docroot       string            `yaml:"docroot,omitempty"`
 	HTTPS         bool              `yaml:"https,omitempty"`
 	EnvFile       string            `yaml:"env-file,omitempty"`
@@ -34,6 +51,7 @@ type ProjectFile struct {
 // EnvironmentFile is the YAML shape of polka.<name>.yaml.
 type EnvironmentFile struct {
 	Tools         *ToolsConfig      `yaml:"tools,omitempty"`
+	Settings      *SettingsConfig   `yaml:"settings,omitempty"`
 	Docroot       string            `yaml:"docroot,omitempty"`
 	HTTPS         bool              `yaml:"https,omitempty"`
 	EnvFile       string            `yaml:"env-file,omitempty"`
@@ -100,6 +118,7 @@ func ProjectFileToEnvironment(name string, file ProjectFile) Environment {
 	return environmentFromFileParts(
 		name,
 		file.Tools,
+		file.Settings,
 		file.Docroot,
 		file.HTTPS,
 		file.EnvFile,
@@ -116,6 +135,7 @@ func ProjectFileFromEnvironment(version int, root string, environment Environmen
 		Version:       version,
 		Root:          root,
 		Tools:         ToolsConfigFromEnvironment(environment),
+		Settings:      SettingsConfigFromEnvironment(environment),
 		Docroot:       environment.Docroot,
 		HTTPS:         environment.HTTPS,
 		EnvFile:       environment.EnvFile,
@@ -133,6 +153,7 @@ func EnvironmentFileToEnvironment(name string, file EnvironmentFile) Environment
 	return environmentFromFileParts(
 		name,
 		file.Tools,
+		file.Settings,
 		file.Docroot,
 		file.HTTPS,
 		file.EnvFile,
@@ -147,6 +168,7 @@ func EnvironmentFileToEnvironment(name string, file EnvironmentFile) Environment
 func EnvironmentFileFromEnvironment(environment Environment) EnvironmentFile {
 	return EnvironmentFile{
 		Tools:         ToolsConfigFromEnvironment(environment),
+		Settings:      SettingsConfigFromEnvironment(environment),
 		Docroot:       environment.Docroot,
 		HTTPS:         environment.HTTPS,
 		EnvFile:       environment.EnvFile,
@@ -160,16 +182,16 @@ func EnvironmentFileFromEnvironment(environment Environment) EnvironmentFile {
 // ToolsConfigFromEnvironment extracts managed tool settings from an environment.
 func ToolsConfigFromEnvironment(environment Environment) *ToolsConfig {
 	tools := &ToolsConfig{
-		PHPVersion:      environment.PHPVersion,
-		ComposerVersion: environment.ComposerVersion,
-		NodeJSVersion:   environment.NodeJSVersion,
-		MagoVersion:     environment.MagoVersion,
-		NginxVersion:    environment.NginxVersion,
-		MySQLVersion:    DatabaseToolVersion(environment, "mysql"),
-		MariaDBVersion:  DatabaseToolVersion(environment, "mariadb"),
-		SQLiteVersion:   environment.SQLiteVersion,
-		Mailpit:         MailpitConfigFromEnvironment(environment),
-		PHPMyAdmin:      PHPMyAdminConfigFromEnvironment(environment),
+		PHPVersion:        environment.PHPVersion,
+		ComposerVersion:   environment.ComposerVersion,
+		NodeJSVersion:     environment.NodeJSVersion,
+		MagoVersion:       environment.MagoVersion,
+		NginxVersion:      environment.NginxVersion,
+		MySQLVersion:      DatabaseToolVersion(environment, "mysql"),
+		MariaDBVersion:    DatabaseToolVersion(environment, "mariadb"),
+		SQLiteVersion:     environment.SQLiteVersion,
+		MailpitVersion:    ToolVersionFromMailpitConfig(environment.Mailpit),
+		PHPMyAdminVersion: ToolVersionFromPHPMyAdminConfig(environment.PHPMyAdmin),
 	}
 	if tools.IsZero() {
 		return nil
@@ -178,35 +200,64 @@ func ToolsConfigFromEnvironment(environment Environment) *ToolsConfig {
 	return tools
 }
 
-// MailpitConfigFromEnvironment extracts Mailpit settings that belong in YAML.
-func MailpitConfigFromEnvironment(environment Environment) *MailpitConfig {
+// SettingsConfigFromEnvironment extracts versionless tool settings from an environment.
+func SettingsConfigFromEnvironment(environment Environment) *SettingsConfig {
+	settings := &SettingsConfig{
+		Mailpit:    MailpitSettingsConfigFromEnvironment(environment),
+		PHPMyAdmin: PHPMyAdminSettingsConfigFromEnvironment(environment),
+	}
+	if settings.IsZero() {
+		return nil
+	}
+
+	return settings
+}
+
+// ToolVersionFromMailpitConfig extracts Mailpit's managed tool version label.
+func ToolVersionFromMailpitConfig(mailpit *MailpitConfig) string {
+	if mailpit == nil {
+		return ""
+	}
+
+	return strings.TrimSpace(mailpit.Version)
+}
+
+// ToolVersionFromPHPMyAdminConfig extracts phpMyAdmin's managed tool version label.
+func ToolVersionFromPHPMyAdminConfig(phpMyAdmin *PHPMyAdminConfig) string {
+	if phpMyAdmin == nil {
+		return ""
+	}
+
+	return strings.TrimSpace(phpMyAdmin.Version)
+}
+
+// MailpitSettingsConfigFromEnvironment extracts Mailpit settings that belong under settings.
+func MailpitSettingsConfigFromEnvironment(environment Environment) *MailpitSettingsConfig {
 	if environment.Mailpit == nil {
 		return nil
 	}
 
-	mailpit := &MailpitConfig{
-		Version:  strings.TrimSpace(environment.Mailpit.Version),
+	mailpit := &MailpitSettingsConfig{
 		SMTPPort: environment.Mailpit.SMTPPort,
 		UIPort:   environment.Mailpit.UIPort,
 	}
-	if mailpit.Version == "" && mailpit.SMTPPort == 0 && mailpit.UIPort == 0 {
+	if mailpit.SMTPPort == 0 && mailpit.UIPort == 0 {
 		return nil
 	}
 
 	return mailpit
 }
 
-// PHPMyAdminConfigFromEnvironment extracts phpMyAdmin settings that belong in YAML.
-func PHPMyAdminConfigFromEnvironment(environment Environment) *PHPMyAdminConfig {
+// PHPMyAdminSettingsConfigFromEnvironment extracts phpMyAdmin settings that belong under settings.
+func PHPMyAdminSettingsConfigFromEnvironment(environment Environment) *PHPMyAdminSettingsConfig {
 	if environment.PHPMyAdmin == nil {
 		return nil
 	}
 
-	phpMyAdmin := &PHPMyAdminConfig{
-		Version: strings.TrimSpace(environment.PHPMyAdmin.Version),
-		Port:    environment.PHPMyAdmin.Port,
+	phpMyAdmin := &PHPMyAdminSettingsConfig{
+		Port: environment.PHPMyAdmin.Port,
 	}
-	if phpMyAdmin.Version == "" && phpMyAdmin.Port == 0 {
+	if phpMyAdmin.Port == 0 {
 		return nil
 	}
 
@@ -240,12 +291,17 @@ func (tools ToolsConfig) IsZero() bool {
 		strings.TrimSpace(tools.MySQLVersion) == "" &&
 		strings.TrimSpace(tools.MariaDBVersion) == "" &&
 		strings.TrimSpace(tools.SQLiteVersion) == "" &&
-		tools.Database == nil &&
-		tools.Mailpit == nil &&
-		tools.PHPMyAdmin == nil
+		strings.TrimSpace(tools.MailpitVersion) == "" &&
+		strings.TrimSpace(tools.PHPMyAdminVersion) == ""
 }
 
-func environmentFromFileParts(name string, tools *ToolsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *DatabaseConfig, phpExtensions map[string]bool, server *ServerConfig) Environment {
+// IsZero reports whether no versionless tool settings are configured.
+func (settings SettingsConfig) IsZero() bool {
+	return settings.Mailpit == nil &&
+		settings.PHPMyAdmin == nil
+}
+
+func environmentFromFileParts(name string, tools *ToolsConfig, settings *SettingsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *DatabaseConfig, phpExtensions map[string]bool, server *ServerConfig) Environment {
 	environment := Environment{
 		Name:          name,
 		Docroot:       docroot,
@@ -267,11 +323,37 @@ func environmentFromFileParts(name string, tools *ToolsConfig, docroot string, h
 		environment.SQLiteVersion = tools.SQLiteVersion
 		environment.Database = PrimaryDatabaseConfigFromTools(tools, database)
 		environment = populateDatabaseToolVersion(environment)
-		environment.Mailpit = tools.Mailpit
-		environment.PHPMyAdmin = tools.PHPMyAdmin
+		if strings.TrimSpace(tools.MailpitVersion) != "" {
+			environment.Mailpit = &MailpitConfig{Version: tools.MailpitVersion}
+		}
+		if strings.TrimSpace(tools.PHPMyAdminVersion) != "" {
+			environment.PHPMyAdmin = &PHPMyAdminConfig{Version: tools.PHPMyAdminVersion}
+		}
 	}
+	environment = applySettingsConfig(environment, settings)
 
 	return inheritEnvironmentHTTPS(environment)
+}
+
+func applySettingsConfig(environment Environment, settings *SettingsConfig) Environment {
+	if settings == nil {
+		return environment
+	}
+	if settings.Mailpit != nil {
+		if environment.Mailpit == nil {
+			environment.Mailpit = &MailpitConfig{}
+		}
+		environment.Mailpit.SMTPPort = settings.Mailpit.SMTPPort
+		environment.Mailpit.UIPort = settings.Mailpit.UIPort
+	}
+	if settings.PHPMyAdmin != nil {
+		if environment.PHPMyAdmin == nil {
+			environment.PHPMyAdmin = &PHPMyAdminConfig{}
+		}
+		environment.PHPMyAdmin.Port = settings.PHPMyAdmin.Port
+	}
+
+	return environment
 }
 
 func populateDatabaseToolVersion(environment Environment) Environment {
@@ -340,20 +422,6 @@ func PrimaryDatabaseConfigFromTools(tools *ToolsConfig, database *DatabaseConfig
 	merged := &DatabaseConfig{}
 	if database != nil {
 		*merged = *database
-	}
-	if tools.Database != nil {
-		legacy := NormalizeDatabaseConfig(tools.Database)
-		if legacy != nil {
-			if merged.Engine == "" {
-				merged.Engine = legacy.Engine
-			}
-			if merged.Version == "" {
-				merged.Version = legacy.Version
-			}
-			if merged.Port == 0 {
-				merged.Port = legacy.Port
-			}
-		}
 	}
 	if merged.Engine == "" {
 		switch {

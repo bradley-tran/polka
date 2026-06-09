@@ -65,6 +65,7 @@ type testProjectConfigData struct {
 	Version       int                 `yaml:"version,omitempty"`
 	Root          string              `yaml:"root,omitempty"`
 	Tools         *testToolsConfig    `yaml:"tools,omitempty"`
+	Settings      *testSettingsConfig `yaml:"settings,omitempty"`
 	Docroot       string              `yaml:"docroot,omitempty"`
 	HTTPS         bool                `yaml:"https,omitempty"`
 	EnvFile       string              `yaml:"env-file,omitempty"`
@@ -76,6 +77,7 @@ type testProjectConfigData struct {
 
 type testEnvironmentConfigData struct {
 	Tools         *testToolsConfig    `yaml:"tools,omitempty"`
+	Settings      *testSettingsConfig `yaml:"settings,omitempty"`
 	Docroot       string              `yaml:"docroot,omitempty"`
 	HTTPS         bool                `yaml:"https,omitempty"`
 	EnvFile       string              `yaml:"env-file,omitempty"`
@@ -86,17 +88,30 @@ type testEnvironmentConfigData struct {
 }
 
 type testToolsConfig struct {
-	PHP        string                `yaml:"php,omitempty"`
-	Composer   string                `yaml:"composer,omitempty"`
-	NodeJS     string                `yaml:"nodejs,omitempty"`
-	Mago       string                `yaml:"mago,omitempty"`
-	Nginx      string                `yaml:"nginx,omitempty"`
-	MySQL      string                `yaml:"mysql,omitempty"`
-	MariaDB    string                `yaml:"mariadb,omitempty"`
-	SQLite     string                `yaml:"sqlite,omitempty"`
-	Database   *testDatabaseConfig   `yaml:"database,omitempty"`
-	Mailpit    *testMailpitConfig    `yaml:"mailpit,omitempty"`
-	PHPMyAdmin *testPHPMyAdminConfig `yaml:"phpmyadmin,omitempty"`
+	PHP        string `yaml:"php,omitempty"`
+	Composer   string `yaml:"composer,omitempty"`
+	NodeJS     string `yaml:"nodejs,omitempty"`
+	Mago       string `yaml:"mago,omitempty"`
+	Nginx      string `yaml:"nginx,omitempty"`
+	MySQL      string `yaml:"mysql,omitempty"`
+	MariaDB    string `yaml:"mariadb,omitempty"`
+	SQLite     string `yaml:"sqlite,omitempty"`
+	Mailpit    string `yaml:"mailpit,omitempty"`
+	PHPMyAdmin string `yaml:"phpmyadmin,omitempty"`
+}
+
+type testSettingsConfig struct {
+	Mailpit    *testMailpitSettingsConfig    `yaml:"mailpit,omitempty"`
+	PHPMyAdmin *testPHPMyAdminSettingsConfig `yaml:"phpmyadmin,omitempty"`
+}
+
+type testMailpitSettingsConfig struct {
+	SMTPPort int `yaml:"smtp-port,omitempty"`
+	UIPort   int `yaml:"ui-port,omitempty"`
+}
+
+type testPHPMyAdminSettingsConfig struct {
+	Port int `yaml:"port,omitempty"`
 }
 
 func writeTestConfigFile(t *testing.T, projectDir string, config testConfigFile) {
@@ -114,6 +129,7 @@ func writeTestConfigFile(t *testing.T, projectDir string, config testConfigFile)
 	}
 	if defaultEnvironment, ok := config.Environments[defaultEnvironmentName]; ok {
 		projectConfig.Tools = testToolsFromEnvironment(defaultEnvironment)
+		projectConfig.Settings = testSettingsFromEnvironment(defaultEnvironment)
 		projectConfig.Docroot = defaultEnvironment.Docroot
 		projectConfig.HTTPS = defaultEnvironment.HTTPS
 		projectConfig.EnvFile = defaultEnvironment.EnvFile
@@ -184,6 +200,7 @@ func writeTestEnvironmentConfig(t *testing.T, projectDir, name string, environme
 		var projectConfig testProjectConfigData
 		readTestYAML(t, filepath.Join(projectDir, "polka.yaml"), &projectConfig)
 		projectConfig.Tools = testToolsFromEnvironment(environment)
+		projectConfig.Settings = testSettingsFromEnvironment(environment)
 		projectConfig.Docroot = environment.Docroot
 		projectConfig.HTTPS = environment.HTTPS
 		projectConfig.EnvFile = environment.EnvFile
@@ -197,6 +214,7 @@ func writeTestEnvironmentConfig(t *testing.T, projectDir, name string, environme
 
 	writeTestYAML(t, testEnvironmentConfigPath(projectDir, name), testEnvironmentConfigData{
 		Tools:         testToolsFromEnvironment(environment),
+		Settings:      testSettingsFromEnvironment(environment),
 		Docroot:       environment.Docroot,
 		HTTPS:         environment.HTTPS,
 		EnvFile:       environment.EnvFile,
@@ -233,14 +251,14 @@ func writeTestYAML(t *testing.T, path string, value any) {
 }
 
 func testEnvironmentFromProjectConfig(projectConfig testProjectConfigData) testEnvironmentConfig {
-	return testEnvironmentFromParts(projectConfig.Tools, projectConfig.Docroot, projectConfig.HTTPS, projectConfig.EnvFile, projectConfig.EnvVars, projectConfig.Database, projectConfig.PHPExtensions, projectConfig.Server)
+	return testEnvironmentFromParts(projectConfig.Tools, projectConfig.Settings, projectConfig.Docroot, projectConfig.HTTPS, projectConfig.EnvFile, projectConfig.EnvVars, projectConfig.Database, projectConfig.PHPExtensions, projectConfig.Server)
 }
 
 func testEnvironmentFromEnvironmentConfig(environmentConfig testEnvironmentConfigData) testEnvironmentConfig {
-	return testEnvironmentFromParts(environmentConfig.Tools, environmentConfig.Docroot, environmentConfig.HTTPS, environmentConfig.EnvFile, environmentConfig.EnvVars, environmentConfig.Database, environmentConfig.PHPExtensions, environmentConfig.Server)
+	return testEnvironmentFromParts(environmentConfig.Tools, environmentConfig.Settings, environmentConfig.Docroot, environmentConfig.HTTPS, environmentConfig.EnvFile, environmentConfig.EnvVars, environmentConfig.Database, environmentConfig.PHPExtensions, environmentConfig.Server)
 }
 
-func testEnvironmentFromParts(tools *testToolsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *testDatabaseConfig, phpExtensions map[string]bool, server *testServerConfig) testEnvironmentConfig {
+func testEnvironmentFromParts(tools *testToolsConfig, settings *testSettingsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *testDatabaseConfig, phpExtensions map[string]bool, server *testServerConfig) testEnvironmentConfig {
 	environment := testEnvironmentConfig{
 		Docroot:       docroot,
 		HTTPS:         https,
@@ -261,9 +279,14 @@ func testEnvironmentFromParts(tools *testToolsConfig, docroot string, https bool
 		environment.SQLite = tools.SQLite
 		environment.Database = testDatabaseFromTools(tools, database)
 		environment = testPopulateDatabaseToolVersion(environment)
-		environment.Mailpit = tools.Mailpit
-		environment.PHPMyAdmin = tools.PHPMyAdmin
+		if strings.TrimSpace(tools.Mailpit) != "" {
+			environment.Mailpit = &testMailpitConfig{Version: tools.Mailpit}
+		}
+		if strings.TrimSpace(tools.PHPMyAdmin) != "" {
+			environment.PHPMyAdmin = &testPHPMyAdminConfig{Version: tools.PHPMyAdmin}
+		}
 	}
+	environment = testApplySettings(environment, settings)
 	if environment.HTTPS {
 		if environment.Server == nil {
 			environment.Server = &testServerConfig{}
@@ -290,8 +313,8 @@ func testToolsFromEnvironment(environment testEnvironmentConfig) *testToolsConfi
 		MySQL:      testDatabaseToolVersion(environment, "mysql"),
 		MariaDB:    testDatabaseToolVersion(environment, "mariadb"),
 		SQLite:     environment.SQLite,
-		Mailpit:    environment.Mailpit,
-		PHPMyAdmin: environment.PHPMyAdmin,
+		Mailpit:    testMailpitVersion(environment.Mailpit),
+		PHPMyAdmin: testPHPMyAdminVersion(environment.PHPMyAdmin),
 	}
 	if strings.TrimSpace(tools.PHP) == "" &&
 		strings.TrimSpace(tools.Composer) == "" &&
@@ -301,13 +324,80 @@ func testToolsFromEnvironment(environment testEnvironmentConfig) *testToolsConfi
 		strings.TrimSpace(tools.MySQL) == "" &&
 		strings.TrimSpace(tools.MariaDB) == "" &&
 		strings.TrimSpace(tools.SQLite) == "" &&
-		tools.Database == nil &&
-		tools.Mailpit == nil &&
-		tools.PHPMyAdmin == nil {
+		strings.TrimSpace(tools.Mailpit) == "" &&
+		strings.TrimSpace(tools.PHPMyAdmin) == "" {
 		return nil
 	}
 
 	return tools
+}
+
+func testSettingsFromEnvironment(environment testEnvironmentConfig) *testSettingsConfig {
+	settings := &testSettingsConfig{
+		Mailpit:    testMailpitSettingsFromEnvironment(environment),
+		PHPMyAdmin: testPHPMyAdminSettingsFromEnvironment(environment),
+	}
+	if settings.Mailpit == nil && settings.PHPMyAdmin == nil {
+		return nil
+	}
+
+	return settings
+}
+
+func testMailpitSettingsFromEnvironment(environment testEnvironmentConfig) *testMailpitSettingsConfig {
+	if environment.Mailpit == nil || (environment.Mailpit.SMTPPort == 0 && environment.Mailpit.UIPort == 0) {
+		return nil
+	}
+
+	return &testMailpitSettingsConfig{
+		SMTPPort: environment.Mailpit.SMTPPort,
+		UIPort:   environment.Mailpit.UIPort,
+	}
+}
+
+func testPHPMyAdminSettingsFromEnvironment(environment testEnvironmentConfig) *testPHPMyAdminSettingsConfig {
+	if environment.PHPMyAdmin == nil || environment.PHPMyAdmin.Port == 0 {
+		return nil
+	}
+
+	return &testPHPMyAdminSettingsConfig{Port: environment.PHPMyAdmin.Port}
+}
+
+func testApplySettings(environment testEnvironmentConfig, settings *testSettingsConfig) testEnvironmentConfig {
+	if settings == nil {
+		return environment
+	}
+	if settings.Mailpit != nil {
+		if environment.Mailpit == nil {
+			environment.Mailpit = &testMailpitConfig{}
+		}
+		environment.Mailpit.SMTPPort = settings.Mailpit.SMTPPort
+		environment.Mailpit.UIPort = settings.Mailpit.UIPort
+	}
+	if settings.PHPMyAdmin != nil {
+		if environment.PHPMyAdmin == nil {
+			environment.PHPMyAdmin = &testPHPMyAdminConfig{}
+		}
+		environment.PHPMyAdmin.Port = settings.PHPMyAdmin.Port
+	}
+
+	return environment
+}
+
+func testMailpitVersion(mailpit *testMailpitConfig) string {
+	if mailpit == nil {
+		return ""
+	}
+
+	return strings.TrimSpace(mailpit.Version)
+}
+
+func testPHPMyAdminVersion(phpMyAdmin *testPHPMyAdminConfig) string {
+	if phpMyAdmin == nil {
+		return ""
+	}
+
+	return strings.TrimSpace(phpMyAdmin.Version)
 }
 
 func testDatabaseToolVersion(environment testEnvironmentConfig, engine string) string {
@@ -351,17 +441,6 @@ func testDatabaseFromTools(tools *testToolsConfig, database *testDatabaseConfig)
 	merged := &testDatabaseConfig{}
 	if database != nil {
 		*merged = *database
-	}
-	if tools.Database != nil {
-		if merged.Engine == "" {
-			merged.Engine = tools.Database.Engine
-		}
-		if merged.Version == "" {
-			merged.Version = tools.Database.Version
-		}
-		if merged.Port == 0 {
-			merged.Port = tools.Database.Port
-		}
 	}
 	if strings.TrimSpace(merged.Engine) == "" {
 		switch {

@@ -44,12 +44,15 @@ The `config` package contains shared YAML schema types and normalization helpers
 - `ProjectFile`
 - `EnvironmentFile`
 - `ToolsConfig`
+- `SettingsConfig`
 - `DatabaseConfig`
 - `MailpitConfig`
 - `PHPMyAdminConfig`
 - `ServerConfig`
 
 This package exists to avoid import cycles. Both `backend` and `tools` can depend on config types without either package importing the other.
+
+`ToolsConfig` stores only managed tool version labels. Versionless tool options, such as Mailpit ports and the phpMyAdmin UI port, live in sibling `SettingsConfig` data and are merged into the internal `Environment` model during config loading.
 
 ### `tools`
 

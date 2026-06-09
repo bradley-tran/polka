@@ -807,6 +807,9 @@ func (s Store) readProjectFile() (config.ProjectFile, Environment, error) {
 	if hasLegacyEnvironments {
 		return config.ProjectFile{}, Environment{}, legacyConfigError(s.ConfigFile)
 	}
+	if err := validateEnvironmentFileSchema(data); err != nil {
+		return config.ProjectFile{}, Environment{}, fmt.Errorf("decode config file: %w", err)
+	}
 
 	if err := yaml.Unmarshal(data, &projectFile); err != nil {
 		return config.ProjectFile{}, Environment{}, fmt.Errorf("decode config file: %w", err)
@@ -833,6 +836,9 @@ func (s Store) readNamedEnvironmentFile(name string) (Environment, error) {
 	}
 	if hasLegacyEnvironments {
 		return Environment{}, legacyConfigError(path)
+	}
+	if err := validateEnvironmentFileSchema(data); err != nil {
+		return Environment{}, fmt.Errorf("decode config file %s: %w", path, err)
 	}
 
 	if err := yaml.Unmarshal(data, &environmentFile); err != nil {
@@ -947,6 +953,166 @@ func yamlHasTopLevelKey(data []byte, key string) (bool, error) {
 	_, ok := raw[key]
 
 	return ok, nil
+}
+
+func validateEnvironmentFileSchema(data []byte) error {
+	var raw map[string]any
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	tools, hasTools, err := rawMapForKey(raw, "tools")
+	if err != nil {
+		return err
+	}
+	if hasTools {
+		if err := validateToolsSchema(tools); err != nil {
+			return err
+		}
+	}
+
+	settings, hasSettings, err := rawMapForKey(raw, "settings")
+	if err != nil {
+		return err
+	}
+	if hasSettings {
+		return validateSettingsSchema(settings, tools)
+	}
+
+	return nil
+}
+
+func validateToolsSchema(tools map[string]any) error {
+	for key, value := range tools {
+		if key == "database" {
+			return fmt.Errorf("tools.database is no longer supported; use tools.mysql or tools.mariadb for versions and root database for runtime settings")
+		}
+		if !knownToolVersionKey(key) {
+			return fmt.Errorf("unsupported tools.%s key", key)
+		}
+		if !isYAMLVersionScalar(value) {
+			return fmt.Errorf("tools.%s must be a scalar version label", key)
+		}
+	}
+
+	return nil
+}
+
+func validateSettingsSchema(settings, tools map[string]any) error {
+	for key, value := range settings {
+		settingMap, ok := asYAMLStringMap(value)
+		if !ok {
+			return fmt.Errorf("settings.%s must be a mapping", key)
+		}
+		switch key {
+		case "mailpit":
+			if !hasConfiguredToolVersion(tools, "mailpit") {
+				return fmt.Errorf("settings.mailpit requires tools.mailpit")
+			}
+			if err := validateSettingKeys("settings.mailpit", settingMap, map[string]struct{}{"smtp-port": {}, "ui-port": {}}); err != nil {
+				return err
+			}
+		case "phpmyadmin":
+			if !hasConfiguredToolVersion(tools, "phpmyadmin") {
+				return fmt.Errorf("settings.phpmyadmin requires tools.phpmyadmin")
+			}
+			if err := validateSettingKeys("settings.phpmyadmin", settingMap, map[string]struct{}{"port": {}}); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("unsupported settings.%s key", key)
+		}
+	}
+
+	return nil
+}
+
+func validateSettingKeys(prefix string, settings map[string]any, allowed map[string]struct{}) error {
+	for key, value := range settings {
+		if _, ok := allowed[key]; !ok {
+			return fmt.Errorf("unsupported %s.%s key", prefix, key)
+		}
+		if !isYAMLSettingScalar(value) {
+			return fmt.Errorf("%s.%s must be a scalar value", prefix, key)
+		}
+	}
+
+	return nil
+}
+
+func rawMapForKey(raw map[string]any, key string) (map[string]any, bool, error) {
+	value, ok := raw[key]
+	if !ok {
+		return nil, false, nil
+	}
+	mapping, ok := asYAMLStringMap(value)
+	if !ok {
+		return nil, true, fmt.Errorf("%s must be a mapping", key)
+	}
+
+	return mapping, true, nil
+}
+
+func asYAMLStringMap(value any) (map[string]any, bool) {
+	switch typed := value.(type) {
+	case map[string]any:
+		return typed, true
+	case map[any]any:
+		result := make(map[string]any, len(typed))
+		for key, value := range typed {
+			keyString, ok := key.(string)
+			if !ok {
+				return nil, false
+			}
+			result[keyString] = value
+		}
+		return result, true
+	default:
+		return nil, false
+	}
+}
+
+func knownToolVersionKey(key string) bool {
+	switch key {
+	case toolPHP, toolComposer, toolNodeJS, toolMago, toolNginx, toolMySQL, toolMariaDB, toolSQLite, toolMailpit, toolPHPMyAdmin:
+		return true
+	default:
+		return false
+	}
+}
+
+func hasConfiguredToolVersion(tools map[string]any, key string) bool {
+	if tools == nil {
+		return false
+	}
+	value, ok := tools[key]
+	if !ok {
+		return false
+	}
+	version, ok := value.(string)
+	if ok {
+		return strings.TrimSpace(version) != ""
+	}
+
+	return isYAMLVersionScalar(value)
+}
+
+func isYAMLVersionScalar(value any) bool {
+	switch value.(type) {
+	case string, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+		return true
+	default:
+		return false
+	}
+}
+
+func isYAMLSettingScalar(value any) bool {
+	switch value.(type) {
+	case string, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64, bool:
+		return true
+	default:
+		return false
+	}
 }
 
 func legacyConfigError(path string) error {

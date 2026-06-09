@@ -1169,6 +1169,115 @@ func TestStoreWriteConfigPersistsHTTPSAtEnvironmentRoot(t *testing.T) {
 	}
 }
 
+func TestStoreWritesToolSettingsSeparatelyFromVersions(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{
+		Mailpit:    &MailpitConfig{Version: "1.30", SMTPPort: 1125, UIPort: 8125},
+		PHPMyAdmin: &PHPMyAdminConfig{Version: "5.2", Port: 8082},
+	}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	data, err := os.ReadFile(store.environmentConfigFile("demo"))
+	if err != nil {
+		t.Fatalf("ReadFile(demo config) error = %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "tools:\n  mailpit: \"1.30\"\n  phpmyadmin: \"5.2\"") {
+		t.Fatalf("config = %q, want mailpit and phpmyadmin version labels under tools", text)
+	}
+	if !strings.Contains(text, "settings:\n  mailpit:\n    smtp-port: 1125\n    ui-port: 8125\n  phpmyadmin:\n    port: 8082") {
+		t.Fatalf("config = %q, want mailpit and phpmyadmin ports under settings", text)
+	}
+	if strings.Contains(text, "    version:") {
+		t.Fatalf("config = %q, want no nested tool version entries", text)
+	}
+}
+
+func TestStoreReadsToolSettingsSeparatedFromVersions(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		envName  string
+		writeEnv func(t *testing.T, store Store, data []byte)
+	}{
+		{
+			name:    "default",
+			envName: defaultEnvironmentName,
+			writeEnv: func(t *testing.T, store Store, data []byte) {
+				t.Helper()
+				if err := os.WriteFile(store.ConfigFile, data, 0o644); err != nil {
+					t.Fatalf("WriteFile(project config) error = %v", err)
+				}
+			},
+		},
+		{
+			name:    "named",
+			envName: "demo",
+			writeEnv: func(t *testing.T, store Store, data []byte) {
+				t.Helper()
+				if err := os.WriteFile(store.ConfigFile, []byte("version: 1\nroot: .polka\n"), 0o644); err != nil {
+					t.Fatalf("WriteFile(project config) error = %v", err)
+				}
+				if err := os.WriteFile(store.environmentConfigFile("demo"), data, 0o644); err != nil {
+					t.Fatalf("WriteFile(demo config) error = %v", err)
+				}
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			projectDir := t.TempDir()
+			store := NewProjectStore(projectDir)
+			configData := []byte(strings.Join([]string{
+				"version: 1",
+				"root: .polka",
+				"tools:",
+				"  mailpit: \"1.30\"",
+				"  phpmyadmin: \"5.2\"",
+				"settings:",
+				"  mailpit:",
+				"    smtp-port: 1125",
+				"    ui-port: 8125",
+				"  phpmyadmin:",
+				"    port: 8082",
+				"",
+			}, "\n"))
+			if test.envName != defaultEnvironmentName {
+				configData = []byte(strings.Join([]string{
+					"tools:",
+					"  mailpit: \"1.30\"",
+					"  phpmyadmin: \"5.2\"",
+					"settings:",
+					"  mailpit:",
+					"    smtp-port: 1125",
+					"    ui-port: 8125",
+					"  phpmyadmin:",
+					"    port: 8082",
+					"",
+				}, "\n"))
+			}
+			test.writeEnv(t, store, configData)
+
+			environment, ok, err := store.readEnvironment(test.envName)
+			if err != nil {
+				t.Fatalf("readEnvironment(%s) error = %v", test.envName, err)
+			}
+			if !ok {
+				t.Fatalf("readEnvironment(%s) ok = false, want true", test.envName)
+			}
+			if environment.Mailpit == nil || environment.Mailpit.Version != "1.30" || environment.Mailpit.SMTPPort != 1125 || environment.Mailpit.UIPort != 8125 {
+				t.Fatalf("environment.Mailpit = %#v, want version and configured ports", environment.Mailpit)
+			}
+			if environment.PHPMyAdmin == nil || environment.PHPMyAdmin.Version != "5.2" || environment.PHPMyAdmin.Port != 8082 {
+				t.Fatalf("environment.PHPMyAdmin = %#v, want version and configured port", environment.PHPMyAdmin)
+			}
+		})
+	}
+}
+
 func TestStoreCurrentNormalizesEnvironmentVariables(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
@@ -1552,33 +1661,94 @@ func TestStoreReadsDatabaseToolVersionAndRootRuntimeConfig(t *testing.T) {
 	}
 }
 
-func TestStoreReadsLegacyToolsDatabaseConfig(t *testing.T) {
-	projectDir := t.TempDir()
-	store := NewProjectStore(projectDir)
-	configData := []byte(strings.Join([]string{
-		"tools:",
-		"  database:",
-		"    engine: mysql",
-		"    version: \"8.0\"",
-		"    port: 3306",
-		"",
-	}, "\n"))
-	if err := os.WriteFile(store.environmentConfigFile("data"), configData, 0o644); err != nil {
-		t.Fatalf("WriteFile(config) error = %v", err)
-	}
-	if err := os.WriteFile(store.ConfigFile, []byte("version: 1\nroot: .polka\n"), 0o644); err != nil {
-		t.Fatalf("WriteFile(project config) error = %v", err)
-	}
+func TestStoreRejectsNonVersionToolsAndOrphanSettings(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		config  string
+		wantErr string
+	}{
+		{
+			name: "nested mailpit",
+			config: strings.Join([]string{
+				"tools:",
+				"  mailpit:",
+				"    version: \"1.30\"",
+				"    smtp-port: 1025",
+				"",
+			}, "\n"),
+			wantErr: "tools.mailpit must be a scalar version label",
+		},
+		{
+			name: "nested phpmyadmin",
+			config: strings.Join([]string{
+				"tools:",
+				"  phpmyadmin:",
+				"    version: \"5.2\"",
+				"    port: 8082",
+				"",
+			}, "\n"),
+			wantErr: "tools.phpmyadmin must be a scalar version label",
+		},
+		{
+			name: "tools database object",
+			config: strings.Join([]string{
+				"tools:",
+				"  database:",
+				"    engine: mysql",
+				"    version: \"8.0\"",
+				"    port: 3306",
+				"",
+			}, "\n"),
+			wantErr: "tools.database is no longer supported",
+		},
+		{
+			name: "tools database scalar",
+			config: strings.Join([]string{
+				"tools:",
+				"  database: \"8.0\"",
+				"",
+			}, "\n"),
+			wantErr: "tools.database is no longer supported",
+		},
+		{
+			name: "orphan mailpit settings",
+			config: strings.Join([]string{
+				"settings:",
+				"  mailpit:",
+				"    ui-port: 8025",
+				"",
+			}, "\n"),
+			wantErr: "settings.mailpit requires tools.mailpit",
+		},
+		{
+			name: "orphan phpmyadmin settings",
+			config: strings.Join([]string{
+				"settings:",
+				"  phpmyadmin:",
+				"    port: 8082",
+				"",
+			}, "\n"),
+			wantErr: "settings.phpmyadmin requires tools.phpmyadmin",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			projectDir := t.TempDir()
+			store := NewProjectStore(projectDir)
+			if err := os.WriteFile(store.ConfigFile, []byte("version: 1\nroot: .polka\n"), 0o644); err != nil {
+				t.Fatalf("WriteFile(project config) error = %v", err)
+			}
+			if err := os.WriteFile(store.environmentConfigFile("data"), []byte(test.config), 0o644); err != nil {
+				t.Fatalf("WriteFile(config) error = %v", err)
+			}
 
-	environment, ok, err := store.readEnvironment("data")
-	if err != nil {
-		t.Fatalf("readEnvironment(data) error = %v", err)
-	}
-	if !ok {
-		t.Fatal("readEnvironment(data) ok = false, want true")
-	}
-	if environment.Database == nil || environment.Database.Engine != toolMySQL || environment.Database.Version != "8.0" || environment.Database.Port != 3306 {
-		t.Fatalf("environment.Database = %#v, want mysql 8.0 on port 3306", environment.Database)
+			_, _, err := store.readEnvironment("data")
+			if err == nil {
+				t.Fatal("readEnvironment(data) error = nil, want schema error")
+			}
+			if !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("readEnvironment(data) error = %v, want %q", err, test.wantErr)
+			}
+		})
 	}
 }
 
