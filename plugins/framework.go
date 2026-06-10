@@ -144,7 +144,7 @@ func frameworkDefaults(id, docroot string, includeComposerNodeAndMailpit bool) c
 			Version: defaultPHPMyAdminVersion,
 			Port:    defaultPHPMyAdminPort,
 		},
-		PHPExtensions: frameworkPHPExtensions(),
+		PHPExtensions: frameworkPHPExtensions(id),
 	}
 	if includeComposerNodeAndMailpit {
 		environment.ComposerVersion = defaultComposerVersion
@@ -159,15 +159,88 @@ func frameworkDefaults(id, docroot string, includeComposerNodeAndMailpit bool) c
 	return environment
 }
 
-func frameworkPHPExtensions() map[string]bool {
-	return map[string]bool{
-		"gd":        true,
-		"mbstring":  true,
-		"mysqli":    true,
-		"opcache":   true,
-		"pdo_mysql": true,
-		"zip":       true,
+func frameworkPHPExtensions(id string) map[string]bool {
+	switch strings.ToLower(strings.TrimSpace(id)) {
+	case Drupal:
+		return phpExtensionMap(
+			"curl",
+			"dom",
+			"fileinfo",
+			"gd",
+			"intl",
+			"mbstring",
+			"mysqli",
+			"opcache",
+			"openssl",
+			"pdo_mysql",
+			"pdo_sqlite",
+			"simplexml",
+			"sqlite3",
+			"xmlreader",
+			"xsl",
+			"zip",
+			"zlib",
+		)
+	case Laravel:
+		return phpExtensionMap(
+			"bcmath",
+			"curl",
+			"dom",
+			"fileinfo",
+			"gd",
+			"intl",
+			"mbstring",
+			"mysqli",
+			"opcache",
+			"openssl",
+			"pdo_mysql",
+			"pdo_sqlite",
+			"simplexml",
+			"sqlite3",
+			"xmlreader",
+			"xsl",
+			"zip",
+		)
+	case WordPress:
+		return phpExtensionMap(
+			"bcmath",
+			"curl",
+			"dom",
+			"exif",
+			"fileinfo",
+			"ftp",
+			"gd",
+			"iconv",
+			"intl",
+			"mbstring",
+			"mysqli",
+			"opcache",
+			"openssl",
+			"pdo_mysql",
+			"shmop",
+			"simplexml",
+			"sockets",
+			"sodium",
+			"xmlreader",
+			"xsl",
+			"zip",
+			"zlib",
+		)
+	default:
+		return phpExtensionMap("curl", "fileinfo", "gd", "mbstring", "mysqli", "opcache", "openssl", "pdo_mysql", "zip")
 	}
+}
+
+func phpExtensionMap(names ...string) map[string]bool {
+	extensions := make(map[string]bool, len(names))
+	for _, name := range names {
+		normalized := strings.ToLower(strings.TrimSpace(name))
+		if normalized != "" {
+			extensions[normalized] = true
+		}
+	}
+
+	return extensions
 }
 
 func frameworkDatabaseRuntimeEnv(ctx RuntimeEnvContext, includeLaravelConnection bool) map[string]string {

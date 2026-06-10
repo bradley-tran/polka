@@ -41,6 +41,25 @@ func TestFrameworkDefaultsUseExpectedPresetMatrix(t *testing.T) {
 	if drupalDefaults.Framework != Drupal || drupalDefaults.Docroot != "web" || drupalDefaults.ComposerVersion != "2.8" || drupalDefaults.NodeJSVersion != "24" || drupalDefaults.Mailpit == nil {
 		t.Fatalf("Drupal defaults = %#v, want full Drupal preset", drupalDefaults)
 	}
+	assertExtensionsEnabled(t, drupalDefaults.PHPExtensions, []string{
+		"curl",
+		"dom",
+		"fileinfo",
+		"gd",
+		"intl",
+		"mbstring",
+		"mysqli",
+		"opcache",
+		"openssl",
+		"pdo_mysql",
+		"pdo_sqlite",
+		"simplexml",
+		"sqlite3",
+		"xmlreader",
+		"xsl",
+		"zip",
+		"zlib",
+	})
 
 	laravel, ok := registry.Framework(Laravel)
 	if !ok {
@@ -50,6 +69,25 @@ func TestFrameworkDefaultsUseExpectedPresetMatrix(t *testing.T) {
 	if laravelDefaults.Framework != Laravel || laravelDefaults.Docroot != "public" || laravelDefaults.ComposerVersion != "2.8" || laravelDefaults.NodeJSVersion != "24" || laravelDefaults.Mailpit == nil {
 		t.Fatalf("Laravel defaults = %#v, want full Laravel preset", laravelDefaults)
 	}
+	assertExtensionsEnabled(t, laravelDefaults.PHPExtensions, []string{
+		"bcmath",
+		"curl",
+		"dom",
+		"fileinfo",
+		"gd",
+		"intl",
+		"mbstring",
+		"mysqli",
+		"opcache",
+		"openssl",
+		"pdo_mysql",
+		"pdo_sqlite",
+		"simplexml",
+		"sqlite3",
+		"xmlreader",
+		"xsl",
+		"zip",
+	})
 
 	wordpress, ok := registry.Framework(WordPress)
 	if !ok {
@@ -61,6 +99,40 @@ func TestFrameworkDefaultsUseExpectedPresetMatrix(t *testing.T) {
 	}
 	if wordpressDefaults.PHPVersion != "8.4" || wordpressDefaults.NginxVersion != "1.30" || wordpressDefaults.MariaDBVersion != "11.8" || wordpressDefaults.PHPMyAdmin == nil {
 		t.Fatalf("WordPress defaults = %#v, want PHP/nginx/MariaDB/phpMyAdmin", wordpressDefaults)
+	}
+	assertExtensionsEnabled(t, wordpressDefaults.PHPExtensions, []string{
+		"bcmath",
+		"curl",
+		"dom",
+		"exif",
+		"fileinfo",
+		"ftp",
+		"gd",
+		"iconv",
+		"intl",
+		"mbstring",
+		"mysqli",
+		"opcache",
+		"openssl",
+		"pdo_mysql",
+		"shmop",
+		"simplexml",
+		"sockets",
+		"sodium",
+		"xmlreader",
+		"xsl",
+		"zip",
+		"zlib",
+	})
+}
+
+func assertExtensionsEnabled(t *testing.T, extensions map[string]bool, expected []string) {
+	t.Helper()
+
+	for _, extension := range expected {
+		if !extensions[extension] {
+			t.Fatalf("php-extensions = %#v, want %s enabled", extensions, extension)
+		}
 	}
 }
 
