@@ -601,7 +601,7 @@ func installRequestsIncludeTool(requests []tools.InstallRequest, tool string) bo
 }
 
 func (s Store) installRequests(environment Environment, requests []tools.InstallRequest, report func(InstallProgress)) ([]InstallResult, error) {
-	installEnvironment := s.withFrameworkOPcacheConfig(environment)
+	installEnvironment := s.withFrameworkPHPConfig(environment)
 	installPHPConfig := tools.EffectivePHPConfigForInstall(installEnvironment)
 	registry := s.toolRegistry()
 
@@ -695,6 +695,36 @@ func (s Store) installRequests(environment Environment, requests []tools.Install
 	}
 
 	return results, nil
+}
+
+func (s Store) withFrameworkPHPConfig(environment Environment) Environment {
+	environment = s.withFrameworkPHPExtensions(environment)
+	return s.withFrameworkOPcacheConfig(environment)
+}
+
+func (s Store) withFrameworkPHPExtensions(environment Environment) Environment {
+	if strings.TrimSpace(environment.Framework) == "" {
+		return environment
+	}
+	plugin, ok := s.FrameworkPlugin(environment.Framework)
+	if !ok {
+		return environment
+	}
+	frameworkExtensions := plugin.PHPExtensions()
+	if len(frameworkExtensions) == 0 {
+		return environment
+	}
+
+	merged := make(map[string]bool, len(frameworkExtensions)+len(environment.PHPExtensions))
+	for name, enabled := range frameworkExtensions {
+		merged[name] = enabled
+	}
+	for name, enabled := range environment.PHPExtensions {
+		merged[name] = enabled
+	}
+	environment.PHPExtensions = config.NormalizePHPExtensions(merged)
+
+	return environment
 }
 
 func (s Store) withFrameworkOPcacheConfig(environment Environment) Environment {

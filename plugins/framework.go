@@ -70,6 +70,7 @@ type NginxConfigResult struct {
 type FrameworkPlugin interface {
 	ID() string
 	Defaults() config.Environment
+	PHPExtensions() map[string]bool
 	OPcacheConfig() map[string]string
 	RuntimeEnv(RuntimeEnvContext) map[string]string
 	NginxConfig(NginxConfigContext) (NginxConfigResult, bool, error)
@@ -78,6 +79,7 @@ type FrameworkPlugin interface {
 type builtinFrameworkPlugin struct {
 	id            string
 	defaults      func() config.Environment
+	phpExtensions func() map[string]bool
 	opcacheConfig func() map[string]string
 	runtimeEnv    func(RuntimeEnvContext) map[string]string
 	nginx         func(NginxConfigContext) (NginxConfigResult, bool, error)
@@ -99,6 +101,9 @@ func newFrameworkPlugin(id, docroot string, includeComposerNodeAndMailpit bool) 
 		defaults: func() config.Environment {
 			return frameworkDefaults(id, docroot, includeComposerNodeAndMailpit)
 		},
+		phpExtensions: func() map[string]bool {
+			return frameworkPHPExtensions(id)
+		},
 		opcacheConfig: func() map[string]string {
 			return frameworkOPcacheConfig(id)
 		},
@@ -118,6 +123,14 @@ func (p builtinFrameworkPlugin) Defaults() config.Environment {
 	}
 
 	return config.NormalizeEnvironment("", p.defaults())
+}
+
+func (p builtinFrameworkPlugin) PHPExtensions() map[string]bool {
+	if p.phpExtensions == nil {
+		return nil
+	}
+
+	return copyBoolMap(p.phpExtensions())
 }
 
 func (p builtinFrameworkPlugin) OPcacheConfig() map[string]string {
@@ -160,7 +173,6 @@ func frameworkDefaults(id, docroot string, includeComposerNodeAndMailpit bool) c
 			Version: defaultPHPMyAdminVersion,
 			Port:    defaultPHPMyAdminPort,
 		},
-		PHPExtensions: frameworkPHPExtensions(id),
 		OPcachePreset: config.OPcachePresetDev,
 		OPcacheConfig: frameworkOPcacheConfig(id),
 	}
@@ -290,6 +302,19 @@ func phpExtensionMap(names ...string) map[string]bool {
 	}
 
 	return extensions
+}
+
+func copyBoolMap(values map[string]bool) map[string]bool {
+	if len(values) == 0 {
+		return nil
+	}
+
+	copied := make(map[string]bool, len(values))
+	for key, value := range values {
+		copied[key] = value
+	}
+
+	return copied
 }
 
 func copyStringMap(values map[string]string) map[string]string {

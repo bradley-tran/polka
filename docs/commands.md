@@ -24,7 +24,7 @@ polka init laravel
 polka init symfony
 ```
 
-When `framework` is `drupal`, `wordpress`, `laravel`, or `symfony`, Polka writes an opinionated default config with a top-level `framework` key, framework docroot, managed tool versions, database settings, phpMyAdmin settings, and a default PHP extension set based on current framework requirements and recommendations. Framework init is config-only: it does not create project files, run Composer, install tools, or start services. It fails if `polka.yaml` already exists.
+When `framework` is `drupal`, `wordpress`, `laravel`, or `symfony`, Polka writes an opinionated default config with a top-level `framework` key, framework docroot, managed tool versions, database settings, and phpMyAdmin settings. Framework init is config-only: it does not create project files, run Composer, install tools, write default PHP extension config, or start services. It fails if `polka.yaml` already exists.
 
 Drupal, Laravel, and Symfony presets use `web`, `public`, and `public` docroots respectively, and include PHP, Composer, Node.js, nginx, MariaDB, phpMyAdmin, and Mailpit. The WordPress preset uses the project root as docroot and includes PHP, nginx, MariaDB, and phpMyAdmin.
 
@@ -213,7 +213,7 @@ The `phpmyadmin` tool key installs the phpMyAdmin web app archive under `.polka/
 
 The `mailpit` tool key installs Mailpit and creates a `mailpit` command shim. Its SMTP and UI port settings live under `settings.mailpit`.
 
-When an environment defines `php-extensions`, `opcache-preset`, or `opcache-config`, `polka install` writes a generated `php.ini` next to the installed PHP executable. `php-extensions` explicitly enables or disables extensions. Before writing `php.ini`, Polka checks `php -nm` and skips extensions that are already built into that PHP binary. If `composer` is configured for that environment, `openssl` and `zip` are enabled by default unless `php-extensions` explicitly sets either one to `false`.
+When an environment defines `php-extensions`, `opcache-preset`, `opcache-config`, or a framework with generated PHP defaults, `polka install` writes a generated `php.ini` next to the installed PHP executable. Framework PHP extension defaults are applied during install, and user-defined `php-extensions` entries override them, including `false` values that disable a framework default. Before writing `php.ini`, Polka checks `php -nm` and skips extensions that are already built into that PHP binary. If `composer` is configured for that environment, `openssl` and `zip` are enabled by default unless the effective `php-extensions` config explicitly sets either one to `false`.
 
 `opcache-preset` may be omitted, `none`, `dev`, or `production`. `dev` enables OPcache with timestamp validation and immediate revalidation. `production` enables OPcache with timestamp validation disabled. `opcache-config` accepts `opcache.*` directives and is applied over the preset; framework-provided directives, such as Drupal's `opcache.save_comments = 1`, sit between the preset and user config. Re-run `polka install` after changing PHP extension or OPcache settings.
 

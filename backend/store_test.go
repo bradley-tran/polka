@@ -565,6 +565,88 @@ func TestStoreInstallAppliesOPcachePresetFrameworkAndUserConfig(t *testing.T) {
 	}
 }
 
+func TestStoreInstallAppliesFrameworkPHPExtensionsWithoutConfig(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+	writeCachedTool(t, store.CacheDir, toolPHP, "8.4")
+
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{
+		Framework:  "drupal",
+		PHPVersion: "8.4",
+	}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	results, err := store.Install("demo")
+	if err != nil {
+		t.Fatalf("Install(demo) error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("Install(demo) length = %d, want 1", len(results))
+	}
+
+	phpIniData, err := os.ReadFile(filepath.Join(filepath.Dir(results[0].TargetPath), "php.ini"))
+	if err != nil {
+		t.Fatalf("ReadFile(installed php.ini) error = %v", err)
+	}
+	phpIni := string(phpIniData)
+	for _, want := range []string{"extension=gd", "extension=mbstring", "extension=pdo_mysql", "zend_extension=opcache"} {
+		if !strings.Contains(phpIni, want) {
+			t.Fatalf("php.ini = %q, want framework default %s", phpIni, want)
+		}
+	}
+
+	loadedConfig, err := store.readConfig()
+	if err != nil {
+		t.Fatalf("readConfig() error = %v", err)
+	}
+	if len(loadedConfig.Environments["demo"].PHPExtensions) != 0 {
+		t.Fatalf("stored php-extensions = %#v, want framework defaults not written", loadedConfig.Environments["demo"].PHPExtensions)
+	}
+}
+
+func TestStoreInstallFrameworkPHPExtensionsHonorUserOverrides(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+	writeCachedTool(t, store.CacheDir, toolPHP, "8.4")
+
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{
+		Framework:  "drupal",
+		PHPVersion: "8.4",
+		PHPExtensions: map[string]bool{
+			"gd":     false,
+			"xdebug": true,
+		},
+	}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	results, err := store.Install("demo")
+	if err != nil {
+		t.Fatalf("Install(demo) error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("Install(demo) length = %d, want 1", len(results))
+	}
+
+	phpIniData, err := os.ReadFile(filepath.Join(filepath.Dir(results[0].TargetPath), "php.ini"))
+	if err != nil {
+		t.Fatalf("ReadFile(installed php.ini) error = %v", err)
+	}
+	phpIni := string(phpIniData)
+	for _, want := range []string{";extension=gd", "extension=mbstring", "extension=xdebug"} {
+		if !strings.Contains(phpIni, want) {
+			t.Fatalf("php.ini = %q, want merged extension entry %s", phpIni, want)
+		}
+	}
+}
+
 func TestStoreFrameworkOPcacheConfigHonorsUserOverrides(t *testing.T) {
 	store := NewProjectStore(t.TempDir())
 

@@ -45,7 +45,10 @@ func TestFrameworkDefaultsUseExpectedPresetMatrix(t *testing.T) {
 	if drupalDefaults.OPcachePreset != config.OPcachePresetDev || drupalDefaults.OPcacheConfig["opcache.save_comments"] != "1" {
 		t.Fatalf("Drupal OPcache defaults = %q %#v, want dev preset with save_comments", drupalDefaults.OPcachePreset, drupalDefaults.OPcacheConfig)
 	}
-	assertExtensionsEnabled(t, drupalDefaults.PHPExtensions, []string{
+	if len(drupalDefaults.PHPExtensions) != 0 {
+		t.Fatalf("Drupal defaults php-extensions = %#v, want init defaults omitted", drupalDefaults.PHPExtensions)
+	}
+	assertExtensionsEnabled(t, drupal.PHPExtensions(), []string{
 		"curl",
 		"dom",
 		"fileinfo",
@@ -76,7 +79,10 @@ func TestFrameworkDefaultsUseExpectedPresetMatrix(t *testing.T) {
 	if laravelDefaults.OPcachePreset != config.OPcachePresetDev || len(laravelDefaults.OPcacheConfig) != 0 {
 		t.Fatalf("Laravel OPcache defaults = %q %#v, want dev preset only", laravelDefaults.OPcachePreset, laravelDefaults.OPcacheConfig)
 	}
-	assertExtensionsEnabled(t, laravelDefaults.PHPExtensions, []string{
+	if len(laravelDefaults.PHPExtensions) != 0 {
+		t.Fatalf("Laravel defaults php-extensions = %#v, want init defaults omitted", laravelDefaults.PHPExtensions)
+	}
+	assertExtensionsEnabled(t, laravel.PHPExtensions(), []string{
 		"bcmath",
 		"curl",
 		"dom",
@@ -107,7 +113,10 @@ func TestFrameworkDefaultsUseExpectedPresetMatrix(t *testing.T) {
 	if symfonyDefaults.OPcachePreset != config.OPcachePresetDev || len(symfonyDefaults.OPcacheConfig) != 0 {
 		t.Fatalf("Symfony OPcache defaults = %q %#v, want dev preset only", symfonyDefaults.OPcachePreset, symfonyDefaults.OPcacheConfig)
 	}
-	assertExtensionsEnabled(t, symfonyDefaults.PHPExtensions, []string{
+	if len(symfonyDefaults.PHPExtensions) != 0 {
+		t.Fatalf("Symfony defaults php-extensions = %#v, want init defaults omitted", symfonyDefaults.PHPExtensions)
+	}
+	assertExtensionsEnabled(t, symfony.PHPExtensions(), []string{
 		"ctype",
 		"curl",
 		"dom",
@@ -143,7 +152,10 @@ func TestFrameworkDefaultsUseExpectedPresetMatrix(t *testing.T) {
 	if wordpressDefaults.OPcachePreset != config.OPcachePresetDev || len(wordpressDefaults.OPcacheConfig) != 0 {
 		t.Fatalf("WordPress OPcache defaults = %q %#v, want dev preset only", wordpressDefaults.OPcachePreset, wordpressDefaults.OPcacheConfig)
 	}
-	assertExtensionsEnabled(t, wordpressDefaults.PHPExtensions, []string{
+	if len(wordpressDefaults.PHPExtensions) != 0 {
+		t.Fatalf("WordPress defaults php-extensions = %#v, want init defaults omitted", wordpressDefaults.PHPExtensions)
+	}
+	assertExtensionsEnabled(t, wordpress.PHPExtensions(), []string{
 		"bcmath",
 		"curl",
 		"dom",

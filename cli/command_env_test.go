@@ -154,10 +154,15 @@ func TestRunInitWithFrameworkWritesDefaultPreset(t *testing.T) {
 			} else if len(environment.OPcacheConfig) != 0 {
 				t.Fatalf("opcache-config = %#v, want no framework-specific OPcache config", environment.OPcacheConfig)
 			}
-			for _, extension := range []string{"gd", "mbstring", "mysqli", "opcache", "pdo_mysql", "zip"} {
-				if !environment.PHPExtensions[extension] {
-					t.Fatalf("php-extensions = %#v, want %s enabled", environment.PHPExtensions, extension)
-				}
+			if len(environment.PHPExtensions) != 0 {
+				t.Fatalf("php-extensions = %#v, want framework init to omit default extensions", environment.PHPExtensions)
+			}
+			configData, err := os.ReadFile(filepath.Join(projectDir, "polka.yaml"))
+			if err != nil {
+				t.Fatalf("ReadFile(polka.yaml) error = %v", err)
+			}
+			if strings.Contains(string(configData), "php-extensions:") {
+				t.Fatalf("polka.yaml = %q, want no default php-extensions block", string(configData))
 			}
 			if _, err := os.Stat(filepath.Join(root, "bin", "php.cmd")); err != nil {
 				t.Fatalf("Stat(php shim) error = %v", err)
