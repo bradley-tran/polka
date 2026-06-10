@@ -16,6 +16,7 @@ import (
 	"github.com/goccy/go-yaml"
 
 	"polka/config"
+	"polka/plugins"
 	"polka/tools"
 )
 
@@ -75,6 +76,7 @@ type Store struct {
 	CacheDir   string
 	Downloader ToolDownloader
 	Plugins    *ToolRegistry
+	Registry   *PluginRegistry
 }
 
 func DefaultStore() (Store, error) {
@@ -198,6 +200,7 @@ func newStore(projectDir, root string) Store {
 		ConfigFile: filepath.Join(cleanProjectDir, configFileName),
 		CacheDir:   defaultCacheDir(cleanProjectDir),
 		Plugins:    NewDefaultToolRegistry(),
+		Registry:   NewDefaultPluginRegistry(),
 	}
 }
 
@@ -205,8 +208,52 @@ func (s Store) toolRegistry() *ToolRegistry {
 	if s.Plugins != nil {
 		return s.Plugins
 	}
+	if s.Registry != nil {
+		return s.Registry.ToolRegistry()
+	}
 
 	return NewDefaultToolRegistry()
+}
+
+func (s Store) pluginRegistry() *PluginRegistry {
+	if s.Registry != nil {
+		return s.Registry
+	}
+	registry, err := plugins.NewRegistry(s.toolRegistry(), plugins.DefaultFrameworkPlugins()...)
+	if err != nil {
+		panic(err)
+	}
+
+	return registry
+}
+
+// SupportedFrameworks returns the built-in framework IDs supported by this store.
+func (s Store) SupportedFrameworks() []string {
+	return s.pluginRegistry().SupportedFrameworks()
+}
+
+// FrameworkPlugin resolves a built-in framework plugin by ID.
+func (s Store) FrameworkPlugin(id string) (FrameworkPlugin, bool) {
+	return s.pluginRegistry().Framework(id)
+}
+
+// FrameworkDefaults returns a validated default environment for a framework.
+func (s Store) FrameworkDefaults(id string) (Environment, error) {
+	frameworkID := strings.ToLower(strings.TrimSpace(id))
+	if err := s.pluginRegistry().ValidateFramework(frameworkID); err != nil {
+		return Environment{}, err
+	}
+	plugin, ok := s.pluginRegistry().Framework(frameworkID)
+	if !ok {
+		return Environment{}, fmt.Errorf("unsupported framework %q; supported frameworks: %s", id, strings.Join(s.SupportedFrameworks(), ", "))
+	}
+
+	environment := s.normalizeEnvironment(defaultEnvironmentName, plugin.Defaults())
+	if err := s.toolRegistry().ValidateEnvironment(environment); err != nil {
+		return Environment{}, err
+	}
+
+	return environment, nil
 }
 
 func resolveConfiguredRootDir(projectDir, configuredRoot string) string {
@@ -233,6 +280,29 @@ func pathsEqual(left, right string) bool {
 }
 
 func (s Store) Init() error {
+	return s.init("")
+}
+
+// InitWithFramework initializes a project from a built-in framework preset.
+func (s Store) InitWithFramework(framework string) error {
+	return s.init(framework)
+}
+
+func (s Store) init(framework string) error {
+	var preset *Environment
+	if strings.TrimSpace(framework) != "" {
+		environment, err := s.FrameworkDefaults(framework)
+		if err != nil {
+			return err
+		}
+		if _, err := os.Stat(s.ConfigFile); err == nil {
+			return fmt.Errorf("config file %s already exists; framework init would overwrite it", s.ConfigFile)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("stat config file: %w", err)
+		}
+		preset = &environment
+	}
+
 	if err := os.MkdirAll(s.EnvsDir, 0o755); err != nil {
 		return fmt.Errorf("create environment root: %w", err)
 	}
@@ -242,7 +312,11 @@ func (s Store) Init() error {
 
 	if _, err := s.readConfig(); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			if err := s.writeConfig(s.defaultConfig()); err != nil {
+			config := s.defaultConfig()
+			if preset != nil {
+				config.Environments[defaultEnvironmentName] = *preset
+			}
+			if err := s.writeConfig(config); err != nil {
 				return fmt.Errorf("write config file: %w", err)
 			}
 		} else {
@@ -942,7 +1016,12 @@ func (s Store) readProjectFile() (config.ProjectFile, Environment, error) {
 		return config.ProjectFile{}, Environment{}, fmt.Errorf("decode config file: %w", err)
 	}
 
-	return projectFile, config.ProjectFileToEnvironment(defaultEnvironmentName, projectFile), nil
+	environment := config.ProjectFileToEnvironment(defaultEnvironmentName, projectFile)
+	if err := s.validateEnvironmentFramework(environment); err != nil {
+		return config.ProjectFile{}, Environment{}, fmt.Errorf("decode config file: %w", err)
+	}
+
+	return projectFile, environment, nil
 }
 
 func (s Store) readNamedEnvironmentFile(name string) (Environment, error) {
@@ -972,7 +1051,16 @@ func (s Store) readNamedEnvironmentFile(name string) (Environment, error) {
 		return Environment{}, fmt.Errorf("decode config file %s: %w", path, err)
 	}
 
-	return config.EnvironmentFileToEnvironment(name, environmentFile), nil
+	environment := config.EnvironmentFileToEnvironment(name, environmentFile)
+	if err := s.validateEnvironmentFramework(environment); err != nil {
+		return Environment{}, fmt.Errorf("decode config file %s: %w", path, err)
+	}
+
+	return environment, nil
+}
+
+func (s Store) validateEnvironmentFramework(environment Environment) error {
+	return s.pluginRegistry().ValidateFramework(environment.Framework)
 }
 
 func (s Store) writeConfig(loadedConfig Config) error {

@@ -239,6 +239,55 @@ func TestStoreRejectsLegacyEnvironmentsConfig(t *testing.T) {
 	}
 }
 
+func TestStoreReadsAndWritesFrameworkConfig(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+
+	config := store.defaultConfig()
+	config.Environments[defaultEnvironmentName] = Environment{Framework: "Drupal", PHPVersion: "8.4"}
+	config.Environments["app"] = Environment{Framework: "Laravel", PHPVersion: "8.4"}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	projectConfig, err := os.ReadFile(store.ConfigFile)
+	if err != nil {
+		t.Fatalf("ReadFile(project config) error = %v", err)
+	}
+	if !strings.Contains(string(projectConfig), "framework: drupal") {
+		t.Fatalf("project config = %q, want normalized default framework", string(projectConfig))
+	}
+	appConfig, err := os.ReadFile(store.environmentConfigFile("app"))
+	if err != nil {
+		t.Fatalf("ReadFile(app config) error = %v", err)
+	}
+	if !strings.Contains(string(appConfig), "framework: laravel") {
+		t.Fatalf("app config = %q, want normalized named framework", string(appConfig))
+	}
+
+	loaded, err := store.readConfig()
+	if err != nil {
+		t.Fatalf("readConfig() error = %v", err)
+	}
+	if loaded.Environments[defaultEnvironmentName].Framework != "drupal" || loaded.Environments["app"].Framework != "laravel" {
+		t.Fatalf("frameworks = default:%q app:%q, want normalized framework IDs", loaded.Environments[defaultEnvironmentName].Framework, loaded.Environments["app"].Framework)
+	}
+}
+
+func TestStoreRejectsUnknownFrameworkConfig(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	if err := os.WriteFile(store.ConfigFile, []byte("version: 1\nroot: .polka\nframework: symfony\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+
+	if _, err := store.readConfig(); err == nil {
+		t.Fatal("readConfig() error = nil, want unsupported framework error")
+	} else if !strings.Contains(err.Error(), "unsupported framework") || !strings.Contains(err.Error(), "drupal, laravel, wordpress") {
+		t.Fatalf("readConfig() error = %v, want supported framework list", err)
+	}
+}
+
 func TestStoreRemoveRejectsDefaultEnvironment(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)

@@ -38,7 +38,8 @@ type InstallResult struct {
 	Downloaded bool
 }
 
-type Plugin interface {
+// ToolPlugin describes an installable managed tool and its command dispatch behavior.
+type ToolPlugin interface {
 	ID() string
 	Version(config.Environment) string
 	Validate(config.Environment) error
@@ -51,19 +52,22 @@ type Plugin interface {
 	PostInstall(InstallContext) error
 }
 
+// Plugin is kept as a compatibility alias for older backend-facing tests and helpers.
+type Plugin = ToolPlugin
+
 type Registry struct {
-	plugins []Plugin
-	byID    map[string]Plugin
+	plugins []ToolPlugin
+	byID    map[string]ToolPlugin
 }
 
 type DispatchRequest struct {
 	ConfigTool string
 	Executable string
-	Plugin     Plugin
+	Plugin     ToolPlugin
 }
 
-func NewRegistry(plugins ...Plugin) (*Registry, error) {
-	registry := &Registry{byID: map[string]Plugin{}}
+func NewRegistry(plugins ...ToolPlugin) (*Registry, error) {
+	registry := &Registry{byID: map[string]ToolPlugin{}}
 	for _, plugin := range plugins {
 		if err := registry.Register(plugin); err != nil {
 			return nil, err
@@ -82,12 +86,12 @@ func NewDefaultRegistry() *Registry {
 	return registry
 }
 
-func (r *Registry) Register(plugin Plugin) error {
+func (r *Registry) Register(plugin ToolPlugin) error {
 	if plugin == nil {
 		return fmt.Errorf("tool plugin cannot be nil")
 	}
 	if r.byID == nil {
-		r.byID = map[string]Plugin{}
+		r.byID = map[string]ToolPlugin{}
 	}
 
 	id := strings.ToLower(strings.TrimSpace(plugin.ID()))
@@ -106,17 +110,17 @@ func (r *Registry) Register(plugin Plugin) error {
 	return nil
 }
 
-func (r *Registry) Plugins() []Plugin {
+func (r *Registry) Plugins() []ToolPlugin {
 	if r == nil {
 		return nil
 	}
 
-	plugins := make([]Plugin, len(r.plugins))
+	plugins := make([]ToolPlugin, len(r.plugins))
 	copy(plugins, r.plugins)
 	return plugins
 }
 
-func (r *Registry) Plugin(id string) (Plugin, bool) {
+func (r *Registry) Plugin(id string) (ToolPlugin, bool) {
 	if r == nil {
 		return nil, false
 	}
@@ -210,7 +214,7 @@ func (r *Registry) CleanupCommandNames() []string {
 		return nil
 	}
 
-	return uniqueToolCommands(r.plugins, func(plugin Plugin) []string {
+	return uniqueToolCommands(r.plugins, func(plugin ToolPlugin) []string {
 		return plugin.CleanupCommands()
 	})
 }
@@ -220,12 +224,12 @@ func (r *Registry) ActiveCommandNames(environment *config.Environment) []string 
 		return nil
 	}
 
-	return uniqueToolCommands(r.plugins, func(plugin Plugin) []string {
+	return uniqueToolCommands(r.plugins, func(plugin ToolPlugin) []string {
 		return plugin.ActiveCommands(*environment)
 	})
 }
 
-func uniqueToolCommands(plugins []Plugin, commandList func(Plugin) []string) []string {
+func uniqueToolCommands(plugins []ToolPlugin, commandList func(ToolPlugin) []string) []string {
 	seen := map[string]bool{}
 	commands := []string{}
 	for _, plugin := range plugins {

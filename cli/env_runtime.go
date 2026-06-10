@@ -12,6 +12,7 @@ import (
 	"unicode"
 
 	"polka/backend"
+	"polka/plugins"
 )
 
 const defaultProjectEnvFileName = ".env"
@@ -52,12 +53,72 @@ func resolveRuntimeEnvironment(goos string, inherited []string, store backend.St
 		}
 	}
 
+	frameworkValues, err := frameworkRuntimeEnvironmentVariables(store, *current)
+	if err != nil {
+		return nil, err
+	}
+	resolved, err = overlayEnvironmentVariables(goos, resolved, frameworkValues)
+	if err != nil {
+		return nil, fmt.Errorf("load framework env-vars for environment %q: %w", current.Name, err)
+	}
+
 	resolved, err = overlayEnvironmentVariables(goos, resolved, current.EnvVars)
 	if err != nil {
 		return nil, fmt.Errorf("load configured env-vars for environment %q: %w", current.Name, err)
 	}
 
 	return resolved, nil
+}
+
+func frameworkRuntimeEnvironmentVariables(store backend.Store, environment backend.Environment) (map[string]string, error) {
+	if strings.TrimSpace(environment.Framework) == "" {
+		return nil, nil
+	}
+
+	plugin, ok := store.FrameworkPlugin(environment.Framework)
+	if !ok {
+		return nil, fmt.Errorf("unsupported framework %q; supported frameworks: %s", environment.Framework, strings.Join(store.SupportedFrameworks(), ", "))
+	}
+	credentials, err := frameworkDatabaseCredentials(store.RootDir, environment)
+	if err != nil {
+		return nil, err
+	}
+
+	return plugin.RuntimeEnv(plugins.RuntimeEnvContext{
+		Environment: environment,
+		Database:    credentials,
+	}), nil
+}
+
+func frameworkDatabaseCredentials(rootDir string, environment backend.Environment) (*plugins.DatabaseCredentials, error) {
+	if environment.Database == nil || strings.TrimSpace(environment.Database.Engine) == "" {
+		return nil, nil
+	}
+
+	credentials, err := backend.LoadManagedDatabaseCredentials(backend.DatabaseCredentialStatePath(rootDir, environment.Name))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	port := credentials.Port
+	if port == 0 {
+		port = backend.EffectiveDatabasePort(environment.Database)
+	}
+	databaseName := strings.TrimSpace(credentials.DatabaseName)
+	if databaseName == "" {
+		databaseName = environment.Name
+	}
+
+	return &plugins.DatabaseCredentials{
+		Host:         backend.DatabaseListenHost,
+		Port:         port,
+		DatabaseName: databaseName,
+		User:         credentials.User,
+		Password:     credentials.Password,
+	}, nil
 }
 
 func resolveConfiguredEnvironmentFilePath(projectDir, configuredPath string) string {

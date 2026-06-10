@@ -14,7 +14,9 @@ go run . use blog
 go run . exec php -v
 ```
 
-That creates `polka.yaml`, adds a named `blog` environment in `polka.blog.yaml`, installs its configured tools into `.polka/envs`, selects it as the active environment, and runs PHP through Polka's local command resolution. To install a single tool version directly, use a `tool:version` argument such as `go run . install php:8.4`.
+`go run . init` creates `polka.yaml` and local helper scripts. Use `go run . init laravel` instead to write a config-only Laravel preset; `drupal` and `wordpress` are also supported. Framework init does not create app files, install tools, or start services, and it fails when `polka.yaml` already exists.
+
+The remaining commands add a named `blog` environment in `polka.blog.yaml`, install its configured tools into `.polka/envs`, select it as the active environment, and run PHP through Polka's local command resolution. To install a single tool version directly, use a `tool:version` argument such as `go run . install php:8.4`.
 
 Start a local web server when your project has a document root:
 
@@ -40,6 +42,7 @@ Polka config files store portable version labels under `tools` and non-version t
 # polka.yaml
 version: 0.1
 root: .polka
+framework: laravel
 https: true
 tools:
   php: 8.4

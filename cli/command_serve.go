@@ -24,6 +24,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"polka/backend"
+	"polka/plugins"
 )
 
 const (
@@ -344,7 +345,7 @@ func runNginxServe(stdout, stderr io.Writer, store backend.Store, environment ba
 	}
 
 	runtimeDir := serveRuntimeDir(store.RootDir, environment.Name)
-	configPath, phpLogPath, err := prepareNginxServeRuntime(store.CacheDir, runtimeDir, endpoint, layout, backendAddress)
+	configPath, phpLogPath, err := prepareNginxServeRuntime(store.CacheDir, runtimeDir, environment, endpoint, layout, backendAddress)
 	if err != nil {
 		return 0, err
 	}
@@ -407,7 +408,7 @@ func startNginxServeInBackgroundAt(store backend.Store, environment backend.Envi
 		return serveRuntimeState{}, err
 	}
 
-	configPath, phpLogPath, err := prepareNginxServeRuntime(store.CacheDir, runtimeDir, endpoint, layout, backendAddress)
+	configPath, phpLogPath, err := prepareNginxServeRuntime(store.CacheDir, runtimeDir, environment, endpoint, layout, backendAddress)
 	if err != nil {
 		return serveRuntimeState{}, err
 	}
@@ -745,7 +746,7 @@ func renderPHPRuntimeRouter(layout serveAppLayout) []byte {
 	return []byte(builder.String())
 }
 
-func prepareNginxServeRuntime(cacheDir, runtimeDir string, endpoint serverEndpoint, layout serveAppLayout, backendAddress string) (string, string, error) {
+func prepareNginxServeRuntime(cacheDir, runtimeDir string, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout, backendAddress string) (string, string, error) {
 	tempRoot := filepath.Join(runtimeDir, "temp")
 	logsDir := filepath.Join(runtimeDir, "logs")
 	tempDirs := []string{
@@ -784,12 +785,50 @@ func prepareNginxServeRuntime(cacheDir, runtimeDir string, endpoint serverEndpoi
 
 	configPath := filepath.Join(runtimeDir, "nginx.conf")
 	phpLogPath := filepath.Join(runtimeDir, "php.log")
-	config := renderNginxServeConfig(host, port, layout, backendAddress, tlsConfig)
+	config, err := renderFrameworkNginxServeConfig(environment, host, port, layout, backendAddress, tlsConfig)
+	if err != nil {
+		return "", "", err
+	}
+	if config == nil {
+		config = renderNginxServeConfig(host, port, layout, backendAddress, tlsConfig)
+	}
 	if err := os.WriteFile(configPath, config, 0o644); err != nil {
 		return "", "", fmt.Errorf("write nginx config: %w", err)
 	}
 
 	return configPath, phpLogPath, nil
+}
+
+func renderFrameworkNginxServeConfig(environment backend.Environment, host string, port int, layout serveAppLayout, backendAddress string, tlsConfig nginxTLSConfig) ([]byte, error) {
+	if strings.TrimSpace(environment.Framework) == "" {
+		return nil, nil
+	}
+
+	plugin, ok := backend.NewDefaultPluginRegistry().Framework(environment.Framework)
+	if !ok {
+		return nil, fmt.Errorf("unsupported framework %q", environment.Framework)
+	}
+	result, handled, err := plugin.NginxConfig(plugins.NginxConfigContext{
+		Environment:           environment,
+		Host:                  host,
+		Port:                  port,
+		Docroot:               layout.Docroot,
+		IndexNames:            renderNginxIndexNames(layout),
+		TryFilesFallback:      renderNginxTryFilesFallback(layout),
+		FastCGIIndex:          renderNginxFastCGIIndex(layout),
+		BackendAddress:        backendAddress,
+		TLSEnabled:            tlsConfig.Enabled,
+		TLSCertificatePath:    tlsConfig.CertificatePath,
+		TLSCertificateKeyPath: tlsConfig.CertificateKeyPath,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !handled {
+		return nil, nil
+	}
+
+	return result.Config, nil
 }
 
 func renderNginxServeConfig(host string, port int, layout serveAppLayout, backendAddress string, tlsConfig nginxTLSConfig) []byte {

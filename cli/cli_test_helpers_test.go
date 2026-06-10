@@ -17,6 +17,7 @@ type testConfigFile struct {
 }
 
 type testEnvironmentConfig struct {
+	Framework     string                `yaml:"framework,omitempty"`
 	PHP           string                `yaml:"php"`
 	Composer      string                `yaml:"composer"`
 	NodeJS        string                `yaml:"nodejs,omitempty"`
@@ -64,6 +65,7 @@ type testPHPMyAdminConfig struct {
 type testProjectConfigData struct {
 	Version       int                 `yaml:"version,omitempty"`
 	Root          string              `yaml:"root,omitempty"`
+	Framework     string              `yaml:"framework,omitempty"`
 	Tools         *testToolsConfig    `yaml:"tools,omitempty"`
 	Settings      *testSettingsConfig `yaml:"settings,omitempty"`
 	Docroot       string              `yaml:"docroot,omitempty"`
@@ -76,6 +78,7 @@ type testProjectConfigData struct {
 }
 
 type testEnvironmentConfigData struct {
+	Framework     string              `yaml:"framework,omitempty"`
 	Tools         *testToolsConfig    `yaml:"tools,omitempty"`
 	Settings      *testSettingsConfig `yaml:"settings,omitempty"`
 	Docroot       string              `yaml:"docroot,omitempty"`
@@ -128,6 +131,7 @@ func writeTestConfigFile(t *testing.T, projectDir string, config testConfigFile)
 		projectConfig.Root = ".polka"
 	}
 	if defaultEnvironment, ok := config.Environments[defaultEnvironmentName]; ok {
+		projectConfig.Framework = defaultEnvironment.Framework
 		projectConfig.Tools = testToolsFromEnvironment(defaultEnvironment)
 		projectConfig.Settings = testSettingsFromEnvironment(defaultEnvironment)
 		projectConfig.Docroot = defaultEnvironment.Docroot
@@ -200,6 +204,7 @@ func writeTestEnvironmentConfig(t *testing.T, projectDir, name string, environme
 		var projectConfig testProjectConfigData
 		readTestYAML(t, filepath.Join(projectDir, "polka.yaml"), &projectConfig)
 		projectConfig.Tools = testToolsFromEnvironment(environment)
+		projectConfig.Framework = environment.Framework
 		projectConfig.Settings = testSettingsFromEnvironment(environment)
 		projectConfig.Docroot = environment.Docroot
 		projectConfig.HTTPS = environment.HTTPS
@@ -213,6 +218,7 @@ func writeTestEnvironmentConfig(t *testing.T, projectDir, name string, environme
 	}
 
 	writeTestYAML(t, testEnvironmentConfigPath(projectDir, name), testEnvironmentConfigData{
+		Framework:     environment.Framework,
 		Tools:         testToolsFromEnvironment(environment),
 		Settings:      testSettingsFromEnvironment(environment),
 		Docroot:       environment.Docroot,
@@ -251,15 +257,16 @@ func writeTestYAML(t *testing.T, path string, value any) {
 }
 
 func testEnvironmentFromProjectConfig(projectConfig testProjectConfigData) testEnvironmentConfig {
-	return testEnvironmentFromParts(projectConfig.Tools, projectConfig.Settings, projectConfig.Docroot, projectConfig.HTTPS, projectConfig.EnvFile, projectConfig.EnvVars, projectConfig.Database, projectConfig.PHPExtensions, projectConfig.Server)
+	return testEnvironmentFromParts(projectConfig.Framework, projectConfig.Tools, projectConfig.Settings, projectConfig.Docroot, projectConfig.HTTPS, projectConfig.EnvFile, projectConfig.EnvVars, projectConfig.Database, projectConfig.PHPExtensions, projectConfig.Server)
 }
 
 func testEnvironmentFromEnvironmentConfig(environmentConfig testEnvironmentConfigData) testEnvironmentConfig {
-	return testEnvironmentFromParts(environmentConfig.Tools, environmentConfig.Settings, environmentConfig.Docroot, environmentConfig.HTTPS, environmentConfig.EnvFile, environmentConfig.EnvVars, environmentConfig.Database, environmentConfig.PHPExtensions, environmentConfig.Server)
+	return testEnvironmentFromParts(environmentConfig.Framework, environmentConfig.Tools, environmentConfig.Settings, environmentConfig.Docroot, environmentConfig.HTTPS, environmentConfig.EnvFile, environmentConfig.EnvVars, environmentConfig.Database, environmentConfig.PHPExtensions, environmentConfig.Server)
 }
 
-func testEnvironmentFromParts(tools *testToolsConfig, settings *testSettingsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *testDatabaseConfig, phpExtensions map[string]bool, server *testServerConfig) testEnvironmentConfig {
+func testEnvironmentFromParts(framework string, tools *testToolsConfig, settings *testSettingsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *testDatabaseConfig, phpExtensions map[string]bool, server *testServerConfig) testEnvironmentConfig {
 	environment := testEnvironmentConfig{
+		Framework:     strings.ToLower(strings.TrimSpace(framework)),
 		Docroot:       docroot,
 		HTTPS:         https,
 		EnvFile:       envFile,

@@ -19,15 +19,20 @@ const (
 
 func newInitCommand(ctx *commandContext) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:  "init",
-		Args: exactArgsError("init does not take arguments", 0),
+		Use:  "init [framework]",
+		Args: maximumArgsError("init accepts at most one framework argument", 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store, err := ctx.store()
 			if err != nil {
 				return &statusError{code: 1, err: err}
 			}
 
-			return runInit(cmd.OutOrStdout(), store)
+			framework := ""
+			if len(args) > 0 {
+				framework = strings.TrimSpace(args[0])
+			}
+
+			return runInit(cmd.OutOrStdout(), store, framework)
 		},
 	}
 	configureCommand(cmd, initUsage)
@@ -253,7 +258,15 @@ func newRemoveCommand(ctx *commandContext) *cobra.Command {
 	return cmd
 }
 
-func runInit(stdout io.Writer, store backend.Store) error {
+func runInit(stdout io.Writer, store backend.Store, framework string) error {
+	if strings.TrimSpace(framework) != "" {
+		if err := store.InitWithFramework(framework); err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintf(stdout, "Initialized Polka %s project at %s with config %s\n", strings.ToLower(strings.TrimSpace(framework)), store.RootDir, store.ConfigFile)
+		return nil
+	}
+
 	if err := store.Init(); err != nil {
 		return err
 	}

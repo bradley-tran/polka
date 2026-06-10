@@ -2,6 +2,7 @@ package backend
 
 import (
 	"polka/config"
+	"polka/plugins"
 	"polka/tools"
 )
 
@@ -17,8 +18,10 @@ type ToolDispatchRequest = tools.DispatchRequest
 type ToolDownloadContext = tools.DownloadContext
 type ToolDownloader = tools.Downloader
 type ToolInstallContext = tools.InstallContext
-type ToolPlugin = tools.Plugin
+type ToolPlugin = tools.ToolPlugin
 type ToolRegistry = tools.Registry
+type FrameworkPlugin = plugins.FrameworkPlugin
+type PluginRegistry = plugins.Registry
 
 type HTTPToolDownloader = tools.HTTPDownloader
 
@@ -44,4 +47,8 @@ func NewToolRegistry(plugins ...ToolPlugin) (*ToolRegistry, error) {
 
 func NewDefaultToolRegistry() *ToolRegistry {
 	return tools.NewDefaultRegistry()
+}
+
+func NewDefaultPluginRegistry() *PluginRegistry {
+	return plugins.NewDefaultRegistry()
 }

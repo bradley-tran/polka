@@ -6,7 +6,7 @@ Usage:
   polka [--root PATH] <command> [options]
 
 Commands:
-  init                 create the local .polka directory and sync the active shims
+  init [framework]     create the local .polka directory and optional framework config
   new <name>           create an environment with default or explicit versions
   config [name]        set php, composer, nodejs, and database settings for an environment
   install [tool:version]
@@ -27,6 +27,7 @@ Commands:
 
 Examples:
   polka init
+  polka init laravel
   polka new api
   polka config api --php 8.4 --composer 2.8 --nodejs 24
   polka config api --db-engine mysql --db-version 8.0 --db-port 3306
@@ -51,9 +52,11 @@ Flags:
 `
 
 const initUsage = `Usage:
-  polka init
+  polka init [framework]
 
 Create the local .polka directory, bootstrap polka.yaml, and sync the active environment's dispatch shims into .polka/bin.
+When framework is drupal, wordpress, or laravel, Polka writes an opinionated default config for that framework.
+Framework init is config-only; it does not create app files, install tools, or start services. It fails if polka.yaml already exists.
 `
 
 const newUsage = `Usage:

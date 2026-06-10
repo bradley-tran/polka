@@ -149,3 +149,64 @@ func TestResolveRuntimeEnvironmentUsesWindowsKeyReplacement(t *testing.T) {
 		t.Fatalf("resolved env = %#v, want one APP_ENV entry", resolved)
 	}
 }
+
+func TestResolveRuntimeEnvironmentAppliesFrameworkDatabaseCredentialsBeforeEnvVars(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	store := backend.NewProjectStore(projectDir)
+
+	config := testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {
+				Framework: "laravel",
+				PHP:       "8.4",
+				Database:  &testDatabaseConfig{Engine: "mariadb", Version: "11.8", Port: 3307},
+				EnvVars: map[string]string{
+					"DB_HOST":     "configured-host",
+					"DB_PASSWORD": "configured-password",
+				},
+			},
+		},
+	}
+	writeTestConfigFile(t, projectDir, config)
+	writeTestActiveEnvironment(t, root, "demo")
+
+	credentialsPath := backend.DatabaseCredentialStatePath(root, "demo")
+	if err := os.MkdirAll(filepath.Dir(credentialsPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(credentials dir) error = %v", err)
+	}
+	credentials := strings.Join([]string{
+		"{",
+		`  "environment": "demo",`,
+		`  "engine": "mariadb",`,
+		`  "version": "11.8",`,
+		`  "database": "demo",`,
+		`  "user": "polka",`,
+		`  "password": "generated-password",`,
+		`  "port": 3307`,
+		"}",
+		"",
+	}, "\n")
+	if err := os.WriteFile(credentialsPath, []byte(credentials), 0o600); err != nil {
+		t.Fatalf("WriteFile(credentials) error = %v", err)
+	}
+
+	resolved, err := resolveRuntimeEnvironment("linux", []string{"DB_USERNAME=os"}, store)
+	if err != nil {
+		t.Fatalf("resolveRuntimeEnvironment() error = %v", err)
+	}
+	for key, want := range map[string]string{
+		"DB_CONNECTION": "mysql",
+		"DB_HOST":       "configured-host",
+		"DB_PORT":       "3307",
+		"DB_DATABASE":   "demo",
+		"DB_USERNAME":   "polka",
+		"DB_PASSWORD":   "configured-password",
+	} {
+		if _, value, ok := lookupEnvValue("linux", resolved, key); !ok || value != want {
+			t.Fatalf("%s = %q, ok=%v, want %q", key, value, ok, want)
+		}
+	}
+}

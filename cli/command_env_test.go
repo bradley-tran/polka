@@ -67,6 +67,110 @@ func TestRunInitUsesDotPolkaByDefault(t *testing.T) {
 	}
 }
 
+func TestRunInitWithFrameworkWritesDefaultPreset(t *testing.T) {
+	for _, test := range []struct {
+		framework       string
+		docroot         string
+		wantComposer    string
+		wantNodeJS      string
+		wantMailpit     bool
+		wantMailpitShim bool
+	}{
+		{framework: "drupal", docroot: "web", wantComposer: "2.8", wantNodeJS: "24", wantMailpit: true, wantMailpitShim: true},
+		{framework: "laravel", docroot: "public", wantComposer: "2.8", wantNodeJS: "24", wantMailpit: true, wantMailpitShim: true},
+		{framework: "wordpress", docroot: ".", wantComposer: "", wantNodeJS: "", wantMailpit: false, wantMailpitShim: false},
+	} {
+		t.Run(test.framework, func(t *testing.T) {
+			projectDir := t.TempDir()
+			root := filepath.Join(projectDir, ".polka")
+			stdout := &bytes.Buffer{}
+			stderr := &bytes.Buffer{}
+
+			if code := Run(stdout, stderr, []string{"--root", root, "init", test.framework}); code != 0 {
+				t.Fatalf("Run(init %s) code = %d, stderr = %q", test.framework, code, stderr.String())
+			}
+
+			environment := readTestEnvironmentConfig(t, projectDir, defaultEnvironmentName)
+			if environment.Framework != test.framework || environment.Docroot != test.docroot {
+				t.Fatalf("environment = %#v, want framework/docroot preset", environment)
+			}
+			if environment.PHP != "8.4" || environment.Composer != test.wantComposer || environment.NodeJS != test.wantNodeJS || environment.Nginx != "1.30" || environment.MariaDB != "11.8" {
+				t.Fatalf("environment = %#v, want framework tool preset", environment)
+			}
+			if environment.Database == nil || environment.Database.Engine != "mariadb" || environment.Database.Version != "11.8" || environment.Database.Port != 3306 {
+				t.Fatalf("database = %#v, want MariaDB preset", environment.Database)
+			}
+			if environment.PHPMyAdmin == nil || environment.PHPMyAdmin.Version != "5.2" || environment.PHPMyAdmin.Port != 8082 {
+				t.Fatalf("phpmyadmin = %#v, want phpMyAdmin preset", environment.PHPMyAdmin)
+			}
+			if (environment.Mailpit != nil) != test.wantMailpit {
+				t.Fatalf("mailpit = %#v, want presence %v", environment.Mailpit, test.wantMailpit)
+			}
+			if test.wantMailpit && (environment.Mailpit.Version != "1.30" || environment.Mailpit.SMTPPort != 1025 || environment.Mailpit.UIPort != 8025) {
+				t.Fatalf("mailpit = %#v, want Mailpit preset", environment.Mailpit)
+			}
+			for _, extension := range []string{"gd", "mbstring", "mysqli", "opcache", "pdo_mysql", "zip"} {
+				if !environment.PHPExtensions[extension] {
+					t.Fatalf("php-extensions = %#v, want %s enabled", environment.PHPExtensions, extension)
+				}
+			}
+			if _, err := os.Stat(filepath.Join(root, "bin", "php.cmd")); err != nil {
+				t.Fatalf("Stat(php shim) error = %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(root, "bin", "nginx.cmd")); err != nil {
+				t.Fatalf("Stat(nginx shim) error = %v", err)
+			}
+			_, mailpitErr := os.Stat(filepath.Join(root, "bin", "mailpit.cmd"))
+			if test.wantMailpitShim && mailpitErr != nil {
+				t.Fatalf("Stat(mailpit shim) error = %v", mailpitErr)
+			}
+			if !test.wantMailpitShim && !os.IsNotExist(mailpitErr) {
+				t.Fatalf("Stat(mailpit shim) error = %v, want missing shim", mailpitErr)
+			}
+			if !strings.Contains(stdout.String(), "Initialized Polka "+test.framework+" project") {
+				t.Fatalf("Run(init %s) stdout = %q, want framework init summary", test.framework, stdout.String())
+			}
+		})
+	}
+}
+
+func TestRunInitWithFrameworkRejectsExistingConfigBeforeMutation(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), []byte("version: 1\nroot: .polka\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "init", "drupal"}); code == 0 {
+		t.Fatal("Run(init drupal existing config) code = 0, want failure")
+	}
+	if !strings.Contains(stderr.String(), "already exists") {
+		t.Fatalf("Run(init drupal existing config) stderr = %q, want existing config error", stderr.String())
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Fatalf("Stat(root) error = %v, want no root created before failure", err)
+	}
+}
+
+func TestRunInitWithFrameworkRejectsUnknownFramework(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "init", "symfony"}); code == 0 {
+		t.Fatal("Run(init symfony) code = 0, want unsupported framework failure")
+	}
+	if !strings.Contains(stderr.String(), "unsupported framework") || !strings.Contains(stderr.String(), "drupal, laravel, wordpress") {
+		t.Fatalf("Run(init symfony) stderr = %q, want supported framework list", stderr.String())
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Fatalf("Stat(root) error = %v, want no root created before failure", err)
+	}
+}
+
 func TestRunInstallUsesCurrentEnvironmentWhenNameOmitted(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")

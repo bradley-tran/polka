@@ -1,6 +1,6 @@
 # Polka Architecture
 
-Polka is a Go CLI for managing project-local PHP development environments. The project is organized around a small CLI layer, a backend orchestration layer, shared config types, and a tool plugin package that knows how to install and dispatch managed tools.
+Polka is a Go CLI for managing project-local PHP development environments. The project is organized around a small CLI layer, a backend orchestration layer, shared config types, a higher-level plugin registry, and a tool package that knows how to install and dispatch managed tools.
 
 ## Package Map
 
@@ -10,6 +10,7 @@ Polka is a Go CLI for managing project-local PHP development environments. The p
 |-- cli/
 |-- backend/
 |-- config/
+|-- plugins/
 `-- tools/
 ```
 
@@ -49,17 +50,24 @@ The `config` package contains shared YAML schema types and normalization helpers
 - `MailpitConfig`
 - `PHPMyAdminConfig`
 - `ServerConfig`
+- framework IDs stored as `framework` on project and environment files
 
 This package exists to avoid import cycles. Both `backend` and `tools` can depend on config types without either package importing the other.
 
 `ToolsConfig` stores only managed tool version labels. Versionless tool options, such as Mailpit ports and the phpMyAdmin UI port, live in sibling `SettingsConfig` data and are merged into the internal `Environment` model during config loading.
+
+### `plugins`
+
+The `plugins` package owns Polka's higher-level built-in plugin registry. It groups installable tool plugins from `tools` with framework plugins such as `drupal`, `wordpress`, and `laravel`.
+
+Framework plugins provide config defaults and optional hooks for runtime environment variables and nginx config generation. In v1, framework init is config-only and framework nginx hooks delegate to the generic front-controller config.
 
 ### `tools`
 
 The `tools` package owns managed tool behavior:
 
 - tool IDs such as `PHP`, `Composer`, `NodeJS`, `Mago`, `Nginx`, `Mailpit`, `PHPMyAdmin`, `MySQL`, `MariaDB`, and `SQLite`
-- plugin interfaces and registry
+- tool plugin interfaces and registry
 - embedded YAML manifests for built-in plugin metadata
 - install candidate paths
 - dispatch command mappings
@@ -67,7 +75,7 @@ The `tools` package owns managed tool behavior:
 - per-tool Go hooks for dynamic downloads or post-install behavior
 - PHP extension post-install config generation
 
-The current plugin system is internal and compile-time only. Built-in plugin metadata lives in `tools/manifests/*.yaml` and is embedded into the binary; Polka does not load third-party plugins from disk or from `polka.yaml`. The manifest parser accepts bytes so future external loading can reuse the schema, but that loading behavior is intentionally not implemented yet.
+The current plugin system is internal and compile-time only. Built-in tool metadata lives in `tools/manifests/*.yaml` and is embedded into the binary; Polka does not load third-party plugins from disk or from `polka.yaml`. The manifest parser accepts bytes so future external loading can reuse the schema, but that loading behavior is intentionally not implemented yet.
 
 ## Tool Install Flow
 
@@ -92,7 +100,7 @@ Managed command shims in `.polka/bin` call back into Polka:
 .polka/bin/php
 `-- polka --root <root> dispatch php ...
     `-- backend.Store.ResolveTool("php")
-        `-- tools.Registry.ResolveDispatchRequest("php")
+     `-- tools.Registry.ResolveDispatchRequest("php")
 ```
 
 Dispatch resolution uses the active environment recorded in `.polka/run/current`, or `default` from `polka.yaml` when no local override is selected. It maps command names to their config tool, reads that environment's definition from `polka.yaml` or `polka.<name>.yaml`, and locates the installed executable under `.polka/envs`.
@@ -117,6 +125,7 @@ The database tool plugins install and dispatch database clients, but database se
 Keep package dependencies moving in this direction:
 
 ```text
+cli -> backend -> plugins -> tools -> config
 cli -> backend -> tools -> config
 cli -> backend -> config
 backend -> config
@@ -125,6 +134,7 @@ backend -> config
 Avoid these dependencies:
 
 - `tools -> backend`
+- `plugins -> backend`
 - `config -> backend`
 - `config -> tools`
 

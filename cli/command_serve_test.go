@@ -420,7 +420,7 @@ func TestPrepareNginxServeRuntimeCreatesLogsPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveServeAppLayout() error = %v", err)
 	}
-	configPath, phpLogPath, err := prepareNginxServeRuntime(filepath.Join(runtimeDir, "root"), runtimeDir, serverEndpoint{Scheme: "http", Address: "localhost:8080"}, layout, "127.0.0.1:9000")
+	configPath, phpLogPath, err := prepareNginxServeRuntime(filepath.Join(runtimeDir, "root"), runtimeDir, backend.Environment{}, serverEndpoint{Scheme: "http", Address: "localhost:8080"}, layout, "127.0.0.1:9000")
 	if err != nil {
 		t.Fatalf("prepareNginxServeRuntime() error = %v", err)
 	}
@@ -460,6 +460,34 @@ func TestPrepareNginxServeRuntimeCreatesLogsPath(t *testing.T) {
 	}
 }
 
+func TestPrepareNginxServeRuntimeFrameworkFallsBackToGenericConfig(t *testing.T) {
+	runtimeDir := filepath.Join(t.TempDir(), "run", "start", "demo")
+	docroot := filepath.Join(runtimeDir, "public")
+	if err := os.MkdirAll(docroot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(docroot) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(docroot, "index.php"), []byte("<?php\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(index.php) error = %v", err)
+	}
+	layout, err := resolveServeAppLayout(docroot)
+	if err != nil {
+		t.Fatalf("resolveServeAppLayout() error = %v", err)
+	}
+
+	configPath, _, err := prepareNginxServeRuntime(filepath.Join(runtimeDir, "root"), runtimeDir, backend.Environment{Framework: "laravel"}, serverEndpoint{Scheme: "http", Address: "localhost:8080"}, layout, "127.0.0.1:9000")
+	if err != nil {
+		t.Fatalf("prepareNginxServeRuntime() error = %v", err)
+	}
+	configData, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile(config) error = %v", err)
+	}
+	config := string(configData)
+	if !strings.Contains(config, "try_files $uri $uri/ /index.php$is_args$args;") || !strings.Contains(config, "fastcgi_pass 127.0.0.1:9000;") {
+		t.Fatalf("nginx config = %q, want generic front-controller config", config)
+	}
+}
+
 func TestPrepareNginxServeRuntimeCreatesHTTPSConfigForLocalhostHostname(t *testing.T) {
 	rootDir := t.TempDir()
 	runtimeDir := filepath.Join(rootDir, "run", "start", "demo")
@@ -475,7 +503,7 @@ func TestPrepareNginxServeRuntimeCreatesHTTPSConfigForLocalhostHostname(t *testi
 		t.Fatalf("resolveServeAppLayout() error = %v", err)
 	}
 
-	configPath, phpLogPath, err := prepareNginxServeRuntime(rootDir, runtimeDir, serverEndpoint{Scheme: "https", Address: "site.localhost:8443", HTTPS: true}, layout, "127.0.0.1:9000")
+	configPath, phpLogPath, err := prepareNginxServeRuntime(rootDir, runtimeDir, backend.Environment{}, serverEndpoint{Scheme: "https", Address: "site.localhost:8443", HTTPS: true}, layout, "127.0.0.1:9000")
 	if err != nil {
 		t.Fatalf("prepareNginxServeRuntime() error = %v", err)
 	}

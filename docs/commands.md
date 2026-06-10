@@ -12,9 +12,20 @@ Use `--root PATH` to override the local state directory. The default is `.polka`
 
 ## Environment Commands
 
-### `polka init`
+### `polka init [framework]`
 
 Creates the local `.polka` directory, bootstraps `polka.yaml` when it does not exist, writes stable shell-session helper scripts, and syncs the active environment's dispatch shims into `.polka/bin`.
+
+```bash
+polka init
+polka init drupal
+polka init wordpress
+polka init laravel
+```
+
+When `framework` is `drupal`, `wordpress`, or `laravel`, Polka writes an opinionated default config with a top-level `framework` key, framework docroot, managed tool versions, database settings, phpMyAdmin settings, and PHP extensions. Framework init is config-only: it does not create project files, run Composer, install tools, or start services. It fails if `polka.yaml` already exists.
+
+Drupal and Laravel presets use `web` and `public` docroots respectively, and include PHP, Composer, Node.js, nginx, MariaDB, phpMyAdmin, and Mailpit. The WordPress preset uses the project root as docroot and includes PHP, nginx, MariaDB, and phpMyAdmin.
 
 ### `polka new <name>`
 
@@ -203,12 +214,13 @@ The `mailpit` tool key installs Mailpit and creates a `mailpit` command shim. It
 
 When an environment defines `php-extensions`, `polka install` writes a generated `php.ini` next to the installed PHP executable so those extensions are explicitly enabled or disabled for that environment. If `composer` is configured for that environment, `openssl` and `zip` are enabled by default unless `php-extensions` explicitly sets either one to `false`.
 
-Polka composes runtime environment variables for the active environment from four sources in this precedence order, lowest to highest:
+Polka composes runtime environment variables for the active environment from five sources in this precedence order, lowest to highest:
 
 1. inherited process environment
 2. project `.env`
 3. current environment file's `env-file`
-4. current environment file's `env-vars`
+4. framework-provided database variables when generated managed database credentials exist
+5. current environment file's `env-vars`
 
 The `.env` file is loaded automatically from the directory containing `polka.yaml` when present. `env-file` paths are resolved relative to that same directory unless absolute, and `env-vars` always win when keys overlap. This runtime environment applies to `polka sh`, `polka exec`, `polka serve`, generated `.polka/bin` dispatch shims, and database client/import/export commands.
 

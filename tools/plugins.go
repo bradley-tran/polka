@@ -1,7 +1,7 @@
 package tools
 
-func DefaultPlugins() []Plugin {
-	return []Plugin{
+func DefaultPlugins() []ToolPlugin {
+	return []ToolPlugin{
 		phpPlugin(),
 		composerPlugin(),
 		nodeJSPlugin(),

@@ -37,6 +37,7 @@ type PHPMyAdminSettingsConfig struct {
 type ProjectFile struct {
 	Version       int               `yaml:"version"`
 	Root          string            `yaml:"root"`
+	Framework     string            `yaml:"framework,omitempty"`
 	Tools         *ToolsConfig      `yaml:"tools,omitempty"`
 	Settings      *SettingsConfig   `yaml:"settings,omitempty"`
 	Docroot       string            `yaml:"docroot,omitempty"`
@@ -50,6 +51,7 @@ type ProjectFile struct {
 
 // EnvironmentFile is the YAML shape of polka.<name>.yaml.
 type EnvironmentFile struct {
+	Framework     string            `yaml:"framework,omitempty"`
 	Tools         *ToolsConfig      `yaml:"tools,omitempty"`
 	Settings      *SettingsConfig   `yaml:"settings,omitempty"`
 	Docroot       string            `yaml:"docroot,omitempty"`
@@ -63,6 +65,7 @@ type EnvironmentFile struct {
 
 type Environment struct {
 	Name            string            `yaml:"-"`
+	Framework       string            `yaml:"framework,omitempty"`
 	PHPVersion      string            `yaml:"php,omitempty"`
 	ComposerVersion string            `yaml:"composer,omitempty"`
 	NodeJSVersion   string            `yaml:"nodejs,omitempty"`
@@ -117,6 +120,7 @@ type Config struct {
 func ProjectFileToEnvironment(name string, file ProjectFile) Environment {
 	return environmentFromFileParts(
 		name,
+		file.Framework,
 		file.Tools,
 		file.Settings,
 		file.Docroot,
@@ -134,6 +138,7 @@ func ProjectFileFromEnvironment(version int, root string, environment Environmen
 	file := ProjectFile{
 		Version:       version,
 		Root:          root,
+		Framework:     strings.ToLower(strings.TrimSpace(environment.Framework)),
 		Tools:         ToolsConfigFromEnvironment(environment),
 		Settings:      SettingsConfigFromEnvironment(environment),
 		Docroot:       environment.Docroot,
@@ -152,6 +157,7 @@ func ProjectFileFromEnvironment(version int, root string, environment Environmen
 func EnvironmentFileToEnvironment(name string, file EnvironmentFile) Environment {
 	return environmentFromFileParts(
 		name,
+		file.Framework,
 		file.Tools,
 		file.Settings,
 		file.Docroot,
@@ -167,6 +173,7 @@ func EnvironmentFileToEnvironment(name string, file EnvironmentFile) Environment
 // EnvironmentFileFromEnvironment converts a named environment into polka.<name>.yaml data.
 func EnvironmentFileFromEnvironment(environment Environment) EnvironmentFile {
 	return EnvironmentFile{
+		Framework:     strings.ToLower(strings.TrimSpace(environment.Framework)),
 		Tools:         ToolsConfigFromEnvironment(environment),
 		Settings:      SettingsConfigFromEnvironment(environment),
 		Docroot:       environment.Docroot,
@@ -301,9 +308,10 @@ func (settings SettingsConfig) IsZero() bool {
 		settings.PHPMyAdmin == nil
 }
 
-func environmentFromFileParts(name string, tools *ToolsConfig, settings *SettingsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *DatabaseConfig, phpExtensions map[string]bool, server *ServerConfig) Environment {
+func environmentFromFileParts(name string, framework string, tools *ToolsConfig, settings *SettingsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *DatabaseConfig, phpExtensions map[string]bool, server *ServerConfig) Environment {
 	environment := Environment{
 		Name:          name,
+		Framework:     strings.ToLower(strings.TrimSpace(framework)),
 		Docroot:       docroot,
 		HTTPS:         https,
 		EnvFile:       envFile,
@@ -446,6 +454,7 @@ func PrimaryDatabaseConfigFromTools(tools *ToolsConfig, database *DatabaseConfig
 func NormalizeEnvironment(name string, environment Environment) Environment {
 	normalized := Environment{
 		Name:            name,
+		Framework:       strings.ToLower(strings.TrimSpace(environment.Framework)),
 		PHPVersion:      strings.TrimSpace(environment.PHPVersion),
 		ComposerVersion: strings.TrimSpace(environment.ComposerVersion),
 		NodeJSVersion:   strings.TrimSpace(environment.NodeJSVersion),
