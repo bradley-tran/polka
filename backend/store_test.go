@@ -474,6 +474,48 @@ func TestStoreInstallToolAppliesEnvironmentPostInstallSettings(t *testing.T) {
 	}
 }
 
+func TestStoreInstallToolSkipsBuiltInPHPExtensions(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+	writeCachedPHPToolWithBuiltInModules(t, store.CacheDir, "8.4", []string{"OpenSSL", "zip", "Zend OPcache"})
+	if err := os.MkdirAll(filepath.Join(store.CacheDir, toolPHP, "8.4", "ext"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(cache ext) error = %v", err)
+	}
+
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{
+		PHPExtensions: map[string]bool{
+			"opcache": true,
+			"openssl": true,
+			"xdebug":  false,
+			"zip":     true,
+		},
+	}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	result, err := store.InstallTool("demo", toolPHP, "8.4")
+	if err != nil {
+		t.Fatalf("InstallTool(demo, php, 8.4) error = %v", err)
+	}
+	phpIniData, err := os.ReadFile(filepath.Join(filepath.Dir(result.TargetPath), "php.ini"))
+	if err != nil {
+		t.Fatalf("ReadFile(installed php.ini) error = %v", err)
+	}
+
+	phpIni := string(phpIniData)
+	for _, skipped := range []string{"extension=openssl", "extension=zip", "zend_extension=opcache"} {
+		if strings.Contains(phpIni, skipped) {
+			t.Fatalf("php.ini = %q, want built-in %s skipped", phpIni, skipped)
+		}
+	}
+	if !strings.Contains(phpIni, ";extension=xdebug") {
+		t.Fatalf("php.ini = %q, want non-built-in disabled extension kept", phpIni)
+	}
+}
+
 func TestStoreInstallAppliesOPcachePresetFrameworkAndUserConfig(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
@@ -2265,14 +2307,88 @@ func writeCachedTool(t *testing.T, cacheDir, tool, version string) string {
 	t.Helper()
 
 	path := toolInstallCandidatesIn(cacheDir, tool, version)[0]
+	if tool == toolPHP {
+		path = cachedFakePHPPath(cacheDir, version)
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(path), err)
+	}
+	if tool == toolPHP {
+		if err := os.WriteFile(path, fakePHPModuleListScript(nil), 0o755); err != nil {
+			t.Fatalf("WriteFile(%q) error = %v", path, err)
+		}
+
+		return path
 	}
 	if err := os.WriteFile(path, []byte("placeholder\n"), 0o755); err != nil {
 		t.Fatalf("WriteFile(%q) error = %v", path, err)
 	}
 
 	return path
+}
+
+func writeCachedPHPToolWithBuiltInModules(t *testing.T, cacheDir, version string, modules []string) string {
+	t.Helper()
+
+	path := cachedFakePHPPath(cacheDir, version)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, fakePHPModuleListScript(modules), 0o755); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", path, err)
+	}
+
+	return path
+}
+
+func cachedFakePHPPath(cacheDir, version string) string {
+	candidates := toolInstallCandidatesIn(cacheDir, toolPHP, version)
+	if runtime.GOOS == "windows" {
+		for _, candidate := range candidates {
+			extension := strings.ToLower(filepath.Ext(candidate))
+			if extension == ".cmd" || extension == ".bat" {
+				return candidate
+			}
+		}
+	}
+
+	return candidates[0]
+}
+
+func fakePHPModuleListScript(modules []string) []byte {
+	if runtime.GOOS == "windows" {
+		var builder strings.Builder
+		builder.WriteString("@echo off\r\n")
+		builder.WriteString("if \"%1\"==\"-nm\" (\r\n")
+		builder.WriteString("  echo [PHP Modules]\r\n")
+		for _, module := range modules {
+			builder.WriteString("  echo ")
+			builder.WriteString(module)
+			builder.WriteString("\r\n")
+		}
+		builder.WriteString("  echo [Zend Modules]\r\n")
+		builder.WriteString("  exit /b 0\r\n")
+		builder.WriteString(")\r\n")
+		builder.WriteString("echo fake-php %*\r\n")
+
+		return []byte(builder.String())
+	}
+
+	var builder strings.Builder
+	builder.WriteString("#!/usr/bin/env sh\n")
+	builder.WriteString("if [ \"$1\" = \"-nm\" ]; then\n")
+	builder.WriteString("  printf '%s\\n' '[PHP Modules]'\n")
+	for _, module := range modules {
+		builder.WriteString("  printf '%s\\n' '")
+		builder.WriteString(module)
+		builder.WriteString("'\n")
+	}
+	builder.WriteString("  printf '%s\\n' '[Zend Modules]'\n")
+	builder.WriteString("  exit 0\n")
+	builder.WriteString("fi\n")
+	builder.WriteString("printf 'fake-php %s\\n' \"$*\"\n")
+
+	return []byte(builder.String())
 }
 
 func writeCachedNodeJSCommand(t *testing.T, cacheDir, version, command string) string {
