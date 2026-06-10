@@ -56,6 +56,12 @@ func TestStoreInitInstallsDispatcherShimsWithoutToolShims(t *testing.T) {
 	if !strings.Contains(string(configData), "root: .polka") {
 		t.Fatalf("config contents = %q, want root entry for .polka", string(configData))
 	}
+	if !strings.Contains(string(configData), "https: true") {
+		t.Fatalf("config contents = %q, want https enabled by default", string(configData))
+	}
+	if !strings.Contains(string(configData), "hostname: "+projectLocalHostname(projectDir)) {
+		t.Fatalf("config contents = %q, want project-local hostname", string(configData))
+	}
 	dispatcherShim, err := os.ReadFile(filepath.Join(store.BinDir, dispatcherBinaryName))
 	if err != nil {
 		t.Fatalf("ReadFile(dispatcher shim) error = %v", err)
@@ -103,6 +109,14 @@ func TestStoreInitInstallsDispatcherShimsWithoutToolShims(t *testing.T) {
 	}
 	if !strings.Contains(string(powerShellSessionStop), "session stop") {
 		t.Fatalf("session-stop.ps1 = %q, want session stop invocation", string(powerShellSessionStop))
+	}
+}
+
+func TestProjectLocalHostnameNormalizesDirectoryName(t *testing.T) {
+	projectDir := filepath.Join(t.TempDir(), "My Demo_Project")
+
+	if got, want := projectLocalHostname(projectDir), "my-demo-project.localhost"; got != want {
+		t.Fatalf("projectLocalHostname() = %q, want %q", got, want)
 	}
 }
 

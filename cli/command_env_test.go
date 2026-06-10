@@ -52,6 +52,10 @@ func TestRunInitUsesDotPolkaByDefault(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(projectDir, "polka.yaml")); err != nil {
 		t.Fatalf("Stat(polka.yaml) error = %v", err)
 	}
+	environment := readTestEnvironmentConfig(t, projectDir, defaultEnvironmentName)
+	if !environment.HTTPS || environment.Server == nil || environment.Server.Hostname != strings.ToLower(filepath.Base(projectDir))+".localhost" {
+		t.Fatalf("environment = %#v, want https and project-local hostname", environment)
+	}
 	if !strings.Contains(stdout.String(), filepath.Join(projectDir, ".polka")) {
 		t.Fatalf("Run(init) stdout = %q, want .polka path", stdout.String())
 	}
@@ -80,6 +84,10 @@ func TestRunInitUsesCurrentDirectoryWithoutParentDiscovery(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(projectDir, ".polka", "bin", "polka.cmd")); err != nil {
 		t.Fatalf("Stat(nested dispatcher) error = %v", err)
+	}
+	environment := readTestEnvironmentConfig(t, projectDir, defaultEnvironmentName)
+	if !environment.HTTPS || environment.Server == nil || environment.Server.Hostname != "site.localhost" {
+		t.Fatalf("environment = %#v, want nested https and site.localhost hostname", environment)
 	}
 	if _, err := os.Stat(filepath.Join(parentDir, ".polka")); !os.IsNotExist(err) {
 		t.Fatalf("Stat(parent .polka) error = %v, want parent project untouched", err)
@@ -116,6 +124,9 @@ func TestRunInitWithFrameworkWritesDefaultPreset(t *testing.T) {
 			environment := readTestEnvironmentConfig(t, projectDir, defaultEnvironmentName)
 			if environment.Framework != test.framework || environment.Docroot != test.docroot {
 				t.Fatalf("environment = %#v, want framework/docroot preset", environment)
+			}
+			if !environment.HTTPS || environment.Server == nil || environment.Server.Hostname != strings.ToLower(filepath.Base(projectDir))+".localhost" {
+				t.Fatalf("environment = %#v, want framework preset with https and project-local hostname", environment)
 			}
 			if environment.PHP != "8.4" || environment.Composer != test.wantComposer || environment.NodeJS != test.wantNodeJS || environment.Nginx != "1.30" || environment.MariaDB != "11.8" {
 				t.Fatalf("environment = %#v, want framework tool preset", environment)

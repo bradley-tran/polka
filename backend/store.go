@@ -39,8 +39,9 @@ const (
 )
 
 var (
-	validName    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
-	validVersion = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+	validName                 = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+	validVersion              = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+	invalidLocalhostLabelPart = regexp.MustCompile(`[^a-z0-9-]+`)
 )
 
 type InstallProgressStage string
@@ -338,6 +339,7 @@ func (s Store) init(framework string) error {
 		if errors.Is(err, os.ErrNotExist) {
 			config := s.defaultConfig()
 			if preset != nil {
+				*preset = s.withInitDefaults(*preset)
 				config.Environments[defaultEnvironmentName] = *preset
 			}
 			if err := s.writeConfig(config); err != nil {
@@ -1405,9 +1407,32 @@ func (s Store) defaultConfig() Config {
 		Version: configVersion,
 		Root:    s.relativeRootDir(),
 		Environments: map[string]Environment{
-			defaultEnvironmentName: {Name: defaultEnvironmentName},
+			defaultEnvironmentName: s.withInitDefaults(Environment{Name: defaultEnvironmentName}),
 		},
 	}
+}
+
+func (s Store) withInitDefaults(environment Environment) Environment {
+	environment.HTTPS = true
+	if environment.Server == nil {
+		environment.Server = &ServerConfig{}
+	}
+	if strings.TrimSpace(environment.Server.Hostname) == "" {
+		environment.Server.Hostname = projectLocalHostname(s.ProjectDir)
+	}
+
+	return environment
+}
+
+func projectLocalHostname(projectDir string) string {
+	label := strings.ToLower(strings.TrimSpace(filepath.Base(filepath.Clean(projectDir))))
+	label = invalidLocalhostLabelPart.ReplaceAllString(label, "-")
+	label = strings.Trim(label, "-")
+	if label == "" || label == "." {
+		label = "project"
+	}
+
+	return label + ".localhost"
 }
 
 func (s Store) relativeRootDir() string {

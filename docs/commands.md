@@ -14,7 +14,7 @@ Use `--root PATH` to override the local state directory. The default is `.polka`
 
 ### `polka init [framework]`
 
-Creates the local `.polka` directory, bootstraps `polka.yaml` when it does not exist, writes stable shell-session helper scripts, and syncs the active environment's dispatch shims into `.polka/bin`.
+Creates the local `.polka` directory, bootstraps `polka.yaml` when it does not exist, writes stable shell-session helper scripts, and syncs the active environment's dispatch shims into `.polka/bin`. The bootstrapped default environment enables HTTPS and sets `server.hostname` to `<directory>.localhost`.
 
 ```bash
 polka init
