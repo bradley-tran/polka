@@ -53,6 +53,13 @@ func runDispatch(stdout, stderr io.Writer, args []string, store backend.Store) i
 		return 1
 	}
 
+	workingDir, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(stderr, "error: resolve current working directory: %v\n", err)
+		return 1
+	}
+
+	composerArgs := append([]string(nil), args[1:]...)
 	dispatchArgs := args[1:]
 	if strings.EqualFold(tool, "composer") && strings.HasSuffix(strings.ToLower(target), ".phar") {
 		phpTarget, resolveErr := store.ResolveTool("php")
@@ -69,6 +76,13 @@ func runDispatch(stdout, stderr io.Writer, args []string, store backend.Store) i
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
+	}
+
+	if exitCode == 0 {
+		if err := runPostComposerHook(store, tool, composerArgs, workingDir); err != nil {
+			fmt.Fprintf(stderr, "error: %v\n", err)
+			return 1
+		}
 	}
 
 	return exitCode

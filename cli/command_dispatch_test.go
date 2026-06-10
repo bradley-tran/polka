@@ -148,6 +148,76 @@ func TestRunDispatchLoadsProjectAndConfiguredEnvironmentVariables(t *testing.T) 
 	}
 }
 
+func TestRunDispatchRunsPostComposerHookForLaravelInstall(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	cacheDir := filepath.Join(projectDir, "global-cache")
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	fakeComposer := cachedComposerExecutablePath(cacheDir, "2.8")
+	if err := os.MkdirAll(filepath.Dir(fakeComposer), 0o755); err != nil {
+		t.Fatalf("MkdirAll(cache composer) error = %v", err)
+	}
+	if err := os.WriteFile(fakeComposer, fakeToolScript("composer"), 0o755); err != nil {
+		t.Fatalf("WriteFile(cache composer) error = %v", err)
+	}
+	appRoot := filepath.Join(projectDir, "laravel")
+	if err := os.MkdirAll(filepath.Join(appRoot, "public"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(app public) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(appRoot, ".env"), []byte("APP_NAME=Laravel\nDB_CONNECTION=sqlite\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(.env) error = %v", err)
+	}
+
+	config := testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Environments: map[string]testEnvironmentConfig{
+			defaultEnvironmentName: {
+				Framework: "laravel",
+				Composer:  "2.8",
+				MariaDB:   "11.8",
+				Docroot:   "laravel/public",
+				Database:  &testDatabaseConfig{Engine: "mariadb", Version: "11.8", Port: 3307},
+			},
+		},
+	}
+	writeTestConfigFile(t, projectDir, config)
+
+	if code := Run(stdout, stderr, []string{"--root", root, "install", "composer:2.8"}); code != 0 {
+		t.Fatalf("Run(install composer) code = %d, stderr = %q", code, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+
+	if code := Run(stdout, stderr, []string{"--root", root, "dispatch", "composer", "install"}); code != 0 {
+		t.Fatalf("Run(dispatch composer install) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	updated, err := os.ReadFile(filepath.Join(appRoot, ".env"))
+	if err != nil {
+		t.Fatalf("ReadFile(.env) error = %v", err)
+	}
+	text := string(updated)
+	for _, expected := range []string{
+		"DB_CONNECTION=mysql",
+		"DB_HOST=127.0.0.1",
+		"DB_PORT=3307",
+		"DB_DATABASE=default",
+		"DB_USERNAME=polka",
+		"DB_PASSWORD=",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf(".env = %q, want %q", text, expected)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "secrets", "db", "default.json")); err != nil {
+		t.Fatalf("Stat(database credentials) error = %v", err)
+	}
+}
+
 func TestRunDispatchUsesNodeAliasesAndRejectsNodeJSKey(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")

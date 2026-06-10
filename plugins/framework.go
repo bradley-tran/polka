@@ -46,6 +46,15 @@ type RuntimeEnvContext struct {
 	Database    *DatabaseCredentials
 }
 
+// PostComposerContext is passed to framework plugins after selected Composer workflows finish.
+type PostComposerContext struct {
+	Environment config.Environment
+	ProjectDir  string
+	WorkingDir  string
+	Args        []string
+	Database    *DatabaseCredentials
+}
+
 // NginxConfigContext is passed to framework plugins before Polka writes its generated nginx config.
 type NginxConfigContext struct {
 	Environment           config.Environment
@@ -73,6 +82,7 @@ type FrameworkPlugin interface {
 	PHPExtensions() map[string]bool
 	OPcacheConfig() map[string]string
 	RuntimeEnv(RuntimeEnvContext) map[string]string
+	PostComposer(PostComposerContext) error
 	NginxConfig(NginxConfigContext) (NginxConfigResult, bool, error)
 }
 
@@ -82,6 +92,7 @@ type builtinFrameworkPlugin struct {
 	phpExtensions func() map[string]bool
 	opcacheConfig func() map[string]string
 	runtimeEnv    func(RuntimeEnvContext) map[string]string
+	postComposer  func(PostComposerContext) error
 	nginx         func(NginxConfigContext) (NginxConfigResult, bool, error)
 }
 
@@ -109,6 +120,9 @@ func newFrameworkPlugin(id, docroot string, includeComposerNodeAndMailpit bool) 
 		},
 		runtimeEnv: func(ctx RuntimeEnvContext) map[string]string {
 			return frameworkDatabaseRuntimeEnv(ctx, id == Laravel, id == Symfony)
+		},
+		postComposer: func(ctx PostComposerContext) error {
+			return frameworkPostComposer(ctx, id)
 		},
 	}
 }
@@ -147,6 +161,14 @@ func (p builtinFrameworkPlugin) RuntimeEnv(ctx RuntimeEnvContext) map[string]str
 	}
 
 	return p.runtimeEnv(ctx)
+}
+
+func (p builtinFrameworkPlugin) PostComposer(ctx PostComposerContext) error {
+	if p.postComposer == nil {
+		return nil
+	}
+
+	return p.postComposer(ctx)
 }
 
 func (p builtinFrameworkPlugin) NginxConfig(ctx NginxConfigContext) (NginxConfigResult, bool, error) {

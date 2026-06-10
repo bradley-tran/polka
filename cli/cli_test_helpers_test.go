@@ -595,6 +595,14 @@ func cachedComposerPath(root, version string) string {
 	return filepath.Join(root, "composer", version, "bin", "composer.phar")
 }
 
+func cachedComposerExecutablePath(root, version string) string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(root, "composer", version, "bin", "composer.cmd")
+	}
+
+	return filepath.Join(root, "composer", version, "bin", "composer")
+}
+
 func cachedNodeJSPath(root, version string) string {
 	if runtime.GOOS == "windows" {
 		return filepath.Join(root, "nodejs", version, "node.exe")

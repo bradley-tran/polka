@@ -227,6 +227,8 @@ Polka composes runtime environment variables for the active environment from fiv
 
 The `.env` file is loaded automatically from the directory containing `polka.yaml` when present. `env-file` paths are resolved relative to that same directory unless absolute, and `env-vars` always win when keys overlap. This runtime environment applies to `polka sh`, `polka exec`, `polka serve`, generated `.polka/bin` dispatch shims, and database client/import/export commands.
 
+After a successful dispatched `composer install` or `composer create-project`, the active framework plugin may create or update framework-local secret files from Polka-managed database credentials. The built-in Laravel hook updates the app `.env` DB settings, and the built-in Symfony hook writes `DATABASE_URL` to `.env.local`.
+
 ## Platform Notes
 
 Automatic nginx downloads are currently implemented on Windows amd64.

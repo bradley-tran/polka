@@ -103,6 +103,10 @@ func frameworkDatabaseCredentials(rootDir string, environment backend.Environmen
 		return nil, err
 	}
 
+	return frameworkDatabaseCredentialsFromManaged(environment, credentials), nil
+}
+
+func frameworkDatabaseCredentialsFromManaged(environment backend.Environment, credentials backend.ManagedDatabaseCredentials) *plugins.DatabaseCredentials {
 	port := credentials.Port
 	if port == 0 {
 		port = backend.EffectiveDatabasePort(environment.Database)
@@ -118,7 +122,7 @@ func frameworkDatabaseCredentials(rootDir string, environment backend.Environmen
 		DatabaseName: databaseName,
 		User:         credentials.User,
 		Password:     credentials.Password,
-	}, nil
+	}
 }
 
 func resolveConfiguredEnvironmentFilePath(projectDir, configuredPath string) string {

@@ -60,7 +60,7 @@ This package exists to avoid import cycles. Both `backend` and `tools` can depen
 
 The `plugins` package owns Polka's higher-level built-in plugin registry. It groups installable tool plugins from `tools` with framework plugins such as `drupal`, `wordpress`, `laravel`, and `symfony`.
 
-Framework plugins provide config defaults and optional hooks for PHP extensions, runtime environment variables, OPcache directives, and nginx config generation. In v1, framework init is config-only and framework nginx hooks delegate to the generic front-controller config.
+Framework plugins provide config defaults and optional hooks for PHP extensions, runtime environment variables, OPcache directives, post-Composer secret file generation, and nginx config generation. In v1, framework init is config-only and framework nginx hooks delegate to the generic front-controller config.
 
 ### `tools`
 
@@ -103,7 +103,7 @@ Managed command shims in `.polka/bin` call back into Polka:
      `-- tools.Registry.ResolveDispatchRequest("php")
 ```
 
-Dispatch resolution uses the active environment recorded in `.polka/run/current`, or `default` from `polka.yaml` when no local override is selected. It maps command names to their config tool, reads that environment's definition from `polka.yaml` or `polka.<name>.yaml`, and locates the installed executable under `.polka/envs`.
+Dispatch resolution uses the active environment recorded in `.polka/run/current`, or `default` from `polka.yaml` when no local override is selected. It maps command names to their config tool, reads that environment's definition from `polka.yaml` or `polka.<name>.yaml`, and locates the installed executable under `.polka/envs`. After a successful dispatched `composer install` or `composer create-project`, Polka runs the active framework's post-Composer hook so the framework can create or update local secret files from Polka-managed database credentials.
 
 Node.js is config-only as `nodejs`, but it exposes `node`, `npm`, and `npx` dispatch commands. The `nodejs` command itself is not generated as an active shim. Mago is configured with `mago` and exposes the `mago` dispatch command. phpMyAdmin does not generate a command shim either; Polka installs its web app archive, writes its generated `config.inc.php`, reads managed database credentials from Polka's runtime secrets when a managed database is configured, and uses its UI port plus the environment's root-level HTTPS setting when the CLI starts the managed phpMyAdmin service.
 
