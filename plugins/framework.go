@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -12,6 +13,7 @@ const (
 	Drupal    = "drupal"
 	WordPress = "wordpress"
 	Laravel   = "laravel"
+	Symfony   = "symfony"
 )
 
 const (
@@ -87,6 +89,7 @@ func DefaultFrameworkPlugins() []FrameworkPlugin {
 		newFrameworkPlugin(Drupal, "web", true),
 		newFrameworkPlugin(WordPress, ".", false),
 		newFrameworkPlugin(Laravel, "public", true),
+		newFrameworkPlugin(Symfony, "public", true),
 	}
 }
 
@@ -100,7 +103,7 @@ func newFrameworkPlugin(id, docroot string, includeComposerNodeAndMailpit bool) 
 			return frameworkOPcacheConfig(id)
 		},
 		runtimeEnv: func(ctx RuntimeEnvContext) map[string]string {
-			return frameworkDatabaseRuntimeEnv(ctx, id == Laravel)
+			return frameworkDatabaseRuntimeEnv(ctx, id == Laravel, id == Symfony)
 		},
 	}
 }
@@ -225,6 +228,28 @@ func frameworkPHPExtensions(id string) map[string]bool {
 			"xsl",
 			"zip",
 		)
+	case Symfony:
+		return phpExtensionMap(
+			"ctype",
+			"curl",
+			"dom",
+			"fileinfo",
+			"gd",
+			"iconv",
+			"intl",
+			"mbstring",
+			"mysqli",
+			"opcache",
+			"openssl",
+			"pdo_mysql",
+			"pdo_sqlite",
+			"session",
+			"simplexml",
+			"sqlite3",
+			"tokenizer",
+			"xmlreader",
+			"zip",
+		)
 	case WordPress:
 		return phpExtensionMap(
 			"bcmath",
@@ -280,7 +305,7 @@ func copyStringMap(values map[string]string) map[string]string {
 	return copied
 }
 
-func frameworkDatabaseRuntimeEnv(ctx RuntimeEnvContext, includeLaravelConnection bool) map[string]string {
+func frameworkDatabaseRuntimeEnv(ctx RuntimeEnvContext, includeLaravelConnection bool, includeSymfonyDatabaseURL bool) map[string]string {
 	if ctx.Database == nil {
 		return nil
 	}
@@ -304,6 +329,52 @@ func frameworkDatabaseRuntimeEnv(ctx RuntimeEnvContext, includeLaravelConnection
 	if includeLaravelConnection {
 		values["DB_CONNECTION"] = "mysql"
 	}
+	if includeSymfonyDatabaseURL {
+		values["DATABASE_URL"] = symfonyDatabaseURL(ctx, host, port)
+	}
 
 	return values
+}
+
+// symfonyDatabaseURL renders managed database credentials in Symfony's Doctrine URL form.
+func symfonyDatabaseURL(ctx RuntimeEnvContext, host string, port int) string {
+	user := url.UserPassword(ctx.Database.User, ctx.Database.Password).String()
+	databaseName := strings.TrimPrefix(url.PathEscape(ctx.Database.DatabaseName), "/")
+	serverVersion := symfonyDatabaseServerVersion(ctx.Environment)
+	values := url.Values{"charset": []string{"utf8mb4"}}
+	if serverVersion != "" {
+		values.Set("serverVersion", serverVersion)
+	}
+
+	return "mysql://" + user + "@" + host + ":" + strconv.Itoa(port) + "/" + databaseName + "?" + values.Encode()
+}
+
+// symfonyDatabaseServerVersion converts Polka's database selection to Doctrine's serverVersion value.
+func symfonyDatabaseServerVersion(environment config.Environment) string {
+	if environment.Database == nil {
+		return ""
+	}
+
+	engine := strings.ToLower(strings.TrimSpace(environment.Database.Engine))
+	version := strings.TrimSpace(environment.Database.Version)
+	switch engine {
+	case tools.MariaDB:
+		if version == "" {
+			version = strings.TrimSpace(environment.MariaDBVersion)
+		}
+		if version == "" {
+			version = defaultMariaDBVersion
+		}
+		return "mariadb-" + version
+	case tools.MySQL:
+		if version == "" {
+			version = strings.TrimSpace(environment.MySQLVersion)
+		}
+		if version == "" {
+			return "mysql"
+		}
+		return version
+	default:
+		return ""
+	}
 }

@@ -21,11 +21,12 @@ polka init
 polka init drupal
 polka init wordpress
 polka init laravel
+polka init symfony
 ```
 
-When `framework` is `drupal`, `wordpress`, or `laravel`, Polka writes an opinionated default config with a top-level `framework` key, framework docroot, managed tool versions, database settings, phpMyAdmin settings, and a default PHP extension set based on current framework requirements and recommendations. Framework init is config-only: it does not create project files, run Composer, install tools, or start services. It fails if `polka.yaml` already exists.
+When `framework` is `drupal`, `wordpress`, `laravel`, or `symfony`, Polka writes an opinionated default config with a top-level `framework` key, framework docroot, managed tool versions, database settings, phpMyAdmin settings, and a default PHP extension set based on current framework requirements and recommendations. Framework init is config-only: it does not create project files, run Composer, install tools, or start services. It fails if `polka.yaml` already exists.
 
-Drupal and Laravel presets use `web` and `public` docroots respectively, and include PHP, Composer, Node.js, nginx, MariaDB, phpMyAdmin, and Mailpit. The WordPress preset uses the project root as docroot and includes PHP, nginx, MariaDB, and phpMyAdmin.
+Drupal, Laravel, and Symfony presets use `web`, `public`, and `public` docroots respectively, and include PHP, Composer, Node.js, nginx, MariaDB, phpMyAdmin, and Mailpit. The WordPress preset uses the project root as docroot and includes PHP, nginx, MariaDB, and phpMyAdmin.
 
 ### `polka new <name>`
 
