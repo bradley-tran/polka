@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"polka/config"
 )
 
 const (
@@ -33,18 +35,44 @@ type phpWindowsAsset struct {
 
 func phpPlugin() Plugin {
 	return newManifestPlugin(PHP, pluginHooks{
+		validate: func(environment config.Environment) error {
+			if version := strings.TrimSpace(environment.PHPVersion); version != "" {
+				if err := validateVersion(PHP, version); err != nil {
+					return err
+				}
+			}
+			if err := validateOPcachePreset(environment.OPcachePreset); err != nil {
+				return err
+			}
+			for name, value := range environment.OPcacheConfig {
+				if err := validateOPcacheDirective(name, value); err != nil {
+					return err
+				}
+			}
+
+			return nil
+		},
 		download: func(ctx DownloadContext) error {
 			return downloadPHP(ctx.Client, ctx.CacheDir, ctx.Version)
 		},
 		postInstall: func(ctx InstallContext) error {
-			extensions := EffectivePHPExtensionsForInstall(ctx.Environment)
-			if len(extensions) == 0 {
+			phpConfig := EffectivePHPConfigForInstall(ctx.Environment)
+			if phpConfig.IsZero() {
 				return nil
 			}
 
-			return configureInstalledPHPExtensions(ctx.EnvsDir, ctx.Result.Version, extensions)
+			return configureInstalledPHPConfig(ctx.EnvsDir, ctx.Result.Version, phpConfig)
 		},
 	})
+}
+
+func validateOPcachePreset(preset string) error {
+	switch config.NormalizeOPcachePreset(preset) {
+	case "", config.OPcachePresetDev, config.OPcachePresetProduction:
+		return nil
+	default:
+		return fmt.Errorf("unsupported opcache-preset %q: use none, dev, or production", preset)
+	}
 }
 
 func downloadPHP(client *http.Client, cacheDir, version string) error {

@@ -212,7 +212,9 @@ The `phpmyadmin` tool key installs the phpMyAdmin web app archive under `.polka/
 
 The `mailpit` tool key installs Mailpit and creates a `mailpit` command shim. Its SMTP and UI port settings live under `settings.mailpit`.
 
-When an environment defines `php-extensions`, `polka install` writes a generated `php.ini` next to the installed PHP executable so those extensions are explicitly enabled or disabled for that environment. If `composer` is configured for that environment, `openssl` and `zip` are enabled by default unless `php-extensions` explicitly sets either one to `false`.
+When an environment defines `php-extensions`, `opcache-preset`, or `opcache-config`, `polka install` writes a generated `php.ini` next to the installed PHP executable. `php-extensions` explicitly enables or disables extensions. If `composer` is configured for that environment, `openssl` and `zip` are enabled by default unless `php-extensions` explicitly sets either one to `false`.
+
+`opcache-preset` may be omitted, `none`, `dev`, or `production`. `dev` enables OPcache with timestamp validation and immediate revalidation. `production` enables OPcache with timestamp validation disabled. `opcache-config` accepts `opcache.*` directives and is applied over the preset; framework-provided directives, such as Drupal's `opcache.save_comments = 1`, sit between the preset and user config. Re-run `polka install` after changing PHP extension or OPcache settings.
 
 Polka composes runtime environment variables for the active environment from five sources in this precedence order, lowest to highest:
 

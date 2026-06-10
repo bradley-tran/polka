@@ -92,6 +92,17 @@ func TestDefaultRegistryValidatesPHPMyAdminConfig(t *testing.T) {
 	}
 }
 
+func TestDefaultRegistryValidatesOPcacheConfig(t *testing.T) {
+	registry := NewDefaultRegistry()
+
+	if err := registry.ValidateEnvironment(config.Environment{PHPVersion: "8.4", OPcachePreset: "staging"}); err == nil {
+		t.Fatal("ValidateEnvironment(opcache invalid preset) error = nil, want preset validation error")
+	}
+	if err := registry.ValidateEnvironment(config.Environment{PHPVersion: "8.4", OPcacheConfig: map[string]string{"zend_extension": "opcache"}}); err == nil {
+		t.Fatal("ValidateEnvironment(opcache invalid directive) error = nil, want directive validation error")
+	}
+}
+
 func TestHTTPDownloaderRunsRegisteredPluginDownloadHook(t *testing.T) {
 	var called DownloadContext
 	plugin := testPlugin{

@@ -34,6 +34,8 @@ type testEnvironmentConfig struct {
 	Database      *testDatabaseConfig   `yaml:"database,omitempty"`
 	Mailpit       *testMailpitConfig    `yaml:"mailpit,omitempty"`
 	PHPExtensions map[string]bool       `yaml:"php-extensions,omitempty"`
+	OPcachePreset string                `yaml:"opcache-preset,omitempty"`
+	OPcacheConfig map[string]string     `yaml:"opcache-config,omitempty"`
 	Server        *testServerConfig     `yaml:"server,omitempty"`
 }
 
@@ -90,6 +92,8 @@ type testProjectConfigData struct {
 	EnvVars       map[string]string   `yaml:"env-vars,omitempty"`
 	Database      *testDatabaseConfig `yaml:"database,omitempty"`
 	PHPExtensions map[string]bool     `yaml:"php-extensions,omitempty"`
+	OPcachePreset string              `yaml:"opcache-preset,omitempty"`
+	OPcacheConfig map[string]string   `yaml:"opcache-config,omitempty"`
 	Server        *testServerConfig   `yaml:"server,omitempty"`
 }
 
@@ -103,6 +107,8 @@ type testEnvironmentConfigData struct {
 	EnvVars       map[string]string   `yaml:"env-vars,omitempty"`
 	Database      *testDatabaseConfig `yaml:"database,omitempty"`
 	PHPExtensions map[string]bool     `yaml:"php-extensions,omitempty"`
+	OPcachePreset string              `yaml:"opcache-preset,omitempty"`
+	OPcacheConfig map[string]string   `yaml:"opcache-config,omitempty"`
 	Server        *testServerConfig   `yaml:"server,omitempty"`
 }
 
@@ -156,6 +162,8 @@ func writeTestConfigFile(t *testing.T, projectDir string, config testConfigFile)
 		projectConfig.EnvVars = defaultEnvironment.EnvVars
 		projectConfig.Database = testDatabaseRuntimeFromEnvironment(defaultEnvironment)
 		projectConfig.PHPExtensions = defaultEnvironment.PHPExtensions
+		projectConfig.OPcachePreset = defaultEnvironment.OPcachePreset
+		projectConfig.OPcacheConfig = defaultEnvironment.OPcacheConfig
 		projectConfig.Server = defaultEnvironment.Server
 	}
 
@@ -228,6 +236,8 @@ func writeTestEnvironmentConfig(t *testing.T, projectDir, name string, environme
 		projectConfig.EnvVars = environment.EnvVars
 		projectConfig.Database = testDatabaseRuntimeFromEnvironment(environment)
 		projectConfig.PHPExtensions = environment.PHPExtensions
+		projectConfig.OPcachePreset = environment.OPcachePreset
+		projectConfig.OPcacheConfig = environment.OPcacheConfig
 		projectConfig.Server = environment.Server
 		writeTestYAML(t, filepath.Join(projectDir, "polka.yaml"), projectConfig)
 		return
@@ -243,6 +253,8 @@ func writeTestEnvironmentConfig(t *testing.T, projectDir, name string, environme
 		EnvVars:       environment.EnvVars,
 		Database:      testDatabaseRuntimeFromEnvironment(environment),
 		PHPExtensions: environment.PHPExtensions,
+		OPcachePreset: environment.OPcachePreset,
+		OPcacheConfig: environment.OPcacheConfig,
 		Server:        environment.Server,
 	})
 }
@@ -273,14 +285,18 @@ func writeTestYAML(t *testing.T, path string, value any) {
 }
 
 func testEnvironmentFromProjectConfig(projectConfig testProjectConfigData) testEnvironmentConfig {
-	return testEnvironmentFromParts(projectConfig.Framework, projectConfig.Tools, projectConfig.Settings, projectConfig.Docroot, projectConfig.HTTPS, projectConfig.EnvFile, projectConfig.EnvVars, projectConfig.Database, projectConfig.PHPExtensions, projectConfig.Server)
+	return testEnvironmentFromParts(projectConfig.Framework, projectConfig.Tools, projectConfig.Settings, projectConfig.Docroot, projectConfig.HTTPS, projectConfig.EnvFile, projectConfig.EnvVars, projectConfig.Database, projectConfig.PHPExtensions, projectConfig.OPcachePreset, projectConfig.OPcacheConfig, projectConfig.Server)
 }
 
 func testEnvironmentFromEnvironmentConfig(environmentConfig testEnvironmentConfigData) testEnvironmentConfig {
-	return testEnvironmentFromParts(environmentConfig.Framework, environmentConfig.Tools, environmentConfig.Settings, environmentConfig.Docroot, environmentConfig.HTTPS, environmentConfig.EnvFile, environmentConfig.EnvVars, environmentConfig.Database, environmentConfig.PHPExtensions, environmentConfig.Server)
+	return testEnvironmentFromParts(environmentConfig.Framework, environmentConfig.Tools, environmentConfig.Settings, environmentConfig.Docroot, environmentConfig.HTTPS, environmentConfig.EnvFile, environmentConfig.EnvVars, environmentConfig.Database, environmentConfig.PHPExtensions, environmentConfig.OPcachePreset, environmentConfig.OPcacheConfig, environmentConfig.Server)
 }
 
-func testEnvironmentFromParts(framework string, tools *testToolsConfig, settings *testSettingsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *testDatabaseConfig, phpExtensions map[string]bool, server *testServerConfig) testEnvironmentConfig {
+func testEnvironmentFromParts(framework string, tools *testToolsConfig, settings *testSettingsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *testDatabaseConfig, phpExtensions map[string]bool, opcachePreset string, opcacheConfig map[string]string, server *testServerConfig) testEnvironmentConfig {
+	normalizedOPcachePreset := strings.ToLower(strings.TrimSpace(opcachePreset))
+	if normalizedOPcachePreset == "none" {
+		normalizedOPcachePreset = ""
+	}
 	environment := testEnvironmentConfig{
 		Framework:     strings.ToLower(strings.TrimSpace(framework)),
 		Docroot:       docroot,
@@ -289,6 +305,8 @@ func testEnvironmentFromParts(framework string, tools *testToolsConfig, settings
 		EnvVars:       envVars,
 		Database:      database,
 		PHPExtensions: phpExtensions,
+		OPcachePreset: normalizedOPcachePreset,
+		OPcacheConfig: testNormalizeOPcacheConfig(opcacheConfig),
 		Server:        server,
 	}
 	if tools != nil {
@@ -324,6 +342,19 @@ func testEnvironmentFromParts(framework string, tools *testToolsConfig, settings
 	}
 
 	return environment
+}
+
+func testNormalizeOPcacheConfig(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	normalized := make(map[string]string, len(values))
+	for key, value := range values {
+		normalized[strings.ToLower(strings.TrimSpace(key))] = strings.TrimSpace(value)
+	}
+
+	return normalized
 }
 
 func testToolsFromEnvironment(environment testEnvironmentConfig) *testToolsConfig {

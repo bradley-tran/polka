@@ -288,6 +288,57 @@ func TestStoreReadsAndWritesFrameworkConfig(t *testing.T) {
 	}
 }
 
+func TestStoreReadsAndWritesOPcacheConfig(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+
+	config := store.defaultConfig()
+	config.Environments[defaultEnvironmentName] = Environment{
+		PHPVersion:      "8.4",
+		OPcachePreset:   "Production",
+		OPcacheConfig:   map[string]string{" OPcache.Revalidate_Freq ": " 2 "},
+		PHPExtensions:   map[string]bool{"opcache": true},
+		ComposerVersion: "2.8",
+	}
+	config.Environments["app"] = Environment{
+		PHPVersion:    "8.3",
+		OPcachePreset: "Dev",
+		OPcacheConfig: map[string]string{" OPcache.Enable_Cli ": " true "},
+	}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	projectConfig, err := os.ReadFile(store.ConfigFile)
+	if err != nil {
+		t.Fatalf("ReadFile(project config) error = %v", err)
+	}
+	if !strings.Contains(string(projectConfig), "opcache-preset: production") || strings.Contains(string(projectConfig), "Production") {
+		t.Fatalf("project config = %q, want normalized production OPcache preset", string(projectConfig))
+	}
+	appConfig, err := os.ReadFile(store.environmentConfigFile("app"))
+	if err != nil {
+		t.Fatalf("ReadFile(app config) error = %v", err)
+	}
+	if !strings.Contains(string(appConfig), "opcache-preset: dev") || strings.Contains(string(appConfig), "OPcache.Enable_Cli") {
+		t.Fatalf("app config = %q, want normalized dev OPcache config", string(appConfig))
+	}
+
+	loaded, err := store.readConfig()
+	if err != nil {
+		t.Fatalf("readConfig() error = %v", err)
+	}
+	if loaded.Environments[defaultEnvironmentName].OPcachePreset != "production" {
+		t.Fatalf("default opcache-preset = %q, want production", loaded.Environments[defaultEnvironmentName].OPcachePreset)
+	}
+	if loaded.Environments[defaultEnvironmentName].OPcacheConfig["opcache.revalidate_freq"] != "2" {
+		t.Fatalf("default opcache-config = %#v, want normalized revalidate_freq", loaded.Environments[defaultEnvironmentName].OPcacheConfig)
+	}
+	if loaded.Environments["app"].OPcachePreset != "dev" || loaded.Environments["app"].OPcacheConfig["opcache.enable_cli"] != "true" {
+		t.Fatalf("app OPcache config = %q %#v, want normalized dev config", loaded.Environments["app"].OPcachePreset, loaded.Environments["app"].OPcacheConfig)
+	}
+}
+
 func TestStoreRejectsUnknownFrameworkConfig(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
@@ -420,6 +471,70 @@ func TestStoreInstallToolAppliesEnvironmentPostInstallSettings(t *testing.T) {
 	}
 	if loadedConfig.Environments["demo"].PHPVersion != "8.4" {
 		t.Fatalf("demo environment php version = %q, want 8.4", loadedConfig.Environments["demo"].PHPVersion)
+	}
+}
+
+func TestStoreInstallAppliesOPcachePresetFrameworkAndUserConfig(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+	writeCachedTool(t, store.CacheDir, toolPHP, "8.4")
+
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{
+		Framework:     "drupal",
+		PHPVersion:    "8.4",
+		OPcachePreset: "production",
+		OPcacheConfig: map[string]string{
+			"opcache.enable_cli":          "1",
+			"opcache.validate_timestamps": "1",
+		},
+	}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	results, err := store.Install("demo")
+	if err != nil {
+		t.Fatalf("Install(demo) error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("Install(demo) length = %d, want 1", len(results))
+	}
+
+	phpIniData, err := os.ReadFile(filepath.Join(filepath.Dir(results[0].TargetPath), "php.ini"))
+	if err != nil {
+		t.Fatalf("ReadFile(installed php.ini) error = %v", err)
+	}
+	phpIni := string(phpIniData)
+	for _, want := range []string{
+		"opcache.enable=1",
+		"opcache.enable_cli=1",
+		"opcache.file_update_protection=0",
+		"opcache.save_comments=1",
+		"opcache.validate_timestamps=1",
+	} {
+		if !strings.Contains(phpIni, want) {
+			t.Fatalf("php.ini = %q, want %s", phpIni, want)
+		}
+	}
+	if strings.Contains(phpIni, "opcache.revalidate_freq") {
+		t.Fatalf("php.ini = %q, want no dev-only revalidate_freq for production preset", phpIni)
+	}
+}
+
+func TestStoreFrameworkOPcacheConfigHonorsUserOverrides(t *testing.T) {
+	store := NewProjectStore(t.TempDir())
+
+	environment := store.withFrameworkOPcacheConfig(Environment{
+		Framework: "drupal",
+		OPcacheConfig: map[string]string{
+			"opcache.save_comments": "0",
+		},
+	})
+
+	if environment.OPcacheConfig["opcache.save_comments"] != "0" {
+		t.Fatalf("OPcache config = %#v, want user override for save_comments", environment.OPcacheConfig)
 	}
 }
 
@@ -1178,6 +1293,27 @@ func TestStoreInstallRejectsPHPExtensionsWithoutPHP(t *testing.T) {
 	}
 }
 
+func TestStoreInstallRejectsOPcacheConfigWithoutPHP(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{
+		ComposerVersion: "2.8",
+		OPcachePreset:   "dev",
+	}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	if _, err := store.Install("demo"); err == nil {
+		t.Fatal("Install(demo) error = nil, want OPcache validation error")
+	} else if !strings.Contains(err.Error(), "OPcache config") {
+		t.Fatalf("Install(demo) error = %v, want OPcache validation error", err)
+	}
+}
+
 func TestStoreCurrentNormalizesServerConfig(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
@@ -1865,6 +2001,49 @@ func TestStoreRejectsNonVersionToolsAndOrphanSettings(t *testing.T) {
 				"",
 			}, "\n"),
 			wantErr: "settings.phpmyadmin requires tools.phpmyadmin",
+		},
+		{
+			name: "invalid opcache preset",
+			config: strings.Join([]string{
+				"opcache-preset: staging",
+				"",
+			}, "\n"),
+			wantErr: "unsupported opcache-preset",
+		},
+		{
+			name: "non string opcache preset",
+			config: strings.Join([]string{
+				"opcache-preset: true",
+				"",
+			}, "\n"),
+			wantErr: "opcache-preset must be one of none, dev, or production",
+		},
+		{
+			name: "scalar opcache config",
+			config: strings.Join([]string{
+				"opcache-config: true",
+				"",
+			}, "\n"),
+			wantErr: "opcache-config must be a mapping",
+		},
+		{
+			name: "unsupported opcache config key",
+			config: strings.Join([]string{
+				"opcache-config:",
+				"  zend_extension: opcache",
+				"",
+			}, "\n"),
+			wantErr: "unsupported opcache-config.zend_extension key",
+		},
+		{
+			name: "nested opcache config value",
+			config: strings.Join([]string{
+				"opcache-config:",
+				"  opcache.enable:",
+				"    nested: true",
+				"",
+			}, "\n"),
+			wantErr: "opcache-config.opcache.enable must be a scalar",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {

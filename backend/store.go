@@ -576,11 +576,18 @@ func validateInstallEnvironment(name string, environment Environment, requests [
 	if len(environment.PHPExtensions) > 0 && environment.PHPVersion == "" && !installRequestsIncludeTool(requests, toolPHP) {
 		return fmt.Errorf("environment %q defines php-extensions but does not define a php version", name)
 	}
+	if environmentHasOPcacheConfig(environment) && environment.PHPVersion == "" && !installRequestsIncludeTool(requests, toolPHP) {
+		return fmt.Errorf("environment %q defines OPcache config but does not define a php version", name)
+	}
 	if err := registry.ValidateEnvironment(environment); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func environmentHasOPcacheConfig(environment Environment) bool {
+	return config.NormalizeOPcachePreset(environment.OPcachePreset) != "" || len(environment.OPcacheConfig) > 0
 }
 
 func installRequestsIncludeTool(requests []tools.InstallRequest, tool string) bool {
@@ -594,7 +601,8 @@ func installRequestsIncludeTool(requests []tools.InstallRequest, tool string) bo
 }
 
 func (s Store) installRequests(environment Environment, requests []tools.InstallRequest, report func(InstallProgress)) ([]InstallResult, error) {
-	installPHPExtensions := tools.EffectivePHPExtensionsForInstall(environment)
+	installEnvironment := s.withFrameworkOPcacheConfig(environment)
+	installPHPConfig := tools.EffectivePHPConfigForInstall(installEnvironment)
 	registry := s.toolRegistry()
 
 	results := make([]InstallResult, len(requests))
@@ -655,7 +663,7 @@ func (s Store) installRequests(environment Environment, requests []tools.Install
 			}
 
 			if req.Tool == toolPHP {
-				if len(installPHPExtensions) > 0 {
+				if !installPHPConfig.IsZero() {
 					baseProgress.Stage = InstallProgressConfiguring
 					safeReport(baseProgress)
 				}
@@ -666,7 +674,7 @@ func (s Store) installRequests(environment Environment, requests []tools.Install
 				EnvsDir:     s.EnvsDir,
 				BinDir:      s.BinDir,
 				CacheDir:    s.CacheDir,
-				Environment: environment,
+				Environment: installEnvironment,
 				Result:      results[i],
 			}); err != nil {
 				errs[i] = err
@@ -687,6 +695,31 @@ func (s Store) installRequests(environment Environment, requests []tools.Install
 	}
 
 	return results, nil
+}
+
+func (s Store) withFrameworkOPcacheConfig(environment Environment) Environment {
+	if strings.TrimSpace(environment.Framework) == "" {
+		return environment
+	}
+	plugin, ok := s.FrameworkPlugin(environment.Framework)
+	if !ok {
+		return environment
+	}
+	frameworkConfig := plugin.OPcacheConfig()
+	if len(frameworkConfig) == 0 {
+		return environment
+	}
+
+	merged := make(map[string]string, len(frameworkConfig)+len(environment.OPcacheConfig))
+	for name, value := range frameworkConfig {
+		merged[name] = value
+	}
+	for name, value := range environment.OPcacheConfig {
+		merged[name] = value
+	}
+	environment.OPcacheConfig = config.NormalizeOPcacheConfig(merged)
+
+	return environment
 }
 
 func normalizeInstallRequest(registry *ToolRegistry, tool, version string) (tools.InstallRequest, error) {
@@ -1217,7 +1250,25 @@ func validateEnvironmentFileSchema(data []byte) error {
 		return err
 	}
 	if hasSettings {
-		return validateSettingsSchema(settings, tools)
+		if err := validateSettingsSchema(settings, tools); err != nil {
+			return err
+		}
+	}
+
+	if value, ok := raw["opcache-preset"]; ok {
+		if err := validateOPcachePresetSchema(value); err != nil {
+			return err
+		}
+	}
+
+	opcacheConfig, hasOPcacheConfig, err := rawMapForKey(raw, "opcache-config")
+	if err != nil {
+		return err
+	}
+	if hasOPcacheConfig {
+		if err := validateOPcacheConfigSchema(opcacheConfig); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -1276,6 +1327,48 @@ func validateSettingKeys(prefix string, settings map[string]any, allowed map[str
 		if !isYAMLSettingScalar(value) {
 			return fmt.Errorf("%s.%s must be a scalar value", prefix, key)
 		}
+	}
+
+	return nil
+}
+
+func validateOPcachePresetSchema(value any) error {
+	preset, ok := value.(string)
+	if !ok {
+		return fmt.Errorf("opcache-preset must be one of none, dev, or production")
+	}
+
+	switch config.NormalizeOPcachePreset(preset) {
+	case "", config.OPcachePresetDev, config.OPcachePresetProduction:
+		return nil
+	default:
+		return fmt.Errorf("unsupported opcache-preset %q: use none, dev, or production", preset)
+	}
+}
+
+func validateOPcacheConfigSchema(settings map[string]any) error {
+	for key, value := range settings {
+		if err := validateOPcacheConfigKey(key); err != nil {
+			return err
+		}
+		if !isYAMLOPcacheScalar(value) {
+			return fmt.Errorf("opcache-config.%s must be a scalar string, number, or boolean value", key)
+		}
+		if text, ok := value.(string); ok && strings.ContainsAny(text, "\r\n") {
+			return fmt.Errorf("opcache-config.%s must be a single-line scalar value", key)
+		}
+	}
+
+	return nil
+}
+
+func validateOPcacheConfigKey(key string) error {
+	normalized := strings.ToLower(strings.TrimSpace(key))
+	if !strings.HasPrefix(normalized, "opcache.") || normalized == "opcache." {
+		return fmt.Errorf("unsupported opcache-config.%s key: use opcache.* directive names", key)
+	}
+	if !validName.MatchString(normalized) {
+		return fmt.Errorf("invalid opcache-config.%s key: use letters, numbers, dots, dashes, or underscores", key)
 	}
 
 	return nil
@@ -1348,6 +1441,15 @@ func isYAMLVersionScalar(value any) bool {
 }
 
 func isYAMLSettingScalar(value any) bool {
+	switch value.(type) {
+	case string, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64, bool:
+		return true
+	default:
+		return false
+	}
+}
+
+func isYAMLOPcacheScalar(value any) bool {
 	switch value.(type) {
 	case string, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64, bool:
 		return true

@@ -68,15 +68,17 @@ type NginxConfigResult struct {
 type FrameworkPlugin interface {
 	ID() string
 	Defaults() config.Environment
+	OPcacheConfig() map[string]string
 	RuntimeEnv(RuntimeEnvContext) map[string]string
 	NginxConfig(NginxConfigContext) (NginxConfigResult, bool, error)
 }
 
 type builtinFrameworkPlugin struct {
-	id         string
-	defaults   func() config.Environment
-	runtimeEnv func(RuntimeEnvContext) map[string]string
-	nginx      func(NginxConfigContext) (NginxConfigResult, bool, error)
+	id            string
+	defaults      func() config.Environment
+	opcacheConfig func() map[string]string
+	runtimeEnv    func(RuntimeEnvContext) map[string]string
+	nginx         func(NginxConfigContext) (NginxConfigResult, bool, error)
 }
 
 // DefaultFrameworkPlugins returns the built-in framework plugins.
@@ -94,6 +96,9 @@ func newFrameworkPlugin(id, docroot string, includeComposerNodeAndMailpit bool) 
 		defaults: func() config.Environment {
 			return frameworkDefaults(id, docroot, includeComposerNodeAndMailpit)
 		},
+		opcacheConfig: func() map[string]string {
+			return frameworkOPcacheConfig(id)
+		},
 		runtimeEnv: func(ctx RuntimeEnvContext) map[string]string {
 			return frameworkDatabaseRuntimeEnv(ctx, id == Laravel)
 		},
@@ -110,6 +115,14 @@ func (p builtinFrameworkPlugin) Defaults() config.Environment {
 	}
 
 	return config.NormalizeEnvironment("", p.defaults())
+}
+
+func (p builtinFrameworkPlugin) OPcacheConfig() map[string]string {
+	if p.opcacheConfig == nil {
+		return nil
+	}
+
+	return copyStringMap(p.opcacheConfig())
 }
 
 func (p builtinFrameworkPlugin) RuntimeEnv(ctx RuntimeEnvContext) map[string]string {
@@ -145,6 +158,8 @@ func frameworkDefaults(id, docroot string, includeComposerNodeAndMailpit bool) c
 			Port:    defaultPHPMyAdminPort,
 		},
 		PHPExtensions: frameworkPHPExtensions(id),
+		OPcachePreset: config.OPcachePresetDev,
+		OPcacheConfig: frameworkOPcacheConfig(id),
 	}
 	if includeComposerNodeAndMailpit {
 		environment.ComposerVersion = defaultComposerVersion
@@ -157,6 +172,15 @@ func frameworkDefaults(id, docroot string, includeComposerNodeAndMailpit bool) c
 	}
 
 	return environment
+}
+
+func frameworkOPcacheConfig(id string) map[string]string {
+	switch strings.ToLower(strings.TrimSpace(id)) {
+	case Drupal:
+		return map[string]string{"opcache.save_comments": "1"}
+	default:
+		return nil
+	}
 }
 
 func frameworkPHPExtensions(id string) map[string]bool {
@@ -241,6 +265,19 @@ func phpExtensionMap(names ...string) map[string]bool {
 	}
 
 	return extensions
+}
+
+func copyStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	copied := make(map[string]string, len(values))
+	for key, value := range values {
+		copied[key] = value
+	}
+
+	return copied
 }
 
 func frameworkDatabaseRuntimeEnv(ctx RuntimeEnvContext, includeLaravelConnection bool) map[string]string {

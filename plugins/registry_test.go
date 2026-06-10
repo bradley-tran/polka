@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"polka/config"
 	"polka/tools"
 )
 
@@ -41,6 +42,9 @@ func TestFrameworkDefaultsUseExpectedPresetMatrix(t *testing.T) {
 	if drupalDefaults.Framework != Drupal || drupalDefaults.Docroot != "web" || drupalDefaults.ComposerVersion != "2.8" || drupalDefaults.NodeJSVersion != "24" || drupalDefaults.Mailpit == nil {
 		t.Fatalf("Drupal defaults = %#v, want full Drupal preset", drupalDefaults)
 	}
+	if drupalDefaults.OPcachePreset != config.OPcachePresetDev || drupalDefaults.OPcacheConfig["opcache.save_comments"] != "1" {
+		t.Fatalf("Drupal OPcache defaults = %q %#v, want dev preset with save_comments", drupalDefaults.OPcachePreset, drupalDefaults.OPcacheConfig)
+	}
 	assertExtensionsEnabled(t, drupalDefaults.PHPExtensions, []string{
 		"curl",
 		"dom",
@@ -68,6 +72,9 @@ func TestFrameworkDefaultsUseExpectedPresetMatrix(t *testing.T) {
 	laravelDefaults := laravel.Defaults()
 	if laravelDefaults.Framework != Laravel || laravelDefaults.Docroot != "public" || laravelDefaults.ComposerVersion != "2.8" || laravelDefaults.NodeJSVersion != "24" || laravelDefaults.Mailpit == nil {
 		t.Fatalf("Laravel defaults = %#v, want full Laravel preset", laravelDefaults)
+	}
+	if laravelDefaults.OPcachePreset != config.OPcachePresetDev || len(laravelDefaults.OPcacheConfig) != 0 {
+		t.Fatalf("Laravel OPcache defaults = %q %#v, want dev preset only", laravelDefaults.OPcachePreset, laravelDefaults.OPcacheConfig)
 	}
 	assertExtensionsEnabled(t, laravelDefaults.PHPExtensions, []string{
 		"bcmath",
@@ -99,6 +106,9 @@ func TestFrameworkDefaultsUseExpectedPresetMatrix(t *testing.T) {
 	}
 	if wordpressDefaults.PHPVersion != "8.4" || wordpressDefaults.NginxVersion != "1.30" || wordpressDefaults.MariaDBVersion != "11.8" || wordpressDefaults.PHPMyAdmin == nil {
 		t.Fatalf("WordPress defaults = %#v, want PHP/nginx/MariaDB/phpMyAdmin", wordpressDefaults)
+	}
+	if wordpressDefaults.OPcachePreset != config.OPcachePresetDev || len(wordpressDefaults.OPcacheConfig) != 0 {
+		t.Fatalf("WordPress OPcache defaults = %q %#v, want dev preset only", wordpressDefaults.OPcachePreset, wordpressDefaults.OPcacheConfig)
 	}
 	assertExtensionsEnabled(t, wordpressDefaults.PHPExtensions, []string{
 		"bcmath",

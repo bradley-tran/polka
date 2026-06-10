@@ -1,6 +1,15 @@
 package config
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
+
+const (
+	OPcachePresetNone       = "none"
+	OPcachePresetDev        = "dev"
+	OPcachePresetProduction = "production"
+)
 
 // ToolsConfig is the YAML shape for managed tool version labels inside an environment file.
 type ToolsConfig struct {
@@ -46,6 +55,8 @@ type ProjectFile struct {
 	EnvVars       map[string]string `yaml:"env-vars,omitempty"`
 	Database      *DatabaseConfig   `yaml:"database,omitempty"`
 	PHPExtensions map[string]bool   `yaml:"php-extensions,omitempty"`
+	OPcachePreset string            `yaml:"opcache-preset,omitempty"`
+	OPcacheConfig map[string]any    `yaml:"opcache-config,omitempty"`
 	Server        *ServerConfig     `yaml:"server,omitempty"`
 }
 
@@ -60,6 +71,8 @@ type EnvironmentFile struct {
 	EnvVars       map[string]string `yaml:"env-vars,omitempty"`
 	Database      *DatabaseConfig   `yaml:"database,omitempty"`
 	PHPExtensions map[string]bool   `yaml:"php-extensions,omitempty"`
+	OPcachePreset string            `yaml:"opcache-preset,omitempty"`
+	OPcacheConfig map[string]any    `yaml:"opcache-config,omitempty"`
 	Server        *ServerConfig     `yaml:"server,omitempty"`
 }
 
@@ -82,6 +95,8 @@ type Environment struct {
 	Mailpit         *MailpitConfig    `yaml:"mailpit,omitempty"`
 	PHPMyAdmin      *PHPMyAdminConfig `yaml:"phpmyadmin,omitempty"`
 	PHPExtensions   map[string]bool   `yaml:"php-extensions,omitempty"`
+	OPcachePreset   string            `yaml:"opcache-preset,omitempty"`
+	OPcacheConfig   map[string]string `yaml:"opcache-config,omitempty"`
 	Server          *ServerConfig     `yaml:"server,omitempty"`
 }
 
@@ -129,6 +144,8 @@ func ProjectFileToEnvironment(name string, file ProjectFile) Environment {
 		file.EnvVars,
 		file.Database,
 		file.PHPExtensions,
+		file.OPcachePreset,
+		file.OPcacheConfig,
 		file.Server,
 	)
 }
@@ -147,6 +164,8 @@ func ProjectFileFromEnvironment(version int, root string, environment Environmen
 		EnvVars:       environment.EnvVars,
 		Database:      DatabaseRuntimeConfigFromEnvironment(environment),
 		PHPExtensions: environment.PHPExtensions,
+		OPcachePreset: NormalizeOPcachePreset(environment.OPcachePreset),
+		OPcacheConfig: OPcacheFileConfigFromEnvironment(environment),
 		Server:        ServerConfigFromEnvironment(environment),
 	}
 
@@ -166,6 +185,8 @@ func EnvironmentFileToEnvironment(name string, file EnvironmentFile) Environment
 		file.EnvVars,
 		file.Database,
 		file.PHPExtensions,
+		file.OPcachePreset,
+		file.OPcacheConfig,
 		file.Server,
 	)
 }
@@ -182,6 +203,8 @@ func EnvironmentFileFromEnvironment(environment Environment) EnvironmentFile {
 		EnvVars:       environment.EnvVars,
 		Database:      DatabaseRuntimeConfigFromEnvironment(environment),
 		PHPExtensions: environment.PHPExtensions,
+		OPcachePreset: NormalizeOPcachePreset(environment.OPcachePreset),
+		OPcacheConfig: OPcacheFileConfigFromEnvironment(environment),
 		Server:        ServerConfigFromEnvironment(environment),
 	}
 }
@@ -308,7 +331,7 @@ func (settings SettingsConfig) IsZero() bool {
 		settings.PHPMyAdmin == nil
 }
 
-func environmentFromFileParts(name string, framework string, tools *ToolsConfig, settings *SettingsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *DatabaseConfig, phpExtensions map[string]bool, server *ServerConfig) Environment {
+func environmentFromFileParts(name string, framework string, tools *ToolsConfig, settings *SettingsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *DatabaseConfig, phpExtensions map[string]bool, opcachePreset string, opcacheConfig map[string]any, server *ServerConfig) Environment {
 	environment := Environment{
 		Name:          name,
 		Framework:     strings.ToLower(strings.TrimSpace(framework)),
@@ -318,6 +341,8 @@ func environmentFromFileParts(name string, framework string, tools *ToolsConfig,
 		EnvVars:       envVars,
 		Database:      database,
 		PHPExtensions: phpExtensions,
+		OPcachePreset: opcachePreset,
+		OPcacheConfig: NormalizeOPcacheConfigFromYAML(opcacheConfig),
 		Server:        server,
 	}
 	if tools != nil {
@@ -471,6 +496,8 @@ func NormalizeEnvironment(name string, environment Environment) Environment {
 		Mailpit:         NormalizeMailpitConfig(environment.Mailpit),
 		PHPMyAdmin:      NormalizePHPMyAdminConfig(environment.PHPMyAdmin),
 		PHPExtensions:   NormalizePHPExtensions(environment.PHPExtensions),
+		OPcachePreset:   NormalizeOPcachePreset(environment.OPcachePreset),
+		OPcacheConfig:   NormalizeOPcacheConfig(environment.OPcacheConfig),
 		Server:          NormalizeServerConfig(environment.Server),
 	}
 
@@ -614,4 +641,86 @@ func NormalizePHPExtensions(extensions map[string]bool) map[string]bool {
 	}
 
 	return normalized
+}
+
+// NormalizeOPcachePreset canonicalizes the configured OPcache preset label.
+func NormalizeOPcachePreset(preset string) string {
+	normalized := strings.ToLower(strings.TrimSpace(preset))
+	if normalized == OPcachePresetNone {
+		return ""
+	}
+
+	return normalized
+}
+
+// NormalizeOPcacheConfig canonicalizes OPcache directive keys and trims values.
+func NormalizeOPcacheConfig(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	normalized := make(map[string]string, len(values))
+	for key, value := range values {
+		normalized[strings.ToLower(strings.TrimSpace(key))] = strings.TrimSpace(value)
+	}
+
+	return normalized
+}
+
+// NormalizeOPcacheConfigFromYAML converts YAML scalar values into the internal string map.
+func NormalizeOPcacheConfigFromYAML(values map[string]any) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	normalized := make(map[string]string, len(values))
+	for key, value := range values {
+		normalized[strings.ToLower(strings.TrimSpace(key))] = opcacheConfigValueString(value)
+	}
+
+	return normalized
+}
+
+// OPcacheFileConfigFromEnvironment extracts OPcache directives for YAML output.
+func OPcacheFileConfigFromEnvironment(environment Environment) map[string]any {
+	if len(environment.OPcacheConfig) == 0 {
+		return nil
+	}
+
+	config := NormalizeOPcacheConfig(environment.OPcacheConfig)
+	values := make(map[string]any, len(config))
+	for key, value := range config {
+		values[key] = value
+	}
+
+	return values
+}
+
+// OPcachePresetConfig returns Polka's generated OPcache directives for a preset.
+func OPcachePresetConfig(preset string) map[string]string {
+	switch NormalizeOPcachePreset(preset) {
+	case OPcachePresetDev:
+		return map[string]string{
+			"opcache.enable":                 "1",
+			"opcache.file_update_protection": "0",
+			"opcache.revalidate_freq":        "0",
+			"opcache.validate_timestamps":    "1",
+		}
+	case OPcachePresetProduction:
+		return map[string]string{
+			"opcache.enable":                 "1",
+			"opcache.file_update_protection": "0",
+			"opcache.validate_timestamps":    "0",
+		}
+	default:
+		return nil
+	}
+}
+
+func opcacheConfigValueString(value any) string {
+	if value == nil {
+		return ""
+	}
+
+	return strings.TrimSpace(fmt.Sprint(value))
 }

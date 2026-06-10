@@ -143,6 +143,16 @@ func TestRunInitWithFrameworkWritesDefaultPreset(t *testing.T) {
 			if test.wantMailpit && (environment.Mailpit.Version != "1.30" || environment.Mailpit.SMTPPort != 1025 || environment.Mailpit.UIPort != 8025) {
 				t.Fatalf("mailpit = %#v, want Mailpit preset", environment.Mailpit)
 			}
+			if environment.OPcachePreset != "dev" {
+				t.Fatalf("opcache-preset = %q, want dev", environment.OPcachePreset)
+			}
+			if test.framework == "drupal" {
+				if environment.OPcacheConfig["opcache.save_comments"] != "1" {
+					t.Fatalf("opcache-config = %#v, want Drupal save_comments preset", environment.OPcacheConfig)
+				}
+			} else if len(environment.OPcacheConfig) != 0 {
+				t.Fatalf("opcache-config = %#v, want no framework-specific OPcache config", environment.OPcacheConfig)
+			}
 			for _, extension := range []string{"gd", "mbstring", "mysqli", "opcache", "pdo_mysql", "zip"} {
 				if !environment.PHPExtensions[extension] {
 					t.Fatalf("php-extensions = %#v, want %s enabled", environment.PHPExtensions, extension)

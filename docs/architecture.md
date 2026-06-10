@@ -60,7 +60,7 @@ This package exists to avoid import cycles. Both `backend` and `tools` can depen
 
 The `plugins` package owns Polka's higher-level built-in plugin registry. It groups installable tool plugins from `tools` with framework plugins such as `drupal`, `wordpress`, and `laravel`.
 
-Framework plugins provide config defaults and optional hooks for runtime environment variables and nginx config generation. In v1, framework init is config-only and framework nginx hooks delegate to the generic front-controller config.
+Framework plugins provide config defaults and optional hooks for runtime environment variables, OPcache directives, and nginx config generation. In v1, framework init is config-only and framework nginx hooks delegate to the generic front-controller config.
 
 ### `tools`
 

@@ -74,6 +74,9 @@ server:
 php-extensions:
   openssl: true
   xdebug: false
+opcache-preset: dev
+opcache-config:
+  opcache.enable_cli: "1"
 ```
 
 ```yaml
@@ -84,6 +87,8 @@ tools:
 ```
 
 Polka resolves those versions against the local install layout under `.polka/envs`:
+
+`opcache-preset` accepts `none`, `dev`, or `production`; `opcache-config` accepts `opcache.*` directives applied over the preset and any framework defaults. Re-run `polka install` after changing PHP extension or OPcache settings so Polka can regenerate `php.ini`.
 
 ```text
 .polka/
