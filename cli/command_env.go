@@ -22,7 +22,7 @@ func newInitCommand(ctx *commandContext) *cobra.Command {
 		Use:  "init [framework]",
 		Args: maximumArgsError("init accepts at most one framework argument", 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			store, err := ctx.store()
+			store, err := ctx.initStore()
 			if err != nil {
 				return &statusError{code: 1, err: err}
 			}

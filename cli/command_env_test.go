@@ -10,17 +10,7 @@ import (
 
 func TestRunInitUsesDotPolkaByDefault(t *testing.T) {
 	projectDir := t.TempDir()
-	originalWorkingDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Getwd() error = %v", err)
-	}
-	t.Cleanup(func() {
-		_ = os.Chdir(originalWorkingDir)
-	})
-
-	if err := os.Chdir(projectDir); err != nil {
-		t.Fatalf("Chdir() error = %v", err)
-	}
+	chdirTest(t, projectDir)
 
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
@@ -67,6 +57,38 @@ func TestRunInitUsesDotPolkaByDefault(t *testing.T) {
 	}
 }
 
+func TestRunInitUsesCurrentDirectoryWithoutParentDiscovery(t *testing.T) {
+	parentDir := t.TempDir()
+	projectDir := filepath.Join(parentDir, "site")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(project) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(parentDir, "polka.yaml"), []byte("version: 1\nroot: .polka\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(parent config) error = %v", err)
+	}
+	chdirTest(t, projectDir)
+
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	if code := Run(stdout, stderr, []string{"init"}); code != 0 {
+		t.Fatalf("Run(init) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	if _, err := os.Stat(filepath.Join(projectDir, "polka.yaml")); err != nil {
+		t.Fatalf("Stat(nested polka.yaml) error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, ".polka", "bin", "polka.cmd")); err != nil {
+		t.Fatalf("Stat(nested dispatcher) error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(parentDir, ".polka")); !os.IsNotExist(err) {
+		t.Fatalf("Stat(parent .polka) error = %v, want parent project untouched", err)
+	}
+	if !strings.Contains(stdout.String(), filepath.Join(projectDir, ".polka")) {
+		t.Fatalf("Run(init) stdout = %q, want nested .polka path", stdout.String())
+	}
+}
+
 func TestRunInitWithFrameworkWritesDefaultPreset(t *testing.T) {
 	for _, test := range []struct {
 		framework       string
@@ -83,6 +105,7 @@ func TestRunInitWithFrameworkWritesDefaultPreset(t *testing.T) {
 		t.Run(test.framework, func(t *testing.T) {
 			projectDir := t.TempDir()
 			root := filepath.Join(projectDir, ".polka")
+			chdirTest(t, projectDir)
 			stdout := &bytes.Buffer{}
 			stderr := &bytes.Buffer{}
 
@@ -137,6 +160,7 @@ func TestRunInitWithFrameworkWritesDefaultPreset(t *testing.T) {
 func TestRunInitWithFrameworkRejectsExistingConfigBeforeMutation(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
+	chdirTest(t, projectDir)
 	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), []byte("version: 1\nroot: .polka\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
@@ -157,6 +181,7 @@ func TestRunInitWithFrameworkRejectsExistingConfigBeforeMutation(t *testing.T) {
 func TestRunInitWithFrameworkRejectsUnknownFramework(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
+	chdirTest(t, projectDir)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 

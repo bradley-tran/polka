@@ -100,8 +100,16 @@ func resolveStore(root string) (backend.Store, error) {
 	return backend.DefaultStore()
 }
 
+func resolveInitStore(root string) (backend.Store, error) {
+	return backend.StoreForWorkingDirectory(root)
+}
+
 func (ctx *commandContext) store() (backend.Store, error) {
 	return resolveStore(ctx.rootDir)
+}
+
+func (ctx *commandContext) initStore() (backend.Store, error) {
+	return resolveInitStore(ctx.rootDir)
 }
 
 func configureHelp(cmd *cobra.Command, usage string) {

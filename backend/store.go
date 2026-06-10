@@ -99,6 +99,30 @@ func DefaultStore() (Store, error) {
 	return newStore(projectDir, resolveConfiguredRootDir(projectDir, config.Root)), nil
 }
 
+// StoreForWorkingDirectory returns a store rooted at the current working
+// directory without discovering a parent project config.
+func StoreForWorkingDirectory(root string) (Store, error) {
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return Store{}, fmt.Errorf("resolve current working directory: %w", err)
+	}
+	projectDir, err := filepath.Abs(workingDir)
+	if err != nil {
+		return Store{}, fmt.Errorf("resolve project directory: %w", err)
+	}
+
+	if strings.TrimSpace(root) == "" {
+		return NewProjectStore(projectDir), nil
+	}
+
+	cleanRoot, err := filepath.Abs(root)
+	if err != nil {
+		return Store{}, fmt.Errorf("resolve Polka root directory: %w", err)
+	}
+
+	return newStore(projectDir, cleanRoot), nil
+}
+
 func StoreForRoot(root string) (Store, error) {
 	cleanRoot, err := filepath.Abs(root)
 	if err != nil {

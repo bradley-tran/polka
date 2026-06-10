@@ -37,6 +37,22 @@ type testEnvironmentConfig struct {
 	Server        *testServerConfig     `yaml:"server,omitempty"`
 }
 
+func chdirTest(t *testing.T, dir string) {
+	t.Helper()
+
+	originalWorkingDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(originalWorkingDir)
+	})
+
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir(%s) error = %v", dir, err)
+	}
+}
+
 type testDatabaseConfig struct {
 	Engine  string `yaml:"engine,omitempty"`
 	Version string `yaml:"version,omitempty"`
