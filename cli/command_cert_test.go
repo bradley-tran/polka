@@ -206,7 +206,7 @@ func TestEnsureGlobalTLSCertificateRegeneratesServerCertificateForExactHost(t *t
 }
 
 func TestGlobalTLSCertificateDirUsesDefaultCacheSibling(t *testing.T) {
-	cacheDir := filepath.Join("cache-root", "polka", "tools")
+	cacheDir := filepath.Join("cache-root", "polka", "cache")
 	got := globalTLSCertificateDir(cacheDir)
 	want := filepath.Join("cache-root", "polka", serveTLSSubdir)
 	if got != want {

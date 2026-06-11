@@ -1,13 +1,19 @@
 package cli
 
 import (
+	"archive/zip"
 	"bytes"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/goccy/go-yaml"
 )
@@ -723,6 +729,222 @@ func cachedDatabaseDumpPath(root, tool, version string) string {
 	}
 
 	return filepath.Join(root, tool, version, "bin", dumpName)
+}
+
+func writeCachedPHP(t *testing.T, cacheDir, version string, script []byte) string {
+	t.Helper()
+
+	phpPath := cachedPHPPath(cacheDir, version)
+	files := map[string][]byte{
+		cachedToolRelativePath(t, cacheDir, "php", version, phpPath): script,
+		"extras/ssl/cacert.pem": []byte("-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"),
+	}
+
+	return writeCachedArchivePayload(t, cacheDir, "php", version, files)
+}
+
+func writeCachedComposer(t *testing.T, cacheDir, version string, data []byte) string {
+	t.Helper()
+
+	return writeCachedFilePayload(t, cacheDir, "composer", version, "composer.phar", "bin/composer.phar", data)
+}
+
+func writeCachedComposerExecutable(t *testing.T, cacheDir, version string, data []byte) string {
+	t.Helper()
+
+	installPath := cachedToolRelativePath(t, cacheDir, "composer", version, cachedComposerExecutablePath(cacheDir, version))
+	return writeCachedFilePayload(t, cacheDir, "composer", version, filepath.Base(installPath), installPath, data)
+}
+
+func writeCachedPIE(t *testing.T, cacheDir, version string, data []byte) string {
+	t.Helper()
+
+	return writeCachedFilePayload(t, cacheDir, "pie", version, "pie.phar", "bin/pie.phar", data)
+}
+
+func writeCachedDatabaseTool(t *testing.T, cacheDir, tool, version string, includeDump, includeServer, includeAdmin bool) string {
+	t.Helper()
+
+	files := map[string][]byte{
+		cachedToolRelativePath(t, cacheDir, tool, version, cachedDatabasePath(cacheDir, tool, version)): fakeDatabaseScript(tool),
+	}
+	if includeDump {
+		files[cachedToolRelativePath(t, cacheDir, tool, version, cachedDatabaseDumpPath(cacheDir, tool, version))] = fakeDatabaseDumpScript()
+	}
+	if includeServer {
+		serverName := "mysqld"
+		if tool == "mariadb" {
+			serverName = "mariadbd"
+		}
+		files[cachedToolRelativePath(t, cacheDir, tool, version, cachedDatabaseServerPath(cacheDir, tool, version))] = fakeDatabaseScript(serverName)
+	}
+	if includeAdmin {
+		adminName := "mysqladmin"
+		if tool == "mariadb" {
+			adminName = "mariadb-admin"
+		}
+		files[cachedToolRelativePath(t, cacheDir, tool, version, cachedDatabaseAdminPath(cacheDir, tool, version))] = fakeDatabaseScript(adminName)
+	}
+
+	return writeCachedArchivePayload(t, cacheDir, tool, version, files)
+}
+
+type testCacheMetadata struct {
+	SchemaVersion int                             `json:"schemaVersion"`
+	Tool          string                          `json:"tool"`
+	Versions      map[string]testCacheVersionMeta `json:"versions"`
+}
+
+type testCacheVersionMeta struct {
+	DownloadedVersion string    `json:"downloadedVersion"`
+	PayloadKind       string    `json:"payloadKind"`
+	PayloadPath       string    `json:"payloadPath"`
+	FileName          string    `json:"fileName"`
+	InstallPath       string    `json:"installPath,omitempty"`
+	SourceURL         string    `json:"sourceUrl"`
+	ArchiveFormat     string    `json:"archiveFormat,omitempty"`
+	ChecksumAlgorithm string    `json:"checksumAlgorithm"`
+	Checksum          string    `json:"checksum"`
+	Size              int64     `json:"size"`
+	DownloadedAt      time.Time `json:"downloadedAt"`
+}
+
+func writeCachedArchivePayload(t *testing.T, cacheDir, tool, version string, files map[string][]byte) string {
+	t.Helper()
+
+	fileName := tool + "-" + version + "-test.zip"
+	payloadPath, payloadRelativePath := cachedPayloadPath(cacheDir, tool, version, fileName)
+	archiveData := buildTestZipArchive(t, files)
+	if err := os.MkdirAll(filepath.Dir(payloadPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(payloadPath), err)
+	}
+	if err := os.WriteFile(payloadPath, archiveData, 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", payloadPath, err)
+	}
+	writeTestCacheMetadata(t, cacheDir, tool, version, testCacheVersionMeta{
+		DownloadedVersion: version,
+		PayloadKind:       "archive",
+		PayloadPath:       payloadRelativePath,
+		FileName:          fileName,
+		SourceURL:         "https://example.test/" + fileName,
+		ArchiveFormat:     "zip",
+		ChecksumAlgorithm: "sha256",
+		Checksum:          sha256Hex(archiveData),
+		Size:              int64(len(archiveData)),
+		DownloadedAt:      time.Now().UTC(),
+	})
+
+	return payloadPath
+}
+
+func writeCachedFilePayload(t *testing.T, cacheDir, tool, version, fileName, installPath string, data []byte) string {
+	t.Helper()
+
+	payloadPath, payloadRelativePath := cachedPayloadPath(cacheDir, tool, version, fileName)
+	if err := os.MkdirAll(filepath.Dir(payloadPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(payloadPath), err)
+	}
+	if err := os.WriteFile(payloadPath, data, 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", payloadPath, err)
+	}
+	writeTestCacheMetadata(t, cacheDir, tool, version, testCacheVersionMeta{
+		DownloadedVersion: version,
+		PayloadKind:       "file",
+		PayloadPath:       payloadRelativePath,
+		FileName:          fileName,
+		InstallPath:       filepath.ToSlash(installPath),
+		SourceURL:         "https://example.test/" + fileName,
+		ChecksumAlgorithm: "sha256",
+		Checksum:          sha256Hex(data),
+		Size:              int64(len(data)),
+		DownloadedAt:      time.Now().UTC(),
+	})
+
+	return payloadPath
+}
+
+func cachedPayloadPath(cacheDir, tool, version, fileName string) (string, string) {
+	relativePath := filepath.ToSlash(filepath.Join(version, fileName))
+	return filepath.Join(cacheDir, tool, filepath.FromSlash(relativePath)), relativePath
+}
+
+func cachedToolRelativePath(t *testing.T, cacheDir, tool, version, path string) string {
+	t.Helper()
+
+	relativePath, err := filepath.Rel(filepath.Join(cacheDir, tool, version), path)
+	if err != nil {
+		t.Fatalf("Rel(%q) error = %v", path, err)
+	}
+
+	return filepath.ToSlash(relativePath)
+}
+
+func writeTestCacheMetadata(t *testing.T, cacheDir, tool, version string, entry testCacheVersionMeta) {
+	t.Helper()
+
+	metadataPath := filepath.Join(cacheDir, tool, "metadata.json")
+	metadata := testCacheMetadata{
+		SchemaVersion: 1,
+		Tool:          tool,
+		Versions:      map[string]testCacheVersionMeta{},
+	}
+	data, err := os.ReadFile(metadataPath)
+	if err == nil {
+		if err := json.Unmarshal(data, &metadata); err != nil {
+			t.Fatalf("Unmarshal(%q) error = %v", metadataPath, err)
+		}
+	}
+	if metadata.Versions == nil {
+		metadata.Versions = map[string]testCacheVersionMeta{}
+	}
+	metadata.SchemaVersion = 1
+	metadata.Tool = tool
+	metadata.Versions[version] = entry
+
+	data, err = json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		t.Fatalf("MarshalIndent(cache metadata) error = %v", err)
+	}
+	data = append(data, '\n')
+	if err := os.MkdirAll(filepath.Dir(metadataPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(metadataPath), err)
+	}
+	if err := os.WriteFile(metadataPath, data, 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", metadataPath, err)
+	}
+}
+
+func buildTestZipArchive(t *testing.T, files map[string][]byte) []byte {
+	t.Helper()
+
+	buffer := &bytes.Buffer{}
+	writer := zip.NewWriter(buffer)
+	paths := make([]string, 0, len(files))
+	for path := range files {
+		paths = append(paths, filepath.ToSlash(path))
+	}
+	sort.Strings(paths)
+	for _, path := range paths {
+		header := &zip.FileHeader{Name: path}
+		header.SetMode(0o755)
+		fileWriter, err := writer.CreateHeader(header)
+		if err != nil {
+			t.Fatalf("CreateHeader(%q) error = %v", path, err)
+		}
+		if _, err := fileWriter.Write(files[path]); err != nil {
+			t.Fatalf("Write(%q) error = %v", path, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close(zip writer) error = %v", err)
+	}
+
+	return buffer.Bytes()
+}
+
+func sha256Hex(data []byte) string {
+	checksum := sha256.Sum256(data)
+	return fmt.Sprintf("%x", checksum[:])
 }
 
 func projectInstalledPHPPath(root, version string) string {

@@ -27,44 +27,44 @@ func downloadComposer(client *http.Client, cacheDir, version string) error {
 		return fmt.Errorf("create composer cache dir: %w", err)
 	}
 
-	cacheVersionDir := filepath.Join(cacheDir, Composer, version)
 	stagingDir, err := os.MkdirTemp(filepath.Join(cacheDir, Composer), version+"-tmp-")
 	if err != nil {
 		return fmt.Errorf("create composer staging dir: %w", err)
 	}
 	defer os.RemoveAll(stagingDir)
 
-	targetPath := filepath.Join(stagingDir, "bin", "composer.phar")
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
-		return fmt.Errorf("create composer target dir: %w", err)
-	}
-
-	url, checksumURL, err := resolveComposerDownloadURLs(client, version)
+	targetPath := filepath.Join(stagingDir, "composer.phar")
+	resolvedVersion, url, checksumURL, err := resolveComposerDownloadURLs(client, version)
 	if err != nil {
 		return err
 	}
 	if err := downloadFile(client, url, targetPath); err != nil {
 		return err
 	}
-	if err := verifyFileSHA256(client, targetPath, checksumURL); err != nil {
+	checksum, err := downloadChecksumValue(client, checksumURL, checksumAlgorithmSHA256, "composer.phar")
+	if err != nil {
+		return err
+	}
+	if err := verifyFileChecksum(checksumAlgorithmSHA256, checksum, targetPath); err != nil {
 		return err
 	}
 
-	return finalizeCacheVersion(cacheVersionDir, stagingDir)
+	_, err = cacheFilePayload(cacheDir, Composer, version, resolvedVersion, "composer.phar", url, "bin/composer.phar", checksumAlgorithmSHA256, checksum, targetPath)
+	return err
 }
 
-func resolveComposerDownloadURLs(client *http.Client, version string) (string, string, error) {
+func resolveComposerDownloadURLs(client *http.Client, version string) (string, string, string, error) {
 	resolvedVersion := strings.TrimSpace(version)
 	if composerVersionNeedsResolution(resolvedVersion) {
 		var err error
 		resolvedVersion, err = resolveComposerReleaseVersion(client, resolvedVersion)
 		if err != nil {
-			return "", "", err
+			return "", "", "", err
 		}
 	}
 
 	url := fmt.Sprintf("%s/%s/composer.phar", composerDownloadBaseURL, resolvedVersion)
-	return url, url + ".sha256sum", nil
+	return resolvedVersion, url, url + ".sha256sum", nil
 }
 
 func composerVersionNeedsResolution(version string) bool {

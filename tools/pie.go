@@ -28,29 +28,33 @@ func downloadPIE(client *http.Client, cacheDir, version string) error {
 		return fmt.Errorf("create pie cache dir: %w", err)
 	}
 
-	_, asset, err := resolvePIEDownloadAsset(client, version)
+	resolvedVersion, asset, err := resolvePIEDownloadAsset(client, version)
 	if err != nil {
 		return err
 	}
 
-	cacheVersionDir := filepath.Join(cacheDir, PIE, version)
 	stagingDir, err := os.MkdirTemp(filepath.Join(cacheDir, PIE), version+"-tmp-")
 	if err != nil {
 		return fmt.Errorf("create pie staging dir: %w", err)
 	}
 	defer os.RemoveAll(stagingDir)
 
-	targetPath := filepath.Join(stagingDir, "bin", piePHARFileName)
+	targetPath := filepath.Join(stagingDir, piePHARFileName)
 	if err := downloadFile(client, asset.BrowserDownloadURL, targetPath); err != nil {
 		return err
 	}
-	if algorithm, checksum, ok := parseGitHubAssetDigest(asset.Digest); ok {
-		if err := verifyFileChecksum(algorithm, checksum, targetPath); err != nil {
+	algorithm := checksumAlgorithmNone
+	checksum := ""
+	if parsedAlgorithm, parsedChecksum, ok := parseGitHubAssetDigest(asset.Digest); ok {
+		if err := verifyFileChecksum(parsedAlgorithm, parsedChecksum, targetPath); err != nil {
 			return err
 		}
+		algorithm = parsedAlgorithm
+		checksum = parsedChecksum
 	}
 
-	return finalizeCacheVersion(cacheVersionDir, stagingDir)
+	_, err = cacheFilePayload(cacheDir, PIE, version, resolvedVersion, piePHARFileName, asset.BrowserDownloadURL, "bin/"+piePHARFileName, algorithm, checksum, targetPath)
+	return err
 }
 
 func resolvePIEDownloadAsset(client *http.Client, requestedVersion string) (string, githubReleaseAsset, error) {

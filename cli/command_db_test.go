@@ -21,13 +21,7 @@ func TestRunDBDispatchesConfiguredDatabaseTool(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	fakeMySQL := cachedDatabasePath(cacheDir, "mysql", "8.4")
-	if err := os.MkdirAll(filepath.Dir(fakeMySQL), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache mysql) error = %v", err)
-	}
-	if err := os.WriteFile(fakeMySQL, fakeDatabaseScript("mysql"), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache mysql) error = %v", err)
-	}
+	writeCachedDatabaseTool(t, cacheDir, "mysql", "8.4", false, false, false)
 
 	runTestMySQLConfig(t, stdout, stderr, root, "demo", "8.4", 0)
 
@@ -63,13 +57,7 @@ func TestRunDBPreservesExplicitConnectionArguments(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	fakeMySQL := cachedDatabasePath(cacheDir, "mysql", "8.4")
-	if err := os.MkdirAll(filepath.Dir(fakeMySQL), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache mysql) error = %v", err)
-	}
-	if err := os.WriteFile(fakeMySQL, fakeDatabaseScript("mysql"), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache mysql) error = %v", err)
-	}
+	writeCachedDatabaseTool(t, cacheDir, "mysql", "8.4", false, false, false)
 
 	runTestMySQLConfig(t, stdout, stderr, root, "demo", "8.4", 3307)
 
@@ -108,13 +96,7 @@ func TestRunDBTranslatesDatabaseNameOverride(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	fakeMySQL := cachedDatabasePath(cacheDir, "mysql", "8.4")
-	if err := os.MkdirAll(filepath.Dir(fakeMySQL), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache mysql) error = %v", err)
-	}
-	if err := os.WriteFile(fakeMySQL, fakeDatabaseScript("mysql"), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache mysql) error = %v", err)
-	}
+	writeCachedDatabaseTool(t, cacheDir, "mysql", "8.4", false, false, false)
 
 	runTestMySQLConfig(t, stdout, stderr, root, "demo", "8.4", 0)
 
@@ -153,13 +135,7 @@ func TestRunDBClientSubcommandDispatchesReservedWord(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	fakeMySQL := cachedDatabasePath(cacheDir, "mysql", "8.4")
-	if err := os.MkdirAll(filepath.Dir(fakeMySQL), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache mysql) error = %v", err)
-	}
-	if err := os.WriteFile(fakeMySQL, fakeDatabaseScript("mysql"), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache mysql) error = %v", err)
-	}
+	writeCachedDatabaseTool(t, cacheDir, "mysql", "8.4", false, false, false)
 
 	runTestMySQLConfig(t, stdout, stderr, root, "demo", "8.4", 0)
 
@@ -211,13 +187,10 @@ func TestRunDBImportAcceptsSQLAndGzip(t *testing.T) {
 			stdout := &bytes.Buffer{}
 			stderr := &bytes.Buffer{}
 
-			fakeMySQL := cachedDatabasePath(cacheDir, "mysql", "8.4")
-			if err := os.MkdirAll(filepath.Dir(fakeMySQL), 0o755); err != nil {
-				t.Fatalf("MkdirAll(cache mysql) error = %v", err)
+			files := map[string][]byte{
+				cachedToolRelativePath(t, cacheDir, "mysql", "8.4", cachedDatabasePath(cacheDir, "mysql", "8.4")): fakeDatabaseCaptureScript("mysql"),
 			}
-			if err := os.WriteFile(fakeMySQL, fakeDatabaseCaptureScript("mysql"), 0o755); err != nil {
-				t.Fatalf("WriteFile(cache mysql) error = %v", err)
-			}
+			writeCachedArchivePayload(t, cacheDir, "mysql", "8.4", files)
 
 			runTestMySQLConfig(t, stdout, stderr, root, "demo", "8.4", 0)
 
@@ -311,21 +284,7 @@ func TestRunDBExportWritesSQLAndGzip(t *testing.T) {
 			stdout := &bytes.Buffer{}
 			stderr := &bytes.Buffer{}
 
-			fakeMySQL := cachedDatabasePath(cacheDir, "mysql", "8.4")
-			if err := os.MkdirAll(filepath.Dir(fakeMySQL), 0o755); err != nil {
-				t.Fatalf("MkdirAll(cache mysql) error = %v", err)
-			}
-			if err := os.WriteFile(fakeMySQL, fakeDatabaseScript("mysql"), 0o755); err != nil {
-				t.Fatalf("WriteFile(cache mysql) error = %v", err)
-			}
-
-			fakeDump := cachedDatabaseDumpPath(cacheDir, "mysql", "8.4")
-			if err := os.MkdirAll(filepath.Dir(fakeDump), 0o755); err != nil {
-				t.Fatalf("MkdirAll(cache mysqldump) error = %v", err)
-			}
-			if err := os.WriteFile(fakeDump, fakeDatabaseDumpScript(), 0o755); err != nil {
-				t.Fatalf("WriteFile(cache mysqldump) error = %v", err)
-			}
+			writeCachedDatabaseTool(t, cacheDir, "mysql", "8.4", true, false, false)
 
 			runTestMySQLConfig(t, stdout, stderr, root, "demo", "8.4", 0)
 
@@ -413,27 +372,7 @@ func TestRunDBLifecycleSubcommandsManageState(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	fakeMySQL := cachedDatabasePath(cacheDir, "mysql", "8.4")
-	if err := os.MkdirAll(filepath.Dir(fakeMySQL), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache mysql) error = %v", err)
-	}
-	if err := os.WriteFile(fakeMySQL, fakeDatabaseScript("mysql"), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache mysql) error = %v", err)
-	}
-	fakeMySQLServer := cachedDatabaseServerPath(cacheDir, "mysql", "8.4")
-	if err := os.MkdirAll(filepath.Dir(fakeMySQLServer), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache mysqld) error = %v", err)
-	}
-	if err := os.WriteFile(fakeMySQLServer, fakeDatabaseScript("mysqld"), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache mysqld) error = %v", err)
-	}
-	fakeMySQLAdmin := cachedDatabaseAdminPath(cacheDir, "mysql", "8.4")
-	if err := os.MkdirAll(filepath.Dir(fakeMySQLAdmin), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache mysqladmin) error = %v", err)
-	}
-	if err := os.WriteFile(fakeMySQLAdmin, fakeDatabaseScript("mysqladmin"), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache mysqladmin) error = %v", err)
-	}
+	writeCachedDatabaseTool(t, cacheDir, "mysql", "8.4", false, true, true)
 
 	runTestMySQLConfig(t, stdout, stderr, root, "demo", "8.4", 3307)
 

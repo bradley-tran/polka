@@ -512,12 +512,24 @@ func TestDownloadPIESupportsSeriesLabelsAndVerifiesDigest(t *testing.T) {
 		t.Fatalf("downloadPIE() error = %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(cacheDir, PIE, "1.4", "bin", "pie.phar"))
+	cachedPayload, err := CachedToolPayload(cacheDir, PIE, "1.4")
+	if err != nil {
+		t.Fatalf("CachedToolPayload(pie 1.4) error = %v", err)
+	}
+	data, err := os.ReadFile(cachedPayload.PayloadPath)
 	if err != nil {
 		t.Fatalf("ReadFile(downloaded pie.phar) error = %v", err)
 	}
 	if string(data) != string(payload) {
 		t.Fatalf("downloaded pie.phar = %q, want %q", string(data), string(payload))
+	}
+	metadata, err := readToolCacheMetadata(filepath.Join(cacheDir, PIE), PIE)
+	if err != nil {
+		t.Fatalf("readToolCacheMetadata(pie) error = %v", err)
+	}
+	entry := metadata.Versions["1.4"]
+	if entry.DownloadedVersion != "1.4.5" || entry.PayloadKind != payloadKindFile || entry.Checksum != checksum {
+		t.Fatalf("pie metadata entry = %#v, want resolved file payload with checksum", entry)
 	}
 }
 
@@ -570,7 +582,7 @@ func TestResolvePHPMyAdminDownloadAssetSupportsSeriesLabels(t *testing.T) {
 	}
 }
 
-func TestDownloadDatabaseAssetExtractsSupportedArchives(t *testing.T) {
+func TestDownloadDatabaseAssetCachesSupportedArchives(t *testing.T) {
 	tests := []struct {
 		name             string
 		requestedVersion string
@@ -636,11 +648,65 @@ func TestDownloadDatabaseAssetExtractsSupportedArchives(t *testing.T) {
 				t.Fatalf("downloadDatabaseAsset(%s) error = %v", test.fileName, err)
 			}
 
-			installedPath := filepath.Join(cacheDir, MySQL, test.requestedVersion, test.expectedPath)
+			payload, err := CachedToolPayload(cacheDir, MySQL, test.requestedVersion)
+			if err != nil {
+				t.Fatalf("CachedToolPayload(%s) error = %v", test.requestedVersion, err)
+			}
+			if payload.PayloadKind != string(payloadKindArchive) {
+				t.Fatalf("CachedToolPayload(%s).PayloadKind = %q, want archive", test.requestedVersion, payload.PayloadKind)
+			}
+			if _, err := os.Stat(filepath.Join(cacheDir, MySQL, test.requestedVersion, test.expectedPath)); !os.IsNotExist(err) {
+				t.Fatalf("legacy extracted cache path error = %v, want missing", err)
+			}
+
+			targetDir := filepath.Join(t.TempDir(), "install")
+			if _, err := InstallCachedToolPayload(cacheDir, targetDir, MySQL, test.requestedVersion); err != nil {
+				t.Fatalf("InstallCachedToolPayload(%s) error = %v", test.fileName, err)
+			}
+			installedPath := filepath.Join(targetDir, test.expectedPath)
 			if _, err := os.Stat(installedPath); err != nil {
 				t.Fatalf("Stat(%s) error = %v", installedPath, err)
 			}
 		})
+	}
+}
+
+func TestDownloadDatabaseAssetMetadataTracksMultipleVersions(t *testing.T) {
+	archiveData := buildZipArchive(t, "mysql-test", "bin/mysql.exe", []byte("mysql"))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(archiveData)
+	}))
+	defer server.Close()
+
+	cacheDir := t.TempDir()
+	for _, version := range []string{"8.3", "8.4"} {
+		asset := databaseDownloadAsset{
+			FileName:          "mysql-" + version + ".zip",
+			URL:               server.URL + "/mysql-" + version + ".zip",
+			Checksum:          checksumForBytes(t, checksumAlgorithmSHA256, archiveData),
+			ChecksumAlgorithm: checksumAlgorithmSHA256,
+			ArchiveFormat:     archiveFormatZip,
+		}
+		if err := downloadDatabaseAsset(server.Client(), cacheDir, MySQL, version, asset); err != nil {
+			t.Fatalf("downloadDatabaseAsset(%s) error = %v", version, err)
+		}
+	}
+
+	metadata, err := readToolCacheMetadata(filepath.Join(cacheDir, MySQL), MySQL)
+	if err != nil {
+		t.Fatalf("readToolCacheMetadata(mysql) error = %v", err)
+	}
+	for _, version := range []string{"8.3", "8.4"} {
+		entry, ok := metadata.Versions[version]
+		if !ok {
+			t.Fatalf("metadata versions = %#v, want %s entry", metadata.Versions, version)
+		}
+		if entry.DownloadedVersion != version || entry.PayloadKind != payloadKindArchive || entry.ArchiveFormat != archiveFormatZip {
+			t.Fatalf("metadata entry %s = %#v, want archive metadata", version, entry)
+		}
+		if _, err := os.Stat(filepath.Join(cacheDir, MySQL, filepath.FromSlash(entry.PayloadPath))); err != nil {
+			t.Fatalf("Stat(payload %s) error = %v", version, err)
+		}
 	}
 }
 

@@ -1,6 +1,10 @@
 package backend
 
 import (
+	"archive/zip"
+	"bytes"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -11,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestStoreInitInstallsDispatcherShimsWithoutToolShims(t *testing.T) {
@@ -957,6 +962,74 @@ func TestStoreInstallDownloadsWhenCacheMissing(t *testing.T) {
 			t.Fatalf("Install(demo) result = %#v, want downloaded=true after cache miss", result)
 		}
 		assertPathExists(t, result.TargetPath)
+	}
+}
+
+func TestStoreInstallTreatsExtractedCacheWithoutMetadataAsMissing(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+	extractedPHP := cachedFakePHPPath(store.CacheDir, "8.4")
+	if err := os.MkdirAll(filepath.Dir(extractedPHP), 0o755); err != nil {
+		t.Fatalf("MkdirAll(extracted php) error = %v", err)
+	}
+	if err := os.WriteFile(extractedPHP, fakePHPModuleListScript(nil), 0o755); err != nil {
+		t.Fatalf("WriteFile(extracted php) error = %v", err)
+	}
+
+	downloadCalls := 0
+	store.Downloader = fakeDownloader(func(cacheDir, tool, version string) error {
+		downloadCalls++
+		_ = writeCachedTool(t, cacheDir, tool, version)
+		return nil
+	})
+
+	if _, err := store.Configure("demo", "8.4", "", nil); err != nil {
+		t.Fatalf("Configure(demo) error = %v", err)
+	}
+	results, err := store.Install("demo")
+	if err != nil {
+		t.Fatalf("Install(demo) error = %v", err)
+	}
+	if downloadCalls != 1 {
+		t.Fatalf("download calls = %d, want old extracted cache to be ignored and redownloaded", downloadCalls)
+	}
+	if len(results) != 1 || !results[0].Downloaded {
+		t.Fatalf("Install(demo) results = %#v, want downloaded result", results)
+	}
+	if results[0].CachePath == extractedPHP {
+		t.Fatalf("Install(demo) CachePath = old extracted path %q, want payload path", results[0].CachePath)
+	}
+}
+
+func TestStoreInstallRedownloadsCacheWithChecksumMismatch(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+	cachedPayload := writeCachedTool(t, store.CacheDir, toolPHP, "8.4")
+	if err := os.WriteFile(cachedPayload, []byte("corrupt payload\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(corrupt payload) error = %v", err)
+	}
+
+	downloadCalls := 0
+	store.Downloader = fakeDownloader(func(cacheDir, tool, version string) error {
+		downloadCalls++
+		_ = writeCachedTool(t, cacheDir, tool, version)
+		return nil
+	})
+
+	if _, err := store.Configure("demo", "8.4", "", nil); err != nil {
+		t.Fatalf("Configure(demo) error = %v", err)
+	}
+	results, err := store.Install("demo")
+	if err != nil {
+		t.Fatalf("Install(demo) error = %v", err)
+	}
+	if downloadCalls != 1 {
+		t.Fatalf("download calls = %d, want checksum mismatch to redownload", downloadCalls)
+	}
+	if len(results) != 1 || !results[0].Downloaded {
+		t.Fatalf("Install(demo) results = %#v, want downloaded result", results)
 	}
 }
 
@@ -2626,49 +2699,51 @@ func writeCachedTool(t *testing.T, cacheDir, tool, version string) string {
 	if tool == toolPHP {
 		path = cachedFakePHPPath(cacheDir, version)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(path), err)
-	}
+	relativePath := cachedToolRelativePath(t, cacheDir, tool, version, path)
 	if tool == toolPHP {
-		if err := os.WriteFile(path, fakePHPModuleListScript(nil), 0o755); err != nil {
-			t.Fatalf("WriteFile(%q) error = %v", path, err)
+		files := map[string][]byte{
+			relativePath:            fakePHPModuleListScript(nil),
+			"extras/ssl/cacert.pem": []byte("-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"),
 		}
-		writeCachedPHPCABundle(t, cacheDir, version)
-
-		return path
+		return writeCachedArchivePayload(t, cacheDir, tool, version, files)
 	}
-	if err := os.WriteFile(path, []byte("placeholder\n"), 0o755); err != nil {
-		t.Fatalf("WriteFile(%q) error = %v", path, err)
+	if tool == toolComposer {
+		return writeCachedFilePayload(t, cacheDir, tool, version, "composer.phar", "bin/composer.phar", []byte("composer\n"))
+	}
+	if tool == toolPIE {
+		return writeCachedFilePayload(t, cacheDir, tool, version, "pie.phar", "bin/pie.phar", []byte("pie\n"))
+	}
+	files := map[string][]byte{
+		relativePath: []byte("placeholder\n"),
+	}
+	if tool == toolNodeJS {
+		for _, command := range []string{toolNode, toolNPM, toolNPX} {
+			for _, candidate := range dispatchExecutableCandidatesIn(cacheDir, toolNodeJS, command, version) {
+				files[cachedToolRelativePath(t, cacheDir, toolNodeJS, version, candidate)] = []byte(command + "\n")
+				break
+			}
+		}
 	}
 
-	return path
+	return writeCachedArchivePayload(t, cacheDir, tool, version, files)
 }
 
 func writeCachedPHPToolWithBuiltInModules(t *testing.T, cacheDir, version string, modules []string) string {
 	t.Helper()
 
 	path := cachedFakePHPPath(cacheDir, version)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(path), err)
+	files := map[string][]byte{
+		cachedToolRelativePath(t, cacheDir, toolPHP, version, path): fakePHPModuleListScript(modules),
+		"extras/ssl/cacert.pem": []byte("-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"),
 	}
-	if err := os.WriteFile(path, fakePHPModuleListScript(modules), 0o755); err != nil {
-		t.Fatalf("WriteFile(%q) error = %v", path, err)
-	}
-	writeCachedPHPCABundle(t, cacheDir, version)
 
-	return path
+	return writeCachedArchivePayload(t, cacheDir, toolPHP, version, files)
 }
 
 func writeCachedPHPCABundle(t *testing.T, cacheDir, version string) {
 	t.Helper()
 
-	path := filepath.Join(cacheDir, toolPHP, version, "extras", "ssl", "cacert.pem")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(path), err)
-	}
-	if err := os.WriteFile(path, []byte("-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"), 0o644); err != nil {
-		t.Fatalf("WriteFile(%q) error = %v", path, err)
-	}
+	writeCachedTool(t, cacheDir, toolPHP, version)
 }
 
 func cachedFakePHPPath(cacheDir, version string) string {
@@ -2724,24 +2799,169 @@ func fakePHPModuleListScript(modules []string) []byte {
 func writeCachedNodeJSCommand(t *testing.T, cacheDir, version, command string) string {
 	t.Helper()
 
-	path := filepath.Join(cacheDir, toolNodeJS, version)
-	if runtime.GOOS == "windows" {
-		if command == toolNode {
-			path = filepath.Join(path, command+".cmd")
-		} else {
-			path = filepath.Join(path, command+".cmd")
-		}
-	} else {
-		path = filepath.Join(path, "bin", command)
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("MkdirAll(%s) error = %v", filepath.Dir(path), err)
-	}
-	if err := os.WriteFile(path, []byte(command+"\n"), 0o755); err != nil {
-		t.Fatalf("WriteFile(%s) error = %v", path, err)
+	for _, candidate := range dispatchExecutableCandidatesIn(cacheDir, toolNodeJS, command, version) {
+		return candidate
 	}
 
-	return path
+	return filepath.Join(cacheDir, toolNodeJS, version, command)
+}
+
+type testCacheMetadata struct {
+	SchemaVersion int                             `json:"schemaVersion"`
+	Tool          string                          `json:"tool"`
+	Versions      map[string]testCacheVersionMeta `json:"versions"`
+}
+
+type testCacheVersionMeta struct {
+	DownloadedVersion string    `json:"downloadedVersion"`
+	PayloadKind       string    `json:"payloadKind"`
+	PayloadPath       string    `json:"payloadPath"`
+	FileName          string    `json:"fileName"`
+	InstallPath       string    `json:"installPath,omitempty"`
+	SourceURL         string    `json:"sourceUrl"`
+	ArchiveFormat     string    `json:"archiveFormat,omitempty"`
+	ChecksumAlgorithm string    `json:"checksumAlgorithm"`
+	Checksum          string    `json:"checksum"`
+	Size              int64     `json:"size"`
+	DownloadedAt      time.Time `json:"downloadedAt"`
+}
+
+func writeCachedArchivePayload(t *testing.T, cacheDir, tool, version string, files map[string][]byte) string {
+	t.Helper()
+
+	fileName := tool + "-" + version + "-test.zip"
+	payloadPath, payloadRelativePath := cachedPayloadPath(cacheDir, tool, version, fileName)
+	archiveData := buildTestZipArchive(t, files)
+	if err := os.MkdirAll(filepath.Dir(payloadPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(payloadPath), err)
+	}
+	if err := os.WriteFile(payloadPath, archiveData, 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", payloadPath, err)
+	}
+	writeTestCacheMetadata(t, cacheDir, tool, version, testCacheVersionMeta{
+		DownloadedVersion: version,
+		PayloadKind:       "archive",
+		PayloadPath:       payloadRelativePath,
+		FileName:          fileName,
+		SourceURL:         "https://example.test/" + fileName,
+		ArchiveFormat:     "zip",
+		ChecksumAlgorithm: "sha256",
+		Checksum:          sha256Hex(archiveData),
+		Size:              int64(len(archiveData)),
+		DownloadedAt:      time.Now().UTC(),
+	})
+
+	return payloadPath
+}
+
+func writeCachedFilePayload(t *testing.T, cacheDir, tool, version, fileName, installPath string, data []byte) string {
+	t.Helper()
+
+	payloadPath, payloadRelativePath := cachedPayloadPath(cacheDir, tool, version, fileName)
+	if err := os.MkdirAll(filepath.Dir(payloadPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(payloadPath), err)
+	}
+	if err := os.WriteFile(payloadPath, data, 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", payloadPath, err)
+	}
+	writeTestCacheMetadata(t, cacheDir, tool, version, testCacheVersionMeta{
+		DownloadedVersion: version,
+		PayloadKind:       "file",
+		PayloadPath:       payloadRelativePath,
+		FileName:          fileName,
+		InstallPath:       filepath.ToSlash(installPath),
+		SourceURL:         "https://example.test/" + fileName,
+		ChecksumAlgorithm: "sha256",
+		Checksum:          sha256Hex(data),
+		Size:              int64(len(data)),
+		DownloadedAt:      time.Now().UTC(),
+	})
+
+	return payloadPath
+}
+
+func cachedPayloadPath(cacheDir, tool, version, fileName string) (string, string) {
+	relativePath := filepath.ToSlash(filepath.Join(version, fileName))
+	return filepath.Join(cacheDir, tool, filepath.FromSlash(relativePath)), relativePath
+}
+
+func cachedToolRelativePath(t *testing.T, cacheDir, tool, version, path string) string {
+	t.Helper()
+
+	relativePath, err := filepath.Rel(filepath.Join(cacheDir, tool, version), path)
+	if err != nil {
+		t.Fatalf("Rel(%q) error = %v", path, err)
+	}
+
+	return filepath.ToSlash(relativePath)
+}
+
+func writeTestCacheMetadata(t *testing.T, cacheDir, tool, version string, entry testCacheVersionMeta) {
+	t.Helper()
+
+	metadataPath := filepath.Join(cacheDir, tool, "metadata.json")
+	metadata := testCacheMetadata{
+		SchemaVersion: 1,
+		Tool:          tool,
+		Versions:      map[string]testCacheVersionMeta{},
+	}
+	data, err := os.ReadFile(metadataPath)
+	if err == nil {
+		if err := json.Unmarshal(data, &metadata); err != nil {
+			t.Fatalf("Unmarshal(%q) error = %v", metadataPath, err)
+		}
+	}
+	if metadata.Versions == nil {
+		metadata.Versions = map[string]testCacheVersionMeta{}
+	}
+	metadata.SchemaVersion = 1
+	metadata.Tool = tool
+	metadata.Versions[version] = entry
+
+	data, err = json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		t.Fatalf("MarshalIndent(cache metadata) error = %v", err)
+	}
+	data = append(data, '\n')
+	if err := os.MkdirAll(filepath.Dir(metadataPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(metadataPath), err)
+	}
+	if err := os.WriteFile(metadataPath, data, 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", metadataPath, err)
+	}
+}
+
+func buildTestZipArchive(t *testing.T, files map[string][]byte) []byte {
+	t.Helper()
+
+	buffer := &bytes.Buffer{}
+	writer := zip.NewWriter(buffer)
+	paths := make([]string, 0, len(files))
+	for path := range files {
+		paths = append(paths, filepath.ToSlash(path))
+	}
+	sort.Strings(paths)
+	for _, path := range paths {
+		header := &zip.FileHeader{Name: path}
+		header.SetMode(0o755)
+		fileWriter, err := writer.CreateHeader(header)
+		if err != nil {
+			t.Fatalf("CreateHeader(%q) error = %v", path, err)
+		}
+		if _, err := fileWriter.Write(files[path]); err != nil {
+			t.Fatalf("Write(%q) error = %v", path, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close(zip writer) error = %v", err)
+	}
+
+	return buffer.Bytes()
+}
+
+func sha256Hex(data []byte) string {
+	checksum := sha256.Sum256(data)
+	return fmt.Sprintf("%x", checksum[:])
 }
 
 type fakeDownloader func(cacheDir, tool, version string) error

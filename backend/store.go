@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -668,7 +667,7 @@ func (s Store) installRequests(environment Environment, requests []tools.Install
 				Version: req.Version,
 			}
 
-			cachedToolPath, downloaded, err := s.ensureCachedTool(req.Tool, req.Version, func(stage InstallProgressStage) {
+			cachedPayloadPath, downloaded, err := s.ensureCachedTool(req.Tool, req.Version, func(stage InstallProgressStage) {
 				baseProgress.Stage = stage
 				safeReport(baseProgress)
 			})
@@ -688,7 +687,7 @@ func (s Store) installRequests(environment Environment, requests []tools.Install
 			results[i] = InstallResult{
 				Tool:       req.Tool,
 				Version:    req.Version,
-				CachePath:  cachedToolPath,
+				CachePath:  cachedPayloadPath,
 				TargetPath: targetPath,
 				Downloaded: downloaded,
 			}
@@ -841,14 +840,25 @@ func environmentWithInstallRequest(environment Environment, request tools.Instal
 }
 
 func (s Store) installToolFromCache(tool, version string) (string, error) {
-	cacheSourceDir := filepath.Join(s.CacheDir, tool, version)
 	projectInstallDir := filepath.Join(s.EnvsDir, tool, version)
 
+	if err := os.MkdirAll(filepath.Dir(projectInstallDir), 0o755); err != nil {
+		return "", fmt.Errorf("create project install parent directory: %w", err)
+	}
+	stagingDir, err := os.MkdirTemp(filepath.Dir(projectInstallDir), version+"-tmp-")
+	if err != nil {
+		return "", fmt.Errorf("create project install staging directory: %w", err)
+	}
+	defer os.RemoveAll(stagingDir)
+
+	if _, err := tools.InstallCachedToolPayload(s.CacheDir, stagingDir, tool, version); err != nil {
+		return "", fmt.Errorf("install cached tool payload: %w", err)
+	}
 	if err := os.RemoveAll(projectInstallDir); err != nil {
 		return "", fmt.Errorf("reset project install directory: %w", err)
 	}
-	if err := copyDir(cacheSourceDir, projectInstallDir); err != nil {
-		return "", fmt.Errorf("copy cached tool into project: %w", err)
+	if err := os.Rename(stagingDir, projectInstallDir); err != nil {
+		return "", fmt.Errorf("finalize project install directory: %w", err)
 	}
 
 	targetPath, err := s.resolveInstalledTool(tool, version)
@@ -860,14 +870,14 @@ func (s Store) installToolFromCache(tool, version string) (string, error) {
 }
 
 func (s Store) ensureCachedTool(tool, version string, report func(InstallProgressStage)) (string, bool, error) {
-	cacheToolPath, err := s.resolveInstalledToolIn(s.CacheDir, tool, version)
+	cachedPayload, err := tools.CachedToolPayload(s.CacheDir, tool, version)
 	if err == nil {
 		if report != nil {
 			report(InstallProgressUsingCache)
 		}
-		return cacheToolPath, false, nil
+		return cachedPayload.PayloadPath, false, nil
 	}
-	if !isMissingInstall(err) {
+	if !tools.IsCacheMiss(err) {
 		return "", false, err
 	}
 
@@ -883,12 +893,12 @@ func (s Store) ensureCachedTool(tool, version string, report func(InstallProgres
 		return "", false, err
 	}
 
-	cacheToolPath, err = s.resolveInstalledToolIn(s.CacheDir, tool, version)
+	cachedPayload, err = tools.CachedToolPayload(s.CacheDir, tool, version)
 	if err != nil {
 		return "", false, err
 	}
 
-	return cacheToolPath, true, nil
+	return cachedPayload.PayloadPath, true, nil
 }
 
 func emitInstallProgress(report func(InstallProgress), progress InstallProgress, stage InstallProgressStage) {
@@ -1996,66 +2006,6 @@ func marshalYAML(path string, value any) ([]byte, error) {
 	return yaml.MarshalWithOptions(value, yaml.WithComment(comments))
 }
 
-func copyFile(sourcePath, targetPath string, mode os.FileMode) error {
-	sourceFile, err := os.Open(sourcePath)
-	if err != nil {
-		return err
-	}
-	defer sourceFile.Close()
-
-	targetFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
-	if err != nil {
-		return err
-	}
-	defer targetFile.Close()
-
-	if _, err := io.Copy(targetFile, sourceFile); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func copyDir(sourcePath, targetPath string) error {
-	fileInfo, err := os.Stat(sourcePath)
-	if err != nil {
-		return err
-	}
-
-	if err := os.MkdirAll(targetPath, fileInfo.Mode()); err != nil {
-		return err
-	}
-
-	entries, err := os.ReadDir(sourcePath)
-	if err != nil {
-		return err
-	}
-
-	for _, entry := range entries {
-		sourceEntryPath := filepath.Join(sourcePath, entry.Name())
-		targetEntryPath := filepath.Join(targetPath, entry.Name())
-
-		entryInfo, err := entry.Info()
-		if err != nil {
-			return err
-		}
-
-		if entry.IsDir() {
-			if err := copyDir(sourceEntryPath, targetEntryPath); err != nil {
-				return err
-			}
-
-			continue
-		}
-
-		if err := copyFile(sourceEntryPath, targetEntryPath, entryInfo.Mode()); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 func dispatcherBinaryFileName() string {
 	if runtime.GOOS == "windows" {
 		return dispatcherBatchFileName
@@ -2115,12 +2065,8 @@ func defaultCacheDir(projectDir string) string {
 
 	cacheDir, err := os.UserCacheDir()
 	if err == nil {
-		return filepath.Join(cacheDir, "polka", "tools")
+		return filepath.Join(cacheDir, "polka", "cache")
 	}
 
 	return filepath.Join(projectDir, ".polka-cache")
-}
-
-func isMissingInstall(err error) bool {
-	return err != nil && strings.Contains(err.Error(), " is not installed under ")
 }

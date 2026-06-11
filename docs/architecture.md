@@ -71,7 +71,7 @@ The `tools` package owns managed tool behavior:
 - embedded YAML manifests for built-in plugin metadata
 - install candidate paths
 - dispatch command mappings
-- download templates, release resolution, checksums, and archive extraction
+- download templates, release resolution, checksums, cache metadata, and archive extraction
 - per-tool Go hooks for dynamic downloads or post-install behavior
 - PHP extension post-install config generation
 
@@ -84,13 +84,13 @@ The current plugin system is internal and compile-time only. Built-in tool metad
 1. `cli` resolves the requested environment name from `--env`, the active environment, or `default`.
 2. For an explicit `tool:version`, `cli` calls `backend.Store.InstallToolWithProgress`; otherwise it calls `backend.Store.InstallWithProgress`.
 3. `backend.Store` loads and normalizes `polka.yaml` for the default environment or `polka.<name>.yaml` for named environments, then validates the install request(s).
-4. For each requested tool, `backend.Store` checks the global cache.
-5. If the cache is missing, `tools.HTTPDownloader` invokes the matching plugin download hook.
-6. `backend.Store` copies the cached tool into `.polka/envs/<tool>/<version>`.
+4. For each requested tool, `backend.Store` checks the global cache metadata and cached payload checksum.
+5. If the cache is missing or invalid, `tools.HTTPDownloader` invokes the matching plugin download hook.
+6. `backend.Store` installs from the cached payload into `.polka/envs/<tool>/<version>`; archive payloads are extracted on demand, while single-file payloads such as PHARs are placed at their expected install path.
 7. The tool plugin may run a post-install hook using `tools.InstallContext`.
 8. `backend.Store` returns install results to the CLI.
 
-The global cache and project-local install layouts are intentionally separate. The cache stores reusable downloaded payloads; `.polka/envs` stores project-local copies selected by the active environment config.
+The global cache and project-local install layouts are intentionally separate. The cache stores reusable downloaded payloads under per-tool metadata; `.polka/envs` stores project-local installs selected by the active environment config.
 
 ## Dispatch Flow
 
@@ -163,7 +163,7 @@ Use the package boundary to choose tests:
 
 - `tools`: plugin registry, candidate paths, download asset selection, archive extraction, and post-install hooks.
 - `config`: normalization behavior when shared helpers become complex enough to warrant direct tests.
-- `backend`: store behavior, config persistence, install/copy behavior, shim syncing, tool resolution, runtime state, and service orchestration.
+- `backend`: store behavior, config persistence, install materialization, shim syncing, tool resolution, runtime state, and service orchestration.
 - `cli`: command parsing, user-facing output, command selection, and full command workflows.
 
 The default acceptance check is:

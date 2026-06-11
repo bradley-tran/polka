@@ -102,7 +102,7 @@ func downloadBuiltinManifestToolResolvedWithTag(client *http.Client, cacheDir, t
 		return err
 	}
 
-	return downloadManifestAsset(client, cacheDir, tool, requestedVersion, asset)
+	return downloadManifestAsset(client, cacheDir, tool, requestedVersion, resolvedVersion, asset)
 }
 
 func resolveBuiltinManifestDownloadAsset(tool, requestedVersion, goos, goarch string) (string, databaseDownloadAsset, error) {
@@ -133,7 +133,7 @@ func downloadManifestAssetForRequest(client *http.Client, cacheDir, tool, reques
 		applyGitHubAssetDigest(&asset, githubAssets)
 	}
 
-	return downloadManifestAsset(client, cacheDir, tool, requestedVersion, asset)
+	return downloadManifestAsset(client, cacheDir, tool, requestedVersion, resolvedVersion, asset)
 }
 
 func resolveManifestDownloadVersion(client *http.Client, tool, requestedVersion string, download manifestDownload) (string, string, []githubReleaseAsset, error) {
@@ -455,25 +455,19 @@ func parseGitHubAssetDigest(digest string) (checksumAlgorithm, string, bool) {
 }
 
 func downloadDatabaseAsset(client *http.Client, cacheDir, tool, version string, asset databaseDownloadAsset) error {
-	return downloadManifestAsset(client, cacheDir, tool, version, asset)
+	return downloadManifestAsset(client, cacheDir, tool, version, version, asset)
 }
 
-func downloadManifestAsset(client *http.Client, cacheDir, tool, version string, asset downloadAsset) error {
+func downloadManifestAsset(client *http.Client, cacheDir, tool, requestedVersion, downloadedVersion string, asset downloadAsset) error {
 	if err := os.MkdirAll(filepath.Join(cacheDir, tool), 0o755); err != nil {
 		return fmt.Errorf("create %s cache dir: %w", tool, err)
 	}
 
-	cacheVersionDir := filepath.Join(cacheDir, tool, version)
-	stagingDir, err := os.MkdirTemp(filepath.Join(cacheDir, tool), version+"-tmp-")
+	stagingDir, err := os.MkdirTemp(filepath.Join(cacheDir, tool), requestedVersion+"-tmp-")
 	if err != nil {
 		return fmt.Errorf("create %s staging dir: %w", tool, err)
 	}
 	defer os.RemoveAll(stagingDir)
-
-	payloadDir := filepath.Join(stagingDir, "payload")
-	if err := os.MkdirAll(payloadDir, 0o755); err != nil {
-		return fmt.Errorf("create %s payload dir: %w", tool, err)
-	}
 
 	archivePath := filepath.Join(stagingDir, asset.FileName)
 	if err := downloadFile(client, asset.URL, archivePath); err != nil {
@@ -491,29 +485,11 @@ func downloadManifestAsset(client *http.Client, cacheDir, tool, version string, 
 		if err := verifyFileChecksum(asset.ChecksumAlgorithm, checksum, archivePath); err != nil {
 			return err
 		}
-	}
-	if err := extractArchive(archivePath, payloadDir, asset.ArchiveFormat); err != nil {
-		return err
-	}
-	if err := collapseSingleDirectory(payloadDir); err != nil {
-		return err
+		asset.Checksum = checksum
 	}
 
-	return finalizeCacheVersion(cacheVersionDir, payloadDir)
-}
-
-func finalizeCacheVersion(targetDir, stagingDir string) error {
-	if err := os.RemoveAll(targetDir); err != nil {
-		return fmt.Errorf("reset cache version directory: %w", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(targetDir), 0o755); err != nil {
-		return fmt.Errorf("create cache parent dir: %w", err)
-	}
-	if err := os.Rename(stagingDir, targetDir); err != nil {
-		return fmt.Errorf("finalize cache version: %w", err)
-	}
-
-	return nil
+	_, err = cacheArchivePayload(cacheDir, tool, requestedVersion, downloadedVersion, asset, archivePath)
+	return err
 }
 
 func extractArchive(archivePath, targetDir string, format archiveFormat) error {
@@ -778,20 +754,6 @@ func downloadChecksumValue(client *http.Client, checksumURL string, algorithm ch
 	}
 
 	return checksum, nil
-}
-
-func verifyFileSHA256(client *http.Client, filePath, checksumURL string) error {
-	checksumData, err := downloadText(client, checksumURL, "checksum")
-	if err != nil {
-		return err
-	}
-
-	expected, err := parseChecksumValue(checksumData)
-	if err != nil {
-		return fmt.Errorf("parse checksum %s: %w", checksumURL, err)
-	}
-
-	return verifyChecksum(expected, filePath)
 }
 
 func parseChecksumValue(value string) (string, error) {

@@ -16,21 +16,8 @@ func TestRunConfigSetsVersionLabelsAndDispatchesPhp(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	fakePHP := cachedPHPPath(cacheDir, "8.4")
-	if err := os.MkdirAll(filepath.Dir(fakePHP), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache php) error = %v", err)
-	}
-	if err := os.WriteFile(fakePHP, fakePHPScript(), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache php) error = %v", err)
-	}
-	writeCachedPHPCABundle(t, cacheDir, "8.4")
-	fakeComposer := cachedComposerPath(cacheDir, "2.8")
-	if err := os.MkdirAll(filepath.Dir(fakeComposer), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache composer) error = %v", err)
-	}
-	if err := os.WriteFile(fakeComposer, []byte("composer\n"), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache composer) error = %v", err)
-	}
+	fakePHP := writeCachedPHP(t, cacheDir, "8.4", fakePHPScript())
+	writeCachedComposer(t, cacheDir, "2.8", []byte("composer\n"))
 
 	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.php", "8.4")
 	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.composer", "2.8")
@@ -101,13 +88,7 @@ func TestRunDispatchLoadsProjectAndConfiguredEnvironmentVariables(t *testing.T) 
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	fakePHP := cachedPHPPath(cacheDir, "8.4")
-	if err := os.MkdirAll(filepath.Dir(fakePHP), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache php) error = %v", err)
-	}
-	if err := os.WriteFile(fakePHP, fakePHPScriptWithEnv("APP_ENV"), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache php) error = %v", err)
-	}
+	writeCachedPHP(t, cacheDir, "8.4", fakePHPScriptWithEnv("APP_ENV"))
 	if err := os.MkdirAll(filepath.Join(projectDir, "config"), 0o755); err != nil {
 		t.Fatalf("MkdirAll(config) error = %v", err)
 	}
@@ -156,13 +137,7 @@ func TestRunDispatchRunsPostComposerHookForLaravelInstall(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	fakeComposer := cachedComposerExecutablePath(cacheDir, "2.8")
-	if err := os.MkdirAll(filepath.Dir(fakeComposer), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache composer) error = %v", err)
-	}
-	if err := os.WriteFile(fakeComposer, fakeToolScript("composer"), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache composer) error = %v", err)
-	}
+	writeCachedComposerExecutable(t, cacheDir, "2.8", fakeToolScript("composer"))
 	appRoot := filepath.Join(projectDir, "laravel")
 	if err := os.MkdirAll(filepath.Join(appRoot, "public"), 0o755); err != nil {
 		t.Fatalf("MkdirAll(app public) error = %v", err)
@@ -226,21 +201,8 @@ func TestRunDispatchRunsPIEPHARThroughManagedPHP(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	fakePHP := cachedPHPPath(cacheDir, "8.4")
-	if err := os.MkdirAll(filepath.Dir(fakePHP), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache php) error = %v", err)
-	}
-	if err := os.WriteFile(fakePHP, fakePHPScript(), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache php) error = %v", err)
-	}
-	writeCachedPHPCABundle(t, cacheDir, "8.4")
-	fakePIE := cachedPIEPath(cacheDir, "1.4")
-	if err := os.MkdirAll(filepath.Dir(fakePIE), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache pie) error = %v", err)
-	}
-	if err := os.WriteFile(fakePIE, []byte("pie phar\n"), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache pie) error = %v", err)
-	}
+	writeCachedPHP(t, cacheDir, "8.4", fakePHPScript())
+	writeCachedPIE(t, cacheDir, "1.4", []byte("pie phar\n"))
 
 	config := testConfigFile{
 		Version: 1,

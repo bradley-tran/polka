@@ -21,13 +21,7 @@ func TestRunServeUsesCurrentServerConfig(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	fakePHP := cachedPHPPath(cacheDir, "8.4")
-	if err := os.MkdirAll(filepath.Dir(fakePHP), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache php) error = %v", err)
-	}
-	if err := os.WriteFile(fakePHP, fakePHPScriptWithEnv("APP_ENV"), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache php) error = %v", err)
-	}
+	writeCachedPHP(t, cacheDir, "8.4", fakePHPScriptWithEnv("APP_ENV"))
 	docroot := filepath.Join(projectDir, "named-project", "public")
 	if err := os.MkdirAll(docroot, 0o755); err != nil {
 		t.Fatalf("MkdirAll(docroot) error = %v", err)
@@ -82,13 +76,7 @@ func TestRunServeUsesConfiguredDocrootWhenArgumentOmitted(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	fakePHP := cachedPHPPath(cacheDir, "8.4")
-	if err := os.MkdirAll(filepath.Dir(fakePHP), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache php) error = %v", err)
-	}
-	if err := os.WriteFile(fakePHP, fakePHPScript(), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache php) error = %v", err)
-	}
+	writeCachedPHP(t, cacheDir, "8.4", fakePHPScript())
 	docroot := filepath.Join(projectDir, "configured-project", "public")
 	if err := os.MkdirAll(docroot, 0o755); err != nil {
 		t.Fatalf("MkdirAll(docroot) error = %v", err)
@@ -142,13 +130,7 @@ func TestRunServeArgumentOverridesConfiguredDocroot(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	fakePHP := cachedPHPPath(cacheDir, "8.4")
-	if err := os.MkdirAll(filepath.Dir(fakePHP), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache php) error = %v", err)
-	}
-	if err := os.WriteFile(fakePHP, fakePHPScript(), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache php) error = %v", err)
-	}
+	writeCachedPHP(t, cacheDir, "8.4", fakePHPScript())
 	configuredDocroot := filepath.Join(projectDir, "configured-project", "public")
 	if err := os.MkdirAll(configuredDocroot, 0o755); err != nil {
 		t.Fatalf("MkdirAll(configured docroot) error = %v", err)
@@ -232,13 +214,7 @@ func TestRunServeAllowsServerOverride(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	fakePHP := cachedPHPPath(cacheDir, "8.4")
-	if err := os.MkdirAll(filepath.Dir(fakePHP), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache php) error = %v", err)
-	}
-	if err := os.WriteFile(fakePHP, fakePHPScript(), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache php) error = %v", err)
-	}
+	writeCachedPHP(t, cacheDir, "8.4", fakePHPScript())
 	docroot := filepath.Join(projectDir, "site", "public")
 	if err := os.MkdirAll(docroot, 0o755); err != nil {
 		t.Fatalf("MkdirAll(docroot) error = %v", err)
@@ -626,34 +602,8 @@ func TestRunServeStartsConfiguredDatabaseBeforePhp(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	fakePHP := cachedPHPPath(cacheDir, "8.4")
-	if err := os.MkdirAll(filepath.Dir(fakePHP), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache php) error = %v", err)
-	}
-	if err := os.WriteFile(fakePHP, fakePHPScript(), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache php) error = %v", err)
-	}
-	fakeMySQL := cachedDatabasePath(cacheDir, "mysql", "8.4")
-	if err := os.MkdirAll(filepath.Dir(fakeMySQL), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache mysql) error = %v", err)
-	}
-	if err := os.WriteFile(fakeMySQL, fakeDatabaseScript("mysql"), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache mysql) error = %v", err)
-	}
-	fakeMySQLServer := cachedDatabaseServerPath(cacheDir, "mysql", "8.4")
-	if err := os.MkdirAll(filepath.Dir(fakeMySQLServer), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache mysqld) error = %v", err)
-	}
-	if err := os.WriteFile(fakeMySQLServer, fakeDatabaseScript("mysqld"), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache mysqld) error = %v", err)
-	}
-	fakeMySQLAdmin := cachedDatabaseAdminPath(cacheDir, "mysql", "8.4")
-	if err := os.MkdirAll(filepath.Dir(fakeMySQLAdmin), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache mysqladmin) error = %v", err)
-	}
-	if err := os.WriteFile(fakeMySQLAdmin, fakeDatabaseScript("mysqladmin"), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache mysqladmin) error = %v", err)
-	}
+	writeCachedPHP(t, cacheDir, "8.4", fakePHPScript())
+	writeCachedDatabaseTool(t, cacheDir, "mysql", "8.4", false, true, true)
 	docroot := filepath.Join(projectDir, "site", "public")
 	if err := os.MkdirAll(docroot, 0o755); err != nil {
 		t.Fatalf("MkdirAll(docroot) error = %v", err)

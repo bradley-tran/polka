@@ -26,12 +26,12 @@ func sqlitePlugin() Plugin {
 }
 
 func downloadSQLite(client *http.Client, cacheDir, version string) error {
-	_, asset, err := resolveSQLiteDownloadAsset(client, version, runtime.GOOS, runtime.GOARCH)
+	resolvedVersion, asset, err := resolveSQLiteDownloadAsset(client, version, runtime.GOOS, runtime.GOARCH)
 	if err != nil {
 		return err
 	}
 
-	return downloadManifestAsset(client, cacheDir, SQLite, version, asset)
+	return downloadManifestAsset(client, cacheDir, SQLite, version, resolvedVersion, asset)
 }
 
 func resolveSQLiteDownloadAsset(client *http.Client, requestedVersion, goos, goarch string) (string, databaseDownloadAsset, error) {

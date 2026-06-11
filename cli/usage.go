@@ -83,7 +83,7 @@ const installUsage = `Usage:
 
 Install one explicit tool version, such as php:8.4, or install every configured tool version for an environment when no tool argument is provided.
 Use --env NAME to select a named environment. When --env is omitted, Polka uses the current environment, falling back to default when no local override is selected.
-Polka copies tools from the global cache when available, otherwise downloads them into the cache first.
+Polka installs tools from validated global cache payloads when available, otherwise downloads them into the cache first.
 `
 
 const certInstallUsage = `Usage:

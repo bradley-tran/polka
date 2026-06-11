@@ -289,13 +289,7 @@ func TestRunInstallUsesCurrentEnvironmentWhenNameOmitted(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	fakePHP := cachedPHPPath(cacheDir, "8.4")
-	if err := os.MkdirAll(filepath.Dir(fakePHP), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache php) error = %v", err)
-	}
-	if err := os.WriteFile(fakePHP, fakePHPScript(), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache php) error = %v", err)
-	}
+	writeCachedPHP(t, cacheDir, "8.4", fakePHPScript())
 
 	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.php", "8.4")
 
@@ -328,13 +322,7 @@ func TestRunInstallUsesConfiguredNestedRootFromProjectConfig(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	fakePHP := cachedPHPPath(cacheDir, "8.4")
-	if err := os.MkdirAll(filepath.Dir(fakePHP), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache php) error = %v", err)
-	}
-	if err := os.WriteFile(fakePHP, fakePHPScript(), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache php) error = %v", err)
-	}
+	writeCachedPHP(t, cacheDir, "8.4", fakePHPScript())
 
 	writeTestConfigFile(t, projectDir, testConfigFile{
 		Version: 1,
@@ -380,13 +368,7 @@ func TestRunInstallUsesConfiguredNestedRootFromExplicitRoot(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	fakePHP := cachedPHPPath(cacheDir, "8.4")
-	if err := os.MkdirAll(filepath.Dir(fakePHP), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache php) error = %v", err)
-	}
-	if err := os.WriteFile(fakePHP, fakePHPScript(), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache php) error = %v", err)
-	}
+	writeCachedPHP(t, cacheDir, "8.4", fakePHPScript())
 
 	writeTestConfigFile(t, projectDir, testConfigFile{
 		Version: 1,
@@ -635,13 +617,7 @@ func TestRunInstallUsesDefaultEnvironmentWhenCurrentMissing(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	fakePHP := cachedPHPPath(cacheDir, "8.4")
-	if err := os.MkdirAll(filepath.Dir(fakePHP), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache php) error = %v", err)
-	}
-	if err := os.WriteFile(fakePHP, fakePHPScript(), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache php) error = %v", err)
-	}
+	writeCachedPHP(t, cacheDir, "8.4", fakePHPScript())
 
 	runTestConfigValue(t, stdout, stderr, root, defaultEnvironmentName, "tools.php", "8.4")
 
@@ -679,13 +655,7 @@ func TestRunInstallAcceptsExplicitToolVersion(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	fakePHP := cachedPHPPath(cacheDir, "8.4")
-	if err := os.MkdirAll(filepath.Dir(fakePHP), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache php) error = %v", err)
-	}
-	if err := os.WriteFile(fakePHP, fakePHPScript(), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache php) error = %v", err)
-	}
+	writeCachedPHP(t, cacheDir, "8.4", fakePHPScript())
 
 	if code := Run(stdout, stderr, []string{"--root", root, "install", "php:8.4"}); code != 0 {
 		t.Fatalf("Run(install php:8.4) code = %d, stderr = %q", code, stderr.String())
@@ -714,13 +684,7 @@ func TestRunInstallUsesEnvFlagForNamedEnvironment(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	fakePHP := cachedPHPPath(cacheDir, "8.4")
-	if err := os.MkdirAll(filepath.Dir(fakePHP), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache php) error = %v", err)
-	}
-	if err := os.WriteFile(fakePHP, fakePHPScript(), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache php) error = %v", err)
-	}
+	writeCachedPHP(t, cacheDir, "8.4", fakePHPScript())
 
 	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.php", "8.4")
 
@@ -1114,14 +1078,7 @@ func TestRunInstallAppliesPHPExtensionsFromConfigFile(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	fakePHP := cachedPHPPath(cacheDir, "8.4")
-	if err := os.MkdirAll(filepath.Dir(fakePHP), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache php) error = %v", err)
-	}
-	if err := os.WriteFile(fakePHP, fakePHPScript(), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache php) error = %v", err)
-	}
-	writeCachedPHPCABundle(t, cacheDir, "8.4")
+	writeCachedPHP(t, cacheDir, "8.4", fakePHPScript())
 	if err := os.MkdirAll(filepath.Join(cacheDir, "php", "8.4", "ext"), 0o755); err != nil {
 		t.Fatalf("MkdirAll(cache ext) error = %v", err)
 	}
@@ -1166,21 +1123,8 @@ func TestRunInstallEnablesComposerPHPExtensionsByDefault(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	fakePHP := cachedPHPPath(cacheDir, "8.4")
-	if err := os.MkdirAll(filepath.Dir(fakePHP), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache php) error = %v", err)
-	}
-	if err := os.WriteFile(fakePHP, fakePHPScript(), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache php) error = %v", err)
-	}
-	writeCachedPHPCABundle(t, cacheDir, "8.4")
-	fakeComposer := cachedComposerPath(cacheDir, "2.8")
-	if err := os.MkdirAll(filepath.Dir(fakeComposer), 0o755); err != nil {
-		t.Fatalf("MkdirAll(cache composer) error = %v", err)
-	}
-	if err := os.WriteFile(fakeComposer, []byte("composer\n"), 0o755); err != nil {
-		t.Fatalf("WriteFile(cache composer) error = %v", err)
-	}
+	writeCachedPHP(t, cacheDir, "8.4", fakePHPScript())
+	writeCachedComposer(t, cacheDir, "2.8", []byte("composer\n"))
 	if err := os.MkdirAll(filepath.Join(cacheDir, "php", "8.4", "ext"), 0o755); err != nil {
 		t.Fatalf("MkdirAll(cache ext) error = %v", err)
 	}

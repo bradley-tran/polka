@@ -1215,7 +1215,8 @@ func globalTLSCACertificatePaths(cacheDir string) (string, string) {
 
 func globalTLSCertificateDir(cacheDir string) string {
 	cleanCacheDir := filepath.Clean(cacheDir)
-	if strings.EqualFold(filepath.Base(cleanCacheDir), "tools") && strings.EqualFold(filepath.Base(filepath.Dir(cleanCacheDir)), "polka") {
+	base := filepath.Base(cleanCacheDir)
+	if strings.EqualFold(base, "cache") && strings.EqualFold(filepath.Base(filepath.Dir(cleanCacheDir)), "polka") {
 		return filepath.Join(filepath.Dir(cleanCacheDir), serveTLSSubdir)
 	}
 

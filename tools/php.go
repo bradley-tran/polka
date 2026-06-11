@@ -253,7 +253,6 @@ func downloadPHP(client *http.Client, cacheDir, version string) error {
 		return err
 	}
 
-	cacheVersionDir := filepath.Join(cacheDir, PHP, version)
 	stagingDir, err := os.MkdirTemp(filepath.Join(cacheDir, PHP), version+"-tmp-")
 	if err != nil {
 		return fmt.Errorf("create php staging dir: %w", err)
@@ -268,14 +267,15 @@ func downloadPHP(client *http.Client, cacheDir, version string) error {
 	if err := verifyChecksum(asset.SHA256, archivePath); err != nil {
 		return err
 	}
-	if err := extractZipArchive(archivePath, stagingDir); err != nil {
-		return err
-	}
-	if _, err := os.Stat(filepath.Join(stagingDir, "php.exe")); err != nil {
-		return fmt.Errorf("downloaded php archive did not contain php.exe: %w", err)
-	}
 
-	return finalizeCacheVersion(cacheVersionDir, stagingDir)
+	_, err = cacheArchivePayload(cacheDir, PHP, version, release.Version, downloadAsset{
+		FileName:          filepath.Base(asset.Path),
+		URL:               archiveURL,
+		Checksum:          asset.SHA256,
+		ChecksumAlgorithm: checksumAlgorithmSHA256,
+		ArchiveFormat:     archiveFormatZip,
+	}, archivePath)
+	return err
 }
 
 func fetchPHPWindowsReleaseIndex(client *http.Client) (phpWindowsReleaseIndex, error) {
