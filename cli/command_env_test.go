@@ -1099,6 +1099,7 @@ func TestRunInstallAppliesPHPExtensionsFromConfigFile(t *testing.T) {
 	if err := os.WriteFile(fakePHP, fakePHPScript(), 0o755); err != nil {
 		t.Fatalf("WriteFile(cache php) error = %v", err)
 	}
+	writeCachedPHPCABundle(t, cacheDir, "8.4")
 	if err := os.MkdirAll(filepath.Join(cacheDir, "php", "8.4", "ext"), 0o755); err != nil {
 		t.Fatalf("MkdirAll(cache ext) error = %v", err)
 	}
@@ -1124,6 +1125,9 @@ func TestRunInstallAppliesPHPExtensionsFromConfigFile(t *testing.T) {
 	if !strings.Contains(phpIni, "extension=openssl") {
 		t.Fatalf("php.ini = %q, want enabled openssl extension", phpIni)
 	}
+	if !strings.Contains(phpIni, "curl.cainfo=") || !strings.Contains(phpIni, "openssl.cafile=") {
+		t.Fatalf("php.ini = %q, want TLS CA bundle directives", phpIni)
+	}
 	if !strings.Contains(phpIni, ";extension=xdebug") {
 		t.Fatalf("php.ini = %q, want disabled xdebug extension", phpIni)
 	}
@@ -1147,6 +1151,7 @@ func TestRunInstallEnablesComposerPHPExtensionsByDefault(t *testing.T) {
 	if err := os.WriteFile(fakePHP, fakePHPScript(), 0o755); err != nil {
 		t.Fatalf("WriteFile(cache php) error = %v", err)
 	}
+	writeCachedPHPCABundle(t, cacheDir, "8.4")
 	fakeComposer := cachedComposerPath(cacheDir, "2.8")
 	if err := os.MkdirAll(filepath.Dir(fakeComposer), 0o755); err != nil {
 		t.Fatalf("MkdirAll(cache composer) error = %v", err)
@@ -1175,6 +1180,9 @@ func TestRunInstallEnablesComposerPHPExtensionsByDefault(t *testing.T) {
 	phpIni := string(phpIniData)
 	if !strings.Contains(phpIni, "extension=openssl") {
 		t.Fatalf("php.ini = %q, want enabled openssl extension", phpIni)
+	}
+	if !strings.Contains(phpIni, "curl.cainfo=") || !strings.Contains(phpIni, "openssl.cafile=") {
+		t.Fatalf("php.ini = %q, want TLS CA bundle directives", phpIni)
 	}
 	if !strings.Contains(phpIni, "extension=zip") {
 		t.Fatalf("php.ini = %q, want enabled zip extension", phpIni)

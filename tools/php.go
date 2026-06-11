@@ -1,13 +1,18 @@
 package tools
 
 import (
+	"bytes"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"unicode/utf16"
 
 	"polka/config"
 )
@@ -15,7 +20,16 @@ import (
 const (
 	phpWindowsReleaseURL = "https://windows.php.net/downloads/releases/releases.json"
 	phpWindowsBaseURL    = "https://windows.php.net/downloads/releases"
+	phpCABundlePath      = "extras/ssl/cacert.pem"
 )
+
+var systemCABundleCandidates = []string{
+	"/etc/ssl/certs/ca-certificates.crt",
+	"/etc/pki/tls/certs/ca-bundle.crt",
+	"/etc/ssl/ca-bundle.pem",
+	"/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+	"/etc/ssl/cert.pem",
+}
 
 type phpWindowsReleaseIndex map[string]phpWindowsRelease
 
@@ -57,6 +71,13 @@ func phpPlugin() Plugin {
 		},
 		postInstall: func(ctx InstallContext) error {
 			phpConfig := EffectivePHPConfigForInstall(ctx.Environment)
+			if phpConfigNeedsCABundle(phpConfig) {
+				caBundlePath, err := ensureInstalledPHPCABundle(ctx.EnvsDir, ctx.Result.Version)
+				if err != nil {
+					return err
+				}
+				phpConfig.CABundlePath = caBundlePath
+			}
 			if phpConfig.IsZero() {
 				return nil
 			}
@@ -64,6 +85,139 @@ func phpPlugin() Plugin {
 			return configureInstalledPHPConfig(ctx.EnvsDir, ctx.Result.Version, phpConfig)
 		},
 	})
+}
+
+func phpConfigNeedsCABundle(config PHPInstallConfig) bool {
+	for name, enabled := range config.Extensions {
+		if !enabled {
+			continue
+		}
+		switch normalizePHPModuleName(name) {
+		case "curl", "openssl":
+			return true
+		}
+	}
+
+	return false
+}
+
+func ensureInstalledPHPCABundle(envsDir, version string) (string, error) {
+	caBundlePath := installedPHPCABundlePath(envsDir, version)
+	exists, err := regularPHPFileExists(caBundlePath)
+	if err != nil {
+		return "", fmt.Errorf("stat php ca bundle %s: %w", caBundlePath, err)
+	}
+	if exists {
+		return caBundlePath, nil
+	}
+
+	if runtime.GOOS == "windows" {
+		if err := writeWindowsSystemCABundle(caBundlePath); err != nil {
+			return "", err
+		}
+		return caBundlePath, nil
+	}
+
+	systemPath, err := findSystemCABundle()
+	if err != nil {
+		return "", err
+	}
+
+	return systemPath, nil
+}
+
+func installedPHPCABundlePath(envsDir, version string) string {
+	return filepath.Join(envsDir, PHP, version, filepath.FromSlash(phpCABundlePath))
+}
+
+func findSystemCABundle() (string, error) {
+	for _, path := range systemCABundleCandidates {
+		exists, err := regularPHPFileExists(path)
+		if err != nil {
+			return "", fmt.Errorf("stat system ca bundle %s: %w", path, err)
+		}
+		if exists {
+			return path, nil
+		}
+	}
+
+	return "", fmt.Errorf("no system ca bundle found for generated PHP OpenSSL/cURL config")
+}
+
+func regularPHPFileExists(path string) (bool, error) {
+	info, err := os.Stat(path)
+	if err == nil {
+		return !info.IsDir(), nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+
+	return false, err
+}
+
+func writeWindowsSystemCABundle(targetPath string) error {
+	data, err := exportWindowsSystemCABundle()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		return fmt.Errorf("create php ca bundle directory: %w", err)
+	}
+	if err := os.WriteFile(targetPath, data, 0o644); err != nil {
+		return fmt.Errorf("write php ca bundle: %w", err)
+	}
+
+	return nil
+}
+
+func exportWindowsSystemCABundle() ([]byte, error) {
+	script := strings.Join([]string{
+		"$ErrorActionPreference = 'Stop'",
+		"$seen = New-Object 'System.Collections.Generic.HashSet[string]'",
+		"foreach ($location in @('CurrentUser', 'LocalMachine')) {",
+		"  $store = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root', $location)",
+		"  $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly)",
+		"  try {",
+		"    foreach ($cert in $store.Certificates) {",
+		"      if ([string]::IsNullOrWhiteSpace($cert.Thumbprint) -or -not $seen.Add($cert.Thumbprint)) { continue }",
+		"      '-----BEGIN CERTIFICATE-----'",
+		"      [Convert]::ToBase64String($cert.RawData, [Base64FormattingOptions]::InsertLineBreaks)",
+		"      '-----END CERTIFICATE-----'",
+		"      ''",
+		"    }",
+		"  } finally {",
+		"    $store.Close()",
+		"  }",
+		"}",
+	}, "\n")
+
+	command := exec.Command("powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", powershellEncodedCommand(script))
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+	output, err := command.Output()
+	if err != nil {
+		detail := strings.TrimSpace(stderr.String())
+		if detail != "" {
+			return nil, fmt.Errorf("export windows root certificates: %w: %s", err, detail)
+		}
+		return nil, fmt.Errorf("export windows root certificates: %w", err)
+	}
+	if !bytes.Contains(output, []byte("-----BEGIN CERTIFICATE-----")) {
+		return nil, fmt.Errorf("export windows root certificates: no certificates were exported")
+	}
+
+	return output, nil
+}
+
+func powershellEncodedCommand(script string) string {
+	encodedRunes := utf16.Encode([]rune(script))
+	data := make([]byte, len(encodedRunes)*2)
+	for index, encodedRune := range encodedRunes {
+		binary.LittleEndian.PutUint16(data[index*2:], encodedRune)
+	}
+
+	return base64.StdEncoding.EncodeToString(data)
 }
 
 func validateOPcachePreset(preset string) error {

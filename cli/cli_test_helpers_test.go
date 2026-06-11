@@ -589,6 +589,18 @@ func cachedPHPPath(root, version string) string {
 	return filepath.Join(root, "php", version, "bin", "php")
 }
 
+func writeCachedPHPCABundle(t *testing.T, root, version string) {
+	t.Helper()
+
+	path := filepath.Join(root, "php", version, "extras", "ssl", "cacert.pem")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte("-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", path, err)
+	}
+}
+
 func readTestActiveEnvironment(t *testing.T, root string) string {
 	t.Helper()
 

@@ -23,6 +23,7 @@ func TestRunConfigSetsVersionLabelsAndDispatchesPhp(t *testing.T) {
 	if err := os.WriteFile(fakePHP, fakePHPScript(), 0o755); err != nil {
 		t.Fatalf("WriteFile(cache php) error = %v", err)
 	}
+	writeCachedPHPCABundle(t, cacheDir, "8.4")
 	fakeComposer := cachedComposerPath(cacheDir, "2.8")
 	if err := os.MkdirAll(filepath.Dir(fakeComposer), 0o755); err != nil {
 		t.Fatalf("MkdirAll(cache composer) error = %v", err)

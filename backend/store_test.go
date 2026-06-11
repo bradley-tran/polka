@@ -524,6 +524,9 @@ func TestStoreInstallToolAppliesEnvironmentPostInstallSettings(t *testing.T) {
 	if !strings.Contains(phpIni, "extension=openssl") {
 		t.Fatalf("php.ini = %q, want enabled openssl extension", phpIni)
 	}
+	if !strings.Contains(phpIni, "curl.cainfo=") || !strings.Contains(phpIni, "openssl.cafile=") {
+		t.Fatalf("php.ini = %q, want TLS CA bundle directives", phpIni)
+	}
 	if !strings.Contains(phpIni, ";extension=xdebug") {
 		t.Fatalf("php.ini = %q, want disabled xdebug extension", phpIni)
 	}
@@ -2554,6 +2557,7 @@ func writeCachedTool(t *testing.T, cacheDir, tool, version string) string {
 		if err := os.WriteFile(path, fakePHPModuleListScript(nil), 0o755); err != nil {
 			t.Fatalf("WriteFile(%q) error = %v", path, err)
 		}
+		writeCachedPHPCABundle(t, cacheDir, version)
 
 		return path
 	}
@@ -2574,8 +2578,21 @@ func writeCachedPHPToolWithBuiltInModules(t *testing.T, cacheDir, version string
 	if err := os.WriteFile(path, fakePHPModuleListScript(modules), 0o755); err != nil {
 		t.Fatalf("WriteFile(%q) error = %v", path, err)
 	}
+	writeCachedPHPCABundle(t, cacheDir, version)
 
 	return path
+}
+
+func writeCachedPHPCABundle(t *testing.T, cacheDir, version string) {
+	t.Helper()
+
+	path := filepath.Join(cacheDir, toolPHP, version, "extras", "ssl", "cacert.pem")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte("-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", path, err)
+	}
 }
 
 func cachedFakePHPPath(cacheDir, version string) string {

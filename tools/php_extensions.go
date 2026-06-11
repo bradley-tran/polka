@@ -19,11 +19,12 @@ var composerDefaultExtensions = []string{"openssl", "zip"}
 type PHPInstallConfig struct {
 	Extensions    map[string]bool
 	OPcacheConfig map[string]string
+	CABundlePath  string
 }
 
 // IsZero reports whether the install needs no generated php.ini.
 func (config PHPInstallConfig) IsZero() bool {
-	return len(config.Extensions) == 0 && len(config.OPcacheConfig) == 0
+	return len(config.Extensions) == 0 && len(config.OPcacheConfig) == 0 && strings.TrimSpace(config.CABundlePath) == ""
 }
 
 // EffectivePHPConfigForInstall returns all generated PHP ini settings for an environment.
@@ -227,6 +228,19 @@ func renderPHPConfig(extensionDir string, phpConfig PHPInstallConfig) ([]byte, e
 		builder.WriteString(extensionDir)
 		builder.WriteString("\"\n")
 	}
+	caBundlePath := strings.TrimSpace(phpConfig.CABundlePath)
+	if caBundlePath != "" {
+		iniPath, err := phpINIPathValue(caBundlePath)
+		if err != nil {
+			return nil, err
+		}
+		builder.WriteString("curl.cainfo=\"")
+		builder.WriteString(iniPath)
+		builder.WriteString("\"\n")
+		builder.WriteString("openssl.cafile=\"")
+		builder.WriteString(iniPath)
+		builder.WriteString("\"\n")
+	}
 	for _, name := range names {
 		if strings.EqualFold(name, "opcache") {
 			if phpConfig.Extensions[name] {
@@ -256,6 +270,18 @@ func renderPHPConfig(extensionDir string, phpConfig PHPInstallConfig) ([]byte, e
 	}
 
 	return []byte(builder.String()), nil
+}
+
+func phpINIPathValue(path string) (string, error) {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return "", nil
+	}
+	if strings.ContainsAny(trimmed, "\r\n\"") {
+		return "", fmt.Errorf("invalid PHP ini path %q: paths cannot contain quotes or newlines", path)
+	}
+
+	return filepath.ToSlash(trimmed), nil
 }
 
 func validatePHPExtensionName(name string) error {

@@ -16,6 +16,7 @@ func TestRenderPHPConfigCombinesExtensionsAndOPcache(t *testing.T) {
 			"OPcache.Validate_Timestamps": "1",
 			"opcache.enable":              "1",
 		},
+		CABundlePath: "/opt/polka/cacert.pem",
 	})
 	if err != nil {
 		t.Fatalf("renderPHPConfig() error = %v", err)
@@ -24,6 +25,8 @@ func TestRenderPHPConfigCombinesExtensionsAndOPcache(t *testing.T) {
 	phpIni := string(configData)
 	for _, want := range []string{
 		"extension_dir=\"../ext\"",
+		"curl.cainfo=\"/opt/polka/cacert.pem\"",
+		"openssl.cafile=\"/opt/polka/cacert.pem\"",
 		";extension=openssl",
 		"zend_extension=opcache",
 		"extension=zip",
@@ -43,6 +46,20 @@ func TestRenderPHPConfigCombinesExtensionsAndOPcache(t *testing.T) {
 	}
 	if strings.Index(phpIni, "opcache.enable=1") > strings.Index(phpIni, "opcache.validate_timestamps=1") {
 		t.Fatalf("php.ini = %q, want sorted OPcache entries", phpIni)
+	}
+}
+
+func TestPHPConfigNeedsCABundleForTLSClientExtensions(t *testing.T) {
+	for _, extension := range []string{"curl", "OpenSSL"} {
+		config := PHPInstallConfig{Extensions: map[string]bool{extension: true}}
+		if !phpConfigNeedsCABundle(config) {
+			t.Fatalf("phpConfigNeedsCABundle(%s) = false, want true", extension)
+		}
+	}
+
+	config := PHPInstallConfig{Extensions: map[string]bool{"openssl": false, "zip": true}}
+	if phpConfigNeedsCABundle(config) {
+		t.Fatalf("phpConfigNeedsCABundle(%#v) = true, want false", config.Extensions)
 	}
 }
 
