@@ -842,6 +842,23 @@ func TestRunConfigPersistsNodeJSSetting(t *testing.T) {
 	}
 }
 
+func TestRunConfigPersistsPIESetting(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.pie", "1.4")
+
+	environment := readTestEnvironmentConfig(t, projectDir, "demo")
+	if environment.PIE != "1.4" {
+		t.Fatalf("environment = %#v, want pie configured for demo", environment)
+	}
+	if !strings.Contains(stdout.String(), "tools.pie=1.4") {
+		t.Fatalf("Run(config) stdout = %q, want pie summary", stdout.String())
+	}
+}
+
 func TestRunStatusShowsToolsEachOnOwnLine(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
@@ -855,6 +872,7 @@ func TestRunStatusShowsToolsEachOnOwnLine(t *testing.T) {
 			"demo": {
 				PHP:        "8.4",
 				Composer:   "2.8",
+				PIE:        "1.4",
 				NodeJS:     "24",
 				Mago:       "1.27",
 				Nginx:      "1.30",
@@ -877,6 +895,7 @@ func TestRunStatusShowsToolsEachOnOwnLine(t *testing.T) {
 		"environment demo\n",
 		"php 8.4\n",
 		"composer 2.8\n",
+		"pie 1.4\n",
 		"nodejs 24\n",
 		"mago 1.27\n",
 		"nginx 1.30\n",
@@ -946,6 +965,9 @@ func TestRunStatusUsesDefaultServerAddress(t *testing.T) {
 	}
 	if !strings.Contains(output, "nodejs unset\n") {
 		t.Fatalf("Run(status) stdout = %q, want nodejs unset line", output)
+	}
+	if !strings.Contains(output, "pie unset\n") {
+		t.Fatalf("Run(status) stdout = %q, want pie unset line", output)
 	}
 	if !strings.Contains(output, "mago unset\n") {
 		t.Fatalf("Run(status) stdout = %q, want mago unset line", output)

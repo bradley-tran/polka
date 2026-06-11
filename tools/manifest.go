@@ -240,6 +240,8 @@ func manifestVersionFunc(m pluginManifest) func(config.Environment) string {
 			return environment.PHPVersion
 		case Composer:
 			return environment.ComposerVersion
+		case PIE:
+			return environment.PIEVersion
 		case NodeJS:
 			return environment.NodeJSVersion
 		case Mago:

@@ -34,6 +34,8 @@ func TestStoreInitInstallsDispatcherShimsWithoutToolShims(t *testing.T) {
 	assertPathMissing(t, filepath.Join(store.BinDir, "php.cmd"))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolComposer))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolComposer+".cmd"))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolPIE))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolPIE+".cmd"))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolNode))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolNode+".cmd"))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolNPM))
@@ -201,6 +203,8 @@ func TestStoreUseSyncsManagedBinariesForCurrentEnvironment(t *testing.T) {
 	assertPathExists(t, filepath.Join(store.BinDir, toolPHP+".cmd"))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolComposer))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolComposer+".cmd"))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolPIE))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolPIE+".cmd"))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolNode))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolNode+".cmd"))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolNPM))
@@ -881,6 +885,30 @@ func TestStoreConfigureValueInfersDatabaseVersionFromTool(t *testing.T) {
 	}
 }
 
+func TestStoreConfigureValueSetsPIEToolVersion(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+
+	environment, err := store.ConfigureValue("demo", "tools.pie", "1.4")
+	if err != nil {
+		t.Fatalf("ConfigureValue(tools.pie) error = %v", err)
+	}
+	if environment.PIEVersion != "1.4" {
+		t.Fatalf("environment.PIEVersion = %q, want 1.4", environment.PIEVersion)
+	}
+
+	loaded, ok, err := store.readEnvironment("demo")
+	if err != nil {
+		t.Fatalf("readEnvironment(demo) error = %v", err)
+	}
+	if !ok {
+		t.Fatal("readEnvironment(demo) ok = false, want true")
+	}
+	if loaded.PIEVersion != "1.4" {
+		t.Fatalf("loaded.PIEVersion = %q, want 1.4", loaded.PIEVersion)
+	}
+}
+
 func TestStoreConfigureValueValidatesBeforeWrite(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
@@ -1193,6 +1221,54 @@ func TestStoreInstallDownloadsConfiguredMago(t *testing.T) {
 	}
 	assertPathExists(t, filepath.Join(store.BinDir, toolMago))
 	assertPathExists(t, filepath.Join(store.BinDir, toolMago+".cmd"))
+}
+
+func TestStoreInstallDownloadsConfiguredPIE(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+	store.Downloader = fakeDownloader(func(cacheDir, tool, version string) error {
+		_ = writeCachedTool(t, cacheDir, tool, version)
+		return nil
+	})
+
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{PIEVersion: "1.4"}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	results, err := store.Install("demo")
+	if err != nil {
+		t.Fatalf("Install(demo) error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("Install(demo) length = %d, want 1", len(results))
+	}
+	result := results[0]
+	if result.Tool != toolPIE || result.Version != "1.4" {
+		t.Fatalf("Install(demo) result = %#v, want pie 1.4", result)
+	}
+	if !result.Downloaded {
+		t.Fatalf("Install(demo) Downloaded = false, want true after cache miss")
+	}
+	assertPathExists(t, result.TargetPath)
+	if !strings.Contains(result.TargetPath, filepath.Join("envs", toolPIE, "1.4")) {
+		t.Fatalf("Install(demo) target = %q, want versioned pie env path", result.TargetPath)
+	}
+
+	if err := store.Use("demo"); err != nil {
+		t.Fatalf("Use(demo) error = %v", err)
+	}
+	resolvedPath, err := store.ResolveTool(toolPIE)
+	if err != nil {
+		t.Fatalf("ResolveTool(pie) error = %v", err)
+	}
+	if resolvedPath != result.TargetPath {
+		t.Fatalf("ResolveTool(pie) = %q, want %q", resolvedPath, result.TargetPath)
+	}
+	assertPathExists(t, filepath.Join(store.BinDir, toolPIE))
+	assertPathExists(t, filepath.Join(store.BinDir, toolPIE+".cmd"))
 }
 
 func TestStoreInstallDownloadsConfiguredMailpit(t *testing.T) {

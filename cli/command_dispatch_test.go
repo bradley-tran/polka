@@ -218,6 +218,59 @@ func TestRunDispatchRunsPostComposerHookForLaravelInstall(t *testing.T) {
 	}
 }
 
+func TestRunDispatchRunsPIEPHARThroughManagedPHP(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	cacheDir := filepath.Join(projectDir, "global-cache")
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	fakePHP := cachedPHPPath(cacheDir, "8.4")
+	if err := os.MkdirAll(filepath.Dir(fakePHP), 0o755); err != nil {
+		t.Fatalf("MkdirAll(cache php) error = %v", err)
+	}
+	if err := os.WriteFile(fakePHP, fakePHPScript(), 0o755); err != nil {
+		t.Fatalf("WriteFile(cache php) error = %v", err)
+	}
+	writeCachedPHPCABundle(t, cacheDir, "8.4")
+	fakePIE := cachedPIEPath(cacheDir, "1.4")
+	if err := os.MkdirAll(filepath.Dir(fakePIE), 0o755); err != nil {
+		t.Fatalf("MkdirAll(cache pie) error = %v", err)
+	}
+	if err := os.WriteFile(fakePIE, []byte("pie phar\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile(cache pie) error = %v", err)
+	}
+
+	config := testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {
+				PHP: "8.4",
+				PIE: "1.4",
+			},
+		},
+	}
+	writeTestConfigFile(t, projectDir, config)
+	writeTestActiveEnvironment(t, root, "demo")
+
+	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
+		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+
+	if code := Run(stdout, stderr, []string{"--root", root, "dispatch", "pie", "install", "asgrim/example-pie-extension"}); code != 0 {
+		t.Fatalf("Run(dispatch pie) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "fake-php") || !strings.Contains(output, "pie.phar install asgrim/example-pie-extension") {
+		t.Fatalf("Run(dispatch pie) stdout = %q, want pie.phar executed through php", output)
+	}
+}
+
 func TestRunDispatchUsesNodeAliasesAndRejectsNodeJSKey(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")

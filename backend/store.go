@@ -473,7 +473,7 @@ func (s Store) writeEnvironment(name, phpVersion, composerVersion, nodeJSVersion
 		environment.Database = mergeDatabaseConfig(environment.Database, database)
 		environment = setDatabaseToolVersion(environment, database)
 	}
-	if environment.PHPVersion == "" && environment.ComposerVersion == "" && environment.NodeJSVersion == "" && environment.MagoVersion == "" && environment.NginxVersion == "" && environment.MySQLVersion == "" && environment.MariaDBVersion == "" && environment.SQLiteVersion == "" && environment.PHPMyAdmin == nil && environment.Database == nil && environment.Mailpit == nil {
+	if environment.PHPVersion == "" && environment.ComposerVersion == "" && environment.PIEVersion == "" && environment.NodeJSVersion == "" && environment.MagoVersion == "" && environment.NginxVersion == "" && environment.MySQLVersion == "" && environment.MariaDBVersion == "" && environment.SQLiteVersion == "" && environment.PHPMyAdmin == nil && environment.Database == nil && environment.Mailpit == nil {
 		return Environment{}, fmt.Errorf("environment requires at least one of php, composer, nodejs, mago, nginx, mysql, mariadb, sqlite, phpmyadmin, database, or mailpit")
 	}
 	if err := s.toolRegistry().ValidateEnvironment(environment); err != nil {
@@ -805,6 +805,8 @@ func environmentWithInstallRequest(environment Environment, request tools.Instal
 		environment.PHPVersion = request.Version
 	case toolComposer:
 		environment.ComposerVersion = request.Version
+	case toolPIE:
+		environment.PIEVersion = request.Version
 	case toolNodeJS:
 		environment.NodeJSVersion = request.Version
 	case toolMago:
@@ -1469,7 +1471,7 @@ func asYAMLStringMap(value any) (map[string]any, bool) {
 
 func knownToolVersionKey(key string) bool {
 	switch key {
-	case toolPHP, toolComposer, toolNodeJS, toolMago, toolNginx, toolMySQL, toolMariaDB, toolSQLite, toolMailpit, toolPHPMyAdmin:
+	case toolPHP, toolComposer, toolPIE, toolNodeJS, toolMago, toolNginx, toolMySQL, toolMariaDB, toolSQLite, toolMailpit, toolPHPMyAdmin:
 		return true
 	default:
 		return false

@@ -38,7 +38,7 @@ For the full command reference, see [docs/commands.md](docs/commands.md). For th
 
 Polka config files store portable version labels under `tools` and non-version tool options under `settings`. The default environment lives in `polka.yaml`; named environments live in `polka.<name>.yaml`.
 
-Use `go run . config <key> <value>` to update the current environment, or `go run . config --env blog <key> <value>` to update a named environment. Keys are dot-separated config paths such as `tools.php`, `database.engine`, and `settings.mailpit.smtp-port`.
+Use `go run . config <key> <value>` to update the current environment, or `go run . config --env blog <key> <value>` to update a named environment. Keys are dot-separated config paths such as `tools.php`, `tools.pie`, `database.engine`, and `settings.mailpit.smtp-port`.
 
 ```yaml
 # polka.yaml
@@ -49,6 +49,7 @@ https: true
 tools:
   php: 8.4
   composer: 2.8
+  pie: 1.4
   nodejs: 24
   mago: "1.27"
   nginx: 1.30

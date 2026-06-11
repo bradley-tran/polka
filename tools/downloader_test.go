@@ -487,6 +487,60 @@ func TestResolveMagoDownloadAssetSupportsSeriesLabels(t *testing.T) {
 	}
 }
 
+func TestDownloadPIESupportsSeriesLabelsAndVerifiesDigest(t *testing.T) {
+	payload := []byte("pie phar\n")
+	checksum := checksumForBytes(t, checksumAlgorithmSHA256, payload)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/php/pie/releases":
+			_, _ = w.Write([]byte(`[
+				{"tag_name":"1.4.5","assets":[{"name":"pie.phar","browser_download_url":"` + "http://" + r.Host + `/pie.phar","digest":"sha256:` + checksum + `"}]},
+				{"tag_name":"1.4.6-RC1","prerelease":true,"assets":[{"name":"pie.phar","browser_download_url":"` + "http://" + r.Host + `/pie-rc.phar"}]}
+			]`))
+		case "/pie.phar":
+			_, _ = w.Write(payload)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	withTemporaryString(t, &githubAPIBaseURL, server.URL)
+
+	cacheDir := t.TempDir()
+	if err := downloadPIE(server.Client(), cacheDir, "1.4"); err != nil {
+		t.Fatalf("downloadPIE() error = %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(cacheDir, PIE, "1.4", "bin", "pie.phar"))
+	if err != nil {
+		t.Fatalf("ReadFile(downloaded pie.phar) error = %v", err)
+	}
+	if string(data) != string(payload) {
+		t.Fatalf("downloaded pie.phar = %q, want %q", string(data), string(payload))
+	}
+}
+
+func TestResolvePIEDownloadAssetAllowsRequestedPrerelease(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[
+			{"tag_name":"1.4.5","assets":[{"name":"pie.phar","browser_download_url":"https://example.test/pie.phar"}]},
+			{"tag_name":"1.4.6-RC1","prerelease":true,"assets":[{"name":"pie.phar","browser_download_url":"https://example.test/pie-rc.phar"}]}
+		]`))
+	}))
+	defer server.Close()
+
+	withTemporaryString(t, &githubAPIBaseURL, server.URL)
+
+	resolvedVersion, asset, err := resolvePIEDownloadAsset(server.Client(), "1.4.6-RC1")
+	if err != nil {
+		t.Fatalf("resolvePIEDownloadAsset() error = %v", err)
+	}
+	if resolvedVersion != "1.4.6-RC1" || asset.BrowserDownloadURL != "https://example.test/pie-rc.phar" {
+		t.Fatalf("resolvePIEDownloadAsset() = (%q, %#v), want prerelease pie.phar", resolvedVersion, asset)
+	}
+}
+
 func TestResolvePHPMyAdminDownloadAssetSupportsSeriesLabels(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(strings.Join([]string{

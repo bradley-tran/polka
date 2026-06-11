@@ -66,7 +66,7 @@ Framework plugins provide config defaults and optional hooks for PHP extensions,
 
 The `tools` package owns managed tool behavior:
 
-- tool IDs such as `PHP`, `Composer`, `NodeJS`, `Mago`, `Nginx`, `Mailpit`, `PHPMyAdmin`, `MySQL`, `MariaDB`, and `SQLite`
+- tool IDs such as `PHP`, `Composer`, `PIE`, `NodeJS`, `Mago`, `Nginx`, `Mailpit`, `PHPMyAdmin`, `MySQL`, `MariaDB`, and `SQLite`
 - tool plugin interfaces and registry
 - embedded YAML manifests for built-in plugin metadata
 - install candidate paths
@@ -103,9 +103,9 @@ Managed command shims in `.polka/bin` call back into Polka:
      `-- tools.Registry.ResolveDispatchRequest("php")
 ```
 
-Dispatch resolution uses the active environment recorded in `.polka/run/current`, or `default` from `polka.yaml` when no local override is selected. It maps command names to their config tool, reads that environment's definition from `polka.yaml` or `polka.<name>.yaml`, and locates the installed executable under `.polka/envs`. After a successful dispatched `composer install`, `composer update`, or `composer create-project`, Polka runs the active framework's post-Composer hook so the framework can create or update local secret files from Polka-managed database credentials.
+Dispatch resolution uses the active environment recorded in `.polka/run/current`, or `default` from `polka.yaml` when no local override is selected. It maps command names to their config tool, reads that environment's definition from `polka.yaml` or `polka.<name>.yaml`, and locates the installed executable under `.polka/envs`. PHAR tools such as Composer and PIE are launched through the environment's managed PHP executable. After a successful dispatched `composer install`, `composer update`, or `composer create-project`, Polka runs the active framework's post-Composer hook so the framework can create or update local secret files from Polka-managed database credentials.
 
-Node.js is config-only as `nodejs`, but it exposes `node`, `npm`, and `npx` dispatch commands. The `nodejs` command itself is not generated as an active shim. Mago is configured with `mago` and exposes the `mago` dispatch command. phpMyAdmin does not generate a command shim either; Polka installs its web app archive, writes its generated `config.inc.php`, reads managed database credentials from Polka's runtime secrets when a managed database is configured, and uses its UI port plus the environment's root-level HTTPS setting when the CLI starts the managed phpMyAdmin service.
+Node.js is config-only as `nodejs`, but it exposes `node`, `npm`, and `npx` dispatch commands. The `nodejs` command itself is not generated as an active shim. PIE and Mago are configured with `pie` and `mago`, and expose matching dispatch commands. phpMyAdmin does not generate a command shim either; Polka installs its web app archive, writes its generated `config.inc.php`, reads managed database credentials from Polka's runtime secrets when a managed database is configured, and uses its UI port plus the environment's root-level HTTPS setting when the CLI starts the managed phpMyAdmin service.
 
 ## Runtime Services
 

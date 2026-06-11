@@ -55,7 +55,7 @@ polka config --env blog database.engine mysql
 polka config --env blog settings.mailpit.smtp-port 1025
 ```
 
-Use `--env name` to select a named environment. When `--env` is omitted, Polka updates the current environment, falling back to `default` when no local override is selected. Supported keys are schema-aware dot paths such as `tools.php`, `database.port`, `server.hostname`, `env-vars.APP_ENV`, `php-extensions.xdebug`, and `opcache-config.opcache.enable_cli`.
+Use `--env name` to select a named environment. When `--env` is omitted, Polka updates the current environment, falling back to `default` when no local override is selected. Supported keys are schema-aware dot paths such as `tools.php`, `tools.pie`, `database.port`, `server.hostname`, `env-vars.APP_ENV`, `php-extensions.xdebug`, and `opcache-config.opcache.enable_cli`.
 
 ### `polka install [tool:version] [--env name]`
 
@@ -212,6 +212,8 @@ Loads SQL from a `.sql` or `.sql.gz` file into the active database server. Use `
 ## Managed Tool Notes
 
 The `mago` tool key installs the Mago binary and creates a `mago` command shim.
+
+The `pie` tool key installs PIE's stable `pie.phar` release and creates a `pie` command shim. Dispatching `pie` runs the PHAR through the environment's managed PHP executable.
 
 The `sqlite` tool key installs SQLite's command-line tools and creates a `sqlite3` command shim.
 

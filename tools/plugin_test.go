@@ -13,6 +13,7 @@ func TestDefaultRegistryInstallRequestsUseConfiguredToolOrder(t *testing.T) {
 	environment := config.Environment{
 		PHPVersion:      "8.4",
 		ComposerVersion: "2.8",
+		PIEVersion:      "1.4",
 		NodeJSVersion:   "24",
 		MagoVersion:     "1.27",
 		NginxVersion:    "1.30",
@@ -33,6 +34,7 @@ func TestDefaultRegistryInstallRequestsUseConfiguredToolOrder(t *testing.T) {
 	want := []string{
 		"php:8.4",
 		"composer:2.8",
+		"pie:1.4",
 		"nodejs:24",
 		"mago:1.27",
 		"nginx:1.30",

@@ -1,0 +1,7 @@
+id: pie
+install-candidates:
+  all:
+    - bin/pie.phar
+    - pie.phar
+dispatch-commands:
+  - pie

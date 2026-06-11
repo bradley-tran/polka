@@ -15,6 +15,7 @@ const (
 type ToolsConfig struct {
 	PHPVersion        string `yaml:"php,omitempty"`
 	ComposerVersion   string `yaml:"composer,omitempty"`
+	PIEVersion        string `yaml:"pie,omitempty"`
 	NodeJSVersion     string `yaml:"nodejs,omitempty"`
 	MagoVersion       string `yaml:"mago,omitempty"`
 	NginxVersion      string `yaml:"nginx,omitempty"`
@@ -81,6 +82,7 @@ type Environment struct {
 	Framework       string            `yaml:"framework,omitempty"`
 	PHPVersion      string            `yaml:"php,omitempty"`
 	ComposerVersion string            `yaml:"composer,omitempty"`
+	PIEVersion      string            `yaml:"pie,omitempty"`
 	NodeJSVersion   string            `yaml:"nodejs,omitempty"`
 	MagoVersion     string            `yaml:"mago,omitempty"`
 	NginxVersion    string            `yaml:"nginx,omitempty"`
@@ -214,6 +216,7 @@ func ToolsConfigFromEnvironment(environment Environment) *ToolsConfig {
 	tools := &ToolsConfig{
 		PHPVersion:        environment.PHPVersion,
 		ComposerVersion:   environment.ComposerVersion,
+		PIEVersion:        environment.PIEVersion,
 		NodeJSVersion:     environment.NodeJSVersion,
 		MagoVersion:       environment.MagoVersion,
 		NginxVersion:      environment.NginxVersion,
@@ -315,6 +318,7 @@ func ServerConfigFromEnvironment(environment Environment) *ServerConfig {
 func (tools ToolsConfig) IsZero() bool {
 	return strings.TrimSpace(tools.PHPVersion) == "" &&
 		strings.TrimSpace(tools.ComposerVersion) == "" &&
+		strings.TrimSpace(tools.PIEVersion) == "" &&
 		strings.TrimSpace(tools.NodeJSVersion) == "" &&
 		strings.TrimSpace(tools.MagoVersion) == "" &&
 		strings.TrimSpace(tools.NginxVersion) == "" &&
@@ -348,6 +352,7 @@ func environmentFromFileParts(name string, framework string, tools *ToolsConfig,
 	if tools != nil {
 		environment.PHPVersion = tools.PHPVersion
 		environment.ComposerVersion = tools.ComposerVersion
+		environment.PIEVersion = tools.PIEVersion
 		environment.NodeJSVersion = tools.NodeJSVersion
 		environment.MagoVersion = tools.MagoVersion
 		environment.NginxVersion = tools.NginxVersion
@@ -482,6 +487,7 @@ func NormalizeEnvironment(name string, environment Environment) Environment {
 		Framework:       strings.ToLower(strings.TrimSpace(environment.Framework)),
 		PHPVersion:      strings.TrimSpace(environment.PHPVersion),
 		ComposerVersion: strings.TrimSpace(environment.ComposerVersion),
+		PIEVersion:      strings.TrimSpace(environment.PIEVersion),
 		NodeJSVersion:   strings.TrimSpace(environment.NodeJSVersion),
 		MagoVersion:     strings.TrimSpace(environment.MagoVersion),
 		NginxVersion:    strings.TrimSpace(environment.NginxVersion),

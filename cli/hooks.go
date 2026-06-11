@@ -87,6 +87,7 @@ func defaultCLIHookRegistry() cliHookRegistry {
 		configStatusHooks: []statusHook{
 			{id: "php", run: statusPHPConfigHook},
 			{id: "composer", run: statusComposerConfigHook},
+			{id: "pie", run: statusPIEConfigHook},
 			{id: "nodejs", run: statusNodeJSConfigHook},
 			{id: "mago", run: statusMagoConfigHook},
 			{id: "nginx", run: statusNginxConfigHook},
@@ -339,6 +340,11 @@ func statusPHPConfigHook(ctx statusHookContext) error {
 
 func statusComposerConfigHook(ctx statusHookContext) error {
 	_, _ = fmt.Fprintf(ctx.Stdout, "composer %s\n", labelOrUnset(ctx.Environment.ComposerVersion))
+	return nil
+}
+
+func statusPIEConfigHook(ctx statusHookContext) error {
+	_, _ = fmt.Fprintf(ctx.Stdout, "pie %s\n", labelOrUnset(ctx.Environment.PIEVersion))
 	return nil
 }
 

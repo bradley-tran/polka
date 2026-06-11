@@ -4,6 +4,7 @@ func DefaultPlugins() []ToolPlugin {
 	return []ToolPlugin{
 		phpPlugin(),
 		composerPlugin(),
+		piePlugin(),
 		nodeJSPlugin(),
 		magoPlugin(),
 		nginxPlugin(),

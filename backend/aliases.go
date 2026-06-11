@@ -28,6 +28,7 @@ type HTTPToolDownloader = tools.HTTPDownloader
 const (
 	toolPHP        = tools.PHP
 	toolComposer   = tools.Composer
+	toolPIE        = tools.PIE
 	toolNodeJS     = tools.NodeJS
 	toolNode       = tools.Node
 	toolNPM        = tools.NPM

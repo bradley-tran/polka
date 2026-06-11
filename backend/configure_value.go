@@ -137,6 +137,8 @@ func applyToolConfigValue(environment *Environment, path []string, value string)
 		environment.PHPVersion = version
 	case toolComposer:
 		environment.ComposerVersion = version
+	case toolPIE:
+		environment.PIEVersion = version
 	case toolNodeJS:
 		environment.NodeJSVersion = version
 	case toolMago:

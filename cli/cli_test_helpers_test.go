@@ -22,6 +22,7 @@ type testEnvironmentConfig struct {
 	Framework     string                `yaml:"framework,omitempty"`
 	PHP           string                `yaml:"php"`
 	Composer      string                `yaml:"composer"`
+	PIE           string                `yaml:"pie,omitempty"`
 	NodeJS        string                `yaml:"nodejs,omitempty"`
 	Mago          string                `yaml:"mago,omitempty"`
 	Nginx         string                `yaml:"nginx,omitempty"`
@@ -140,6 +141,7 @@ type testEnvironmentConfigData struct {
 type testToolsConfig struct {
 	PHP        string `yaml:"php,omitempty"`
 	Composer   string `yaml:"composer,omitempty"`
+	PIE        string `yaml:"pie,omitempty"`
 	NodeJS     string `yaml:"nodejs,omitempty"`
 	Mago       string `yaml:"mago,omitempty"`
 	Nginx      string `yaml:"nginx,omitempty"`
@@ -337,6 +339,7 @@ func testEnvironmentFromParts(framework string, tools *testToolsConfig, settings
 	if tools != nil {
 		environment.PHP = tools.PHP
 		environment.Composer = tools.Composer
+		environment.PIE = tools.PIE
 		environment.NodeJS = tools.NodeJS
 		environment.Mago = tools.Mago
 		environment.Nginx = tools.Nginx
@@ -386,6 +389,7 @@ func testToolsFromEnvironment(environment testEnvironmentConfig) *testToolsConfi
 	tools := &testToolsConfig{
 		PHP:        environment.PHP,
 		Composer:   environment.Composer,
+		PIE:        environment.PIE,
 		NodeJS:     environment.NodeJS,
 		Mago:       environment.Mago,
 		Nginx:      environment.Nginx,
@@ -397,6 +401,7 @@ func testToolsFromEnvironment(environment testEnvironmentConfig) *testToolsConfi
 	}
 	if strings.TrimSpace(tools.PHP) == "" &&
 		strings.TrimSpace(tools.Composer) == "" &&
+		strings.TrimSpace(tools.PIE) == "" &&
 		strings.TrimSpace(tools.NodeJS) == "" &&
 		strings.TrimSpace(tools.Mago) == "" &&
 		strings.TrimSpace(tools.Nginx) == "" &&
@@ -638,6 +643,10 @@ func cachedComposerExecutablePath(root, version string) string {
 	}
 
 	return filepath.Join(root, "composer", version, "bin", "composer")
+}
+
+func cachedPIEPath(root, version string) string {
+	return filepath.Join(root, "pie", version, "bin", "pie.phar")
 }
 
 func cachedNodeJSPath(root, version string) string {

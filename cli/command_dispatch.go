@@ -61,10 +61,10 @@ func runDispatch(stdout, stderr io.Writer, args []string, store backend.Store) i
 
 	composerArgs := append([]string(nil), args[1:]...)
 	dispatchArgs := args[1:]
-	if strings.EqualFold(tool, "composer") && strings.HasSuffix(strings.ToLower(target), ".phar") {
+	if dispatchPHARRequiresManagedPHP(tool, target) {
 		phpTarget, resolveErr := store.ResolveTool("php")
 		if resolveErr != nil {
-			fmt.Fprintf(stderr, "error: resolve php for composer: %v\n", resolveErr)
+			fmt.Fprintf(stderr, "error: resolve php for %s: %v\n", strings.ToLower(tool), resolveErr)
 			return 1
 		}
 
@@ -86,6 +86,19 @@ func runDispatch(stdout, stderr io.Writer, args []string, store backend.Store) i
 	}
 
 	return exitCode
+}
+
+func dispatchPHARRequiresManagedPHP(tool, target string) bool {
+	if !strings.HasSuffix(strings.ToLower(strings.TrimSpace(target)), ".phar") {
+		return false
+	}
+
+	switch strings.ToLower(strings.TrimSpace(tool)) {
+	case "composer", "pie":
+		return true
+	default:
+		return false
+	}
 }
 
 func executeTarget(stdout, stderr io.Writer, target string, args []string) (int, error) {

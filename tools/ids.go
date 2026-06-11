@@ -9,6 +9,7 @@ import (
 const (
 	PHP        = "php"
 	Composer   = "composer"
+	PIE        = "pie"
 	NodeJS     = "nodejs"
 	Node       = "node"
 	NPM        = "npm"
