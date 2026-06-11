@@ -29,9 +29,7 @@ func TestRunDBDispatchesConfiguredDatabaseTool(t *testing.T) {
 		t.Fatalf("WriteFile(cache mysql) error = %v", err)
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--db-engine", "mysql", "--db-version", "8.4"}); code != 0 {
-		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
-	}
+	runTestMySQLConfig(t, stdout, stderr, root, "demo", "8.4", 0)
 
 	stdout.Reset()
 	stderr.Reset()
@@ -73,9 +71,7 @@ func TestRunDBPreservesExplicitConnectionArguments(t *testing.T) {
 		t.Fatalf("WriteFile(cache mysql) error = %v", err)
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--db-engine", "mysql", "--db-version", "8.4", "--db-port", "3307"}); code != 0 {
-		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
-	}
+	runTestMySQLConfig(t, stdout, stderr, root, "demo", "8.4", 3307)
 
 	stdout.Reset()
 	stderr.Reset()
@@ -120,9 +116,7 @@ func TestRunDBTranslatesDatabaseNameOverride(t *testing.T) {
 		t.Fatalf("WriteFile(cache mysql) error = %v", err)
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--db-engine", "mysql", "--db-version", "8.4"}); code != 0 {
-		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
-	}
+	runTestMySQLConfig(t, stdout, stderr, root, "demo", "8.4", 0)
 
 	stdout.Reset()
 	stderr.Reset()
@@ -167,9 +161,7 @@ func TestRunDBClientSubcommandDispatchesReservedWord(t *testing.T) {
 		t.Fatalf("WriteFile(cache mysql) error = %v", err)
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--db-engine", "mysql", "--db-version", "8.4"}); code != 0 {
-		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
-	}
+	runTestMySQLConfig(t, stdout, stderr, root, "demo", "8.4", 0)
 
 	stdout.Reset()
 	stderr.Reset()
@@ -227,9 +219,7 @@ func TestRunDBImportAcceptsSQLAndGzip(t *testing.T) {
 				t.Fatalf("WriteFile(cache mysql) error = %v", err)
 			}
 
-			if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--db-engine", "mysql", "--db-version", "8.4"}); code != 0 {
-				t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
-			}
+			runTestMySQLConfig(t, stdout, stderr, root, "demo", "8.4", 0)
 
 			environment := readTestEnvironmentConfig(t, projectDir, "demo")
 			environment.EnvVars = map[string]string{"POLKA_TEST_DB_CAPTURE_PATH": capturePath}
@@ -337,9 +327,7 @@ func TestRunDBExportWritesSQLAndGzip(t *testing.T) {
 				t.Fatalf("WriteFile(cache mysqldump) error = %v", err)
 			}
 
-			if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--db-engine", "mysql", "--db-version", "8.4"}); code != 0 {
-				t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
-			}
+			runTestMySQLConfig(t, stdout, stderr, root, "demo", "8.4", 0)
 
 			environment := readTestEnvironmentConfig(t, projectDir, "demo")
 			environment.EnvVars = map[string]string{"POLKA_TEST_DB_DUMP_CAPTURE_PATH": dumpCapturePath, "POLKA_TEST_DB_DUMP_OUTPUT": "CREATE DATABASE demo;\n"}
@@ -447,9 +435,7 @@ func TestRunDBLifecycleSubcommandsManageState(t *testing.T) {
 		t.Fatalf("WriteFile(cache mysqladmin) error = %v", err)
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--db-engine", "mysql", "--db-version", "8.4", "--db-port", "3307"}); code != 0 {
-		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
-	}
+	runTestMySQLConfig(t, stdout, stderr, root, "demo", "8.4", 3307)
 
 	stdout.Reset()
 	stderr.Reset()

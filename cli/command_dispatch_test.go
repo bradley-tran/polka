@@ -31,9 +31,8 @@ func TestRunConfigSetsVersionLabelsAndDispatchesPhp(t *testing.T) {
 		t.Fatalf("WriteFile(cache composer) error = %v", err)
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--php", "8.4", "--composer", "2.8"}); code != 0 {
-		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
-	}
+	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.php", "8.4")
+	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.composer", "2.8")
 
 	environment := readTestEnvironmentConfig(t, projectDir, "demo")
 	if environment.PHP != "8.4" || environment.Composer != "2.8" {
@@ -224,9 +223,7 @@ func TestRunDispatchUsesNodeAliasesAndRejectsNodeJSKey(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--nodejs", "24"}); code != 0 {
-		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
-	}
+	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.nodejs", "24")
 	stdout.Reset()
 	stderr.Reset()
 

@@ -239,9 +239,7 @@ func TestRunInstallUsesCurrentEnvironmentWhenNameOmitted(t *testing.T) {
 		t.Fatalf("WriteFile(cache php) error = %v", err)
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--php", "8.4"}); code != 0 {
-		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
-	}
+	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.php", "8.4")
 
 	stdout.Reset()
 	stderr.Reset()
@@ -363,9 +361,7 @@ func TestRunConfigUsesCurrentEnvironmentWhenNameOmitted(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--php", "8.4"}); code != 0 {
-		t.Fatalf("Run(config demo) code = %d, stderr = %q", code, stderr.String())
-	}
+	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.php", "8.4")
 
 	stdout.Reset()
 	stderr.Reset()
@@ -375,7 +371,7 @@ func TestRunConfigUsesCurrentEnvironmentWhenNameOmitted(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "config", "--composer", "2.8"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--root", root, "config", "tools.composer", "2.8"}); code != 0 {
 		t.Fatalf("Run(config current) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -409,7 +405,7 @@ func TestRunConfigUsesDefaultEnvironmentWhenCurrentMissing(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "config", "--php", "8.4"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--root", root, "config", "tools.php", "8.4"}); code != 0 {
 		t.Fatalf("Run(config default) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -437,6 +433,142 @@ func TestRunConfigUsesDefaultEnvironmentWhenCurrentMissing(t *testing.T) {
 	}
 }
 
+func TestRunConfigEnvDefaultIgnoresCurrentEnvironment(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.php", "8.4")
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run(stdout, stderr, []string{"--root", root, "use", "demo"}); code != 0 {
+		t.Fatalf("Run(use demo) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run(stdout, stderr, []string{"--root", root, "config", "--env", defaultEnvironmentName, "tools.composer", "2.8"}); code != 0 {
+		t.Fatalf("Run(config --env default) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	defaultEnvironment := readTestEnvironmentConfig(t, projectDir, defaultEnvironmentName)
+	if defaultEnvironment.Composer != "2.8" {
+		t.Fatalf("default environment = %#v, want composer configured", defaultEnvironment)
+	}
+	demoEnvironment := readTestEnvironmentConfig(t, projectDir, "demo")
+	if demoEnvironment.Composer != "" {
+		t.Fatalf("demo environment = %#v, want composer untouched", demoEnvironment)
+	}
+	if active := readTestActiveEnvironment(t, root); active != "demo" {
+		t.Fatalf("active environment = %q, want demo", active)
+	}
+}
+
+func TestRunConfigPersistsSchemaDotKeys(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.php", "8.4")
+	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.mailpit", "1.30")
+	runTestConfigValue(t, stdout, stderr, root, "demo", "settings.mailpit.smtp-port", "1125")
+	runTestConfigValue(t, stdout, stderr, root, "demo", "settings.mailpit.ui-port", "8125")
+	runTestConfigValue(t, stdout, stderr, root, "demo", "env-vars.APP_ENV", "local")
+	runTestConfigValue(t, stdout, stderr, root, "demo", "php-extensions.xdebug", "false")
+	runTestConfigValue(t, stdout, stderr, root, "demo", "opcache-config.opcache.enable_cli", "1")
+
+	environment := readTestEnvironmentConfig(t, projectDir, "demo")
+	if environment.Mailpit == nil || environment.Mailpit.Version != "1.30" || environment.Mailpit.SMTPPort != 1125 || environment.Mailpit.UIPort != 8125 {
+		t.Fatalf("mailpit = %#v, want version and configured ports", environment.Mailpit)
+	}
+	if environment.EnvVars["APP_ENV"] != "local" {
+		t.Fatalf("env-vars = %#v, want APP_ENV", environment.EnvVars)
+	}
+	if environment.PHPExtensions["xdebug"] {
+		t.Fatalf("php-extensions = %#v, want xdebug disabled", environment.PHPExtensions)
+	}
+	if environment.OPcacheConfig["opcache.enable_cli"] != "1" {
+		t.Fatalf("opcache-config = %#v, want dotted directive", environment.OPcacheConfig)
+	}
+}
+
+func TestRunConfigRejectsRemovedFlags(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "config", "--php", "8.4"}); code == 0 {
+		t.Fatal("Run(config --php) code = 0, want removed flag error")
+	}
+	if !strings.Contains(stderr.String(), "unknown flag: --php") {
+		t.Fatalf("Run(config --php) stderr = %q, want unknown flag error", stderr.String())
+	}
+}
+
+func TestRunConfigRejectsInvalidKeysAndValuesWithoutWriting(t *testing.T) {
+	testCases := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{name: "metadata root", args: []string{"--env", "demo", "root", ".polka"}, wantErr: "unsupported config key"},
+		{name: "whole object", args: []string{"--env", "demo", "tools", "php"}, wantErr: "unsupported config key"},
+		{name: "invalid port", args: []string{"--env", "demo", "database.port", "nope"}, wantErr: "database.port requires an integer value"},
+		{name: "orphan setting", args: []string{"--env", "demo", "settings.mailpit.smtp-port", "1025"}, wantErr: "mailpit configuration requires version"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			projectDir := t.TempDir()
+			root := filepath.Join(projectDir, ".polka")
+			stdout := &bytes.Buffer{}
+			stderr := &bytes.Buffer{}
+
+			args := []string{"--root", root, "config"}
+			args = append(args, testCase.args...)
+			if code := Run(stdout, stderr, args); code == 0 {
+				t.Fatalf("Run(config %v) code = 0, want failure", testCase.args)
+			}
+			if !strings.Contains(stderr.String(), testCase.wantErr) {
+				t.Fatalf("Run(config %v) stderr = %q, want %q", testCase.args, stderr.String(), testCase.wantErr)
+			}
+			if _, err := os.Stat(testEnvironmentConfigPath(projectDir, "demo")); !os.IsNotExist(err) {
+				t.Fatalf("Stat(demo config) error = %v, want no named config written", err)
+			}
+		})
+	}
+}
+
+func TestRunConfigDoesNotWriteInvalidUpdate(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.php", "8.4")
+	configPath := testEnvironmentConfigPath(projectDir, "demo")
+	before, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile(config before invalid update) error = %v", err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run(stdout, stderr, []string{"--root", root, "config", "--env", "demo", "tools.php", "bad version!"}); code == 0 {
+		t.Fatal("Run(config invalid version) code = 0, want failure")
+	}
+	after, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile(config after invalid update) error = %v", err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("config after invalid update = %q, want unchanged %q", string(after), string(before))
+	}
+}
+
 func TestRunInstallUsesDefaultEnvironmentWhenCurrentMissing(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
@@ -453,9 +585,7 @@ func TestRunInstallUsesDefaultEnvironmentWhenCurrentMissing(t *testing.T) {
 		t.Fatalf("WriteFile(cache php) error = %v", err)
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "config", defaultEnvironmentName, "--php", "8.4"}); code != 0 {
-		t.Fatalf("Run(config default) code = %d, stderr = %q", code, stderr.String())
-	}
+	runTestConfigValue(t, stdout, stderr, root, defaultEnvironmentName, "tools.php", "8.4")
 
 	stdout.Reset()
 	stderr.Reset()
@@ -534,9 +664,7 @@ func TestRunInstallUsesEnvFlagForNamedEnvironment(t *testing.T) {
 		t.Fatalf("WriteFile(cache php) error = %v", err)
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--php", "8.4"}); code != 0 {
-		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
-	}
+	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.php", "8.4")
 
 	stdout.Reset()
 	stderr.Reset()
@@ -610,9 +738,7 @@ func TestRunConfigPersistsDatabaseSettings(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--db-engine", "mysql", "--db-version", "8.0", "--db-port", "3306"}); code != 0 {
-		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
-	}
+	runTestMySQLConfig(t, stdout, stderr, root, "demo", "8.0", 3306)
 
 	environment := readTestEnvironmentConfig(t, projectDir, "demo")
 	stored := environment.Database
@@ -636,8 +762,8 @@ func TestRunConfigPersistsDatabaseSettings(t *testing.T) {
 	if strings.Contains(configText, "  version:") {
 		t.Fatalf("config = %q, want no root-level database version entry", configText)
 	}
-	if !strings.Contains(stdout.String(), "db=mysql:8.0@3306") {
-		t.Fatalf("Run(config) stdout = %q, want database summary", stdout.String())
+	if !strings.Contains(stdout.String(), "database.port=3306") {
+		t.Fatalf("Run(config) stdout = %q, want database port summary", stdout.String())
 	}
 }
 
@@ -647,15 +773,13 @@ func TestRunConfigPersistsNodeJSSetting(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--nodejs", "24"}); code != 0 {
-		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
-	}
+	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.nodejs", "24")
 
 	environment := readTestEnvironmentConfig(t, projectDir, "demo")
 	if environment.NodeJS != "24" {
 		t.Fatalf("environment = %#v, want nodejs configured for demo", environment)
 	}
-	if !strings.Contains(stdout.String(), "nodejs=24") {
+	if !strings.Contains(stdout.String(), "tools.nodejs=24") {
 		t.Fatalf("Run(config) stdout = %q, want nodejs summary", stdout.String())
 	}
 }
@@ -745,9 +869,7 @@ func TestRunStatusUsesDefaultServerAddress(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--php", "8.4"}); code != 0 {
-		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
-	}
+	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.php", "8.4")
 	stdout.Reset()
 	stderr.Reset()
 	if code := Run(stdout, stderr, []string{"--root", root, "use", "demo"}); code != 0 {
@@ -923,9 +1045,7 @@ func TestRunInstallAppliesPHPExtensionsFromConfigFile(t *testing.T) {
 		t.Fatalf("MkdirAll(cache ext) error = %v", err)
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--php", "8.4"}); code != 0 {
-		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
-	}
+	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.php", "8.4")
 
 	environment := readTestEnvironmentConfig(t, projectDir, "demo")
 	environment.PHPExtensions = map[string]bool{"openssl": true, "xdebug": false}
@@ -980,9 +1100,8 @@ func TestRunInstallEnablesComposerPHPExtensionsByDefault(t *testing.T) {
 		t.Fatalf("MkdirAll(cache ext) error = %v", err)
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--php", "8.4", "--composer", "2.8"}); code != 0 {
-		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
-	}
+	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.php", "8.4")
+	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.composer", "2.8")
 
 	stdout.Reset()
 	stderr.Reset()

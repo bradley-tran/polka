@@ -33,9 +33,7 @@ func TestRunServeUsesCurrentServerConfig(t *testing.T) {
 		t.Fatalf("MkdirAll(docroot) error = %v", err)
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--php", "8.4"}); code != 0 {
-		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
-	}
+	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.php", "8.4")
 	if err := os.WriteFile(filepath.Join(projectDir, ".env"), []byte("APP_ENV=project\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(project .env) error = %v", err)
 	}
@@ -246,9 +244,7 @@ func TestRunServeAllowsServerOverride(t *testing.T) {
 		t.Fatalf("MkdirAll(docroot) error = %v", err)
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--php", "8.4"}); code != 0 {
-		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
-	}
+	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.php", "8.4")
 	environment := readTestEnvironmentConfig(t, projectDir, "demo")
 	environment.Server = &testServerConfig{Hostname: "localhost", Port: 8080}
 	writeTestEnvironmentConfig(t, projectDir, "demo", environment)
@@ -663,9 +659,8 @@ func TestRunServeStartsConfiguredDatabaseBeforePhp(t *testing.T) {
 		t.Fatalf("MkdirAll(docroot) error = %v", err)
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "config", "demo", "--php", "8.4", "--db-engine", "mysql", "--db-version", "8.4", "--db-port", "3307"}); code != 0 {
-		t.Fatalf("Run(config) code = %d, stderr = %q", code, stderr.String())
-	}
+	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.php", "8.4")
+	runTestMySQLConfig(t, stdout, stderr, root, "demo", "8.4", 3307)
 
 	stdout.Reset()
 	stderr.Reset()

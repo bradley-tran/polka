@@ -96,58 +96,21 @@ func newConfigCommand(ctx *commandContext) *cobra.Command {
 	var input configCommandInput
 
 	cmd := &cobra.Command{
-		Use:  "config [name]",
-		Args: maximumArgsError("config accepts at most one environment name", 1),
+		Use:  "config [--env NAME] <key> <value>",
+		Args: exactArgsError("config requires exactly a key and value", 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store, err := ctx.store()
 			if err != nil {
 				return &statusError{code: 1, err: err}
 			}
 
-			input.Name = ""
-			if len(args) > 0 {
-				input.Name = strings.TrimSpace(args[0])
-			}
-			input.HasPHP = cmd.Flags().Changed("php")
-			input.HasComposer = cmd.Flags().Changed("composer")
-			input.HasNodeJS = cmd.Flags().Changed("nodejs")
-			input.HasDatabase = cmd.Flags().Changed("db-engine") || cmd.Flags().Changed("db-version") || cmd.Flags().Changed("db-port")
-			input.PHPVersion = strings.TrimSpace(input.PHPVersion)
-			input.ComposerVersion = strings.TrimSpace(input.ComposerVersion)
-			input.NodeJSVersion = strings.TrimSpace(input.NodeJSVersion)
-			if !input.HasPHP && !input.HasComposer && !input.HasNodeJS && !input.HasDatabase {
-				return &statusError{code: 1, err: fmt.Errorf("config requires at least one of --php, --composer, --nodejs, or --db-engine/--db-version")}
-			}
-			if input.HasPHP && input.PHPVersion == "" {
-				return &statusError{code: 1, err: fmt.Errorf("--php requires a non-empty value")}
-			}
-			if input.HasComposer && input.ComposerVersion == "" {
-				return &statusError{code: 1, err: fmt.Errorf("--composer requires a non-empty value")}
-			}
-			if input.HasNodeJS && input.NodeJSVersion == "" {
-				return &statusError{code: 1, err: fmt.Errorf("--nodejs requires a non-empty value")}
-			}
-			input.Database, err = buildDatabaseInput(
-				cmd.Flags().Changed("db-engine"),
-				cmd.Flags().Changed("db-version"),
-				cmd.Flags().Changed("db-port"),
-				input.DatabaseEngine,
-				input.DatabaseVersion,
-				input.DatabasePort,
-			)
-			if err != nil {
-				return &statusError{code: 1, err: err}
-			}
+			input.Key = args[0]
+			input.Value = args[1]
 
 			return runConfig(cmd.OutOrStdout(), store, input)
 		},
 	}
-	cmd.Flags().StringVar(&input.PHPVersion, "php", "", "PHP version")
-	cmd.Flags().StringVar(&input.ComposerVersion, "composer", "", "Composer version")
-	cmd.Flags().StringVar(&input.NodeJSVersion, "nodejs", "", "Node.js version")
-	cmd.Flags().StringVar(&input.DatabaseEngine, "db-engine", "", "database engine (mysql or mariadb)")
-	cmd.Flags().StringVar(&input.DatabaseVersion, "db-version", "", "database version")
-	cmd.Flags().IntVar(&input.DatabasePort, "db-port", 0, "database port")
+	cmd.Flags().StringVar(&input.Name, "env", "", "environment name")
 	configureCommand(cmd, configUsage)
 
 	return cmd
@@ -359,7 +322,7 @@ func runConfig(stdout io.Writer, store backend.Store, input configCommandInput) 
 	}
 	input.Name = resolvedName
 
-	environment, err := store.ConfigureWithNodeJS(input.Name, input.PHPVersion, input.ComposerVersion, input.NodeJSVersion, input.Database)
+	environment, err := store.ConfigureValue(input.Name, input.Key, input.Value)
 	if err != nil {
 		return err
 	}
@@ -369,7 +332,7 @@ func runConfig(stdout io.Writer, store backend.Store, input configCommandInput) 
 		}
 	}
 
-	_, _ = fmt.Fprintf(stdout, "Configured %s\tphp=%s\tcomposer=%s\tnodejs=%s\tdb=%s\n", environment.Name, labelOrUnset(environment.PHPVersion), labelOrUnset(environment.ComposerVersion), labelOrUnset(environment.NodeJSVersion), labelDatabase(environment.Database))
+	_, _ = fmt.Fprintf(stdout, "Configured %s\t%s=%s\n", environment.Name, strings.TrimSpace(input.Key), input.Value)
 	return nil
 }
 
@@ -403,7 +366,7 @@ func runList(stdout io.Writer, store backend.Store) error {
 	}
 
 	if len(environments) == 0 {
-		_, _ = fmt.Fprintln(stdout, "No environments found. Run `polka config <name> --php <version>` to add one.")
+		_, _ = fmt.Fprintln(stdout, "No environments found. Run `polka config tools.php <version>` to add one.")
 		return nil
 	}
 
@@ -467,18 +430,9 @@ func runRemove(stdout io.Writer, store backend.Store, name string) error {
 }
 
 type configCommandInput struct {
-	Name            string
-	PHPVersion      string
-	ComposerVersion string
-	NodeJSVersion   string
-	Database        *backend.DatabaseConfig
-	DatabaseEngine  string
-	DatabaseVersion string
-	DatabasePort    int
-	HasPHP          bool
-	HasComposer     bool
-	HasNodeJS       bool
-	HasDatabase     bool
+	Name  string
+	Key   string
+	Value string
 }
 
 type newCommandInput struct {

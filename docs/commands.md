@@ -40,16 +40,18 @@ polka new app --db-engine mariadb --db-version 11.8 --db-port 3306
 
 When tool flags are omitted, Polka currently defaults to `php=8.4`, `composer=2.8`, and `nodejs=24`. Database settings require `--db-engine` and `--db-version` together. `--db-port` is optional.
 
-### `polka config [name]`
+### `polka config [--env name] <key> <value>`
 
-Creates or updates an environment definition. The default environment is stored in `polka.yaml`; named environments are stored in `polka.<name>.yaml`.
+Creates or updates one environment config value. The default environment is stored in `polka.yaml`; named environments are stored in `polka.<name>.yaml`.
 
 ```bash
-polka config --php 8.4 --composer 2.8 --nodejs 24
-polka config blog --db-engine mysql --db-version 8.0 --db-port 3306
+polka config tools.php 8.4
+polka config --env blog tools.mysql 8.0
+polka config --env blog database.engine mysql
+polka config --env blog settings.mailpit.smtp-port 1025
 ```
 
-When `name` is omitted, Polka updates the current environment, falling back to `default` when no local override is selected.
+Use `--env name` to select a named environment. When `--env` is omitted, Polka updates the current environment, falling back to `default` when no local override is selected. Supported keys are schema-aware dot paths such as `tools.php`, `database.port`, `server.hostname`, `env-vars.APP_ENV`, `php-extensions.xdebug`, and `opcache-config.opcache.enable_cli`.
 
 ### `polka install [tool:version] [--env name]`
 
@@ -227,7 +229,7 @@ Polka composes runtime environment variables for the active environment from fiv
 
 The `.env` file is loaded automatically from the directory containing `polka.yaml` when present. `env-file` paths are resolved relative to that same directory unless absolute, and `env-vars` always win when keys overlap. This runtime environment applies to `polka sh`, `polka exec`, `polka serve`, generated `.polka/bin` dispatch shims, and database client/import/export commands.
 
-After a successful dispatched `composer install` or `composer create-project`, the active framework plugin may create or update framework-local secret files from Polka-managed database credentials. The built-in Laravel hook updates the app `.env` DB settings, and the built-in Symfony hook writes `DATABASE_URL` to `.env.local`.
+After a successful dispatched `composer install`, `composer update`, or `composer create-project`, the active framework plugin may create or update framework-local secret files from Polka-managed database credentials. The built-in Drupal hook writes `settings.polka.php` and includes it from `settings.php`, WordPress updates `wp-config.php` DB constants, Laravel updates the app `.env` DB settings, and Symfony writes `DATABASE_URL` to `.env.local`.
 
 ## Platform Notes
 

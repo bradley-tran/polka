@@ -8,7 +8,7 @@ Usage:
 Commands:
   init [framework]     create the local .polka directory and optional framework config
   new <name>           create an environment with default or explicit versions
-  config [name]        set php, composer, nodejs, and database settings for an environment
+  config <key> <value> set one config value for an environment
   install [tool:version]
                        install one tool version or all tools for an environment
   cert-install         install Polka's local HTTPS certificate into the user trust store
@@ -29,8 +29,9 @@ Examples:
   polka init
   polka init laravel
   polka new api
-  polka config api --php 8.4 --composer 2.8 --nodejs 24
-  polka config api --db-engine mysql --db-version 8.0 --db-port 3306
+  polka config tools.php 8.4
+  polka config --env api tools.mysql 8.0
+  polka config --env api database.engine mysql
   polka install php:8.4
   polka install --env api
   polka cert-install
@@ -68,10 +69,11 @@ When omitted, --php defaults to 8.4, --composer defaults to 2.8, and --nodejs de
 `
 
 const configUsage = `Usage:
-  polka config [name] [--php VERSION] [--composer VERSION] [--nodejs VERSION] [--db-engine mysql|mariadb --db-version VERSION [--db-port PORT]]
+  polka config [--env NAME] <key> <value>
 
-Create or update an environment definition. The default environment is stored in polka.yaml; named environments are stored in polka.<name>.yaml.
-When name is omitted, Polka updates the current environment, falling back to default when no local override is selected.
+Create or update one environment config value. The default environment is stored in polka.yaml; named environments are stored in polka.<name>.yaml.
+Use --env NAME to select a named environment. When --env is omitted, Polka updates the current environment, falling back to default when no local override is selected.
+Keys are dot-separated YAML paths such as tools.php, database.engine, settings.mailpit.smtp-port, env-vars.APP_ENV, php-extensions.xdebug, and opcache-config.opcache.enable_cli.
 `
 
 const installUsage = `Usage:

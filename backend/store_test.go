@@ -746,6 +746,99 @@ func TestStoreConfigurePreservesExistingConfigComments(t *testing.T) {
 	}
 }
 
+func TestStoreConfigureValuePreservesExistingConfigComments(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	if err := os.WriteFile(store.ConfigFile, []byte("version: 1\nroot: .polka\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(project config) error = %v", err)
+	}
+	configData := []byte(strings.Join([]string{
+		"# environment comment",
+		"tools:",
+		"  # mailpit version comment",
+		"  mailpit: \"1.30\" # inline mailpit comment",
+		"",
+	}, "\n"))
+	if err := os.WriteFile(store.environmentConfigFile("demo"), configData, 0o644); err != nil {
+		t.Fatalf("WriteFile(demo config) error = %v", err)
+	}
+
+	environment, err := store.ConfigureValue("demo", "settings.mailpit.smtp-port", "1125")
+	if err != nil {
+		t.Fatalf("ConfigureValue(demo) error = %v", err)
+	}
+	if environment.Mailpit == nil || environment.Mailpit.Version != "1.30" || environment.Mailpit.SMTPPort != 1125 {
+		t.Fatalf("environment.Mailpit = %#v, want version and smtp port", environment.Mailpit)
+	}
+
+	updatedConfig, err := os.ReadFile(store.environmentConfigFile("demo"))
+	if err != nil {
+		t.Fatalf("ReadFile(config) error = %v", err)
+	}
+	for _, comment := range []string{"# environment comment", "# mailpit version comment", "# inline mailpit comment"} {
+		if !strings.Contains(string(updatedConfig), comment) {
+			t.Fatalf("config after ConfigureValue() = %q, want preserved comment %q", string(updatedConfig), comment)
+		}
+	}
+	if !strings.Contains(string(updatedConfig), "settings:\n  mailpit:\n    smtp-port: 1125") {
+		t.Fatalf("config after ConfigureValue() = %q, want mailpit settings", string(updatedConfig))
+	}
+}
+
+func TestStoreConfigureValueInfersDatabaseVersionFromTool(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+
+	if _, err := store.ConfigureValue("data", "tools.mysql", "8.0"); err != nil {
+		t.Fatalf("ConfigureValue(tools.mysql) error = %v", err)
+	}
+	if _, err := store.ConfigureValue("data", "database.engine", "mysql"); err != nil {
+		t.Fatalf("ConfigureValue(database.engine) error = %v", err)
+	}
+	environment, err := store.ConfigureValue("data", "database.port", "3306")
+	if err != nil {
+		t.Fatalf("ConfigureValue(database.port) error = %v", err)
+	}
+	if environment.Database == nil || environment.Database.Engine != "mysql" || environment.Database.Version != "8.0" || environment.Database.Port != 3306 {
+		t.Fatalf("environment.Database = %#v, want mysql 8.0 on 3306", environment.Database)
+	}
+
+	configData, err := os.ReadFile(store.environmentConfigFile("data"))
+	if err != nil {
+		t.Fatalf("ReadFile(data config) error = %v", err)
+	}
+	configText := string(configData)
+	if !strings.Contains(configText, "tools:\n  mysql: \"8.0\"") || !strings.Contains(configText, "database:\n  engine: mysql\n  port: 3306") {
+		t.Fatalf("config = %q, want tools mysql and root database settings", configText)
+	}
+	if strings.Contains(configText, "  version:") {
+		t.Fatalf("config = %q, want no root-level database version", configText)
+	}
+}
+
+func TestStoreConfigureValueValidatesBeforeWrite(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	if err := os.WriteFile(store.ConfigFile, []byte("version: 1\nroot: .polka\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(project config) error = %v", err)
+	}
+	configData := []byte("tools:\n  php: \"8.4\"\n")
+	if err := os.WriteFile(store.environmentConfigFile("demo"), configData, 0o644); err != nil {
+		t.Fatalf("WriteFile(demo config) error = %v", err)
+	}
+
+	if _, err := store.ConfigureValue("demo", "tools.php", "bad version!"); err == nil {
+		t.Fatal("ConfigureValue(invalid version) error = nil, want validation error")
+	}
+	updatedConfig, err := os.ReadFile(store.environmentConfigFile("demo"))
+	if err != nil {
+		t.Fatalf("ReadFile(config) error = %v", err)
+	}
+	if string(updatedConfig) != string(configData) {
+		t.Fatalf("config after failed ConfigureValue() = %q, want original %q", string(updatedConfig), string(configData))
+	}
+}
+
 func TestStoreInstallDownloadsWhenCacheMissing(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)

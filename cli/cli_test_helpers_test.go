@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -52,6 +54,29 @@ func chdirTest(t *testing.T, dir string) {
 
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("Chdir(%s) error = %v", dir, err)
+	}
+}
+
+func runTestConfigValue(t *testing.T, stdout, stderr *bytes.Buffer, root, environmentName, key, value string) {
+	t.Helper()
+
+	args := []string{"--root", root, "config"}
+	if strings.TrimSpace(environmentName) != "" {
+		args = append(args, "--env", environmentName)
+	}
+	args = append(args, key, value)
+	if code := Run(stdout, stderr, args); code != 0 {
+		t.Fatalf("Run(config %s %s) code = %d, stderr = %q", key, value, code, stderr.String())
+	}
+}
+
+func runTestMySQLConfig(t *testing.T, stdout, stderr *bytes.Buffer, root, environmentName, version string, port int) {
+	t.Helper()
+
+	runTestConfigValue(t, stdout, stderr, root, environmentName, "tools.mysql", version)
+	runTestConfigValue(t, stdout, stderr, root, environmentName, "database.engine", "mysql")
+	if port != 0 {
+		runTestConfigValue(t, stdout, stderr, root, environmentName, "database.port", strconv.Itoa(port))
 	}
 }
 
