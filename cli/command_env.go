@@ -18,23 +18,31 @@ const (
 )
 
 func newInitCommand(ctx *commandContext) *cobra.Command {
+	var input initCommandInput
+
 	cmd := &cobra.Command{
 		Use:  "init [framework]",
 		Args: maximumArgsError("init accepts at most one framework argument", 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			input.Framework = ""
+			if len(args) > 0 {
+				input.Framework = strings.TrimSpace(args[0])
+			}
+			input.DocrootChanged = cmd.Flags().Changed("docroot")
+			normalizedInput, err := normalizeInitCommandInput(input)
+			if err != nil {
+				return &statusError{code: 1, err: err}
+			}
+
 			store, err := ctx.initStore()
 			if err != nil {
 				return &statusError{code: 1, err: err}
 			}
 
-			framework := ""
-			if len(args) > 0 {
-				framework = strings.TrimSpace(args[0])
-			}
-
-			return runInit(cmd.OutOrStdout(), store, framework)
+			return runInit(cmd.OutOrStdout(), store, normalizedInput)
 		},
 	}
+	cmd.Flags().StringVar(&input.Docroot, "docroot", "", "set docroot")
 	configureCommand(cmd, initUsage)
 
 	return cmd
@@ -221,21 +229,35 @@ func newRemoveCommand(ctx *commandContext) *cobra.Command {
 	return cmd
 }
 
-func runInit(stdout io.Writer, store backend.Store, framework string) error {
-	if strings.TrimSpace(framework) != "" {
-		if err := store.InitWithFramework(framework); err != nil {
+func runInit(stdout io.Writer, store backend.Store, input initCommandInput) error {
+	options := backend.InitOptions{}
+	if input.DocrootChanged {
+		options.Docroot = input.Docroot
+	}
+	if input.Framework != "" {
+		if err := store.InitWithFrameworkOptions(input.Framework, options); err != nil {
 			return err
 		}
-		_, _ = fmt.Fprintf(stdout, "Initialized Polka %s project at %s with config %s\n", strings.ToLower(strings.TrimSpace(framework)), store.RootDir, store.ConfigFile)
+		_, _ = fmt.Fprintf(stdout, "Initialized Polka %s project at %s with config %s\n", strings.ToLower(input.Framework), store.RootDir, store.ConfigFile)
 		return nil
 	}
 
-	if err := store.Init(); err != nil {
+	if err := store.InitWithOptions(options); err != nil {
 		return err
 	}
 
 	_, _ = fmt.Fprintf(stdout, "Initialized Polka at %s with config %s\n", store.RootDir, store.ConfigFile)
 	return nil
+}
+
+func normalizeInitCommandInput(input initCommandInput) (initCommandInput, error) {
+	input.Framework = strings.TrimSpace(input.Framework)
+	input.Docroot = strings.TrimSpace(input.Docroot)
+	if input.DocrootChanged && input.Docroot == "" {
+		return input, fmt.Errorf("--docroot requires a non-empty value")
+	}
+
+	return input, nil
 }
 
 func runInstall(stdout io.Writer, store backend.Store, input installCommandInput) error {
@@ -433,6 +455,12 @@ type configCommandInput struct {
 	Name  string
 	Key   string
 	Value string
+}
+
+type initCommandInput struct {
+	Framework      string
+	Docroot        string
+	DocrootChanged bool
 }
 
 type newCommandInput struct {

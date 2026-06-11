@@ -12,7 +12,7 @@ Use `--root PATH` to override the local state directory. The default is `.polka`
 
 ## Environment Commands
 
-### `polka init [framework]`
+### `polka init [framework] [--docroot PATH]`
 
 Creates the local `.polka` directory, bootstraps `polka.yaml` when it does not exist, writes stable shell-session helper scripts, and syncs the active environment's dispatch shims into `.polka/bin`. The bootstrapped default environment enables HTTPS and sets `server.hostname` to `<directory>.localhost`.
 
@@ -22,11 +22,15 @@ polka init drupal
 polka init wordpress
 polka init laravel
 polka init symfony
+polka init --docroot public
+polka init drupal --docroot drupal/web
 ```
+
+Use `--docroot PATH` to set the generated default environment's document root.
 
 When `framework` is `drupal`, `wordpress`, `laravel`, or `symfony`, Polka writes an opinionated default config with a top-level `framework` key, framework docroot, managed tool versions, database settings, and phpMyAdmin settings. Framework init is config-only: it does not create project files, run Composer, install tools, write default PHP extension config, or start services. It fails if `polka.yaml` already exists.
 
-Drupal, Laravel, and Symfony presets use `web`, `public`, and `public` docroots respectively, and include PHP, Composer, Node.js, nginx, MariaDB, phpMyAdmin, and Mailpit. The WordPress preset uses the project root as docroot and includes PHP, nginx, MariaDB, and phpMyAdmin.
+Drupal, Laravel, and Symfony presets use `web`, `public`, and `public` docroots respectively, and include PHP, Composer, Node.js, nginx, MariaDB, phpMyAdmin, and Mailpit. The WordPress preset uses the project root as docroot and includes PHP, nginx, MariaDB, and phpMyAdmin. With a framework, `--docroot PATH` overrides the preset docroot in the generated config.
 
 ### `polka new <name>`
 

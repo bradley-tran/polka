@@ -80,6 +80,12 @@ type Store struct {
 	Registry   *PluginRegistry
 }
 
+// InitOptions customizes project initialization.
+type InitOptions struct {
+	// Docroot sets the default environment document root when non-empty.
+	Docroot string
+}
+
 func DefaultStore() (Store, error) {
 	workingDir, err := os.Getwd()
 	if err != nil {
@@ -305,20 +311,34 @@ func pathsEqual(left, right string) bool {
 }
 
 func (s Store) Init() error {
-	return s.init("")
+	return s.InitWithOptions(InitOptions{})
+}
+
+// InitWithOptions initializes a project with config overrides.
+func (s Store) InitWithOptions(options InitOptions) error {
+	return s.init("", options)
 }
 
 // InitWithFramework initializes a project from a built-in framework preset.
 func (s Store) InitWithFramework(framework string) error {
-	return s.init(framework)
+	return s.InitWithFrameworkOptions(framework, InitOptions{})
 }
 
-func (s Store) init(framework string) error {
+// InitWithFrameworkOptions initializes a project from a framework preset with overrides.
+func (s Store) InitWithFrameworkOptions(framework string, options InitOptions) error {
+	return s.init(framework, options)
+}
+
+func (s Store) init(framework string, options InitOptions) error {
+	docroot := strings.TrimSpace(options.Docroot)
 	var preset *Environment
 	if strings.TrimSpace(framework) != "" {
 		environment, err := s.FrameworkDefaults(framework)
 		if err != nil {
 			return err
+		}
+		if docroot != "" {
+			environment.Docroot = docroot
 		}
 		if _, err := os.Stat(s.ConfigFile); err == nil {
 			return fmt.Errorf("config file %s already exists; framework init would overwrite it", s.ConfigFile)
@@ -335,18 +355,29 @@ func (s Store) init(framework string) error {
 		return fmt.Errorf("create binary root: %w", err)
 	}
 
-	if _, err := s.readConfig(); err != nil {
+	if loadedConfig, err := s.readConfig(); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			config := s.defaultConfig()
 			if preset != nil {
 				*preset = s.withInitDefaults(*preset)
 				config.Environments[defaultEnvironmentName] = *preset
+			} else if docroot != "" {
+				environment := config.Environments[defaultEnvironmentName]
+				environment.Docroot = docroot
+				config.Environments[defaultEnvironmentName] = environment
 			}
 			if err := s.writeConfig(config); err != nil {
 				return fmt.Errorf("write config file: %w", err)
 			}
 		} else {
 			return err
+		}
+	} else if preset == nil && docroot != "" {
+		environment := loadedConfig.Environments[defaultEnvironmentName]
+		environment.Docroot = docroot
+		loadedConfig.Environments[defaultEnvironmentName] = environment
+		if err := s.writeConfig(loadedConfig); err != nil {
+			return fmt.Errorf("write config file: %w", err)
 		}
 	}
 	if err := s.installBinaries(); err != nil {

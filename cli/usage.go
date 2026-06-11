@@ -6,7 +6,8 @@ Usage:
   polka [--root PATH] <command> [options]
 
 Commands:
-  init [framework]     create the local .polka directory and optional framework config
+  init [framework] [--docroot PATH]
+                       create the local .polka directory and optional framework config
   new <name>           create an environment with default or explicit versions
   config <key> <value> set one config value for an environment
   install [tool:version]
@@ -53,10 +54,11 @@ Flags:
 `
 
 const initUsage = `Usage:
-  polka init [framework]
+  polka init [framework] [--docroot PATH]
 
 Create the local .polka directory, bootstrap polka.yaml, and sync the active environment's dispatch shims into .polka/bin.
 The generated default environment enables HTTPS and uses <directory>.localhost as server.hostname.
+Use --docroot PATH to set the generated default environment's document root.
 When framework is drupal, wordpress, laravel, or symfony, Polka writes an opinionated default config for that framework.
 Framework init is config-only; it does not create app files, install tools, or start services. It fails if polka.yaml already exists.
 `

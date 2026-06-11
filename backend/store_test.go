@@ -112,6 +112,68 @@ func TestStoreInitInstallsDispatcherShimsWithoutToolShims(t *testing.T) {
 	}
 }
 
+func TestStoreInitWithOptionsWritesDocroot(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+
+	if err := store.InitWithOptions(InitOptions{Docroot: " public "}); err != nil {
+		t.Fatalf("InitWithOptions() error = %v", err)
+	}
+
+	config, err := store.readConfig()
+	if err != nil {
+		t.Fatalf("readConfig() error = %v", err)
+	}
+	environment := config.Environments[defaultEnvironmentName]
+	if environment.Docroot != "public" {
+		t.Fatalf("environment = %#v, want overridden docroot", environment)
+	}
+}
+
+func TestStoreInitWithOptionsUpdatesExistingDocroot(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	config := store.defaultConfig()
+	config.Environments[defaultEnvironmentName] = Environment{Docroot: "web", PHPVersion: "8.4"}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	if err := store.InitWithOptions(InitOptions{Docroot: "public"}); err != nil {
+		t.Fatalf("InitWithOptions() error = %v", err)
+	}
+
+	loadedConfig, err := store.readConfig()
+	if err != nil {
+		t.Fatalf("readConfig() error = %v", err)
+	}
+	environment := loadedConfig.Environments[defaultEnvironmentName]
+	if environment.Docroot != "public" || environment.PHPVersion != "8.4" {
+		t.Fatalf("environment = %#v, want updated docroot with existing values preserved", environment)
+	}
+}
+
+func TestStoreInitWithFrameworkOptionsOverridesDocroot(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+
+	if err := store.InitWithFrameworkOptions("drupal", InitOptions{Docroot: " drupal/web "}); err != nil {
+		t.Fatalf("InitWithFrameworkOptions() error = %v", err)
+	}
+
+	config, err := store.readConfig()
+	if err != nil {
+		t.Fatalf("readConfig() error = %v", err)
+	}
+	environment := config.Environments[defaultEnvironmentName]
+	if environment.Framework != "drupal" || environment.Docroot != "drupal/web" {
+		t.Fatalf("environment = %#v, want drupal framework with overridden docroot", environment)
+	}
+	if environment.ComposerVersion != "2.8" || environment.NodeJSVersion != "24" || environment.NginxVersion != "1.30" {
+		t.Fatalf("environment = %#v, want other Drupal preset values preserved", environment)
+	}
+}
+
 func TestProjectLocalHostnameNormalizesDirectoryName(t *testing.T) {
 	projectDir := filepath.Join(t.TempDir(), "My Demo_Project")
 

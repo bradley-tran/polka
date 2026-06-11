@@ -184,6 +184,64 @@ func TestRunInitWithFrameworkWritesDefaultPreset(t *testing.T) {
 	}
 }
 
+func TestRunInitWithFrameworkDocrootOverride(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	chdirTest(t, projectDir)
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "init", "drupal", "--docroot", "drupal/web"}); code != 0 {
+		t.Fatalf("Run(init drupal --docroot) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	environment := readTestEnvironmentConfig(t, projectDir, defaultEnvironmentName)
+	if environment.Framework != "drupal" || environment.Docroot != "drupal/web" {
+		t.Fatalf("environment = %#v, want drupal framework with overridden docroot", environment)
+	}
+	if environment.Composer != "2.8" || environment.NodeJS != "24" || environment.Nginx != "1.30" {
+		t.Fatalf("environment = %#v, want other Drupal preset values preserved", environment)
+	}
+}
+
+func TestRunInitWritesDocrootWithoutFramework(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	chdirTest(t, projectDir)
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "init", "--docroot", "public"}); code != 0 {
+		t.Fatalf("Run(init --docroot) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	environment := readTestEnvironmentConfig(t, projectDir, defaultEnvironmentName)
+	if environment.Docroot != "public" {
+		t.Fatalf("environment = %#v, want docroot override", environment)
+	}
+}
+
+func TestRunInitRejectsEmptyDocrootOverride(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	chdirTest(t, projectDir)
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "init", "drupal", "--docroot", "   "}); code == 0 {
+		t.Fatal("Run(init drupal --docroot blank) code = 0, want failure")
+	}
+	if !strings.Contains(stderr.String(), "--docroot requires a non-empty value") {
+		t.Fatalf("Run(init drupal --docroot blank) stderr = %q, want non-empty error", stderr.String())
+	}
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Fatalf("Stat(root) error = %v, want no root created before failure", err)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, "polka.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("Stat(polka.yaml) error = %v, want no config created before failure", err)
+	}
+}
+
 func TestRunInitWithFrameworkRejectsExistingConfigBeforeMutation(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
