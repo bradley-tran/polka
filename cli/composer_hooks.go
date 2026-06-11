@@ -42,7 +42,7 @@ func runPostComposerHook(store backend.Store, tool string, args []string, workin
 
 func isPostComposerCommand(args []string) bool {
 	switch composerCommand(args) {
-	case "install", "create-project":
+	case "install", "update", "create-project":
 		return true
 	default:
 		return false

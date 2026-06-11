@@ -10,6 +10,126 @@ import (
 	"polka/tools"
 )
 
+func TestDrupalPostComposerWritesPolkaSettingsFile(t *testing.T) {
+	projectDir := t.TempDir()
+	settingsDir := filepath.Join(projectDir, "drupal", "web", "sites", "default")
+	if err := os.MkdirAll(settingsDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(settings dir) error = %v", err)
+	}
+	defaultSettings := "<?php\n$settings['hash_salt'] = 'sample';\n"
+	if err := os.WriteFile(filepath.Join(settingsDir, "default.settings.php"), []byte(defaultSettings), 0o644); err != nil {
+		t.Fatalf("WriteFile(default.settings.php) error = %v", err)
+	}
+
+	drupal, ok := NewDefaultRegistry().Framework(Drupal)
+	if !ok {
+		t.Fatal("Framework(drupal) ok = false, want true")
+	}
+	err := drupal.PostComposer(PostComposerContext{
+		ProjectDir: projectDir,
+		Environment: config.Environment{
+			Framework: Drupal,
+			Docroot:   "drupal/web",
+		},
+		Database: &DatabaseCredentials{
+			Host:         "127.0.0.1",
+			Port:         3307,
+			DatabaseName: "demo",
+			User:         "polka",
+			Password:     "secret",
+		},
+	})
+	if err != nil {
+		t.Fatalf("PostComposer() error = %v", err)
+	}
+
+	settings, err := os.ReadFile(filepath.Join(settingsDir, "settings.php"))
+	if err != nil {
+		t.Fatalf("ReadFile(settings.php) error = %v", err)
+	}
+	if !strings.Contains(string(settings), polkaDrupalSettingsFile) {
+		t.Fatalf("settings.php = %q, want Polka include", string(settings))
+	}
+
+	polkaSettings, err := os.ReadFile(filepath.Join(settingsDir, polkaDrupalSettingsFile))
+	if err != nil {
+		t.Fatalf("ReadFile(settings.polka.php) error = %v", err)
+	}
+	text := string(polkaSettings)
+	for _, expected := range []string{
+		"$databases['default']['default'] = [",
+		"'database' => 'demo'",
+		"'username' => 'polka'",
+		"'password' => 'secret'",
+		"'host' => '127.0.0.1'",
+		"'port' => '3307'",
+		"'driver' => 'mysql'",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("settings.polka.php = %q, want %q", text, expected)
+		}
+	}
+}
+
+func TestWordPressPostComposerUpdatesConfigDatabaseConstants(t *testing.T) {
+	projectDir := t.TempDir()
+	appRoot := filepath.Join(projectDir, "wordpress")
+	if err := os.MkdirAll(appRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(app root) error = %v", err)
+	}
+	sample := strings.Join([]string{
+		"<?php",
+		"define( 'DB_NAME', 'database_name_here' );",
+		"define( 'DB_USER', 'username_here' );",
+		"define( 'DB_PASSWORD', 'password_here' );",
+		"define( 'DB_HOST', 'localhost' );",
+		"define( 'DB_CHARSET', 'utf8' );",
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(appRoot, "wp-config-sample.php"), []byte(sample), 0o644); err != nil {
+		t.Fatalf("WriteFile(wp-config-sample.php) error = %v", err)
+	}
+
+	wordpress, ok := NewDefaultRegistry().Framework(WordPress)
+	if !ok {
+		t.Fatal("Framework(wordpress) ok = false, want true")
+	}
+	err := wordpress.PostComposer(PostComposerContext{
+		ProjectDir: projectDir,
+		Environment: config.Environment{
+			Framework: WordPress,
+			Docroot:   "wordpress",
+		},
+		Database: &DatabaseCredentials{
+			Host:         "127.0.0.1",
+			Port:         3307,
+			DatabaseName: "demo",
+			User:         "polka",
+			Password:     "secret",
+		},
+	})
+	if err != nil {
+		t.Fatalf("PostComposer() error = %v", err)
+	}
+
+	configData, err := os.ReadFile(filepath.Join(appRoot, "wp-config.php"))
+	if err != nil {
+		t.Fatalf("ReadFile(wp-config.php) error = %v", err)
+	}
+	text := string(configData)
+	for _, expected := range []string{
+		"define( 'DB_NAME', 'demo' );",
+		"define( 'DB_USER', 'polka' );",
+		"define( 'DB_PASSWORD', 'secret' );",
+		"define( 'DB_HOST', '127.0.0.1:3307' );",
+		"define( 'DB_CHARSET', 'utf8' );",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("wp-config.php = %q, want %q", text, expected)
+		}
+	}
+}
+
 func TestLaravelPostComposerUpdatesDotenvDatabaseSecrets(t *testing.T) {
 	projectDir := t.TempDir()
 	appRoot := filepath.Join(projectDir, "laravel")
