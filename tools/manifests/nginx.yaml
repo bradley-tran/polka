@@ -1,4 +1,9 @@
 id: nginx
+logs:
+  all:
+    - run/serve/{env}/logs/error.log
+    - run/serve/{env}/logs/access.log
+    - run/serve/{env}/serve.log
 install-candidates:
   windows-amd64:
     - nginx.exe

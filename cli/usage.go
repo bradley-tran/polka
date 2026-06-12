@@ -23,6 +23,7 @@ Commands:
   list                 list environments
   use <name>           select the active environment
   status, info         show the active environment status
+  logs <tool>          print tool logs to stdout
   remove <name>        remove an environment
   help                 show this help
 
@@ -215,4 +216,10 @@ const removeUsage = `Usage:
   polka remove <name>
 
 Remove a named environment definition. The default environment in polka.yaml cannot be removed.
+`
+
+const logsUsage = `Usage:
+  polka logs <tool>
+
+Print tool logs to stdout.
 `

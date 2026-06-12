@@ -1,4 +1,8 @@
 id: php
+logs:
+  all:
+    - run/serve/{env}/php.log
+    - run/serve/{env}/serve.log
 install-candidates:
   windows-amd64:
     - bin/php.exe

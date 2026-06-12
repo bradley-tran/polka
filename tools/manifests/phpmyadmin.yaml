@@ -1,4 +1,7 @@
 id: phpmyadmin
+logs:
+  all:
+    - run/phpmyadmin/{env}/serve.log
 install-candidates:
   all:
     - index.php

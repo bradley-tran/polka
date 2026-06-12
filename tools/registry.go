@@ -48,6 +48,7 @@ type ToolPlugin interface {
 	CleanupCommands() []string
 	ActiveCommands(config.Environment) []string
 	DispatchCandidates(root, executable, version string) []string
+	Logs(root, version string, environment config.Environment) []string
 	Download(DownloadContext) error
 	PostInstall(InstallContext) error
 }
@@ -255,6 +256,7 @@ type builtinPlugin struct {
 	cleanupCommands    []string
 	activeCommands     func(config.Environment) []string
 	dispatchCandidates func(root, executable, version string) []string
+	logs               func(root, version string, environment config.Environment) []string
 	download           func(DownloadContext) error
 	postInstall        func(InstallContext) error
 }
@@ -324,6 +326,13 @@ func (p builtinPlugin) DispatchCandidates(root, executable, version string) []st
 	}
 
 	return p.dispatchCandidates(root, executable, version)
+}
+
+func (p builtinPlugin) Logs(root, version string, environment config.Environment) []string {
+	if p.logs == nil {
+		return nil
+	}
+	return p.logs(root, version, environment)
 }
 
 func (p builtinPlugin) Download(ctx DownloadContext) error {

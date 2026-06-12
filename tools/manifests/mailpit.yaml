@@ -1,4 +1,7 @@
 id: mailpit
+logs:
+  all:
+    - run/mailpit/{env}.mailpit.log
 install-candidates:
   windows-amd64:
     - mailpit.exe

@@ -1,4 +1,7 @@
 id: mariadb
+logs:
+  all:
+    - run/db/{env}.log
 install-candidates:
   windows-amd64:
     - bin/mariadb.cmd

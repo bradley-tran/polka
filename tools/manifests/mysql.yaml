@@ -1,4 +1,7 @@
 id: mysql
+logs:
+  all:
+    - run/db/{env}.log
 install-candidates:
   windows-amd64:
     - bin/mysql.cmd

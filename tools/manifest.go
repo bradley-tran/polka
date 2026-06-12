@@ -28,6 +28,7 @@ type pluginManifest struct {
 	CleanupCommands    []string                         `yaml:"cleanup-commands"`
 	ActiveCommands     []string                         `yaml:"active-commands"`
 	DispatchCandidates map[string]manifestPlatformPaths `yaml:"dispatch-candidates"`
+	Logs               manifestPlatformPaths            `yaml:"logs"`
 	Download           manifestDownload                 `yaml:"download"`
 }
 
@@ -111,6 +112,11 @@ func (m pluginManifest) validate() error {
 			return fmt.Errorf("tool manifest %q has empty dispatch-candidates command", id)
 		}
 		if err := validateManifestPlatformPaths(id, "dispatch-candidates."+command, paths); err != nil {
+			return err
+		}
+	}
+	if len(m.Logs) > 0 {
+		if err := validateManifestPlatformPaths(id, "logs", m.Logs); err != nil {
 			return err
 		}
 	}
@@ -226,6 +232,7 @@ func (m pluginManifest) toPlugin(hooks pluginHooks) (Plugin, error) {
 		cleanupCommands:    normalizeCommands(m.CleanupCommands),
 		activeCommands:     manifestActiveCommandsFunc(m),
 		dispatchCandidates: manifestDispatchCandidatesFunc(m),
+		logs:               manifestLogsFunc(m),
 		download:           download,
 		postInstall:        hooks.postInstall,
 	}, nil
@@ -313,6 +320,24 @@ func manifestDispatchCandidatesFunc(m pluginManifest) func(root, executable, ver
 		}
 
 		return nil
+	}
+}
+
+func manifestLogsFunc(m pluginManifest) func(root, version string, environment config.Environment) []string {
+	paths := m.Logs
+
+	return func(root, version string, environment config.Environment) []string {
+		templatedPaths := make(manifestPlatformPaths)
+		for platform, relPaths := range paths {
+			templated := make([]string, len(relPaths))
+			for i, relPath := range relPaths {
+				r := strings.ReplaceAll(relPath, "{env}", environment.Name)
+				r = strings.ReplaceAll(r, "{version}", version)
+				templated[i] = r
+			}
+			templatedPaths[platform] = templated
+		}
+		return manifestCandidatePaths(root, templatedPaths, runtime.GOOS, runtime.GOARCH)
 	}
 }
 
