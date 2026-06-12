@@ -82,6 +82,7 @@ func newRootCommand(ctx *commandContext) *cobra.Command {
 		newExecCommand(ctx),
 		newShCommand(ctx),
 		newSessionCommand(ctx),
+		newLogsCommand(ctx),
 		newListCommand(ctx),
 		newUseCommand(ctx),
 		newStatusCommand(ctx),

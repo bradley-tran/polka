@@ -181,6 +181,10 @@ func (p testPlugin) DispatchCandidates(root, executable, version string) []strin
 	return nil
 }
 
+func (p testPlugin) Logs() []LogEntry {
+	return nil
+}
+
 func (p testPlugin) Download(ctx DownloadContext) error {
 	return p.download(ctx)
 }

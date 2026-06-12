@@ -20,6 +20,9 @@ install-candidates:
     - mysql
 dispatch-commands:
   - mariadb
+logs:
+  error:
+    - run/db/{environment}.log
 download:
   assets:
     windows-amd64:

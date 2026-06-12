@@ -38,6 +38,18 @@ type InstallResult struct {
 	Downloaded bool
 }
 
+const (
+	LogLevelInfo  = "info"
+	LogLevelError = "error"
+	LogLevelDebug = "debug"
+)
+
+// LogEntry describes one project-local log file produced by a managed tool.
+type LogEntry struct {
+	Path  string
+	Level string
+}
+
 // ToolPlugin describes an installable managed tool and its command dispatch behavior.
 type ToolPlugin interface {
 	ID() string
@@ -48,6 +60,7 @@ type ToolPlugin interface {
 	CleanupCommands() []string
 	ActiveCommands(config.Environment) []string
 	DispatchCandidates(root, executable, version string) []string
+	Logs() []LogEntry
 	Download(DownloadContext) error
 	PostInstall(InstallContext) error
 }
@@ -63,6 +76,12 @@ type Registry struct {
 type DispatchRequest struct {
 	ConfigTool string
 	Executable string
+	Plugin     ToolPlugin
+}
+
+// LogRequest describes the tool plugin selected for log resolution.
+type LogRequest struct {
+	ConfigTool string
 	Plugin     ToolPlugin
 }
 
@@ -191,6 +210,26 @@ func (r *Registry) ResolveDispatchRequest(tool string) (DispatchRequest, error) 
 	return DispatchRequest{}, fmt.Errorf("unsupported tool %q", tool)
 }
 
+// ResolveLogRequest resolves either a manifest tool ID or a dispatch command
+// to the plugin that declares log files for that tool.
+func (r *Registry) ResolveLogRequest(tool string) (LogRequest, error) {
+	if r == nil {
+		return LogRequest{}, fmt.Errorf("tool registry is not configured")
+	}
+
+	trimmed := strings.ToLower(strings.TrimSpace(tool))
+	if plugin, ok := r.Plugin(trimmed); ok {
+		return LogRequest{ConfigTool: plugin.ID(), Plugin: plugin}, nil
+	}
+
+	request, err := r.ResolveDispatchRequest(trimmed)
+	if err != nil {
+		return LogRequest{}, err
+	}
+
+	return LogRequest{ConfigTool: request.ConfigTool, Plugin: request.Plugin}, nil
+}
+
 func (r *Registry) InstallCandidates(root, tool, version string) []string {
 	plugin, ok := r.Plugin(tool)
 	if !ok {
@@ -255,6 +294,7 @@ type builtinPlugin struct {
 	cleanupCommands    []string
 	activeCommands     func(config.Environment) []string
 	dispatchCandidates func(root, executable, version string) []string
+	logs               []LogEntry
 	download           func(DownloadContext) error
 	postInstall        func(InstallContext) error
 }
@@ -326,6 +366,10 @@ func (p builtinPlugin) DispatchCandidates(root, executable, version string) []st
 	return p.dispatchCandidates(root, executable, version)
 }
 
+func (p builtinPlugin) Logs() []LogEntry {
+	return copyLogEntries(p.logs)
+}
+
 func (p builtinPlugin) Download(ctx DownloadContext) error {
 	if p.download == nil {
 		return fmt.Errorf("unsupported tool %q", p.id)
@@ -350,4 +394,29 @@ func copyStrings(values []string) []string {
 	copied := make([]string, len(values))
 	copy(copied, values)
 	return copied
+}
+
+func copyLogEntries(values []LogEntry) []LogEntry {
+	if len(values) == 0 {
+		return nil
+	}
+
+	copied := make([]LogEntry, len(values))
+	copy(copied, values)
+	return copied
+}
+
+// NormalizeLogLevel returns a canonical log level value for comparison.
+func NormalizeLogLevel(level string) string {
+	return strings.ToLower(strings.TrimSpace(level))
+}
+
+// ValidLogLevel reports whether level is one of the manifest-supported log levels.
+func ValidLogLevel(level string) bool {
+	switch NormalizeLogLevel(level) {
+	case LogLevelInfo, LogLevelError, LogLevelDebug:
+		return true
+	default:
+		return false
+	}
 }

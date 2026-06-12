@@ -8,6 +8,9 @@ install-candidates:
     - bin/mailpit
 dispatch-commands:
   - mailpit
+logs:
+  info:
+    - run/mailpit/{environment}.mailpit.log
 download:
   github:
     owner: axllent

@@ -2519,6 +2519,91 @@ func TestResolveToolRequiresConfiguredVersion(t *testing.T) {
 	}
 }
 
+func TestStoreResolveToolLogsExpandsEnvironmentAndFilters(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{NginxVersion: "1.30"}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+	if err := store.writeActiveEnvironmentName("demo"); err != nil {
+		t.Fatalf("writeActiveEnvironmentName() error = %v", err)
+	}
+
+	logs, err := store.ResolveToolLogs("nginx", "error")
+	if err != nil {
+		t.Fatalf("ResolveToolLogs(nginx, error) error = %v", err)
+	}
+
+	want := []ToolLogEntry{{
+		Path:  filepath.Join(store.RootDir, "run", "serve", "demo", "logs", "error.log"),
+		Level: "error",
+	}}
+	if !reflect.DeepEqual(logs, want) {
+		t.Fatalf("ResolveToolLogs(nginx, error) = %#v, want %#v", logs, want)
+	}
+}
+
+func TestStoreResolveToolLogsRejectsInvalidRequests(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{PHPVersion: "8.4"}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+	if err := store.writeActiveEnvironmentName("demo"); err != nil {
+		t.Fatalf("writeActiveEnvironmentName() error = %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		tool    string
+		level   string
+		wantErr string
+	}{
+		{name: "invalid level", tool: "php", level: "trace", wantErr: "invalid log level"},
+		{name: "unsupported tool", tool: "database", wantErr: "unsupported tool"},
+		{name: "unconfigured tool", tool: "mailpit", wantErr: "does not define a mailpit version"},
+		{name: "no logs", tool: "php", wantErr: "does not declare logs"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := store.ResolveToolLogs(test.tool, test.level)
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("ResolveToolLogs(%q, %q) error = %v, want %q", test.tool, test.level, err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestStoreResolveToolLogsSupportsDispatchAliases(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	registry, err := NewToolRegistry(logAliasTestPlugin{})
+	if err != nil {
+		t.Fatalf("NewToolRegistry() error = %v", err)
+	}
+	store.Plugins = registry
+
+	logs, err := store.ResolveToolLogs("alias-bin", "")
+	if err != nil {
+		t.Fatalf("ResolveToolLogs(alias-bin) error = %v", err)
+	}
+
+	want := []ToolLogEntry{{
+		Path:  filepath.Join(store.RootDir, "run", "alias", "default.log"),
+		Level: "info",
+	}}
+	if !reflect.DeepEqual(logs, want) {
+		t.Fatalf("ResolveToolLogs(alias-bin) = %#v, want %#v", logs, want)
+	}
+}
+
 func TestDefaultStoreUsesDotPolkaInWorkingDirectory(t *testing.T) {
 	projectDir := t.TempDir()
 	originalWorkingDir, err := os.Getwd()
@@ -2968,6 +3053,52 @@ type fakeDownloader func(cacheDir, tool, version string) error
 
 func (f fakeDownloader) Download(cacheDir, tool, version string) error {
 	return f(cacheDir, tool, version)
+}
+
+type logAliasTestPlugin struct{}
+
+func (logAliasTestPlugin) ID() string {
+	return "alias-tool"
+}
+
+func (logAliasTestPlugin) Version(Environment) string {
+	return "1.0"
+}
+
+func (logAliasTestPlugin) Validate(Environment) error {
+	return nil
+}
+
+func (logAliasTestPlugin) InstallCandidates(root, version string) []string {
+	return nil
+}
+
+func (logAliasTestPlugin) DispatchCommands() []string {
+	return []string{"alias-bin"}
+}
+
+func (logAliasTestPlugin) CleanupCommands() []string {
+	return []string{"alias-bin"}
+}
+
+func (logAliasTestPlugin) ActiveCommands(Environment) []string {
+	return []string{"alias-bin"}
+}
+
+func (logAliasTestPlugin) DispatchCandidates(root, executable, version string) []string {
+	return nil
+}
+
+func (logAliasTestPlugin) Logs() []ToolLogEntry {
+	return []ToolLogEntry{{Path: "run/alias/{environment}.log", Level: "info"}}
+}
+
+func (logAliasTestPlugin) Download(ToolDownloadContext) error {
+	return nil
+}
+
+func (logAliasTestPlugin) PostInstall(ToolInstallContext) error {
+	return nil
 }
 
 func assertPathExists(t *testing.T, path string) {

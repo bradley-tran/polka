@@ -20,6 +20,7 @@ Commands:
   exec <command>       run one command with the local shell environment
   sh, shell            open an interactive shell with local binaries first
   session [start|stop] generate shell scripts that activate or deactivate local binaries
+  logs <tool>          print active environment logs for one managed tool
   list                 list environments
   use <name>           select the active environment
   status, info         show the active environment status
@@ -45,6 +46,8 @@ Examples:
   polka exec php -v
   polka sh
   polka session start
+  polka logs nginx
+  polka logs nginx --level error
   polka list
   polka use api
   polka status
@@ -186,6 +189,14 @@ session start uses the same command resolution order as polka sh:
 3. system PATH
 
 On Windows, session start also generates the same temporary vendor/bin .cmd wrappers as polka sh for extensionless Composer PHP proxies and shell launchers with a matching .php source.
+`
+
+const logsUsage = `Usage:
+  polka logs <tool> [--level info|error|debug]
+
+Print existing log files declared by a managed tool's manifest for the active environment.
+When --level is omitted, Polka prints info, error, and debug logs in that order.
+Missing log files are skipped. If no matching declared log file exists on disk, the command exits with an error.
 `
 
 const listUsage = `Usage:

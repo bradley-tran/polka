@@ -2,6 +2,14 @@ id: phpmyadmin
 install-candidates:
   all:
     - index.php
+logs:
+  info:
+    - run/phpmyadmin/{environment}/logs/access.log
+  error:
+    - run/phpmyadmin/{environment}/logs/error.log
+  debug:
+    - run/phpmyadmin/{environment}/serve.log
+    - run/phpmyadmin/{environment}/php.log
 download:
   assets:
     all:

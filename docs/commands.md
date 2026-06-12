@@ -169,6 +169,19 @@ HTTPS requires nginx at start time. Polka uses one generated server certificate 
 
 Stops the active environment's background webserver, phpMyAdmin, managed database, and Mailpit when they are running.
 
+### `polka logs <tool> [--level info|error|debug]`
+
+Prints existing log files declared by one managed tool's manifest for the active environment.
+
+```bash
+polka logs nginx
+polka logs nginx --level error
+polka logs mailpit
+polka logs mariadb --level error
+```
+
+When `--level` is omitted, Polka prints `info`, `error`, and `debug` logs in that order. Missing log files are skipped. If no matching declared log file exists on disk, the command exits with an error. The first implementation declares logs for `nginx`, `mailpit`, `phpmyadmin`, `mysql`, and `mariadb`.
+
 ### `polka cert-install`
 
 Clears and regenerates the global Polka CA/server certificate pair, then installs the CA certificate into the current user's trust store on Windows or macOS. On other platforms, Polka prints an error with the certificate path so it can be installed manually.

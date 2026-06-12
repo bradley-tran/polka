@@ -1032,6 +1032,92 @@ func (s Store) ResolveTool(tool string) (string, error) {
 	return s.resolveInstalledDispatchExecutable(request.ConfigTool, request.Executable, version)
 }
 
+// ResolveToolLogs returns the active environment's declared log files for a
+// managed tool. The requested tool may be a manifest ID or a dispatch command.
+func (s Store) ResolveToolLogs(tool, level string) ([]ToolLogEntry, error) {
+	normalizedLevel := tools.NormalizeLogLevel(level)
+	if normalizedLevel != "" && !tools.ValidLogLevel(normalizedLevel) {
+		return nil, fmt.Errorf("invalid log level %q: use info, error, or debug", level)
+	}
+
+	request, err := s.toolRegistry().ResolveLogRequest(tool)
+	if err != nil {
+		return nil, err
+	}
+
+	current, err := s.Current()
+	if err != nil {
+		return nil, err
+	}
+	if current == nil {
+		return nil, fmt.Errorf("no active environment selected")
+	}
+
+	version := strings.TrimSpace(request.Plugin.Version(*current))
+	if version == "" {
+		return nil, fmt.Errorf("environment %q does not define a %s version", current.Name, request.ConfigTool)
+	}
+	if err := validateVersion(request.ConfigTool, version); err != nil {
+		return nil, err
+	}
+
+	entries := request.Plugin.Logs()
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("tool %q does not declare logs", request.ConfigTool)
+	}
+
+	resolved := make([]ToolLogEntry, 0, len(entries))
+	for _, entry := range entries {
+		entryLevel := tools.NormalizeLogLevel(entry.Level)
+		if normalizedLevel != "" && entryLevel != normalizedLevel {
+			continue
+		}
+
+		path, err := resolveToolLogPath(s.RootDir, entry.Path, current.Name)
+		if err != nil {
+			return nil, err
+		}
+		resolved = append(resolved, ToolLogEntry{
+			Path:  path,
+			Level: entryLevel,
+		})
+	}
+	if len(resolved) == 0 {
+		return nil, fmt.Errorf("tool %q does not declare %s logs", request.ConfigTool, normalizedLevel)
+	}
+
+	return resolved, nil
+}
+
+func resolveToolLogPath(rootDir, pathTemplate, environmentName string) (string, error) {
+	relativePath := strings.ReplaceAll(strings.TrimSpace(pathTemplate), "{environment}", strings.TrimSpace(environmentName))
+	if relativePath == "" {
+		return "", fmt.Errorf("tool log path cannot be empty")
+	}
+	nativeRelativePath := filepath.FromSlash(relativePath)
+	if filepath.IsAbs(nativeRelativePath) {
+		return "", fmt.Errorf("tool log path %q must be relative", pathTemplate)
+	}
+
+	root, err := filepath.Abs(rootDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve Polka root directory: %w", err)
+	}
+	candidate, err := filepath.Abs(filepath.Join(root, nativeRelativePath))
+	if err != nil {
+		return "", fmt.Errorf("resolve tool log path %q: %w", pathTemplate, err)
+	}
+	relativeToRoot, err := filepath.Rel(root, candidate)
+	if err != nil {
+		return "", fmt.Errorf("resolve tool log path %q: %w", pathTemplate, err)
+	}
+	if relativeToRoot == "." || relativeToRoot == ".." || strings.HasPrefix(relativeToRoot, ".."+string(filepath.Separator)) || filepath.IsAbs(relativeToRoot) {
+		return "", fmt.Errorf("tool log path %q must stay inside the Polka root", pathTemplate)
+	}
+
+	return candidate, nil
+}
+
 func (s Store) loadConfig() (Config, error) {
 	loadedConfig, err := s.readConfig()
 	if errors.Is(err, os.ErrNotExist) {

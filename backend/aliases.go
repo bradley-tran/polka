@@ -14,6 +14,7 @@ type PHPMyAdminConfig = config.PHPMyAdminConfig
 type ServerConfig = config.ServerConfig
 
 type InstallResult = tools.InstallResult
+type ToolLogEntry = tools.LogEntry
 type ToolDispatchRequest = tools.DispatchRequest
 type ToolDownloadContext = tools.DownloadContext
 type ToolDownloader = tools.Downloader

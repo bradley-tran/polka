@@ -12,6 +12,9 @@ install-candidates:
     - mysql
 dispatch-commands:
   - mysql
+logs:
+  error:
+    - run/db/{environment}.log
 download:
   assets:
     windows-amd64:

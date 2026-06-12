@@ -28,10 +28,13 @@ type pluginManifest struct {
 	CleanupCommands    []string                         `yaml:"cleanup-commands"`
 	ActiveCommands     []string                         `yaml:"active-commands"`
 	DispatchCandidates map[string]manifestPlatformPaths `yaml:"dispatch-candidates"`
+	Logs               manifestLogs                     `yaml:"logs"`
 	Download           manifestDownload                 `yaml:"download"`
 }
 
 type manifestPlatformPaths map[string][]string
+
+type manifestLogs map[string][]string
 
 type manifestDownload struct {
 	GitHub  manifestGitHubDownload    `yaml:"github"`
@@ -114,6 +117,26 @@ func (m pluginManifest) validate() error {
 			return err
 		}
 	}
+	for level, paths := range m.Logs {
+		normalizedLevel := NormalizeLogLevel(level)
+		if normalizedLevel == "" {
+			return fmt.Errorf("tool manifest %q logs has empty level", id)
+		}
+		if !ValidLogLevel(normalizedLevel) {
+			return fmt.Errorf("tool manifest %q logs has unsupported level %q", id, level)
+		}
+		if len(paths) == 0 {
+			return fmt.Errorf("tool manifest %q logs.%s requires at least one path", id, normalizedLevel)
+		}
+		for index, path := range paths {
+			if strings.TrimSpace(path) == "" {
+				return fmt.Errorf("tool manifest %q logs.%s[%d] requires path", id, normalizedLevel, index)
+			}
+			if err := validateManifestLogPath(path); err != nil {
+				return fmt.Errorf("tool manifest %q logs.%s[%d]: %w", id, normalizedLevel, index, err)
+			}
+		}
+	}
 	if len(m.Download.Catalog) > 0 {
 		return fmt.Errorf("tool manifest %q uses deprecated download.catalog; use download.assets", id)
 	}
@@ -160,16 +183,24 @@ func validateManifestPlatformPaths(tool, field string, paths manifestPlatformPat
 }
 
 func validateManifestRelativePath(candidate string) error {
+	return validateManifestContainedPath(candidate, "candidate path", "install directory")
+}
+
+func validateManifestLogPath(path string) error {
+	return validateManifestContainedPath(path, "log path", "Polka root")
+}
+
+func validateManifestContainedPath(candidate, label, rootLabel string) error {
 	trimmed := strings.TrimSpace(candidate)
 	if trimmed == "" {
-		return fmt.Errorf("candidate path cannot be empty")
+		return fmt.Errorf("%s cannot be empty", label)
 	}
 	if filepath.IsAbs(trimmed) {
-		return fmt.Errorf("candidate path %q must be relative", candidate)
+		return fmt.Errorf("%s %q must be relative", label, candidate)
 	}
 	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(trimmed)))
 	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") {
-		return fmt.Errorf("candidate path %q must stay inside the install directory", candidate)
+		return fmt.Errorf("%s %q must stay inside the %s", label, candidate, rootLabel)
 	}
 
 	return nil
@@ -226,6 +257,7 @@ func (m pluginManifest) toPlugin(hooks pluginHooks) (Plugin, error) {
 		cleanupCommands:    normalizeCommands(m.CleanupCommands),
 		activeCommands:     manifestActiveCommandsFunc(m),
 		dispatchCandidates: manifestDispatchCandidatesFunc(m),
+		logs:               normalizeLogEntries(m.Logs),
 		download:           download,
 		postInstall:        hooks.postInstall,
 	}, nil
@@ -346,6 +378,29 @@ func normalizeCommands(commands []string) []string {
 		trimmed := strings.ToLower(strings.TrimSpace(command))
 		if trimmed != "" {
 			normalized = append(normalized, trimmed)
+		}
+	}
+
+	return normalized
+}
+
+func normalizeLogEntries(logs manifestLogs) []LogEntry {
+	if len(logs) == 0 {
+		return nil
+	}
+
+	normalized := make([]LogEntry, 0)
+	for _, level := range []string{LogLevelInfo, LogLevelError, LogLevelDebug} {
+		for rawLevel, paths := range logs {
+			if NormalizeLogLevel(rawLevel) != level {
+				continue
+			}
+			for _, path := range paths {
+				normalized = append(normalized, LogEntry{
+					Path:  strings.TrimSpace(path),
+					Level: level,
+				})
+			}
 		}
 	}
 

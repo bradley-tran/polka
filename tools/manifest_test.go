@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -80,6 +81,106 @@ download:
 `))
 	if err == nil || !strings.Contains(err.Error(), "deprecated download.catalog") {
 		t.Fatalf("parsePluginManifest(deprecated catalog) error = %v, want catalog error", err)
+	}
+}
+
+func TestParsePluginManifestBuildsLogs(t *testing.T) {
+	manifest, err := parsePluginManifest([]byte(`
+id: demo
+install-candidates:
+  all:
+    - bin/demo
+logs:
+  info:
+    - run/demo/{environment}.log
+  debug:
+    - run/demo/{environment}.debug.log
+`))
+	if err != nil {
+		t.Fatalf("parsePluginManifest() error = %v", err)
+	}
+
+	plugin, err := manifest.toPlugin(pluginHooks{})
+	if err != nil {
+		t.Fatalf("toPlugin() error = %v", err)
+	}
+	want := []LogEntry{
+		{Path: "run/demo/{environment}.log", Level: LogLevelInfo},
+		{Path: "run/demo/{environment}.debug.log", Level: LogLevelDebug},
+	}
+	if !reflect.DeepEqual(plugin.Logs(), want) {
+		t.Fatalf("Logs() = %#v, want %#v", plugin.Logs(), want)
+	}
+}
+
+func TestParsePluginManifestRejectsInvalidLogs(t *testing.T) {
+	absolutePath := filepath.ToSlash(filepath.Join(os.TempDir(), "demo.log"))
+	tests := []struct {
+		name    string
+		logYAML string
+		wantErr string
+	}{
+		{
+			name: "missing path",
+			logYAML: `
+  info:
+    - ""
+`,
+			wantErr: "requires path",
+		},
+		{
+			name: "absolute path",
+			logYAML: `
+  info:
+    - ` + absolutePath + `
+`,
+			wantErr: "must be relative",
+		},
+		{
+			name: "escaping path",
+			logYAML: `
+  info:
+    - ../demo.log
+`,
+			wantErr: "must stay inside the Polka root",
+		},
+		{
+			name: "empty level",
+			logYAML: `
+  "":
+    - run/demo.log
+`,
+			wantErr: "empty level",
+		},
+		{
+			name: "invalid level",
+			logYAML: `
+  trace:
+    - run/demo.log
+`,
+			wantErr: "unsupported level",
+		},
+		{
+			name: "empty paths",
+			logYAML: `
+  info:
+`,
+			wantErr: "requires at least one path",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := parsePluginManifest([]byte(`
+id: demo
+install-candidates:
+  all:
+    - bin/demo
+logs:` + test.logYAML))
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("parsePluginManifest() error = %v, want %q", err, test.wantErr)
+			}
+		})
 	}
 }
 
