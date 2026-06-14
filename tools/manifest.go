@@ -4,6 +4,7 @@ import (
 	"embed"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 
@@ -37,9 +38,10 @@ type manifestPlatformPaths map[string][]string
 type manifestLogs map[string][]string
 
 type manifestDownload struct {
-	GitHub  manifestGitHubDownload    `yaml:"github"`
-	Assets  map[string]downloadAsset  `yaml:"assets"`
-	Catalog map[string]map[string]any `yaml:"catalog"`
+	GitHub       manifestGitHubDownload       `yaml:"github"`
+	ReleaseIndex manifestReleaseIndexDownload `yaml:"release-index"`
+	Assets       map[string]downloadAsset     `yaml:"assets"`
+	Catalog      map[string]map[string]any    `yaml:"catalog"`
 }
 
 type manifestGitHubDownload struct {
@@ -48,10 +50,16 @@ type manifestGitHubDownload struct {
 	TagPrefix string `yaml:"tag-prefix"`
 }
 
+type manifestReleaseIndexDownload struct {
+	URL     string `yaml:"url"`
+	Pattern string `yaml:"pattern"`
+}
+
 type downloadAsset struct {
 	FileName          string            `yaml:"filename"`
 	SourceFileName    string            `yaml:"source-filename"`
 	URL               string            `yaml:"url"`
+	InstallPath       string            `yaml:"install-path"`
 	Checksum          string            `yaml:"checksum"`
 	ChecksumURL       string            `yaml:"checksum-url"`
 	ChecksumAlgorithm checksumAlgorithm `yaml:"checksum-algorithm"`
@@ -148,6 +156,17 @@ func (m pluginManifest) validate() error {
 			return fmt.Errorf("tool manifest %q download.github requires repo", id)
 		}
 	}
+	if m.Download.hasReleaseIndex() {
+		if strings.TrimSpace(m.Download.ReleaseIndex.URL) == "" {
+			return fmt.Errorf("tool manifest %q download.release-index requires url", id)
+		}
+		if strings.TrimSpace(m.Download.ReleaseIndex.Pattern) == "" {
+			return fmt.Errorf("tool manifest %q download.release-index requires pattern", id)
+		}
+		if _, err := regexp.Compile(m.Download.ReleaseIndex.Pattern); err != nil {
+			return fmt.Errorf("tool manifest %q download.release-index has invalid pattern: %w", id, err)
+		}
+	}
 	for platform, asset := range m.Download.Assets {
 		if !validDownloadPlatform(platform) {
 			return fmt.Errorf("tool manifest %q download assets has unsupported platform %q", id, platform)
@@ -162,6 +181,10 @@ func (m pluginManifest) validate() error {
 
 func (d manifestDownload) hasGitHub() bool {
 	return strings.TrimSpace(d.GitHub.Owner) != "" || strings.TrimSpace(d.GitHub.Repo) != ""
+}
+
+func (d manifestDownload) hasReleaseIndex() bool {
+	return strings.TrimSpace(d.ReleaseIndex.URL) != "" || strings.TrimSpace(d.ReleaseIndex.Pattern) != ""
 }
 
 func validateManifestPlatformPaths(tool, field string, paths manifestPlatformPaths) error {
@@ -218,10 +241,19 @@ func validateDownloadAsset(tool, platform string, asset downloadAsset) error {
 	default:
 		return fmt.Errorf("tool manifest %q download assets %s has unsupported checksum algorithm %q", tool, platform, asset.ChecksumAlgorithm)
 	}
-	switch asset.ArchiveFormat {
-	case archiveFormatZip, archiveFormatTarGz, archiveFormatTarXz:
-	default:
-		return fmt.Errorf("tool manifest %q download assets %s has unsupported archive format %q", tool, platform, asset.ArchiveFormat)
+	if strings.TrimSpace(asset.InstallPath) != "" {
+		if err := validateManifestRelativePath(asset.InstallPath); err != nil {
+			return fmt.Errorf("tool manifest %q download assets %s install-path: %w", tool, platform, err)
+		}
+		if asset.ArchiveFormat != "" {
+			return fmt.Errorf("tool manifest %q download assets %s cannot define archive-format with install-path", tool, platform)
+		}
+	} else {
+		switch asset.ArchiveFormat {
+		case archiveFormatZip, archiveFormatTarGz, archiveFormatTarXz:
+		default:
+			return fmt.Errorf("tool manifest %q download assets %s has unsupported archive format %q", tool, platform, asset.ArchiveFormat)
+		}
 	}
 	if strings.TrimSpace(asset.Checksum) != "" {
 		return fmt.Errorf("tool manifest %q download assets %s uses deprecated checksum; use checksum-url or resolver-provided checksum", tool, platform)

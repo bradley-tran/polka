@@ -5,3 +5,13 @@ install-candidates:
     - pie.phar
 dispatch-commands:
   - pie
+download:
+  github:
+    owner: php
+    repo: pie
+  assets:
+    all:
+      filename: pie.phar
+      url: https://github.com/php/pie/releases/download/{tag}/pie.phar
+      install-path: bin/pie.phar
+      checksum-algorithm: sha256

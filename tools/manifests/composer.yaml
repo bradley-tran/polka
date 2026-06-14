@@ -16,3 +16,14 @@ install-candidates:
     - composer.phar
 dispatch-commands:
   - composer
+download:
+  release-index:
+    url: https://getcomposer.org/download/
+    pattern: '(?:https://getcomposer\.org)?/download/([0-9]+(?:\.[0-9]+){1,2}(?:-[0-9A-Za-z.-]+)?)/composer\.phar'
+  assets:
+    all:
+      filename: composer.phar
+      url: https://getcomposer.org/download/{version}/composer.phar
+      checksum-url: https://getcomposer.org/download/{version}/composer.phar.sha256sum
+      checksum-algorithm: sha256
+      install-path: bin/composer.phar

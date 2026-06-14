@@ -142,6 +142,15 @@ func resolveManifestDownloadVersion(client *http.Client, tool, requestedVersion 
 		return "", "", nil, fmt.Errorf("%s version cannot be empty", tool)
 	}
 	if !download.hasGitHub() {
+		if download.hasReleaseIndex() && versionNeedsResolution(requestedVersion) {
+			version, err := resolveReleaseIndexVersion(client, download.ReleaseIndex, requestedVersion)
+			if err != nil {
+				return "", "", nil, fmt.Errorf("resolve %s version %q: %w", tool, requestedVersion, err)
+			}
+
+			return version, version, nil, nil
+		}
+
 		return requestedVersion, requestedVersion, nil, nil
 	}
 
@@ -151,6 +160,59 @@ func resolveManifestDownloadVersion(client *http.Client, tool, requestedVersion 
 	}
 
 	return version, tag, assets, nil
+}
+
+func resolveReleaseIndexVersion(client *http.Client, config manifestReleaseIndexDownload, requested string) (string, error) {
+	page, err := downloadText(client, config.URL, "release index")
+	if err != nil {
+		return "", err
+	}
+
+	return selectReleaseIndexVersion(page, config.Pattern, requested)
+}
+
+func selectReleaseIndexVersion(page, pattern, requested string) (string, error) {
+	requested = strings.TrimSpace(requested)
+	if requested == "" {
+		return "", fmt.Errorf("requested version is empty")
+	}
+
+	matcher, err := regexp.Compile(pattern)
+	if err != nil {
+		return "", fmt.Errorf("compile release index pattern: %w", err)
+	}
+
+	allowPrerelease := strings.Contains(requested, "-")
+	seen := map[string]struct{}{}
+	best := ""
+	for _, match := range matcher.FindAllStringSubmatch(page, -1) {
+		if len(match) < 2 {
+			continue
+		}
+		version := strings.TrimSpace(match[1])
+		if version == "" {
+			continue
+		}
+		if _, ok := seen[version]; ok {
+			continue
+		}
+		seen[version] = struct{}{}
+
+		if !versionMatchesRequest(version, requested) {
+			continue
+		}
+		if !allowPrerelease && strings.Contains(version, "-") {
+			continue
+		}
+		if best == "" || compareVersions(version, best) > 0 {
+			best = version
+		}
+	}
+	if best == "" {
+		return "", fmt.Errorf("no matching release found")
+	}
+
+	return best, nil
 }
 
 func resolveManifestDownloadAsset(tool string, assets map[string]downloadAsset, requestedVersion, resolvedVersion, tag, goos, goarch string, values map[string]string) (databaseDownloadAsset, error) {
@@ -212,6 +274,10 @@ func renderDownloadAsset(asset downloadAsset, requestedVersion, resolvedVersion,
 		return downloadAsset{}, err
 	}
 	asset.SourceFileName, err = renderDownloadTemplate("source-filename", asset.SourceFileName, templateValues)
+	if err != nil {
+		return downloadAsset{}, err
+	}
+	asset.InstallPath, err = renderDownloadTemplate("install-path", asset.InstallPath, templateValues)
 	if err != nil {
 		return downloadAsset{}, err
 	}
@@ -486,6 +552,10 @@ func downloadManifestAsset(client *http.Client, cacheDir, tool, requestedVersion
 			return err
 		}
 		asset.Checksum = checksum
+	}
+	if strings.TrimSpace(asset.InstallPath) != "" {
+		_, err = cacheFilePayload(cacheDir, tool, requestedVersion, downloadedVersion, asset.FileName, asset.URL, asset.InstallPath, asset.ChecksumAlgorithm, asset.Checksum, archivePath)
+		return err
 	}
 
 	_, err = cacheArchivePayload(cacheDir, tool, requestedVersion, downloadedVersion, asset, archivePath)

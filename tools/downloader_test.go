@@ -20,7 +20,7 @@ import (
 	"github.com/ulikunitz/xz"
 )
 
-func TestSelectComposerReleaseVersionPrefersStablePatchForMinorLabel(t *testing.T) {
+func TestSelectReleaseIndexVersionPrefersStablePatchForMinorLabel(t *testing.T) {
 	page := strings.Join([]string{
 		`<a href="https://getcomposer.org/download/2.10.0-RC2/composer.phar">rc</a>`,
 		`<a href="https://getcomposer.org/download/2.9.8/composer.phar">stable</a>`,
@@ -28,21 +28,22 @@ func TestSelectComposerReleaseVersionPrefersStablePatchForMinorLabel(t *testing.
 		`<a href="https://getcomposer.org/download/2.8.11/composer.phar">minor-older</a>`,
 		`<a href="https://getcomposer.org/download/2.2.28/composer.phar">lts</a>`,
 	}, "\n")
+	pattern := `(?:https://getcomposer\.org)?/download/([0-9]+(?:\.[0-9]+){1,2}(?:-[0-9A-Za-z.-]+)?)/composer\.phar`
 
-	version, err := selectComposerReleaseVersion(page, "2.8")
+	version, err := selectReleaseIndexVersion(page, pattern, "2.8")
 	if err != nil {
-		t.Fatalf("selectComposerReleaseVersion(2.8) error = %v", err)
+		t.Fatalf("selectReleaseIndexVersion(2.8) error = %v", err)
 	}
 	if version != "2.8.12" {
-		t.Fatalf("selectComposerReleaseVersion(2.8) = %q, want %q", version, "2.8.12")
+		t.Fatalf("selectReleaseIndexVersion(2.8) = %q, want %q", version, "2.8.12")
 	}
 
-	version, err = selectComposerReleaseVersion(page, "2")
+	version, err = selectReleaseIndexVersion(page, pattern, "2")
 	if err != nil {
-		t.Fatalf("selectComposerReleaseVersion(2) error = %v", err)
+		t.Fatalf("selectReleaseIndexVersion(2) error = %v", err)
 	}
 	if version != "2.9.8" {
-		t.Fatalf("selectComposerReleaseVersion(2) = %q, want %q", version, "2.9.8")
+		t.Fatalf("selectReleaseIndexVersion(2) = %q, want %q", version, "2.9.8")
 	}
 }
 
@@ -487,17 +488,17 @@ func TestResolveMagoDownloadAssetSupportsSeriesLabels(t *testing.T) {
 	}
 }
 
-func TestDownloadPIESupportsSeriesLabelsAndVerifiesDigest(t *testing.T) {
-	payload := []byte("pie phar\n")
+func TestDownloadManifestFileAssetSupportsSeriesLabelsAndVerifiesDigest(t *testing.T) {
+	payload := []byte("manifest file payload\n")
 	checksum := checksumForBytes(t, checksumAlgorithmSHA256, payload)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/repos/php/pie/releases":
 			_, _ = w.Write([]byte(`[
-				{"tag_name":"1.4.5","assets":[{"name":"pie.phar","browser_download_url":"` + "http://" + r.Host + `/pie.phar","digest":"sha256:` + checksum + `"}]},
-				{"tag_name":"1.4.6-RC1","prerelease":true,"assets":[{"name":"pie.phar","browser_download_url":"` + "http://" + r.Host + `/pie-rc.phar"}]}
+				{"tag_name":"1.4.5","assets":[{"name":"pie.phar","digest":"sha256:` + checksum + `"}]},
+				{"tag_name":"1.4.6-RC1","prerelease":true,"assets":[{"name":"pie.phar"}]}
 			]`))
-		case "/pie.phar":
+		case "/downloads/1.4.5/pie.phar":
 			_, _ = w.Write(payload)
 		default:
 			http.NotFound(w, r)
@@ -507,9 +508,20 @@ func TestDownloadPIESupportsSeriesLabelsAndVerifiesDigest(t *testing.T) {
 
 	withTemporaryString(t, &githubAPIBaseURL, server.URL)
 
+	download := manifestDownload{
+		GitHub: manifestGitHubDownload{Owner: "php", Repo: "pie"},
+		Assets: map[string]downloadAsset{
+			"all": {
+				FileName:          "pie.phar",
+				URL:               server.URL + "/downloads/{tag}/pie.phar",
+				InstallPath:       "bin/pie.phar",
+				ChecksumAlgorithm: checksumAlgorithmSHA256,
+			},
+		},
+	}
 	cacheDir := t.TempDir()
-	if err := downloadPIE(server.Client(), cacheDir, "1.4"); err != nil {
-		t.Fatalf("downloadPIE() error = %v", err)
+	if err := downloadManifestAssetForRequest(server.Client(), cacheDir, PIE, "1.4", download, "windows", "amd64"); err != nil {
+		t.Fatalf("downloadManifestAssetForRequest() error = %v", err)
 	}
 
 	cachedPayload, err := CachedToolPayload(cacheDir, PIE, "1.4")
@@ -521,7 +533,7 @@ func TestDownloadPIESupportsSeriesLabelsAndVerifiesDigest(t *testing.T) {
 		t.Fatalf("ReadFile(downloaded pie.phar) error = %v", err)
 	}
 	if string(data) != string(payload) {
-		t.Fatalf("downloaded pie.phar = %q, want %q", string(data), string(payload))
+		t.Fatalf("downloaded manifest file = %q, want %q", string(data), string(payload))
 	}
 	metadata, err := readToolCacheMetadata(filepath.Join(cacheDir, PIE), PIE)
 	if err != nil {
@@ -529,27 +541,31 @@ func TestDownloadPIESupportsSeriesLabelsAndVerifiesDigest(t *testing.T) {
 	}
 	entry := metadata.Versions["1.4"]
 	if entry.DownloadedVersion != "1.4.5" || entry.PayloadKind != payloadKindFile || entry.Checksum != checksum {
-		t.Fatalf("pie metadata entry = %#v, want resolved file payload with checksum", entry)
+		t.Fatalf("metadata entry = %#v, want resolved file payload with checksum", entry)
+	}
+	if entry.InstallPath != "bin/pie.phar" {
+		t.Fatalf("metadata install path = %q, want bin/pie.phar", entry.InstallPath)
 	}
 }
 
-func TestResolvePIEDownloadAssetAllowsRequestedPrerelease(t *testing.T) {
+func TestManifestDownloadVersionAllowsRequestedPrerelease(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`[
-			{"tag_name":"1.4.5","assets":[{"name":"pie.phar","browser_download_url":"https://example.test/pie.phar"}]},
-			{"tag_name":"1.4.6-RC1","prerelease":true,"assets":[{"name":"pie.phar","browser_download_url":"https://example.test/pie-rc.phar"}]}
+			{"tag_name":"1.4.5","assets":[{"name":"pie.phar"}]},
+			{"tag_name":"1.4.6-RC1","prerelease":true,"assets":[{"name":"pie.phar"}]}
 		]`))
 	}))
 	defer server.Close()
 
 	withTemporaryString(t, &githubAPIBaseURL, server.URL)
 
-	resolvedVersion, asset, err := resolvePIEDownloadAsset(server.Client(), "1.4.6-RC1")
+	download := manifestDownload{GitHub: manifestGitHubDownload{Owner: "php", Repo: "pie"}}
+	resolvedVersion, tag, _, err := resolveManifestDownloadVersion(server.Client(), PIE, "1.4.6-RC1", download)
 	if err != nil {
-		t.Fatalf("resolvePIEDownloadAsset() error = %v", err)
+		t.Fatalf("resolveManifestDownloadVersion() error = %v", err)
 	}
-	if resolvedVersion != "1.4.6-RC1" || asset.BrowserDownloadURL != "https://example.test/pie-rc.phar" {
-		t.Fatalf("resolvePIEDownloadAsset() = (%q, %#v), want prerelease pie.phar", resolvedVersion, asset)
+	if resolvedVersion != "1.4.6-RC1" || tag != "1.4.6-RC1" {
+		t.Fatalf("resolveManifestDownloadVersion() = (%q, %q), want prerelease", resolvedVersion, tag)
 	}
 }
 
