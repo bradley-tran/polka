@@ -194,10 +194,10 @@ func TestStoreUseSyncsManagedBinariesForCurrentEnvironment(t *testing.T) {
 	store := NewProjectStore(projectDir)
 	store.CacheDir = filepath.Join(projectDir, "global-cache")
 
-	if _, err := store.Configure("php-only", "8.4", "", nil); err != nil {
+	if _, err := store.Configure("php-only", "8.4", "", "", nil); err != nil {
 		t.Fatalf("Configure(php-only) error = %v", err)
 	}
-	if _, err := store.Configure("db-only", "", "", &DatabaseConfig{Engine: toolMariaDB, Version: "11.4"}); err != nil {
+	if _, err := store.Configure("db-only", "", "", "", &DatabaseConfig{Engine: toolMariaDB, Version: "11.4"}); err != nil {
 		t.Fatalf("Configure(db-only) error = %v", err)
 	}
 
@@ -283,10 +283,10 @@ func TestStoreUseDefaultClearsActiveEnvironmentOverride(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
 
-	if _, err := store.Configure(defaultEnvironmentName, "8.4", "", nil); err != nil {
+	if _, err := store.Configure(defaultEnvironmentName, "8.4", "", "", nil); err != nil {
 		t.Fatalf("Configure(default) error = %v", err)
 	}
-	if _, err := store.Configure("demo", "8.3", "", nil); err != nil {
+	if _, err := store.Configure("demo", "8.3", "", "", nil); err != nil {
 		t.Fatalf("Configure(demo) error = %v", err)
 	}
 	if err := store.Use("demo"); err != nil {
@@ -445,7 +445,7 @@ func TestStoreInstallCopiesToolIntoVersionedLayout(t *testing.T) {
 	store.CacheDir = filepath.Join(projectDir, "global-cache")
 	cachePHP := writeCachedTool(t, store.CacheDir, toolPHP, "8.4")
 
-	if _, err := store.Configure("demo", "8.4", "", nil); err != nil {
+	if _, err := store.Configure("demo", "8.4", "", "", nil); err != nil {
 		t.Fatalf("Configure(demo) error = %v", err)
 	}
 
@@ -791,7 +791,7 @@ func TestStoreConfigurePreservesExistingConfigComments(t *testing.T) {
 		t.Fatalf("WriteFile(demo config) error = %v", err)
 	}
 
-	if _, err := store.Configure("demo", "8.3", "", nil); err != nil {
+	if _, err := store.Configure("demo", "8.3", "", "", nil); err != nil {
 		t.Fatalf("Configure(demo) error = %v", err)
 	}
 
@@ -946,7 +946,7 @@ func TestStoreInstallDownloadsWhenCacheMissing(t *testing.T) {
 		return nil
 	})
 
-	if _, err := store.Configure("demo", "8.4", "2.8", nil); err != nil {
+	if _, err := store.Configure("demo", "8.4", "2.8", "24", nil); err != nil {
 		t.Fatalf("Configure(demo) error = %v", err)
 	}
 
@@ -954,8 +954,8 @@ func TestStoreInstallDownloadsWhenCacheMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install(demo) error = %v", err)
 	}
-	if len(results) != 2 {
-		t.Fatalf("Install(demo) length = %d, want 2", len(results))
+	if len(results) != 3 {
+		t.Fatalf("Install(demo) length = %d, want 3", len(results))
 	}
 	for _, result := range results {
 		if !result.Downloaded {
@@ -984,7 +984,7 @@ func TestStoreInstallTreatsExtractedCacheWithoutMetadataAsMissing(t *testing.T) 
 		return nil
 	})
 
-	if _, err := store.Configure("demo", "8.4", "", nil); err != nil {
+	if _, err := store.Configure("demo", "8.4", "", "", nil); err != nil {
 		t.Fatalf("Configure(demo) error = %v", err)
 	}
 	results, err := store.Install("demo")
@@ -1018,7 +1018,7 @@ func TestStoreInstallRedownloadsCacheWithChecksumMismatch(t *testing.T) {
 		return nil
 	})
 
-	if _, err := store.Configure("demo", "8.4", "", nil); err != nil {
+	if _, err := store.Configure("demo", "8.4", "", "", nil); err != nil {
 		t.Fatalf("Configure(demo) error = %v", err)
 	}
 	results, err := store.Install("demo")
@@ -1043,7 +1043,7 @@ func TestStoreInstallWithProgressReportsStages(t *testing.T) {
 		return nil
 	})
 
-	if _, err := store.Configure("demo", "8.4", "", &DatabaseConfig{Engine: toolMySQL, Version: "8.4"}); err != nil {
+	if _, err := store.Configure("demo", "8.4", "", "", &DatabaseConfig{Engine: toolMySQL, Version: "8.4"}); err != nil {
 		t.Fatalf("Configure(demo) error = %v", err)
 	}
 
@@ -1084,7 +1084,7 @@ func TestStoreInstallDownloadsConfiguredDatabase(t *testing.T) {
 		return nil
 	})
 
-	if _, err := store.Configure("demo", "", "", &DatabaseConfig{Engine: toolMySQL, Version: "8.4"}); err != nil {
+	if _, err := store.Configure("demo", "", "", "", &DatabaseConfig{Engine: toolMySQL, Version: "8.4"}); err != nil {
 		t.Fatalf("Configure(demo) error = %v", err)
 	}
 
@@ -1177,6 +1177,7 @@ func TestStoreInstallDownloadsMultipleConfiguredDatabases(t *testing.T) {
 	config.Environments["demo"] = Environment{
 		MySQLVersion:   "8.4",
 		MariaDBVersion: "11.8",
+		NodeJSVersion:  "24",
 		Database:       &DatabaseConfig{Engine: toolMariaDB, Version: "11.8", Port: 3307},
 	}
 	if err := store.writeConfig(config); err != nil {
@@ -1187,14 +1188,15 @@ func TestStoreInstallDownloadsMultipleConfiguredDatabases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install(demo) error = %v", err)
 	}
-	if len(results) != 2 {
-		t.Fatalf("Install(demo) length = %d, want 2", len(results))
+	if len(results) != 3 {
+		t.Fatalf("Install(demo) length = %d, want 3", len(results))
 	}
 	got := []string{
 		results[0].Tool + ":" + results[0].Version,
 		results[1].Tool + ":" + results[1].Version,
+		results[2].Tool + ":" + results[2].Version,
 	}
-	want := []string{"mysql:8.4", "mariadb:11.8"}
+	want := []string{"nodejs:24", "mysql:8.4", "mariadb:11.8"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Install(demo) results = %#v, want %#v", got, want)
 	}
@@ -1501,7 +1503,7 @@ func TestWindowsDispatchBinarySupportsCopiedShimWithInheritedDispatcher(t *testi
 	store := NewProjectStore(projectDir)
 	store.CacheDir = filepath.Join(projectDir, "global-cache")
 
-	if _, err := store.ConfigureWithNodeJS("demo", "", "", "24", nil); err != nil {
+	if _, err := store.Configure("demo", "", "", "24", nil); err != nil {
 		t.Fatalf("ConfigureWithNodeJS(demo) error = %v", err)
 	}
 	if err := store.Use("demo"); err != nil {
@@ -1580,7 +1582,7 @@ func TestStoreInstallWritesPHPExtensionConfig(t *testing.T) {
 		t.Fatalf("MkdirAll(ext) error = %v", err)
 	}
 
-	if _, err := store.Configure("demo", "8.4", "", nil); err != nil {
+	if _, err := store.Configure("demo", "8.4", "", "", nil); err != nil {
 		t.Fatalf("Configure(demo) error = %v", err)
 	}
 
@@ -1636,7 +1638,7 @@ func TestStoreInstallEnablesComposerPHPExtensionsByDefault(t *testing.T) {
 		t.Fatalf("MkdirAll(ext) error = %v", err)
 	}
 
-	if _, err := store.Configure("demo", "8.4", "2.8", nil); err != nil {
+	if _, err := store.Configure("demo", "8.4", "2.8", "24", nil); err != nil {
 		t.Fatalf("Configure(demo) error = %v", err)
 	}
 
@@ -1644,8 +1646,8 @@ func TestStoreInstallEnablesComposerPHPExtensionsByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install(demo) error = %v", err)
 	}
-	if len(results) != 2 {
-		t.Fatalf("Install(demo) length = %d, want 2", len(results))
+	if len(results) != 3 {
+		t.Fatalf("Install(demo) length = %d, want 3", len(results))
 	}
 
 	phpIniData, err := os.ReadFile(filepath.Join(store.RootDir, "envs", "php", "8.4", "bin", "php.ini"))
@@ -1671,7 +1673,7 @@ func TestStoreInstallComposerDefaultsHonorExplicitFalse(t *testing.T) {
 		t.Fatalf("MkdirAll(ext) error = %v", err)
 	}
 
-	if _, err := store.Configure("demo", "8.4", "2.8", nil); err != nil {
+	if _, err := store.Configure("demo", "8.4", "2.8", "24", nil); err != nil {
 		t.Fatalf("Configure(demo) error = %v", err)
 	}
 
@@ -2027,7 +2029,7 @@ func TestStoreCreateRejectsExistingEnvironment(t *testing.T) {
 	store := NewProjectStore(projectDir)
 	store.CacheDir = filepath.Join(projectDir, "global-cache")
 
-	environment, err := store.Create("demo", "8.4", "2.8", nil)
+	environment, err := store.Create("demo", "8.4", "2.8", "24", nil)
 	if err != nil {
 		t.Fatalf("Create(demo) error = %v", err)
 	}
@@ -2035,7 +2037,7 @@ func TestStoreCreateRejectsExistingEnvironment(t *testing.T) {
 		t.Fatalf("Create(demo) = %#v, want configured versions", environment)
 	}
 
-	if _, err := store.Create("demo", "8.3", "2.7", nil); err == nil {
+	if _, err := store.Create("demo", "8.3", "2.7", "22", nil); err == nil {
 		t.Fatal("Create(demo) second call error = nil, want already exists error")
 	} else if !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("Create(demo) second call error = %v, want already exists error", err)
@@ -2077,7 +2079,7 @@ func TestStoreCreatePreservesExistingConfigComments(t *testing.T) {
 		t.Fatalf("WriteFile(demo config) error = %v", err)
 	}
 
-	if _, err := store.Create("api", "8.3", "2.7", nil); err != nil {
+	if _, err := store.Create("api", "8.3", "2.7", "22", nil); err != nil {
 		t.Fatalf("Create(api) error = %v", err)
 	}
 
@@ -2112,7 +2114,7 @@ func TestStoreConfigureLifecycleUsesVersionLabels(t *testing.T) {
 	phpCachePath := writeCachedTool(t, store.CacheDir, toolPHP, "8.4")
 	composerCachePath := writeCachedTool(t, store.CacheDir, toolComposer, "2.8")
 
-	environment, err := store.Configure("api", "8.4", "2.8", nil)
+	environment, err := store.Configure("api", "8.4", "2.8", "24", nil)
 	if err != nil {
 		t.Fatalf("Configure(api) error = %v", err)
 	}
@@ -2120,7 +2122,7 @@ func TestStoreConfigureLifecycleUsesVersionLabels(t *testing.T) {
 		t.Fatalf("Configure(api) = %#v, want version labels", environment)
 	}
 
-	if _, err := store.Configure("web", "8.3", "", nil); err != nil {
+	if _, err := store.Configure("web", "8.3", "", "22", nil); err != nil {
 		t.Fatalf("Configure(web) error = %v", err)
 	}
 	writeCachedTool(t, store.CacheDir, toolPHP, "8.3")
@@ -2129,8 +2131,8 @@ func TestStoreConfigureLifecycleUsesVersionLabels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install(api) error = %v", err)
 	}
-	if len(installResults) != 2 {
-		t.Fatalf("Install(api) length = %d, want 2", len(installResults))
+	if len(installResults) != 3 {
+		t.Fatalf("Install(api) length = %d, want 3", len(installResults))
 	}
 
 	environments, err := store.List()
@@ -2285,7 +2287,7 @@ func TestStoreConfigureNormalizesDatabaseConfig(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
 
-	environment, err := store.Configure("data", "", "", &DatabaseConfig{Engine: " MySQL ", Version: " 8.0 ", Port: 3306})
+	environment, err := store.Configure("data", "", "", "", &DatabaseConfig{Engine: " MySQL ", Version: " 8.0 ", Port: 3306})
 	if err != nil {
 		t.Fatalf("Configure(data) error = %v", err)
 	}
@@ -2310,7 +2312,7 @@ func TestStoreWritesDatabaseToolVersionAndRootRuntimeConfig(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
 
-	if _, err := store.Configure("data", "", "", &DatabaseConfig{Engine: toolMariaDB, Version: "11.8", Port: 3307}); err != nil {
+	if _, err := store.Configure("data", "", "", "", &DatabaseConfig{Engine: toolMariaDB, Version: "11.8", Port: 3307}); err != nil {
 		t.Fatalf("Configure(data) error = %v", err)
 	}
 

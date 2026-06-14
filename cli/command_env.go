@@ -328,7 +328,7 @@ func runInstall(stdout io.Writer, store backend.Store, input installCommandInput
 }
 
 func runNew(stdout io.Writer, store backend.Store, input newCommandInput) error {
-	environment, err := store.CreateWithNodeJS(input.Name, input.PHPVersion, input.ComposerVersion, input.NodeJSVersion, input.Database)
+	environment, err := store.Create(input.Name, input.PHPVersion, input.ComposerVersion, input.NodeJSVersion, input.Database)
 	if err != nil {
 		return err
 	}

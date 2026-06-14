@@ -406,19 +406,11 @@ func (s Store) List() ([]Environment, error) {
 	return environments, nil
 }
 
-func (s Store) Create(name, phpVersion, composerVersion string, database *DatabaseConfig) (Environment, error) {
-	return s.CreateWithNodeJS(name, phpVersion, composerVersion, "", database)
-}
-
-func (s Store) Configure(name, phpVersion, composerVersion string, database *DatabaseConfig) (Environment, error) {
-	return s.ConfigureWithNodeJS(name, phpVersion, composerVersion, "", database)
-}
-
-func (s Store) CreateWithNodeJS(name, phpVersion, composerVersion, nodeJSVersion string, database *DatabaseConfig) (Environment, error) {
+func (s Store) Create(name, phpVersion, composerVersion, nodeJSVersion string, database *DatabaseConfig) (Environment, error) {
 	return s.writeEnvironment(name, phpVersion, composerVersion, nodeJSVersion, database, false)
 }
 
-func (s Store) ConfigureWithNodeJS(name, phpVersion, composerVersion, nodeJSVersion string, database *DatabaseConfig) (Environment, error) {
+func (s Store) Configure(name, phpVersion, composerVersion, nodeJSVersion string, database *DatabaseConfig) (Environment, error) {
 	return s.writeEnvironment(name, phpVersion, composerVersion, nodeJSVersion, database, true)
 }
 

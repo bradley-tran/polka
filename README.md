@@ -7,29 +7,29 @@ Polka is a CLI tool for managing PHP virtual environments. It provides a consist
 From a PHP project directory:
 
 ```bash
-go run . init
-go run . new blog
-go run . install --env blog
-go run . use blog
-go run . exec php -v
+polka init
+polka new blog
+polka install --env blog
+polka use blog
+polka exec php -v
 ```
 
-`go run . init` creates `polka.yaml` and local helper scripts, enabling HTTPS and using `<directory>.localhost` as the default server hostname. Add `--docroot PATH` to set the generated default environment's docroot. Use `go run . init laravel` or `go run . init symfony` instead to write a config-only framework preset; `drupal` and `wordpress` are also supported. With a framework, `--docroot PATH` overrides the preset docroot, for example `go run . init drupal --docroot drupal/web`. Framework init does not create app files, install tools, or start services, and it fails when `polka.yaml` already exists.
+`polka init` creates `polka.yaml` and local helper scripts, enabling HTTPS and using `<directory>.localhost` as the default server hostname. Add `--docroot PATH` to set the generated default environment's docroot. Use `polka init laravel` or `polka init symfony` instead to write a config-only framework preset; `drupal` and `wordpress` are also supported. Framework init does not create app files, install tools, or start services, and it fails when `polka.yaml` already exists.
 
-The remaining commands add a named `blog` environment in `polka.blog.yaml`, install its configured tools into `.polka/envs`, select it as the active environment, and run PHP through Polka's local command resolution. To install a single tool version directly, use a `tool:version` argument such as `go run . install php:8.4`.
+The remaining commands add a named `blog` environment in `polka.blog.yaml`, install its configured tools into `.polka/envs`, select it as the active environment, and run PHP through Polka's local command resolution. To install a single tool version directly, use a `tool:version` argument such as `polka install php:8.4`.
 
 Start a local web server when your project has a document root:
 
 ```bash
-go run . serve public
-go run . status
-go run . stop
+polka serve public
+polka status
+polka stop
 ```
 
 For an interactive shell with `.polka/bin` and `vendor/bin` first on `PATH`, use:
 
 ```bash
-go run . sh
+polka sh
 ```
 
 For the full command reference, see [docs/commands.md](docs/commands.md). For the package layout and architecture, see [docs/architecture.md](docs/architecture.md).
@@ -38,7 +38,7 @@ For the full command reference, see [docs/commands.md](docs/commands.md). For th
 
 Polka config files store portable version labels under `tools` and non-version tool options under `settings`. The default environment lives in `polka.yaml`; named environments live in `polka.<name>.yaml`.
 
-Use `go run . config <key> <value>` to update the current environment, or `go run . config --env blog <key> <value>` to update a named environment. Keys are dot-separated config paths such as `tools.php`, `tools.pie`, `database.engine`, and `settings.mailpit.smtp-port`.
+Use `polka config <key> <value>` to update the current environment, or `polka config --env blog <key> <value>` to update a named environment. Keys are dot-separated config paths such as `tools.php`, `tools.pie`, `database.engine`, and `settings.mailpit.smtp-port`.
 
 ```yaml
 # polka.yaml
