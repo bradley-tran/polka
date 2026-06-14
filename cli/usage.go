@@ -195,6 +195,7 @@ const logsUsage = `Usage:
   polka logs <tool> [--level info|error|debug]
 
 Print existing log files declared by a managed tool's manifest for the active environment.
+Manifest log paths are resolved under <root>/run/<tool>/<environment>.
 When --level is omitted, Polka prints info, error, and debug logs in that order.
 Missing log files are skipped. If no matching declared log file exists on disk, the command exits with an error.
 `

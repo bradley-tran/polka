@@ -445,7 +445,16 @@ func DatabaseStatePath(rootDir, environmentName string) string {
 }
 
 func DatabaseLogPath(rootDir, environmentName string) string {
-	return filepath.Join(rootDir, managedDatabaseStateDirectory, managedDatabaseStateSubdirectory, environmentName+".log")
+	return DatabaseEngineLogPath(rootDir, "", environmentName)
+}
+
+func DatabaseEngineLogPath(rootDir, engine, environmentName string) string {
+	tool := strings.ToLower(strings.TrimSpace(engine))
+	if tool == "" {
+		tool = managedDatabaseStateSubdirectory
+	}
+
+	return filepath.Join(ToolLogRoot(rootDir, tool, environmentName), "server.log")
 }
 
 func LegacyDatabaseDataPath(rootDir, environmentName string) string {
@@ -611,7 +620,7 @@ func buildManagedDatabaseServerSpec(store Store, resolved ResolvedDatabaseEnviro
 		Target:           target,
 		AdminTarget:      adminTarget,
 		DataDir:          dataDir,
-		LogPath:          DatabaseLogPath(store.RootDir, resolved.Environment.Name),
+		LogPath:          DatabaseEngineLogPath(store.RootDir, resolved.Database.Engine, resolved.Environment.Name),
 		DefaultsFile:     DatabaseDefaultsFilePath(store.RootDir, resolved.Environment.Name),
 		BootstrapSQLFile: DatabaseBootstrapSQLPath(store.RootDir, resolved.Environment.Name),
 		Port:             credentials.Port,

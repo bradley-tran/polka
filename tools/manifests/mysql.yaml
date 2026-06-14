@@ -14,7 +14,7 @@ dispatch-commands:
   - mysql
 logs:
   error:
-    - run/db/{environment}.log
+    - server.log
 download:
   assets:
     windows-amd64:

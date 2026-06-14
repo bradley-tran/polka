@@ -187,7 +187,7 @@ func validateManifestRelativePath(candidate string) error {
 }
 
 func validateManifestLogPath(path string) error {
-	return validateManifestContainedPath(path, "log path", "Polka root")
+	return validateManifestContainedPath(path, "log path", "tool log root")
 }
 
 func validateManifestContainedPath(candidate, label, rootLabel string) error {

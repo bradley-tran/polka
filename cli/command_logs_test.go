@@ -15,10 +15,10 @@ func TestRunLogsPrintsAllExistingNginxLogs(t *testing.T) {
 	stderr := &bytes.Buffer{}
 
 	writeLogsTestConfig(t, projectDir)
-	writeTestLogFile(t, filepath.Join(root, "run", "serve", "demo", "logs", "access.log"), "access\n")
-	writeTestLogFile(t, filepath.Join(root, "run", "serve", "demo", "logs", "error.log"), "error\n")
-	writeTestLogFile(t, filepath.Join(root, "run", "serve", "demo", "serve.log"), "debug-serve\n")
-	writeTestLogFile(t, filepath.Join(root, "run", "serve", "demo", "php.log"), "debug-php\n")
+	writeTestLogFile(t, filepath.Join(root, "run", "nginx", "demo", "logs", "access.log"), "access\n")
+	writeTestLogFile(t, filepath.Join(root, "run", "nginx", "demo", "logs", "error.log"), "error\n")
+	writeTestLogFile(t, filepath.Join(root, "run", "nginx", "demo", "serve.log"), "debug-serve\n")
+	writeTestLogFile(t, filepath.Join(root, "run", "nginx", "demo", "php.log"), "debug-php\n")
 
 	if code := Run(stdout, stderr, []string{"--root", root, "logs", "nginx"}); code != 0 {
 		t.Fatalf("Run(logs nginx) code = %d, stderr = %q", code, stderr.String())
@@ -36,8 +36,8 @@ func TestRunLogsFiltersByLevel(t *testing.T) {
 	stderr := &bytes.Buffer{}
 
 	writeLogsTestConfig(t, projectDir)
-	writeTestLogFile(t, filepath.Join(root, "run", "serve", "demo", "logs", "access.log"), "access\n")
-	writeTestLogFile(t, filepath.Join(root, "run", "serve", "demo", "logs", "error.log"), "error\n")
+	writeTestLogFile(t, filepath.Join(root, "run", "nginx", "demo", "logs", "access.log"), "access\n")
+	writeTestLogFile(t, filepath.Join(root, "run", "nginx", "demo", "logs", "error.log"), "error\n")
 
 	if code := Run(stdout, stderr, []string{"--root", root, "logs", "nginx", "--level", "error"}); code != 0 {
 		t.Fatalf("Run(logs nginx --level error) code = %d, stderr = %q", code, stderr.String())

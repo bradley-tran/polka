@@ -180,7 +180,7 @@ polka logs mailpit
 polka logs mariadb --level error
 ```
 
-When `--level` is omitted, Polka prints `info`, `error`, and `debug` logs in that order. Missing log files are skipped. If no matching declared log file exists on disk, the command exits with an error. The first implementation declares logs for `nginx`, `mailpit`, `phpmyadmin`, `mysql`, and `mariadb`.
+Manifest log paths are resolved under `.polka/run/<tool>/<environment>`. When `--level` is omitted, Polka prints `info`, `error`, and `debug` logs in that order. Missing log files are skipped. If no matching declared log file exists on disk, the command exits with an error. The first implementation declares logs for `nginx`, `mailpit`, `phpmyadmin`, `mysql`, and `mariadb`.
 
 ### `polka cert-install`
 

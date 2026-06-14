@@ -344,7 +344,7 @@ func runNginxServe(stdout, stderr io.Writer, store backend.Store, environment ba
 		return 0, err
 	}
 
-	runtimeDir := serveRuntimeDir(store.RootDir, environment.Name)
+	runtimeDir := backend.ToolLogRoot(store.RootDir, "nginx", environment.Name)
 	configPath, phpLogPath, err := prepareNginxServeRuntime(store.CacheDir, runtimeDir, environment, endpoint, layout, backendAddress)
 	if err != nil {
 		return 0, err
@@ -378,7 +378,7 @@ func runNginxServe(stdout, stderr io.Writer, store backend.Store, environment ba
 }
 
 func startNginxServeInBackground(store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout) (serveRuntimeState, error) {
-	return startNginxServeInBackgroundAt(store, environment, endpoint, layout, serveRuntimeDir(store.RootDir, environment.Name))
+	return startNginxServeInBackgroundAt(store, environment, endpoint, layout, backend.ToolLogRoot(store.RootDir, "nginx", environment.Name))
 }
 
 func startNginxServeInBackgroundAt(store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout, runtimeDir string) (serveRuntimeState, error) {

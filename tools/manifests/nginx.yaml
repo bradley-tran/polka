@@ -10,12 +10,12 @@ dispatch-commands:
   - nginx
 logs:
   info:
-    - run/serve/{environment}/logs/access.log
+    - logs/access.log
   error:
-    - run/serve/{environment}/logs/error.log
+    - logs/error.log
   debug:
-    - run/serve/{environment}/serve.log
-    - run/serve/{environment}/php.log
+    - serve.log
+    - php.log
 download:
   assets:
     windows-amd64:

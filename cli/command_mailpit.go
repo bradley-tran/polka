@@ -301,7 +301,7 @@ func mailpitStatePath(rootDir, environmentName string) string {
 }
 
 func mailpitLogPath(rootDir, environmentName string) string {
-	return filepath.Join(rootDir, managedMailpitStateDirectory, managedMailpitStateSubdirectory, environmentName+"."+managedMailpitLogFileName)
+	return filepath.Join(backend.ToolLogRoot(rootDir, "mailpit", environmentName), managedMailpitLogFileName)
 }
 
 func mailpitUIURL(state mailpitRuntimeState) string {

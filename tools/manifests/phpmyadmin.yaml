@@ -4,12 +4,12 @@ install-candidates:
     - index.php
 logs:
   info:
-    - run/phpmyadmin/{environment}/logs/access.log
+    - logs/access.log
   error:
-    - run/phpmyadmin/{environment}/logs/error.log
+    - logs/error.log
   debug:
-    - run/phpmyadmin/{environment}/serve.log
-    - run/phpmyadmin/{environment}/php.log
+    - serve.log
+    - php.log
 download:
   assets:
     all:

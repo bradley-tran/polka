@@ -10,7 +10,7 @@ dispatch-commands:
   - mailpit
 logs:
   info:
-    - run/mailpit/{environment}.mailpit.log
+    - mailpit.log
 download:
   github:
     owner: axllent

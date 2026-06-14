@@ -1073,7 +1073,7 @@ func (s Store) ResolveToolLogs(tool, level string) ([]ToolLogEntry, error) {
 			continue
 		}
 
-		path, err := resolveToolLogPath(s.RootDir, entry.Path, current.Name)
+		path, err := resolveToolLogPath(s.RootDir, request.ConfigTool, current.Name, entry.Path)
 		if err != nil {
 			return nil, err
 		}
@@ -1089,8 +1089,18 @@ func (s Store) ResolveToolLogs(tool, level string) ([]ToolLogEntry, error) {
 	return resolved, nil
 }
 
-func resolveToolLogPath(rootDir, pathTemplate, environmentName string) (string, error) {
-	relativePath := strings.ReplaceAll(strings.TrimSpace(pathTemplate), "{environment}", strings.TrimSpace(environmentName))
+// ToolLogRoot returns the predictable log root for one managed tool in one environment.
+func ToolLogRoot(rootDir, tool, environmentName string) string {
+	name := strings.TrimSpace(environmentName)
+	if name == "" {
+		name = "current"
+	}
+
+	return filepath.Join(rootDir, runDirectoryName, strings.ToLower(strings.TrimSpace(tool)), name)
+}
+
+func resolveToolLogPath(rootDir, tool, environmentName, pathTemplate string) (string, error) {
+	relativePath := strings.TrimSpace(pathTemplate)
 	if relativePath == "" {
 		return "", fmt.Errorf("tool log path cannot be empty")
 	}
@@ -1099,9 +1109,9 @@ func resolveToolLogPath(rootDir, pathTemplate, environmentName string) (string, 
 		return "", fmt.Errorf("tool log path %q must be relative", pathTemplate)
 	}
 
-	root, err := filepath.Abs(rootDir)
+	root, err := filepath.Abs(ToolLogRoot(rootDir, tool, environmentName))
 	if err != nil {
-		return "", fmt.Errorf("resolve Polka root directory: %w", err)
+		return "", fmt.Errorf("resolve tool log root: %w", err)
 	}
 	candidate, err := filepath.Abs(filepath.Join(root, nativeRelativePath))
 	if err != nil {
@@ -1112,7 +1122,7 @@ func resolveToolLogPath(rootDir, pathTemplate, environmentName string) (string, 
 		return "", fmt.Errorf("resolve tool log path %q: %w", pathTemplate, err)
 	}
 	if relativeToRoot == "." || relativeToRoot == ".." || strings.HasPrefix(relativeToRoot, ".."+string(filepath.Separator)) || filepath.IsAbs(relativeToRoot) {
-		return "", fmt.Errorf("tool log path %q must stay inside the Polka root", pathTemplate)
+		return "", fmt.Errorf("tool log path %q must stay inside the tool log root", pathTemplate)
 	}
 
 	return candidate, nil

@@ -92,9 +92,9 @@ install-candidates:
     - bin/demo
 logs:
   info:
-    - run/demo/{environment}.log
+    - demo.log
   debug:
-    - run/demo/{environment}.debug.log
+    - debug/demo.log
 `))
 	if err != nil {
 		t.Fatalf("parsePluginManifest() error = %v", err)
@@ -105,8 +105,8 @@ logs:
 		t.Fatalf("toPlugin() error = %v", err)
 	}
 	want := []LogEntry{
-		{Path: "run/demo/{environment}.log", Level: LogLevelInfo},
-		{Path: "run/demo/{environment}.debug.log", Level: LogLevelDebug},
+		{Path: "demo.log", Level: LogLevelInfo},
+		{Path: "debug/demo.log", Level: LogLevelDebug},
 	}
 	if !reflect.DeepEqual(plugin.Logs(), want) {
 		t.Fatalf("Logs() = %#v, want %#v", plugin.Logs(), want)
@@ -142,13 +142,13 @@ func TestParsePluginManifestRejectsInvalidLogs(t *testing.T) {
   info:
     - ../demo.log
 `,
-			wantErr: "must stay inside the Polka root",
+			wantErr: "must stay inside the tool log root",
 		},
 		{
 			name: "empty level",
 			logYAML: `
   "":
-    - run/demo.log
+    - demo.log
 `,
 			wantErr: "empty level",
 		},
@@ -156,7 +156,7 @@ func TestParsePluginManifestRejectsInvalidLogs(t *testing.T) {
 			name: "invalid level",
 			logYAML: `
   trace:
-    - run/demo.log
+    - demo.log
 `,
 			wantErr: "unsupported level",
 		},

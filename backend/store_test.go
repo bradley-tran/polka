@@ -2538,7 +2538,7 @@ func TestStoreResolveToolLogsExpandsEnvironmentAndFilters(t *testing.T) {
 	}
 
 	want := []ToolLogEntry{{
-		Path:  filepath.Join(store.RootDir, "run", "serve", "demo", "logs", "error.log"),
+		Path:  filepath.Join(store.RootDir, "run", "nginx", "demo", "logs", "error.log"),
 		Level: "error",
 	}}
 	if !reflect.DeepEqual(logs, want) {
@@ -2596,7 +2596,7 @@ func TestStoreResolveToolLogsSupportsDispatchAliases(t *testing.T) {
 	}
 
 	want := []ToolLogEntry{{
-		Path:  filepath.Join(store.RootDir, "run", "alias", "default.log"),
+		Path:  filepath.Join(store.RootDir, "run", "alias-tool", "default", "default.log"),
 		Level: "info",
 	}}
 	if !reflect.DeepEqual(logs, want) {
@@ -3090,7 +3090,7 @@ func (logAliasTestPlugin) DispatchCandidates(root, executable, version string) [
 }
 
 func (logAliasTestPlugin) Logs() []ToolLogEntry {
-	return []ToolLogEntry{{Path: "run/alias/{environment}.log", Level: "info"}}
+	return []ToolLogEntry{{Path: "default.log", Level: "info"}}
 }
 
 func (logAliasTestPlugin) Download(ToolDownloadContext) error {
