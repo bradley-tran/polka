@@ -62,7 +62,7 @@ This package exists to avoid import cycles. Both `backend` and `tools` can depen
 
 The `plugins` package owns Polka's higher-level built-in plugin registry. It groups installable tool plugins from `tools` with framework plugins such as `codeigniter`, `drupal`, `wordpress`, `laravel`, and `symfony`.
 
-Framework plugins provide config defaults and optional hooks for PHP extensions, runtime environment variables, OPcache directives, post-Composer secret file generation, and nginx config generation. In v1, framework init is config-only and framework nginx hooks delegate to the generic front-controller config.
+Framework plugins provide config defaults and optional hooks for PHP extensions, runtime environment variables, OPcache directives, post-Composer secret file generation, and nginx config generation. Built-in framework metadata lives in `plugins/manifests/*.yaml` and is embedded into the binary; the manifest data selects reusable Go strategies for framework-specific runtime environment and post-Composer behavior. In v1, framework init is config-only and framework nginx hooks delegate to the generic front-controller config.
 
 ### `service`
 
@@ -88,7 +88,7 @@ The `tools` package owns managed tool behavior:
 - per-tool Go hooks for dynamic downloads or post-install behavior
 - PHP extension post-install config generation
 
-The current plugin system is internal and compile-time only. Built-in tool metadata lives in `tools/manifests/*.yaml` and is embedded into the binary; Polka does not load third-party plugins from disk or from `polka.yaml`. The manifest parser accepts bytes so future external loading can reuse the schema, but that loading behavior is intentionally not implemented yet.
+The current plugin system is internal and compile-time only. Built-in tool metadata lives in `tools/manifests/*.yaml`, built-in framework metadata lives in `plugins/manifests/*.yaml`, and both are embedded into the binary; Polka does not load third-party plugins from disk or from `polka.yaml`. The manifest parsers accept bytes so future external loading can reuse the schemas, but that loading behavior is intentionally not implemented yet.
 
 ## Tool Install Flow
 

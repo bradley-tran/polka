@@ -1,0 +1,46 @@
+id: wordpress
+defaults:
+  docroot: .
+  tools:
+    php: "8.4"
+    nginx: "1.30"
+    mariadb: "11.8"
+    phpmyadmin: "5.2"
+  settings:
+    phpmyadmin:
+      port: 8082
+  database:
+    engine: mariadb
+    port: 3306
+  opcache-preset: dev
+php-extensions:
+  - bcmath
+  - curl
+  - dom
+  - exif
+  - fileinfo
+  - ftp
+  - gd
+  - iconv
+  - intl
+  - mbstring
+  - mysqli
+  - opcache
+  - openssl
+  - pdo_mysql
+  - shmop
+  - simplexml
+  - sockets
+  - sodium
+  - xmlreader
+  - xsl
+  - zip
+  - zlib
+runtime-env:
+  database:
+    keys: standard
+post-composer:
+  strategy: wordpress-config
+  app-root:
+    public-dir: .
+    framework: wordpress

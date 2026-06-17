@@ -18,18 +18,9 @@ const (
 )
 
 const (
-	defaultPHPVersion        = "8.4"
-	defaultComposerVersion   = "2.8"
-	defaultNodeJSVersion     = "24"
-	defaultNginxVersion      = "1.30"
-	defaultMariaDBVersion    = "11.8"
-	defaultPHPMyAdminVersion = "5.2"
-	defaultMailpitVersion    = "1.30"
-	defaultDatabasePort      = 3306
-	defaultPHPMyAdminPort    = 8082
-	defaultMailpitSMTPPort   = 1025
-	defaultMailpitUIPort     = 8025
-	defaultDatabaseHost      = "127.0.0.1"
+	defaultMariaDBVersion = "11.8"
+	defaultDatabasePort   = 3306
+	defaultDatabaseHost   = "127.0.0.1"
 )
 
 // DatabaseCredentials is the framework-safe shape of generated database credentials.
@@ -88,48 +79,23 @@ type FrameworkPlugin interface {
 }
 
 type builtinFrameworkPlugin struct {
-	id            string
-	defaults      func() config.Environment
-	phpExtensions func() map[string]bool
-	opcacheConfig func() map[string]string
-	runtimeEnv    func(RuntimeEnvContext) map[string]string
-	postComposer  func(PostComposerContext) error
-	nginx         func(NginxConfigContext) (NginxConfigResult, bool, error)
+	id              string
+	defaults        config.Environment
+	phpExtensions   map[string]bool
+	opcacheConfig   map[string]string
+	runtimeDatabase frameworkRuntimeDatabaseManifest
+	postComposer    frameworkPostComposerManifest
+	nginx           func(NginxConfigContext) (NginxConfigResult, bool, error)
 }
 
 // DefaultFrameworkPlugins returns the built-in framework plugins.
 func DefaultFrameworkPlugins() []FrameworkPlugin {
 	return []FrameworkPlugin{
-		newFrameworkPlugin(CodeIgniter, "public", true),
-		newFrameworkPlugin(Drupal, "web", true),
-		newFrameworkPlugin(WordPress, ".", false),
-		newFrameworkPlugin(Laravel, "public", true),
-		newFrameworkPlugin(Symfony, "public", true),
-	}
-}
-
-func newFrameworkPlugin(id, docroot string, includeComposerNodeAndMailpit bool) FrameworkPlugin {
-	return builtinFrameworkPlugin{
-		id: id,
-		defaults: func() config.Environment {
-			return frameworkDefaults(id, docroot, includeComposerNodeAndMailpit)
-		},
-		phpExtensions: func() map[string]bool {
-			return frameworkPHPExtensions(id)
-		},
-		opcacheConfig: func() map[string]string {
-			return frameworkOPcacheConfig(id)
-		},
-		runtimeEnv: func(ctx RuntimeEnvContext) map[string]string {
-			if id == CodeIgniter {
-				return codeIgniterDatabaseRuntimeEnv(ctx)
-			}
-
-			return frameworkDatabaseRuntimeEnv(ctx, id == Laravel, id == Symfony)
-		},
-		postComposer: func(ctx PostComposerContext) error {
-			return frameworkPostComposer(ctx, id)
-		},
+		newManifestFrameworkPlugin(CodeIgniter),
+		newManifestFrameworkPlugin(Drupal),
+		newManifestFrameworkPlugin(WordPress),
+		newManifestFrameworkPlugin(Laravel),
+		newManifestFrameworkPlugin(Symfony),
 	}
 }
 
@@ -138,43 +104,27 @@ func (p builtinFrameworkPlugin) ID() string {
 }
 
 func (p builtinFrameworkPlugin) Defaults() config.Environment {
-	if p.defaults == nil {
+	if strings.TrimSpace(p.defaults.Framework) == "" {
 		return config.Environment{Framework: strings.ToLower(strings.TrimSpace(p.id))}
 	}
 
-	return config.NormalizeEnvironment("", p.defaults())
+	return config.NormalizeEnvironment("", p.defaults)
 }
 
 func (p builtinFrameworkPlugin) PHPExtensions() map[string]bool {
-	if p.phpExtensions == nil {
-		return nil
-	}
-
-	return copyBoolMap(p.phpExtensions())
+	return copyBoolMap(p.phpExtensions)
 }
 
 func (p builtinFrameworkPlugin) OPcacheConfig() map[string]string {
-	if p.opcacheConfig == nil {
-		return nil
-	}
-
-	return copyStringMap(p.opcacheConfig())
+	return copyStringMap(p.opcacheConfig)
 }
 
 func (p builtinFrameworkPlugin) RuntimeEnv(ctx RuntimeEnvContext) map[string]string {
-	if p.runtimeEnv == nil {
-		return nil
-	}
-
-	return p.runtimeEnv(ctx)
+	return frameworkManifestRuntimeEnv(ctx, p.runtimeDatabase)
 }
 
 func (p builtinFrameworkPlugin) PostComposer(ctx PostComposerContext) error {
-	if p.postComposer == nil {
-		return nil
-	}
-
-	return p.postComposer(ctx)
+	return frameworkManifestPostComposer(ctx, p)
 }
 
 func (p builtinFrameworkPlugin) NginxConfig(ctx NginxConfigContext) (NginxConfigResult, bool, error) {
@@ -183,153 +133,6 @@ func (p builtinFrameworkPlugin) NginxConfig(ctx NginxConfigContext) (NginxConfig
 	}
 
 	return p.nginx(ctx)
-}
-
-func frameworkDefaults(id, docroot string, includeComposerNodeAndMailpit bool) config.Environment {
-	environment := config.Environment{
-		Framework:      strings.ToLower(strings.TrimSpace(id)),
-		PHPVersion:     defaultPHPVersion,
-		NginxVersion:   defaultNginxVersion,
-		MariaDBVersion: defaultMariaDBVersion,
-		Docroot:        docroot,
-		Database: &config.DatabaseConfig{
-			Engine:  tools.MariaDB,
-			Version: defaultMariaDBVersion,
-			Port:    defaultDatabasePort,
-		},
-		PHPMyAdmin: &config.PHPMyAdminConfig{
-			Version: defaultPHPMyAdminVersion,
-			Port:    defaultPHPMyAdminPort,
-		},
-		OPcachePreset: config.OPcachePresetDev,
-		OPcacheConfig: frameworkOPcacheConfig(id),
-	}
-	if includeComposerNodeAndMailpit {
-		environment.ComposerVersion = defaultComposerVersion
-		environment.NodeJSVersion = defaultNodeJSVersion
-		environment.Mailpit = &config.MailpitConfig{
-			Version:  defaultMailpitVersion,
-			SMTPPort: defaultMailpitSMTPPort,
-			UIPort:   defaultMailpitUIPort,
-		}
-	}
-
-	return environment
-}
-
-func frameworkOPcacheConfig(id string) map[string]string {
-	switch strings.ToLower(strings.TrimSpace(id)) {
-	case Drupal:
-		return map[string]string{"opcache.save_comments": "1"}
-	default:
-		return nil
-	}
-}
-
-func frameworkPHPExtensions(id string) map[string]bool {
-	switch strings.ToLower(strings.TrimSpace(id)) {
-	case CodeIgniter:
-		return phpExtensionMap(
-			"curl",
-			"fileinfo",
-			"intl",
-			"mbstring",
-			"mysqli",
-			"opcache",
-			"openssl",
-			"pdo_mysql",
-			"zip",
-		)
-	case Drupal:
-		return phpExtensionMap(
-			"curl",
-			"dom",
-			"fileinfo",
-			"gd",
-			"intl",
-			"mbstring",
-			"mysqli",
-			"opcache",
-			"openssl",
-			"pdo_mysql",
-			"pdo_sqlite",
-			"simplexml",
-			"sqlite3",
-			"xmlreader",
-			"xsl",
-			"zip",
-			"zlib",
-		)
-	case Laravel:
-		return phpExtensionMap(
-			"bcmath",
-			"curl",
-			"dom",
-			"fileinfo",
-			"gd",
-			"intl",
-			"mbstring",
-			"mysqli",
-			"opcache",
-			"openssl",
-			"pdo_mysql",
-			"pdo_sqlite",
-			"simplexml",
-			"sqlite3",
-			"xmlreader",
-			"xsl",
-			"zip",
-		)
-	case Symfony:
-		return phpExtensionMap(
-			"ctype",
-			"curl",
-			"dom",
-			"fileinfo",
-			"gd",
-			"iconv",
-			"intl",
-			"mbstring",
-			"mysqli",
-			"opcache",
-			"openssl",
-			"pdo_mysql",
-			"pdo_sqlite",
-			"session",
-			"simplexml",
-			"sqlite3",
-			"tokenizer",
-			"xmlreader",
-			"zip",
-		)
-	case WordPress:
-		return phpExtensionMap(
-			"bcmath",
-			"curl",
-			"dom",
-			"exif",
-			"fileinfo",
-			"ftp",
-			"gd",
-			"iconv",
-			"intl",
-			"mbstring",
-			"mysqli",
-			"opcache",
-			"openssl",
-			"pdo_mysql",
-			"shmop",
-			"simplexml",
-			"sockets",
-			"sodium",
-			"xmlreader",
-			"xsl",
-			"zip",
-			"zlib",
-		)
-	default:
-		return phpExtensionMap("curl", "fileinfo", "gd", "mbstring", "mysqli", "opcache", "openssl", "pdo_mysql", "zip")
-	}
 }
 
 func phpExtensionMap(names ...string) map[string]bool {

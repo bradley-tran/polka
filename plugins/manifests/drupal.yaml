@@ -1,0 +1,49 @@
+id: drupal
+defaults:
+  docroot: web
+  tools:
+    php: "8.4"
+    composer: "2.8"
+    nodejs: "24"
+    nginx: "1.30"
+    mariadb: "11.8"
+    mailpit: "1.30"
+    phpmyadmin: "5.2"
+  settings:
+    mailpit:
+      smtp-port: 1025
+      ui-port: 8025
+    phpmyadmin:
+      port: 8082
+  database:
+    engine: mariadb
+    port: 3306
+  opcache-preset: dev
+php-extensions:
+  - curl
+  - dom
+  - fileinfo
+  - gd
+  - intl
+  - mbstring
+  - mysqli
+  - opcache
+  - openssl
+  - pdo_mysql
+  - pdo_sqlite
+  - simplexml
+  - sqlite3
+  - xmlreader
+  - xsl
+  - zip
+  - zlib
+opcache-config:
+  opcache.save_comments: "1"
+runtime-env:
+  database:
+    keys: standard
+post-composer:
+  strategy: drupal-settings
+  app-root:
+    public-dir: web
+    framework: drupal

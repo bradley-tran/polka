@@ -1,0 +1,49 @@
+id: codeigniter
+defaults:
+  docroot: public
+  tools:
+    php: "8.4"
+    composer: "2.8"
+    nodejs: "24"
+    nginx: "1.30"
+    mariadb: "11.8"
+    mailpit: "1.30"
+    phpmyadmin: "5.2"
+  settings:
+    mailpit:
+      smtp-port: 1025
+      ui-port: 8025
+    phpmyadmin:
+      port: 8082
+  database:
+    engine: mariadb
+    port: 3306
+  opcache-preset: dev
+php-extensions:
+  - curl
+  - fileinfo
+  - intl
+  - mbstring
+  - mysqli
+  - opcache
+  - openssl
+  - pdo_mysql
+  - zip
+runtime-env:
+  database:
+    keys: codeigniter
+post-composer:
+  strategy: dotenv
+  app-root:
+    public-dir: public
+    framework: codeigniter
+  dotenv:
+    target: .env
+    template: env
+    values:
+      - database.default.hostname
+      - database.default.port
+      - database.default.database
+      - database.default.username
+      - database.default.password
+      - database.default.DBDriver

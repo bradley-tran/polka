@@ -26,23 +26,6 @@ type dotenvAssignment struct {
 	Value string
 }
 
-func frameworkPostComposer(ctx PostComposerContext, id string) error {
-	switch strings.ToLower(strings.TrimSpace(id)) {
-	case CodeIgniter:
-		return writeCodeIgniterDotenvSecrets(ctx)
-	case Drupal:
-		return writeDrupalSettingsSecrets(ctx)
-	case WordPress:
-		return writeWordPressConfigSecrets(ctx)
-	case Laravel:
-		return writeLaravelDotenvSecrets(ctx)
-	case Symfony:
-		return writeSymfonyDotenvSecrets(ctx)
-	default:
-		return nil
-	}
-}
-
 func writeCodeIgniterDotenvSecrets(ctx PostComposerContext) error {
 	values := codeIgniterDatabaseRuntimeEnv(RuntimeEnvContext{
 		Environment: ctx.Environment,
@@ -74,7 +57,16 @@ func writeDrupalSettingsSecrets(ctx PostComposerContext) error {
 	}
 
 	appRoot := frameworkComposerAppRoot(ctx, defaultDrupalDocroot, Drupal)
-	settingsDir := filepath.Join(drupalDocrootPath(ctx, appRoot), "sites", "default")
+	return writeDrupalSettingsSecretsForAppRoot(ctx, appRoot, defaultDrupalDocroot)
+}
+
+func writeDrupalSettingsSecretsForAppRoot(ctx PostComposerContext, appRoot, publicDir string) error {
+	credentials := normalizeDatabaseCredentials(ctx.Database)
+	if credentials == nil {
+		return nil
+	}
+
+	settingsDir := filepath.Join(frameworkDocrootPath(ctx, appRoot, publicDir), "sites", "default")
 	settingsPath := filepath.Join(settingsDir, "settings.php")
 	if err := ensureDrupalSettingsPHP(settingsPath, filepath.Join(settingsDir, "default.settings.php")); err != nil {
 		return err
@@ -93,6 +85,15 @@ func writeWordPressConfigSecrets(ctx PostComposerContext) error {
 	}
 
 	appRoot := frameworkComposerAppRoot(ctx, defaultWordPressDocroot, WordPress)
+	return writeWordPressConfigSecretsForAppRoot(ctx, appRoot)
+}
+
+func writeWordPressConfigSecretsForAppRoot(ctx PostComposerContext, appRoot string) error {
+	credentials := normalizeDatabaseCredentials(ctx.Database)
+	if credentials == nil {
+		return nil
+	}
+
 	configPath := filepath.Join(appRoot, "wp-config.php")
 	template, err := readWordPressConfigTemplate(configPath, filepath.Join(appRoot, "wp-config-sample.php"))
 	if err != nil {
@@ -596,16 +597,20 @@ func frameworkAppRootFromDocroot(projectDir, docroot, publicDir string) string {
 }
 
 func drupalDocrootPath(ctx PostComposerContext, appRoot string) string {
+	return frameworkDocrootPath(ctx, appRoot, defaultDrupalDocroot)
+}
+
+func frameworkDocrootPath(ctx PostComposerContext, appRoot, publicDir string) string {
 	trimmed := strings.TrimSpace(ctx.Environment.Docroot)
 	if trimmed == "" {
-		return filepath.Join(appRoot, defaultDrupalDocroot)
+		return filepath.Join(appRoot, publicDir)
 	}
 	cleanDocroot := filepath.Clean(filepath.FromSlash(trimmed))
 	if filepath.IsAbs(cleanDocroot) {
 		return cleanDocroot
 	}
-	if strings.EqualFold(filepath.Base(cleanDocroot), defaultDrupalDocroot) {
-		return filepath.Join(appRoot, defaultDrupalDocroot)
+	if strings.EqualFold(filepath.Base(cleanDocroot), publicDir) {
+		return filepath.Join(appRoot, publicDir)
 	}
 
 	return filepath.Join(cleanAbsolutePath(ctx.ProjectDir), cleanDocroot)
