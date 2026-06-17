@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"polka/backend"
@@ -39,6 +40,14 @@ func runPostComposerHook(store backend.Store, tool string, args []string, workin
 		Args:        append([]string(nil), args...),
 		Database:    credentials,
 	})
+}
+
+func runPostExecComposerHook(store backend.Store, command string, args []string, workingDir, target string) error {
+	if !isComposerExecutable(command) || isPolkaManagedCommandShim(store, target, "composer") {
+		return nil
+	}
+
+	return runPostComposerHook(store, "composer", args, workingDir)
 }
 
 func isPostComposerCommand(args []string) bool {
@@ -83,6 +92,42 @@ func composerOptionConsumesValue(option string) bool {
 	default:
 		return false
 	}
+}
+
+func isComposerExecutable(command string) bool {
+	name := strings.ToLower(strings.TrimSpace(filepath.Base(command)))
+	if name == "" {
+		return false
+	}
+	if name == "composer.phar" {
+		return true
+	}
+
+	extension := strings.ToLower(filepath.Ext(name))
+	if extension != "" {
+		name = strings.TrimSuffix(name, extension)
+	}
+
+	return name == "composer"
+}
+
+func isPolkaManagedCommandShim(store backend.Store, target, command string) bool {
+	absoluteTarget, err := filepath.Abs(strings.TrimSpace(target))
+	if err != nil {
+		return false
+	}
+
+	for _, name := range []string{command, command + ".cmd", command + ".bat", command + ".exe"} {
+		candidate, err := filepath.Abs(filepath.Join(store.BinDir, name))
+		if err != nil {
+			continue
+		}
+		if samePath(absoluteTarget, candidate) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func ensurePostComposerDatabaseCredentials(store backend.Store, environment backend.Environment) (*plugins.DatabaseCredentials, error) {

@@ -125,6 +125,49 @@ func TestRunExecUsesNearestNestedVendorBin(t *testing.T) {
 	}
 }
 
+func TestRunExecRunsPostComposerHookForCakePHPCreateProject(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	appRoot := filepath.Join(projectDir, "cake")
+	systemBinDir := filepath.Join(projectDir, "system-bin")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	t.Setenv("POLKA_TEST_CREATE_PROJECT_DIR", appRoot)
+	t.Setenv("PATH", systemBinDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	chdirTest(t, projectDir)
+
+	if err := os.MkdirAll(systemBinDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(system-bin) error = %v", err)
+	}
+	composerPath := filepath.Join(systemBinDir, "composer")
+	if runtime.GOOS == "windows" {
+		composerPath += ".cmd"
+	}
+	if err := os.WriteFile(composerPath, fakeCakePHPCreateProjectComposerScript(), 0o755); err != nil {
+		t.Fatalf("WriteFile(composer) error = %v", err)
+	}
+
+	config := testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Environments: map[string]testEnvironmentConfig{
+			defaultEnvironmentName: {
+				Framework: "cakephp",
+				MariaDB:   "11.8",
+				Docroot:   "cake/webroot",
+				Database:  &testDatabaseConfig{Engine: "mariadb", Version: "11.8", Port: 3307},
+			},
+		},
+	}
+	writeTestConfigFile(t, projectDir, config)
+
+	if code := Run(stdout, stderr, []string{"--root", root, "exec", "composer", "create-project", "cakephp/app", "cake"}); code != 0 {
+		t.Fatalf("Run(exec composer create-project) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	assertCakePHPAppLocalUsesManagedDatabase(t, filepath.Join(appRoot, "config", "app_local.php"), "3307")
+}
+
 func TestRunExecRequiresCommand(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}

@@ -983,6 +983,76 @@ func fakeToolScript(name string) []byte {
 	return []byte("#!/usr/bin/env sh\nprintf 'fake-" + name + " %s\n' \"$*\"\n")
 }
 
+func fakeCakePHPCreateProjectComposerScript() []byte {
+	appLocal := strings.Join([]string{
+		"<?php",
+		"declare(strict_types=1);",
+		"",
+		"return [",
+		"    'Datasources' => [",
+		"        'default' => [",
+		"            'driver' => 'Cake\\Database\\Driver\\Sqlite',",
+		"            'database' => 'tmp/test.sqlite',",
+		"        ],",
+		"    ],",
+		"];",
+		"",
+	}, "\n")
+	if runtime.GOOS == "windows" {
+		return []byte(strings.Join([]string{
+			"@echo off",
+			"set \"dir=%POLKA_TEST_CREATE_PROJECT_DIR%\"",
+			"mkdir \"%dir%\\config\" >nul 2>nul",
+			"mkdir \"%dir%\\webroot\" >nul 2>nul",
+			"> \"%dir%\\config\\app_local.php\" echo ^<?php",
+			">> \"%dir%\\config\\app_local.php\" echo declare^(strict_types=1^);",
+			">> \"%dir%\\config\\app_local.php\" echo(",
+			">> \"%dir%\\config\\app_local.php\" echo return [",
+			">> \"%dir%\\config\\app_local.php\" echo     'Datasources' =^> [",
+			">> \"%dir%\\config\\app_local.php\" echo         'default' =^> [",
+			">> \"%dir%\\config\\app_local.php\" echo             'driver' =^> 'Cake\\Database\\Driver\\Sqlite',",
+			">> \"%dir%\\config\\app_local.php\" echo             'database' =^> 'tmp/test.sqlite',",
+			">> \"%dir%\\config\\app_local.php\" echo         ],",
+			">> \"%dir%\\config\\app_local.php\" echo     ],",
+			">> \"%dir%\\config\\app_local.php\" echo ];",
+			"echo fake-composer %*",
+			"",
+		}, "\r\n"))
+	}
+
+	return []byte("#!/usr/bin/env sh\nset -eu\ndir=${POLKA_TEST_CREATE_PROJECT_DIR:?}\nmkdir -p \"$dir/config\" \"$dir/webroot\"\ncat > \"$dir/config/app_local.php\" <<'EOF'\n" + appLocal + "EOF\nprintf 'fake-composer %s\n' \"$*\"\n")
+}
+
+func assertCakePHPAppLocalUsesManagedDatabase(t *testing.T, path, port string) {
+	t.Helper()
+
+	updated, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(app_local.php) error = %v", err)
+	}
+	text := string(updated)
+	for _, expected := range []string{
+		"'default' => [",
+		"'test' => [",
+		"'debug_kit' => [",
+		"'className' => 'Cake\\\\Database\\\\Connection',",
+		"'driver' => 'Cake\\\\Database\\\\Driver\\\\Mysql',",
+		"'host' => '127.0.0.1',",
+		"'port' => '" + port + "',",
+		"'username' => 'polka',",
+		"'database' => 'default',",
+		"'encoding' => 'utf8mb4',",
+		"'url' => null,",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("app_local.php = %q, want %q", text, expected)
+		}
+	}
+	if strings.Contains(text, "Sqlite") || strings.Contains(text, "sqlite://") {
+		t.Fatalf("app_local.php = %q, want SQLite removed from generated datasources", text)
+	}
+}
+
 func fakeDatabaseScript(name string) []byte {
 	if runtime.GOOS == "windows" {
 		return []byte("@echo off\r\necho fake-" + name + " %*\r\n")

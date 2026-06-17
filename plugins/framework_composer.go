@@ -257,16 +257,9 @@ func readCakePHPConfigTemplate(path, fallbackPath string) (string, error) {
 }
 
 func renderCakePHPConfig(contents string, credentials *DatabaseCredentials) string {
-	assignments := map[string]string{
-		"driver":   "Cake\\Database\\Driver\\Mysql",
-		"host":     credentials.Host,
-		"port":     strconv.Itoa(credentials.Port),
-		"username": credentials.User,
-		"password": credentials.Password,
-		"database": credentials.DatabaseName,
-		"encoding": "utf8mb4",
-	}
-	order := []string{"driver", "host", "port", "username", "password", "database", "encoding"}
+	datasources := cakePHPDatasourceConfigs(credentials)
+	datasourceOrder := cakePHPDatasourceOrder()
+	valueOrder := cakePHPDatasourceValueOrder()
 
 	normalized := strings.ReplaceAll(contents, "\r\n", "\n")
 	normalized = strings.TrimSuffix(normalized, "\n")
@@ -276,26 +269,39 @@ func renderCakePHPConfig(contents string, credentials *DatabaseCredentials) stri
 
 	lines := strings.Split(normalized, "\n")
 	path := []string{}
-	written := map[string]bool{}
-	defaultDatasourceSeen := false
-	updated := make([]string, 0, len(lines)+len(order))
+	written := map[string]map[string]bool{}
+	seenDatasources := map[string]bool{}
+	datasourcesSeen := false
+	updated := make([]string, 0, len(lines)+len(datasourceOrder)*(len(valueOrder)+2))
 
 	for _, line := range lines {
-		if cakePHPConfigPathIsDefaultDatasource(path) && isPHPArrayCloseLine(line) {
-			defaultDatasourceSeen = true
-			for _, key := range order {
-				if !written[key] {
-					updated = append(updated, cakePHPConfigAssignmentLine(cakePHPClosingIndent(line), key, assignments[key]))
-					written[key] = true
+		if datasource, ok := cakePHPManagedDatasourceForPath(path, datasources); ok && isPHPArrayCloseLine(line) {
+			seenDatasources[datasource] = true
+			if written[datasource] == nil {
+				written[datasource] = map[string]bool{}
+			}
+			for _, key := range valueOrder {
+				if !written[datasource][key] {
+					updated = append(updated, cakePHPConfigAssignmentLine(cakePHPClosingIndent(line), key, datasources[datasource][key]))
+					written[datasource][key] = true
+				}
+			}
+		}
+		if cakePHPConfigPathIsDatasources(path) && isPHPArrayCloseLine(line) {
+			datasourcesSeen = true
+			for _, datasource := range datasourceOrder {
+				if !seenDatasources[datasource] {
+					updated = append(updated, cakePHPDatasourceBlock(cakePHPClosingIndent(line), datasource, datasources[datasource], valueOrder)...)
+					seenDatasources[datasource] = true
 				}
 			}
 		}
 
-		if cakePHPConfigPathIsDefaultDatasource(path) {
+		if datasource, ok := cakePHPManagedDatasourceForPath(path, datasources); ok {
 			if key, ok := parsePHPScalarArrayKey(line); ok {
-				if value, wanted := assignments[key]; wanted {
+				if value, wanted := datasources[datasource][key]; wanted {
 					line = cakePHPConfigAssignmentLine(cakePHPAssignmentIndent(line), key, value)
-					written[key] = true
+					written[datasource][key] = true
 				}
 			}
 		}
@@ -303,12 +309,18 @@ func renderCakePHPConfig(contents string, credentials *DatabaseCredentials) stri
 
 		if key, ok := parsePHPArrayOpenKey(line); ok {
 			path = append(path, key)
+			if datasource, ok := cakePHPManagedDatasourceForPath(path, datasources); ok {
+				seenDatasources[datasource] = true
+				if written[datasource] == nil {
+					written[datasource] = map[string]bool{}
+				}
+			}
 		}
 		for closes := countPHPArrayCloses(line); closes > 0 && len(path) > 0; closes-- {
 			path = path[:len(path)-1]
 		}
 	}
-	if !defaultDatasourceSeen {
+	if !datasourcesSeen {
 		return minimalCakePHPConfigForCredentials(credentials)
 	}
 
@@ -325,33 +337,111 @@ func minimalCakePHPConfig() string {
 }
 
 func minimalCakePHPConfigForCredentials(credentials *DatabaseCredentials) string {
-	return strings.Join([]string{
+	datasources := cakePHPDatasourceConfigs(credentials)
+	lines := []string{
 		"<?php",
 		"declare(strict_types=1);",
 		"",
 		"return [",
 		"    'Datasources' => [",
-		"        'default' => [",
-		cakePHPConfigAssignmentLine("            ", "driver", "Cake\\Database\\Driver\\Mysql"),
-		cakePHPConfigAssignmentLine("            ", "host", credentials.Host),
-		cakePHPConfigAssignmentLine("            ", "port", strconv.Itoa(credentials.Port)),
-		cakePHPConfigAssignmentLine("            ", "username", credentials.User),
-		cakePHPConfigAssignmentLine("            ", "password", credentials.Password),
-		cakePHPConfigAssignmentLine("            ", "database", credentials.DatabaseName),
-		cakePHPConfigAssignmentLine("            ", "encoding", "utf8mb4"),
-		"        ],",
+	}
+	for _, datasource := range cakePHPDatasourceOrder() {
+		lines = append(lines, cakePHPDatasourceBlock("        ", datasource, datasources[datasource], cakePHPDatasourceValueOrder())...)
+	}
+	lines = append(lines,
 		"    ],",
 		"];",
 		"",
-	}, "\n")
+	)
+
+	return strings.Join(lines, "\n")
 }
 
-func cakePHPConfigAssignmentLine(indent, key, value string) string {
-	return indent + phpSingleQuotedString(key) + " => " + phpSingleQuotedString(value) + ","
+type cakePHPConfigValue struct {
+	value string
+	raw   bool
 }
 
-func cakePHPConfigPathIsDefaultDatasource(path []string) bool {
-	return len(path) == 2 && path[0] == "Datasources" && path[1] == "default"
+func cakePHPStringConfigValue(value string) cakePHPConfigValue {
+	return cakePHPConfigValue{value: value}
+}
+
+func cakePHPRawConfigValue(value string) cakePHPConfigValue {
+	return cakePHPConfigValue{value: value, raw: true}
+}
+
+func cakePHPDatasourceConfigs(credentials *DatabaseCredentials) map[string]map[string]cakePHPConfigValue {
+	config := map[string]cakePHPConfigValue{
+		"className": cakePHPStringConfigValue("Cake\\Database\\Connection"),
+		"driver":    cakePHPStringConfigValue("Cake\\Database\\Driver\\Mysql"),
+		"host":      cakePHPStringConfigValue(credentials.Host),
+		"port":      cakePHPStringConfigValue(strconv.Itoa(credentials.Port)),
+		"username":  cakePHPStringConfigValue(credentials.User),
+		"password":  cakePHPStringConfigValue(credentials.Password),
+		"database":  cakePHPStringConfigValue(credentials.DatabaseName),
+		"encoding":  cakePHPStringConfigValue("utf8mb4"),
+		"url":       cakePHPRawConfigValue("null"),
+	}
+
+	return map[string]map[string]cakePHPConfigValue{
+		"default":   copyCakePHPDatasourceConfig(config),
+		"test":      copyCakePHPDatasourceConfig(config),
+		"debug_kit": copyCakePHPDatasourceConfig(config),
+	}
+}
+
+func copyCakePHPDatasourceConfig(config map[string]cakePHPConfigValue) map[string]cakePHPConfigValue {
+	copied := make(map[string]cakePHPConfigValue, len(config))
+	for key, value := range config {
+		copied[key] = value
+	}
+
+	return copied
+}
+
+func cakePHPDatasourceOrder() []string {
+	return []string{"default", "test", "debug_kit"}
+}
+
+func cakePHPDatasourceValueOrder() []string {
+	return []string{"className", "driver", "host", "port", "username", "password", "database", "encoding", "url"}
+}
+
+func cakePHPDatasourceBlock(indent, name string, config map[string]cakePHPConfigValue, order []string) []string {
+	lines := []string{indent + phpSingleQuotedString(name) + " => ["}
+	for _, key := range order {
+		value, ok := config[key]
+		if ok {
+			lines = append(lines, cakePHPConfigAssignmentLine(indent+"    ", key, value))
+		}
+	}
+
+	return append(lines, indent+"],")
+}
+
+func cakePHPConfigAssignmentLine(indent, key string, value cakePHPConfigValue) string {
+	return indent + phpSingleQuotedString(key) + " => " + renderCakePHPConfigValue(value) + ","
+}
+
+func renderCakePHPConfigValue(value cakePHPConfigValue) string {
+	if value.raw {
+		return value.value
+	}
+
+	return phpSingleQuotedString(value.value)
+}
+
+func cakePHPConfigPathIsDatasources(path []string) bool {
+	return len(path) == 1 && path[0] == "Datasources"
+}
+
+func cakePHPManagedDatasourceForPath(path []string, datasources map[string]map[string]cakePHPConfigValue) (string, bool) {
+	if len(path) != 2 || path[0] != "Datasources" {
+		return "", false
+	}
+	_, ok := datasources[path[1]]
+
+	return path[1], ok
 }
 
 func parsePHPArrayOpenKey(line string) (string, bool) {

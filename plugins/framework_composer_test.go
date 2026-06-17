@@ -70,6 +70,10 @@ func TestCakePHPPostComposerUpdatesAppLocalDatabaseConfig(t *testing.T) {
 	text := string(updated)
 	for _, expected := range []string{
 		"'debug' => true,",
+		"'default' => [",
+		"'test' => [",
+		"'debug_kit' => [",
+		"'className' => 'Cake\\\\Database\\\\Connection',",
 		"'driver' => 'Cake\\\\Database\\\\Driver\\\\Mysql',",
 		"'host' => '127.0.0.1',",
 		"'port' => '3307',",
@@ -77,10 +81,14 @@ func TestCakePHPPostComposerUpdatesAppLocalDatabaseConfig(t *testing.T) {
 		"'password' => 'secret',",
 		"'database' => 'demo',",
 		"'encoding' => 'utf8mb4',",
+		"'url' => null,",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("app_local.php = %q, want %q", text, expected)
 		}
+	}
+	if strings.Contains(text, "Sqlite") || strings.Contains(text, "sqlite://") {
+		t.Fatalf("app_local.php = %q, want SQLite removed from generated datasources", text)
 	}
 }
 
