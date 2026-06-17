@@ -10,6 +10,7 @@ import (
 )
 
 const (
+	CakePHP     = "cakephp"
 	CodeIgniter = "codeigniter"
 	Drupal      = "drupal"
 	WordPress   = "wordpress"
@@ -91,6 +92,7 @@ type builtinFrameworkPlugin struct {
 // DefaultFrameworkPlugins returns the built-in framework plugins.
 func DefaultFrameworkPlugins() []FrameworkPlugin {
 	return []FrameworkPlugin{
+		newManifestFrameworkPlugin(CakePHP),
 		newManifestFrameworkPlugin(CodeIgniter),
 		newManifestFrameworkPlugin(Drupal),
 		newManifestFrameworkPlugin(WordPress),

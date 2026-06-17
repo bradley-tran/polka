@@ -106,6 +106,7 @@ func TestRunInitWithFrameworkWritesDefaultPreset(t *testing.T) {
 		wantMailpit     bool
 		wantMailpitShim bool
 	}{
+		{framework: "cakephp", docroot: "webroot", wantComposer: "2.8", wantNodeJS: "24", wantMailpit: true, wantMailpitShim: true},
 		{framework: "codeigniter", docroot: "public", wantComposer: "2.8", wantNodeJS: "24", wantMailpit: true, wantMailpitShim: true},
 		{framework: "drupal", docroot: "web", wantComposer: "2.8", wantNodeJS: "24", wantMailpit: true, wantMailpitShim: true},
 		{framework: "laravel", docroot: "public", wantComposer: "2.8", wantNodeJS: "24", wantMailpit: true, wantMailpitShim: true},
@@ -271,11 +272,11 @@ func TestRunInitWithFrameworkRejectsUnknownFramework(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "init", "cakephp"}); code == 0 {
-		t.Fatal("Run(init cakephp) code = 0, want unsupported framework failure")
+	if code := Run(stdout, stderr, []string{"--root", root, "init", "yii"}); code == 0 {
+		t.Fatal("Run(init yii) code = 0, want unsupported framework failure")
 	}
-	if !strings.Contains(stderr.String(), "unsupported framework") || !strings.Contains(stderr.String(), "codeigniter, drupal, laravel, symfony, wordpress") {
-		t.Fatalf("Run(init cakephp) stderr = %q, want supported framework list", stderr.String())
+	if !strings.Contains(stderr.String(), "unsupported framework") || !strings.Contains(stderr.String(), "cakephp, codeigniter, drupal, laravel, symfony, wordpress") {
+		t.Fatalf("Run(init yii) stderr = %q, want supported framework list", stderr.String())
 	}
 	if _, err := os.Stat(root); !os.IsNotExist(err) {
 		t.Fatalf("Stat(root) error = %v, want no root created before failure", err)

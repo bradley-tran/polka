@@ -60,7 +60,7 @@ This package exists to avoid import cycles. Both `backend` and `tools` can depen
 
 ### `plugins`
 
-The `plugins` package owns Polka's higher-level built-in plugin registry. It groups installable tool plugins from `tools` with framework plugins such as `codeigniter`, `drupal`, `wordpress`, `laravel`, and `symfony`.
+The `plugins` package owns Polka's higher-level built-in plugin registry. It groups installable tool plugins from `tools` with framework plugins such as `cakephp`, `codeigniter`, `drupal`, `wordpress`, `laravel`, and `symfony`.
 
 Framework plugins provide config defaults and optional hooks for PHP extensions, runtime environment variables, OPcache directives, post-Composer secret file generation, and nginx config generation. Built-in framework metadata lives in `plugins/manifests/*.yaml` and is embedded into the binary; the manifest data selects reusable Go strategies for framework-specific runtime environment and post-Composer behavior. In v1, framework init is config-only and framework nginx hooks delegate to the generic front-controller config.
 

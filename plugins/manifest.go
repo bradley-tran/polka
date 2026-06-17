@@ -142,7 +142,7 @@ func validateFrameworkPostComposerManifest(id string, post frameworkPostComposer
 	switch strategy {
 	case "":
 		return nil
-	case "dotenv", "drupal-settings", "wordpress-config":
+	case "cakephp-config", "dotenv", "drupal-settings", "wordpress-config":
 	default:
 		return fmt.Errorf("framework manifest %q post-composer.strategy has unsupported value %q", id, post.Strategy)
 	}
@@ -257,6 +257,8 @@ func frameworkManifestPostComposer(ctx PostComposerContext, plugin builtinFramew
 
 	appRoot := frameworkComposerAppRoot(ctx, post.AppRoot.PublicDir, post.AppRoot.Framework)
 	switch post.Strategy {
+	case "cakephp-config":
+		return writeCakePHPConfigSecretsForAppRoot(ctx, appRoot)
 	case "dotenv":
 		values := plugin.RuntimeEnv(RuntimeEnvContext{
 			Environment: ctx.Environment,

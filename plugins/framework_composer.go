@@ -11,6 +11,7 @@ import (
 )
 
 const (
+	defaultCakePHPDocroot        = "webroot"
 	polkaDrupalSettingsFile      = "settings.polka.php"
 	polkaDrupalIncludeStart      = "// <polka:settings-polka>"
 	polkaDrupalIncludeEnd        = "// </polka:settings-polka>"
@@ -24,6 +25,26 @@ const (
 type dotenvAssignment struct {
 	Name  string
 	Value string
+}
+
+func writeCakePHPConfigSecrets(ctx PostComposerContext) error {
+	appRoot := frameworkComposerAppRoot(ctx, defaultCakePHPDocroot, CakePHP)
+	return writeCakePHPConfigSecretsForAppRoot(ctx, appRoot)
+}
+
+func writeCakePHPConfigSecretsForAppRoot(ctx PostComposerContext, appRoot string) error {
+	credentials := normalizeDatabaseCredentials(ctx.Database)
+	if credentials == nil {
+		return nil
+	}
+
+	configPath := filepath.Join(appRoot, "config", "app_local.php")
+	template, err := readCakePHPConfigTemplate(configPath, filepath.Join(appRoot, "config", "app_local.example.php"))
+	if err != nil {
+		return err
+	}
+
+	return writePHPSecretFile(configPath, renderCakePHPConfig(template, credentials))
 }
 
 func writeCodeIgniterDotenvSecrets(ctx PostComposerContext) error {
@@ -218,6 +239,229 @@ func writePHPSecretFile(path, contents string) error {
 	}
 
 	return os.WriteFile(path, []byte(contents), 0o600)
+}
+
+func readCakePHPConfigTemplate(path, fallbackPath string) (string, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		data, err = os.ReadFile(fallbackPath)
+		if errors.Is(err, os.ErrNotExist) {
+			return minimalCakePHPConfig(), nil
+		}
+	}
+	if err != nil {
+		return "", err
+	}
+
+	return string(data), nil
+}
+
+func renderCakePHPConfig(contents string, credentials *DatabaseCredentials) string {
+	assignments := map[string]string{
+		"driver":   "Cake\\Database\\Driver\\Mysql",
+		"host":     credentials.Host,
+		"port":     strconv.Itoa(credentials.Port),
+		"username": credentials.User,
+		"password": credentials.Password,
+		"database": credentials.DatabaseName,
+		"encoding": "utf8mb4",
+	}
+	order := []string{"driver", "host", "port", "username", "password", "database", "encoding"}
+
+	normalized := strings.ReplaceAll(contents, "\r\n", "\n")
+	normalized = strings.TrimSuffix(normalized, "\n")
+	if strings.TrimSpace(normalized) == "" {
+		return minimalCakePHPConfigForCredentials(credentials)
+	}
+
+	lines := strings.Split(normalized, "\n")
+	path := []string{}
+	written := map[string]bool{}
+	defaultDatasourceSeen := false
+	updated := make([]string, 0, len(lines)+len(order))
+
+	for _, line := range lines {
+		if cakePHPConfigPathIsDefaultDatasource(path) && isPHPArrayCloseLine(line) {
+			defaultDatasourceSeen = true
+			for _, key := range order {
+				if !written[key] {
+					updated = append(updated, cakePHPConfigAssignmentLine(cakePHPClosingIndent(line), key, assignments[key]))
+					written[key] = true
+				}
+			}
+		}
+
+		if cakePHPConfigPathIsDefaultDatasource(path) {
+			if key, ok := parsePHPScalarArrayKey(line); ok {
+				if value, wanted := assignments[key]; wanted {
+					line = cakePHPConfigAssignmentLine(cakePHPAssignmentIndent(line), key, value)
+					written[key] = true
+				}
+			}
+		}
+		updated = append(updated, line)
+
+		if key, ok := parsePHPArrayOpenKey(line); ok {
+			path = append(path, key)
+		}
+		for closes := countPHPArrayCloses(line); closes > 0 && len(path) > 0; closes-- {
+			path = path[:len(path)-1]
+		}
+	}
+	if !defaultDatasourceSeen {
+		return minimalCakePHPConfigForCredentials(credentials)
+	}
+
+	return strings.Join(updated, "\n") + "\n"
+}
+
+func minimalCakePHPConfig() string {
+	return minimalCakePHPConfigForCredentials(&DatabaseCredentials{
+		Host:         defaultDatabaseHost,
+		Port:         defaultDatabasePort,
+		DatabaseName: "app",
+		User:         "root",
+	})
+}
+
+func minimalCakePHPConfigForCredentials(credentials *DatabaseCredentials) string {
+	return strings.Join([]string{
+		"<?php",
+		"declare(strict_types=1);",
+		"",
+		"return [",
+		"    'Datasources' => [",
+		"        'default' => [",
+		cakePHPConfigAssignmentLine("            ", "driver", "Cake\\Database\\Driver\\Mysql"),
+		cakePHPConfigAssignmentLine("            ", "host", credentials.Host),
+		cakePHPConfigAssignmentLine("            ", "port", strconv.Itoa(credentials.Port)),
+		cakePHPConfigAssignmentLine("            ", "username", credentials.User),
+		cakePHPConfigAssignmentLine("            ", "password", credentials.Password),
+		cakePHPConfigAssignmentLine("            ", "database", credentials.DatabaseName),
+		cakePHPConfigAssignmentLine("            ", "encoding", "utf8mb4"),
+		"        ],",
+		"    ],",
+		"];",
+		"",
+	}, "\n")
+}
+
+func cakePHPConfigAssignmentLine(indent, key, value string) string {
+	return indent + phpSingleQuotedString(key) + " => " + phpSingleQuotedString(value) + ","
+}
+
+func cakePHPConfigPathIsDefaultDatasource(path []string) bool {
+	return len(path) == 2 && path[0] == "Datasources" && path[1] == "default"
+}
+
+func parsePHPArrayOpenKey(line string) (string, bool) {
+	trimmed := strings.TrimLeftFunc(line, unicode.IsSpace)
+	if strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "#") {
+		return "", false
+	}
+	key, rest, ok := parsePHPArrayKeyPrefix(trimmed)
+	if !ok {
+		return "", false
+	}
+	rest = strings.TrimSpace(rest)
+	if strings.HasPrefix(rest, "[") {
+		return key, true
+	}
+
+	return "", false
+}
+
+func parsePHPScalarArrayKey(line string) (string, bool) {
+	trimmed := strings.TrimLeftFunc(line, unicode.IsSpace)
+	if strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "#") {
+		return "", false
+	}
+	key, rest, ok := parsePHPArrayKeyPrefix(trimmed)
+	if !ok {
+		return "", false
+	}
+	rest = strings.TrimSpace(rest)
+	if strings.HasPrefix(rest, "[") {
+		return "", false
+	}
+
+	return key, true
+}
+
+func parsePHPArrayKeyPrefix(trimmed string) (string, string, bool) {
+	if len(trimmed) < 4 || trimmed[0] != '\'' && trimmed[0] != '"' {
+		return "", "", false
+	}
+	quote := trimmed[0]
+	end := 1
+	escaped := false
+	for ; end < len(trimmed); end++ {
+		char := trimmed[end]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if char == '\\' {
+			escaped = true
+			continue
+		}
+		if char == quote {
+			break
+		}
+	}
+	if end >= len(trimmed) {
+		return "", "", false
+	}
+	remainder := strings.TrimLeftFunc(trimmed[end+1:], unicode.IsSpace)
+	if !strings.HasPrefix(remainder, "=>") {
+		return "", "", false
+	}
+
+	return trimmed[1:end], strings.TrimLeftFunc(strings.TrimPrefix(remainder, "=>"), unicode.IsSpace), true
+}
+
+func isPHPArrayCloseLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return strings.HasPrefix(trimmed, "]")
+}
+
+func cakePHPClosingIndent(line string) string {
+	return line[:len(line)-len(strings.TrimLeftFunc(line, unicode.IsSpace))] + "    "
+}
+
+func cakePHPAssignmentIndent(line string) string {
+	return line[:len(line)-len(strings.TrimLeftFunc(line, unicode.IsSpace))]
+}
+
+func countPHPArrayCloses(line string) int {
+	count := 0
+	quote := rune(0)
+	escaped := false
+	for _, char := range line {
+		if quote != 0 {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if char == '\\' {
+				escaped = true
+				continue
+			}
+			if char == quote {
+				quote = 0
+			}
+			continue
+		}
+		if char == '\'' || char == '"' {
+			quote = char
+			continue
+		}
+		if char == ']' {
+			count++
+		}
+	}
+
+	return count
 }
 
 func upsertDotenvAssignments(contents string, assignments []dotenvAssignment) string {
@@ -677,6 +921,11 @@ func composerPackageDirectoryName(name string) string {
 
 func frameworkAppRootLooksLike(path, framework string) bool {
 	switch strings.ToLower(strings.TrimSpace(framework)) {
+	case CakePHP:
+		return regularFileExists(filepath.Join(path, "bin", "cake")) ||
+			regularFileExists(filepath.Join(path, "config", "app.php")) ||
+			regularFileExists(filepath.Join(path, "config", "app_local.php")) ||
+			regularFileExists(filepath.Join(path, "composer.json"))
 	case CodeIgniter:
 		return regularFileExists(filepath.Join(path, "spark")) ||
 			regularFileExists(filepath.Join(path, "env")) ||

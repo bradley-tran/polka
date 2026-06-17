@@ -6,7 +6,7 @@ import (
 )
 
 func TestBuiltinFrameworkManifestsLoad(t *testing.T) {
-	for _, framework := range []string{CodeIgniter, Drupal, WordPress, Laravel, Symfony} {
+	for _, framework := range []string{CakePHP, CodeIgniter, Drupal, WordPress, Laravel, Symfony} {
 		t.Run(framework, func(t *testing.T) {
 			manifest, err := loadBuiltinFrameworkManifest(framework)
 			if err != nil {

@@ -10,6 +10,80 @@ import (
 	"polka/tools"
 )
 
+func TestCakePHPPostComposerUpdatesAppLocalDatabaseConfig(t *testing.T) {
+	projectDir := t.TempDir()
+	appRoot := filepath.Join(projectDir, "cake")
+	configDir := filepath.Join(appRoot, "config")
+	if err := os.MkdirAll(filepath.Join(appRoot, "webroot"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(app) error = %v", err)
+	}
+	appLocal := strings.Join([]string{
+		"<?php",
+		"declare(strict_types=1);",
+		"",
+		"return [",
+		"    'debug' => true,",
+		"    'Datasources' => [",
+		"        'default' => [",
+		"            'host' => 'localhost',",
+		"            'username' => 'my_app',",
+		"            'password' => 'secret',",
+		"            'database' => 'my_app',",
+		"        ],",
+		"    ],",
+		"];",
+		"",
+	}, "\n")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(config) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "app_local.php"), []byte(appLocal), 0o644); err != nil {
+		t.Fatalf("WriteFile(app_local.php) error = %v", err)
+	}
+
+	cakePHP, ok := NewDefaultRegistry().Framework(CakePHP)
+	if !ok {
+		t.Fatal("Framework(cakephp) ok = false, want true")
+	}
+	err := cakePHP.PostComposer(PostComposerContext{
+		ProjectDir: projectDir,
+		Environment: config.Environment{
+			Framework: CakePHP,
+			Docroot:   "cake/webroot",
+		},
+		Database: &DatabaseCredentials{
+			Host:         "127.0.0.1",
+			Port:         3307,
+			DatabaseName: "demo",
+			User:         "polka",
+			Password:     "secret",
+		},
+	})
+	if err != nil {
+		t.Fatalf("PostComposer() error = %v", err)
+	}
+
+	updated, err := os.ReadFile(filepath.Join(configDir, "app_local.php"))
+	if err != nil {
+		t.Fatalf("ReadFile(app_local.php) error = %v", err)
+	}
+	text := string(updated)
+	for _, expected := range []string{
+		"'debug' => true,",
+		"'driver' => 'Cake\\\\Database\\\\Driver\\\\Mysql',",
+		"'host' => '127.0.0.1',",
+		"'port' => '3307',",
+		"'username' => 'polka',",
+		"'password' => 'secret',",
+		"'database' => 'demo',",
+		"'encoding' => 'utf8mb4',",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("app_local.php = %q, want %q", text, expected)
+		}
+	}
+}
+
 func TestCodeIgniterPostComposerUpdatesDotenvDatabaseSecrets(t *testing.T) {
 	projectDir := t.TempDir()
 	appRoot := filepath.Join(projectDir, "site")

@@ -413,13 +413,13 @@ func TestStoreReadsAndWritesOPcacheConfig(t *testing.T) {
 func TestStoreRejectsUnknownFrameworkConfig(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
-	if err := os.WriteFile(store.ConfigFile, []byte("version: 1\nroot: .polka\nframework: cakephp\n"), 0o644); err != nil {
+	if err := os.WriteFile(store.ConfigFile, []byte("version: 1\nroot: .polka\nframework: yii\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
 
 	if _, err := store.readConfig(); err == nil {
 		t.Fatal("readConfig() error = nil, want unsupported framework error")
-	} else if !strings.Contains(err.Error(), "unsupported framework") || !strings.Contains(err.Error(), "codeigniter, drupal, laravel, symfony, wordpress") {
+	} else if !strings.Contains(err.Error(), "unsupported framework") || !strings.Contains(err.Error(), "cakephp, codeigniter, drupal, laravel, symfony, wordpress") {
 		t.Fatalf("readConfig() error = %v, want supported framework list", err)
 	}
 }

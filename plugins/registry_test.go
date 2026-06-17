@@ -11,16 +11,16 @@ import (
 func TestDefaultRegistrySupportsFrameworkPlugins(t *testing.T) {
 	registry := NewDefaultRegistry()
 
-	if got, want := registry.SupportedFrameworks(), []string{CodeIgniter, Drupal, Laravel, Symfony, WordPress}; !reflect.DeepEqual(got, want) {
+	if got, want := registry.SupportedFrameworks(), []string{CakePHP, CodeIgniter, Drupal, Laravel, Symfony, WordPress}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("SupportedFrameworks() = %#v, want %#v", got, want)
 	}
-	for _, id := range []string{CodeIgniter, Drupal, WordPress, Laravel, Symfony} {
+	for _, id := range []string{CakePHP, CodeIgniter, Drupal, WordPress, Laravel, Symfony} {
 		if _, ok := registry.Framework(id); !ok {
 			t.Fatalf("Framework(%q) ok = false, want true", id)
 		}
 	}
-	if err := registry.ValidateFramework("cakephp"); err == nil {
-		t.Fatal("ValidateFramework(cakephp) error = nil, want unsupported framework error")
+	if err := registry.ValidateFramework("yii"); err == nil {
+		t.Fatal("ValidateFramework(yii) error = nil, want unsupported framework error")
 	}
 }
 
@@ -33,6 +33,30 @@ func TestRegistryRejectsDuplicateFrameworkPlugins(t *testing.T) {
 
 func TestFrameworkDefaultsUseExpectedPresetMatrix(t *testing.T) {
 	registry := NewDefaultRegistry()
+
+	cakePHP, ok := registry.Framework(CakePHP)
+	if !ok {
+		t.Fatal("Framework(cakephp) ok = false, want true")
+	}
+	cakePHPDefaults := cakePHP.Defaults()
+	if cakePHPDefaults.Framework != CakePHP || cakePHPDefaults.Docroot != "webroot" || cakePHPDefaults.ComposerVersion != "2.8" || cakePHPDefaults.NodeJSVersion != "24" || cakePHPDefaults.Mailpit == nil {
+		t.Fatalf("CakePHP defaults = %#v, want full CakePHP preset", cakePHPDefaults)
+	}
+	if cakePHPDefaults.OPcachePreset != config.OPcachePresetDev || len(cakePHPDefaults.OPcacheConfig) != 0 {
+		t.Fatalf("CakePHP OPcache defaults = %q %#v, want dev preset only", cakePHPDefaults.OPcachePreset, cakePHPDefaults.OPcacheConfig)
+	}
+	if len(cakePHPDefaults.PHPExtensions) != 0 {
+		t.Fatalf("CakePHP defaults php-extensions = %#v, want init defaults omitted", cakePHPDefaults.PHPExtensions)
+	}
+	assertExtensionsEnabled(t, cakePHP.PHPExtensions(), []string{
+		"intl",
+		"mbstring",
+		"mysqli",
+		"opcache",
+		"openssl",
+		"pdo_mysql",
+		"simplexml",
+	})
 
 	codeIgniter, ok := registry.Framework(CodeIgniter)
 	if !ok {
