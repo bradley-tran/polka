@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"polka/backend"
+	"polka/service"
 )
 
 const (
@@ -203,7 +204,7 @@ func newStatusCommand(ctx *commandContext) *cobra.Command {
 				return &statusError{code: 1, err: err}
 			}
 
-			return runStatus(cmd.OutOrStdout(), store)
+			return runStatus(cmd.OutOrStdout(), cmd.ErrOrStderr(), store)
 		},
 	}
 	configureCommand(cmd, statusUsage)
@@ -413,7 +414,7 @@ func runUse(stdout io.Writer, store backend.Store, name string) error {
 	return nil
 }
 
-func runStatus(stdout io.Writer, store backend.Store) error {
+func runStatus(stdout, stderr io.Writer, store backend.Store) error {
 	current, err := store.Current()
 	if err != nil {
 		return err
@@ -431,6 +432,7 @@ func runStatus(stdout io.Writer, store backend.Store) error {
 	hooks := defaultCLIHookRegistry()
 	statusContext := statusHookContext{
 		Stdout:      stdout,
+		Stderr:      stderr,
 		Store:       store,
 		Environment: *current,
 	}
@@ -516,7 +518,7 @@ func labelMailpit(mailpit *backend.MailpitConfig) string {
 		return "unset"
 	}
 
-	return fmt.Sprintf("%s smtp=%d ui=%s", mailpit.Version, backend.EffectiveMailpitSMTPPort(mailpit), mailpitUIURLForConfig(mailpit))
+	return fmt.Sprintf("%s smtp=%d ui=%s", mailpit.Version, service.EffectiveMailpitSMTPPort(mailpit), mailpitUIURLForConfig(mailpit))
 }
 
 func labelPHPMyAdmin(phpMyAdmin *backend.PHPMyAdminConfig) string {

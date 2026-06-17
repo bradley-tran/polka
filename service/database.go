@@ -1,4 +1,4 @@
-package backend
+package service
 
 import (
 	"crypto/rand"
@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"polka/config"
 )
 
 const (
@@ -32,8 +34,8 @@ const (
 )
 
 type ResolvedDatabaseEnvironment struct {
-	Environment Environment
-	Database    *DatabaseConfig
+	Environment config.Environment
+	Database    *config.DatabaseConfig
 }
 
 type ManagedDatabaseServerSpec struct {
@@ -85,26 +87,21 @@ type DatabaseRuntimeHooks struct {
 	Now              func() time.Time
 }
 
-func ResolveDatabaseEnvironment(store Store) (ResolvedDatabaseEnvironment, error) {
-	current, err := store.Current()
-	if err != nil {
-		return ResolvedDatabaseEnvironment{}, err
-	}
-	if current == nil {
-		return ResolvedDatabaseEnvironment{}, fmt.Errorf("no active environment selected")
-	}
-	if current.Database == nil || strings.TrimSpace(current.Database.Engine) == "" {
-		return ResolvedDatabaseEnvironment{}, fmt.Errorf("environment %q does not define a database engine", current.Name)
+// ResolveDatabaseEnvironment validates and returns the managed database selected
+// by an already-resolved environment.
+func ResolveDatabaseEnvironment(environment config.Environment) (ResolvedDatabaseEnvironment, error) {
+	if environment.Database == nil || strings.TrimSpace(environment.Database.Engine) == "" {
+		return ResolvedDatabaseEnvironment{}, fmt.Errorf("environment %q does not define a database engine", environment.Name)
 	}
 
-	return ResolvedDatabaseEnvironment{Environment: *current, Database: current.Database}, nil
+	return ResolvedDatabaseEnvironment{Environment: environment, Database: environment.Database}, nil
 }
 
-func EnsureManagedDatabaseStarted(store Store, resolved ResolvedDatabaseEnvironment, hooks DatabaseRuntimeHooks) (ManagedDatabaseRuntimeState, bool, error) {
+func EnsureManagedDatabaseStarted(ctx Context, resolved ResolvedDatabaseEnvironment, hooks DatabaseRuntimeHooks) (ManagedDatabaseRuntimeState, bool, error) {
 	hooks = hooks.withDefaults()
 
-	statePath := DatabaseStatePath(store.RootDir, resolved.Environment.Name)
-	state, err := LoadLiveManagedDatabaseStateForResolved(store.RootDir, resolved, hooks.PingAddress)
+	statePath := DatabaseStatePath(ctx.RootDir, resolved.Environment.Name)
+	state, err := LoadLiveManagedDatabaseStateForResolved(ctx.RootDir, resolved, hooks.PingAddress)
 	if err != nil {
 		return ManagedDatabaseRuntimeState{}, false, err
 	}
@@ -112,7 +109,7 @@ func EnsureManagedDatabaseStarted(store Store, resolved ResolvedDatabaseEnvironm
 		return *state, true, nil
 	}
 
-	spec, err := buildManagedDatabaseServerSpec(store, resolved)
+	spec, err := buildManagedDatabaseServerSpec(ctx, resolved)
 	if err != nil {
 		return ManagedDatabaseRuntimeState{}, false, err
 	}
@@ -145,11 +142,11 @@ func EnsureManagedDatabaseStarted(store Store, resolved ResolvedDatabaseEnvironm
 	return startedState, false, nil
 }
 
-func StopManagedDatabase(store Store, resolved ResolvedDatabaseEnvironment, hooks DatabaseRuntimeHooks) (ManagedDatabaseRuntimeState, bool, error) {
+func StopManagedDatabase(ctx Context, resolved ResolvedDatabaseEnvironment, hooks DatabaseRuntimeHooks) (ManagedDatabaseRuntimeState, bool, error) {
 	hooks = hooks.withDefaults()
 
-	statePath := DatabaseStatePath(store.RootDir, resolved.Environment.Name)
-	state, err := LoadLiveManagedDatabaseState(store.RootDir, resolved.Environment.Name, hooks.PingAddress)
+	statePath := DatabaseStatePath(ctx.RootDir, resolved.Environment.Name)
+	state, err := LoadLiveManagedDatabaseState(ctx.RootDir, resolved.Environment.Name, hooks.PingAddress)
 	if state == nil && err == nil {
 		return ManagedDatabaseRuntimeState{}, true, nil
 	}
@@ -157,7 +154,50 @@ func StopManagedDatabase(store Store, resolved ResolvedDatabaseEnvironment, hook
 		return ManagedDatabaseRuntimeState{}, false, err
 	}
 	if strings.TrimSpace(state.AdminTarget) == "" || strings.TrimSpace(state.DefaultsFile) == "" {
-		spec, specErr := buildManagedDatabaseServerSpec(store, resolved)
+		spec, specErr := buildManagedDatabaseServerSpec(ctx, resolved)
+		if specErr != nil {
+			return ManagedDatabaseRuntimeState{}, false, specErr
+		}
+		if strings.TrimSpace(state.AdminTarget) == "" {
+			state.AdminTarget = spec.AdminTarget
+		}
+		if strings.TrimSpace(state.DefaultsFile) == "" {
+			state.DefaultsFile = spec.DefaultsFile
+		}
+	}
+
+	if err := hooks.StopServer(*state); err != nil {
+		return ManagedDatabaseRuntimeState{}, false, err
+	}
+	if err := os.Remove(statePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return ManagedDatabaseRuntimeState{}, false, fmt.Errorf("remove database state: %w", err)
+	}
+
+	return *state, false, nil
+}
+
+// StopManagedDatabaseForEnvironment stops a live database state without
+// requiring the current config to still define the database service.
+func StopManagedDatabaseForEnvironment(ctx Context, hooks DatabaseRuntimeHooks) (ManagedDatabaseRuntimeState, bool, error) {
+	hooks = hooks.withDefaults()
+
+	statePath := DatabaseStatePath(ctx.RootDir, ctx.Environment.Name)
+	state, err := LoadLiveManagedDatabaseState(ctx.RootDir, ctx.Environment.Name, hooks.PingAddress)
+	if state == nil && err == nil {
+		return ManagedDatabaseRuntimeState{}, true, nil
+	}
+	if err != nil {
+		return ManagedDatabaseRuntimeState{}, false, err
+	}
+
+	if strings.TrimSpace(state.AdminTarget) == "" || strings.TrimSpace(state.DefaultsFile) == "" {
+		if ctx.Environment.Database == nil || strings.TrimSpace(ctx.Environment.Database.Engine) == "" {
+			return ManagedDatabaseRuntimeState{}, false, fmt.Errorf("database state for %q is missing shutdown fields and the current environment no longer defines a database", ctx.Environment.Name)
+		}
+		spec, specErr := buildManagedDatabaseServerSpec(ctx, ResolvedDatabaseEnvironment{
+			Environment: ctx.Environment,
+			Database:    ctx.Environment.Database,
+		})
 		if specErr != nil {
 			return ManagedDatabaseRuntimeState{}, false, specErr
 		}
@@ -418,7 +458,7 @@ func DatabaseServerInitialized(spec ManagedDatabaseServerSpec) (bool, error) {
 	return len(entries) > 0, nil
 }
 
-func EffectiveDatabasePort(database *DatabaseConfig) int {
+func EffectiveDatabasePort(database *config.DatabaseConfig) int {
 	if database == nil || database.Port == 0 {
 		return DefaultDatabasePort
 	}
@@ -592,22 +632,26 @@ func WriteManagedDatabaseState(path string, state ManagedDatabaseRuntimeState) e
 	return nil
 }
 
-func buildManagedDatabaseServerSpec(store Store, resolved ResolvedDatabaseEnvironment) (ManagedDatabaseServerSpec, error) {
-	credentials, err := EnsureManagedDatabaseCredentialAssets(store.RootDir, resolved)
+func buildManagedDatabaseServerSpec(ctx Context, resolved ResolvedDatabaseEnvironment) (ManagedDatabaseServerSpec, error) {
+	if !ctx.hasTool(resolved.Database.Engine) {
+		return ManagedDatabaseServerSpec{}, fmt.Errorf("unsupported tool %q", resolved.Database.Engine)
+	}
+
+	credentials, err := EnsureManagedDatabaseCredentialAssets(ctx.RootDir, resolved)
 	if err != nil {
 		return ManagedDatabaseServerSpec{}, err
 	}
-	dataDir, err := ResolveDatabaseDataPath(store.RootDir, resolved)
+	dataDir, err := ResolveDatabaseDataPath(ctx.RootDir, resolved)
 	if err != nil {
 		return ManagedDatabaseServerSpec{}, err
 	}
 
-	installDir := filepath.Join(store.EnvsDir, resolved.Database.Engine, resolved.Database.Version)
-	target, err := resolveDatabaseServerTarget(store.EnvsDir, resolved.Database.Engine, resolved.Database.Version)
+	installDir := filepath.Join(ctx.EnvsDir, resolved.Database.Engine, resolved.Database.Version)
+	target, err := resolveDatabaseServerTarget(ctx.EnvsDir, resolved.Database.Engine, resolved.Database.Version)
 	if err != nil {
 		return ManagedDatabaseServerSpec{}, err
 	}
-	adminTarget, err := resolveDatabaseAdminTarget(store.EnvsDir, resolved.Database.Engine, resolved.Database.Version)
+	adminTarget, err := resolveDatabaseAdminTarget(ctx.EnvsDir, resolved.Database.Engine, resolved.Database.Version)
 	if err != nil {
 		return ManagedDatabaseServerSpec{}, err
 	}
@@ -620,9 +664,9 @@ func buildManagedDatabaseServerSpec(store Store, resolved ResolvedDatabaseEnviro
 		Target:           target,
 		AdminTarget:      adminTarget,
 		DataDir:          dataDir,
-		LogPath:          DatabaseEngineLogPath(store.RootDir, resolved.Database.Engine, resolved.Environment.Name),
-		DefaultsFile:     DatabaseDefaultsFilePath(store.RootDir, resolved.Environment.Name),
-		BootstrapSQLFile: DatabaseBootstrapSQLPath(store.RootDir, resolved.Environment.Name),
+		LogPath:          DatabaseEngineLogPath(ctx.RootDir, resolved.Database.Engine, resolved.Environment.Name),
+		DefaultsFile:     DatabaseDefaultsFilePath(ctx.RootDir, resolved.Environment.Name),
+		BootstrapSQLFile: DatabaseBootstrapSQLPath(ctx.RootDir, resolved.Environment.Name),
 		Port:             credentials.Port,
 	}, nil
 }

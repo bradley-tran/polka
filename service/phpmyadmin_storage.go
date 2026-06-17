@@ -1,4 +1,4 @@
-package backend
+package service
 
 import (
 	"bytes"
@@ -19,11 +19,11 @@ const (
 	phpMyAdminStorageCreateTablesSQLPath = "sql/create_tables.sql"
 )
 
-func normalizePHPMyAdminConfig(phpMyAdmin *PHPMyAdminConfig) *PHPMyAdminConfig {
+func normalizePHPMyAdminConfig(phpMyAdmin *config.PHPMyAdminConfig) *config.PHPMyAdminConfig {
 	return config.NormalizePHPMyAdminConfig(phpMyAdmin)
 }
 
-func EffectivePHPMyAdminPort(phpMyAdmin *PHPMyAdminConfig) int {
+func EffectivePHPMyAdminPort(phpMyAdmin *config.PHPMyAdminConfig) int {
 	if phpMyAdmin == nil || phpMyAdmin.Port == 0 {
 		return DefaultPHPMyAdminPort
 	}
@@ -54,7 +54,7 @@ func ResolvePHPMyAdminDocroot(envsDir, version string) (string, error) {
 	return docroot, nil
 }
 
-func EnsurePHPMyAdminStorageConfigured(store Store, environment Environment, hooks DatabaseRuntimeHooks) error {
+func EnsurePHPMyAdminStorageConfigured(ctx Context, environment config.Environment, hooks DatabaseRuntimeHooks) error {
 	if environment.PHPMyAdmin == nil || strings.TrimSpace(environment.PHPMyAdmin.Version) == "" {
 		return nil
 	}
@@ -62,7 +62,7 @@ func EnsurePHPMyAdminStorageConfigured(store Store, environment Environment, hoo
 		return nil
 	}
 
-	docroot, err := ResolvePHPMyAdminDocroot(store.EnvsDir, environment.PHPMyAdmin.Version)
+	docroot, err := ResolvePHPMyAdminDocroot(ctx.EnvsDir, environment.PHPMyAdmin.Version)
 	if err != nil {
 		return err
 	}
@@ -76,24 +76,24 @@ func EnsurePHPMyAdminStorageConfigured(store Store, environment Environment, hoo
 	}
 
 	resolved := ResolvedDatabaseEnvironment{Environment: environment, Database: environment.Database}
-	state, _, err := EnsureManagedDatabaseStarted(store, resolved, hooks)
+	state, _, err := EnsureManagedDatabaseStarted(ctx, resolved, hooks)
 	if err != nil {
 		return fmt.Errorf("start database for phpmyadmin storage: %w", err)
 	}
 
-	if err := importPHPMyAdminStorageSQL(store, resolved, state, createTablesPath); err != nil {
+	if err := importPHPMyAdminStorageSQL(ctx, resolved, state, createTablesPath); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func importPHPMyAdminStorageSQL(store Store, resolved ResolvedDatabaseEnvironment, state ManagedDatabaseRuntimeState, sqlPath string) error {
-	target, err := store.resolveInstalledTool(resolved.Database.Engine, resolved.Database.Version)
+func importPHPMyAdminStorageSQL(ctx Context, resolved ResolvedDatabaseEnvironment, state ManagedDatabaseRuntimeState, sqlPath string) error {
+	target, err := ctx.resolveInstalledTool(resolved.Database.Engine, resolved.Database.Version)
 	if err != nil {
 		return err
 	}
-	if _, err := EnsureManagedDatabaseCredentialAssets(store.RootDir, resolved); err != nil {
+	if _, err := EnsureManagedDatabaseCredentialAssets(ctx.RootDir, resolved); err != nil {
 		return err
 	}
 
@@ -108,7 +108,7 @@ func importPHPMyAdminStorageSQL(store Store, resolved ResolvedDatabaseEnvironmen
 		port = EffectiveDatabasePort(resolved.Database)
 	}
 	args := []string{
-		"--defaults-extra-file=" + DatabaseDefaultsFilePath(store.RootDir, resolved.Environment.Name),
+		"--defaults-extra-file=" + DatabaseDefaultsFilePath(ctx.RootDir, resolved.Environment.Name),
 		"--protocol=tcp",
 		"--host=" + DatabaseListenHost,
 		"--port=" + strconv.Itoa(port),

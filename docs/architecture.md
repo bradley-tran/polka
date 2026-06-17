@@ -1,6 +1,6 @@
 # Polka Architecture
 
-Polka is a Go CLI for managing project-local PHP development environments. The project is organized around a small CLI layer, a backend orchestration layer, shared config types, a higher-level plugin registry, and a tool package that knows how to install and dispatch managed tools.
+Polka is a Go CLI for managing project-local PHP development environments. The project is organized around a small CLI layer, a backend state layer, shared config types, service runtime orchestration, a higher-level plugin registry, and a tool package that knows how to install and dispatch managed tools.
 
 ## Package Map
 
@@ -11,6 +11,7 @@ Polka is a Go CLI for managing project-local PHP development environments. The p
 |-- backend/
 |-- config/
 |-- plugins/
+|-- service/
 `-- tools/
 ```
 
@@ -30,9 +31,10 @@ The `backend` package owns Polka project state and orchestration:
 - installing tools from the global cache into the project
 - syncing dispatch shims for the active environment
 - resolving active tool executable paths
-- managing runtime services such as the webserver, database server, Mailpit, certificates, and shell/session state
+- exposing project paths and active registry data used by command/runtime layers
+- managing shell/session state
 
-`backend.Store` is the main entry point for persistent project operations. It delegates tool-specific behavior to `tools.Registry` and `tools.Downloader`.
+`backend.Store` is the main entry point for persistent project operations. It delegates tool-specific behavior to `tools.Registry` and `tools.Downloader`, and exposes the active tool registry for service runtime orchestration.
 
 `backend/aliases.go` preserves older backend-facing API names such as `backend.Environment`, `backend.ToolRegistry`, and `backend.HTTPToolDownloader` by aliasing the newer `config` and `tools` types.
 
@@ -61,6 +63,17 @@ This package exists to avoid import cycles. Both `backend` and `tools` can depen
 The `plugins` package owns Polka's higher-level built-in plugin registry. It groups installable tool plugins from `tools` with framework plugins such as `drupal`, `wordpress`, `laravel`, and `symfony`.
 
 Framework plugins provide config defaults and optional hooks for PHP extensions, runtime environment variables, OPcache directives, post-Composer secret file generation, and nginx config generation. In v1, framework init is config-only and framework nginx hooks delegate to the generic front-controller config.
+
+### `service`
+
+The `service` package owns long-running managed services:
+
+- managed MySQL and MariaDB server lifecycle, credentials, state, and data paths
+- Mailpit server lifecycle, state, ports, and logs
+- phpMyAdmin service lifecycle, UI endpoint helpers, state, and managed database storage bootstrap
+- service matching against the active `tools.Registry`
+
+Automatic service startup skips a configured service when its matching managed tool plugin is not registered, and reports that through the caller's warning callback. Explicit service commands still fail when their required tool cannot be resolved.
 
 ### `tools`
 
@@ -109,16 +122,16 @@ Node.js is config-only as `nodejs`, but it exposes `node`, `npm`, and `npx` disp
 
 ## Runtime Services
 
-Runtime services remain in `backend` and `cli`:
+Runtime services are split between `service` and `cli`:
 
-- PHP built-in server and nginx serving are command/runtime concerns.
-- Managed database lifecycle is in `backend/database_runtime.go`.
-- Mailpit startup, shutdown, and status are command/runtime concerns.
-- phpMyAdmin startup, shutdown, status, and managed database storage import are command/runtime concerns.
-- Certificates are backend-managed assets.
+- PHP built-in server and nginx serving remain command/runtime concerns in `cli`.
+- Managed database lifecycle is in `service`.
+- Mailpit startup, shutdown, and status are in `service`, with CLI adapters for command output and test hooks.
+- phpMyAdmin startup, shutdown, status, and managed database storage import are in `service`; CLI supplies the PHP/nginx web runtime callbacks.
+- Certificates remain CLI-managed assets and are passed to services through callback adapters.
 - Shell and session commands compose environment variables and `PATH` behavior around the active environment.
 
-The database tool plugins install and dispatch database clients, but database server lifecycle logic remains backend orchestration.
+The database tool plugins install and dispatch database clients, while database server lifecycle logic lives in `service`.
 
 ## Dependency Rules
 
@@ -128,7 +141,9 @@ Keep package dependencies moving in this direction:
 cli -> backend -> plugins -> tools -> config
 cli -> backend -> tools -> config
 cli -> backend -> config
+cli -> service -> tools -> config
 backend -> config
+backend -> service -> tools -> config
 ```
 
 Avoid these dependencies:
@@ -137,6 +152,7 @@ Avoid these dependencies:
 - `plugins -> backend`
 - `config -> backend`
 - `config -> tools`
+- `service -> backend`
 
 Plugin hooks receive `tools.InstallContext`, which contains layout paths and install results rather than a `backend.Store`. This keeps the tool package independent from backend orchestration.
 

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"polka/backend"
+	"polka/service"
 )
 
 func TestRunStopStopsManagedDatabaseWhenWebserverAlreadyStopped(t *testing.T) {
@@ -191,16 +191,16 @@ func TestRunStopStopsMailpitWhenConfigured(t *testing.T) {
 	})
 
 	running := map[string]bool{
-		backend.MailpitAddress(1125): true,
-		backend.MailpitAddress(8125): true,
+		service.MailpitAddress(1125): true,
+		service.MailpitAddress(8125): true,
 	}
 	stopCalls := 0
 	var stoppedState mailpitRuntimeState
 	stopMailpitRuntimeFunc = func(state mailpitRuntimeState) error {
 		stopCalls++
 		stoppedState = state
-		running[backend.MailpitAddress(state.SMTPPort)] = false
-		running[backend.MailpitAddress(state.UIPort)] = false
+		running[service.MailpitAddress(state.SMTPPort)] = false
+		running[service.MailpitAddress(state.UIPort)] = false
 		return nil
 	}
 	pingMailpitAddressFunc = func(address string) bool {

@@ -13,6 +13,7 @@ import (
 
 	"polka/backend"
 	"polka/plugins"
+	"polka/service"
 )
 
 const defaultProjectEnvFileName = ".env"
@@ -95,7 +96,7 @@ func frameworkDatabaseCredentials(rootDir string, environment backend.Environmen
 		return nil, nil
 	}
 
-	credentials, err := backend.LoadManagedDatabaseCredentials(backend.DatabaseCredentialStatePath(rootDir, environment.Name))
+	credentials, err := service.LoadManagedDatabaseCredentials(service.DatabaseCredentialStatePath(rootDir, environment.Name))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -106,10 +107,10 @@ func frameworkDatabaseCredentials(rootDir string, environment backend.Environmen
 	return frameworkDatabaseCredentialsFromManaged(environment, credentials), nil
 }
 
-func frameworkDatabaseCredentialsFromManaged(environment backend.Environment, credentials backend.ManagedDatabaseCredentials) *plugins.DatabaseCredentials {
+func frameworkDatabaseCredentialsFromManaged(environment backend.Environment, credentials service.ManagedDatabaseCredentials) *plugins.DatabaseCredentials {
 	port := credentials.Port
 	if port == 0 {
-		port = backend.EffectiveDatabasePort(environment.Database)
+		port = service.EffectiveDatabasePort(environment.Database)
 	}
 	databaseName := strings.TrimSpace(credentials.DatabaseName)
 	if databaseName == "" {
@@ -117,7 +118,7 @@ func frameworkDatabaseCredentialsFromManaged(environment backend.Environment, cr
 	}
 
 	return &plugins.DatabaseCredentials{
-		Host:         backend.DatabaseListenHost,
+		Host:         service.DatabaseListenHost,
 		Port:         port,
 		DatabaseName: databaseName,
 		User:         credentials.User,

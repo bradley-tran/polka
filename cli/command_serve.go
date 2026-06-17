@@ -25,6 +25,7 @@ import (
 
 	"polka/backend"
 	"polka/plugins"
+	"polka/service"
 )
 
 const (
@@ -62,35 +63,9 @@ type serveCommandInput struct {
 	Watch   bool
 }
 
-type serveRuntimeState struct {
-	EnvironmentName string    `json:"environment"`
-	Version         string    `json:"version,omitempty"`
-	ServerKind      string    `json:"server_kind"`
-	ServerScheme    string    `json:"server_scheme,omitempty"`
-	ServerAddress   string    `json:"server_address"`
-	Docroot         string    `json:"docroot"`
-	RuntimeDir      string    `json:"runtime_dir,omitempty"`
-	LogPath         string    `json:"log_path,omitempty"`
-	BackendLogPath  string    `json:"backend_log_path,omitempty"`
-	ConfigPath      string    `json:"config_path,omitempty"`
-	RouterPath      string    `json:"router_path,omitempty"`
-	PrimaryPID      int       `json:"primary_pid"`
-	SecondaryPID    int       `json:"secondary_pid,omitempty"`
-	StartedAt       time.Time `json:"started_at"`
-}
-
-type serveAppLayout struct {
-	Docroot                 string
-	FrontControllerRelative string
-	FrontControllerWebPath  string
-	FrontControllerIndex    string
-}
-
-type serverEndpoint struct {
-	Scheme  string
-	Address string
-	HTTPS   bool
-}
+type serveRuntimeState = service.ServeRuntimeState
+type serveAppLayout = service.AppLayout
+type serverEndpoint = service.Endpoint
 
 type nginxTLSConfig struct {
 	Enabled            bool
@@ -344,7 +319,7 @@ func runNginxServe(stdout, stderr io.Writer, store backend.Store, environment ba
 		return 0, err
 	}
 
-	runtimeDir := backend.ToolLogRoot(store.RootDir, "nginx", environment.Name)
+	runtimeDir := service.ToolLogRoot(store.RootDir, "nginx", environment.Name)
 	configPath, phpLogPath, err := prepareNginxServeRuntime(store.CacheDir, runtimeDir, environment, endpoint, layout, backendAddress)
 	if err != nil {
 		return 0, err
@@ -378,7 +353,7 @@ func runNginxServe(stdout, stderr io.Writer, store backend.Store, environment ba
 }
 
 func startNginxServeInBackground(store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout) (serveRuntimeState, error) {
-	return startNginxServeInBackgroundAt(store, environment, endpoint, layout, backend.ToolLogRoot(store.RootDir, "nginx", environment.Name))
+	return startNginxServeInBackgroundAt(store, environment, endpoint, layout, service.ToolLogRoot(store.RootDir, "nginx", environment.Name))
 }
 
 func startNginxServeInBackgroundAt(store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout, runtimeDir string) (serveRuntimeState, error) {

@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"polka/backend"
+	"polka/service"
 )
 
 const (
@@ -25,27 +26,27 @@ const (
 	dbSubcommandStop   = "stop"
 	dbSubcommandStatus = "status"
 
-	dbListenHost      = backend.DatabaseListenHost
-	dbManagedUserName = backend.ManagedDatabaseUserName
+	dbListenHost      = service.DatabaseListenHost
+	dbManagedUserName = service.ManagedDatabaseUserName
 )
 
 var (
-	initializeDatabaseServerFunc = backend.InitializeDatabaseServer
-	startDatabaseServerFunc      = backend.StartDatabaseServer
-	stopDatabaseServerFunc       = backend.StopDatabaseServer
-	pingDatabaseAddressFunc      = backend.PingDatabaseAddress
+	initializeDatabaseServerFunc = service.InitializeDatabaseServer
+	startDatabaseServerFunc      = service.StartDatabaseServer
+	stopDatabaseServerFunc       = service.StopDatabaseServer
+	pingDatabaseAddressFunc      = service.PingDatabaseAddress
 	dbNowFunc                    = time.Now
 )
 
-type dbResolvedEnvironment = backend.ResolvedDatabaseEnvironment
+type dbResolvedEnvironment = service.ResolvedDatabaseEnvironment
 
-type dbServerSpec = backend.ManagedDatabaseServerSpec
+type dbServerSpec = service.ManagedDatabaseServerSpec
 
-type dbStartResult = backend.ManagedDatabaseStartResult
+type dbStartResult = service.ManagedDatabaseStartResult
 
-type dbManagedCredentials = backend.ManagedDatabaseCredentials
+type dbManagedCredentials = service.ManagedDatabaseCredentials
 
-type dbRuntimeState = backend.ManagedDatabaseRuntimeState
+type dbRuntimeState = service.ManagedDatabaseRuntimeState
 
 func newDBCommand(ctx *commandContext) *cobra.Command {
 	cmd := &cobra.Command{
@@ -100,7 +101,15 @@ func runDB(stdout, stderr io.Writer, store backend.Store, args []string) int {
 }
 
 func resolveDBEnvironment(store backend.Store) (dbResolvedEnvironment, error) {
-	return backend.ResolveDatabaseEnvironment(store)
+	current, err := store.Current()
+	if err != nil {
+		return dbResolvedEnvironment{}, err
+	}
+	if current == nil {
+		return dbResolvedEnvironment{}, fmt.Errorf("no active environment selected")
+	}
+
+	return service.ResolveDatabaseEnvironment(*current)
 }
 
 func runDBClient(stdout, stderr io.Writer, store backend.Store, resolved dbResolvedEnvironment, args []string) int {
@@ -134,7 +143,7 @@ func runDBExport(stdout, stderr io.Writer, store backend.Store, resolved dbResol
 	}
 	dumpArgs = append(dumpArgs, "--databases", databaseName, "--routines", "--events")
 
-	dumpTarget, err := backend.ResolveDatabaseDumpTarget(store.EnvsDir, resolved.Database.Engine, resolved.Database.Version)
+	dumpTarget, err := service.ResolveDatabaseDumpTarget(store.EnvsDir, resolved.Database.Engine, resolved.Database.Version)
 	if err != nil {
 		_ = finalizeExport(false)
 		fmt.Fprintf(stderr, "error: %v\n", err)
@@ -243,7 +252,7 @@ func runDBStop(stdout, stderr io.Writer, store backend.Store, resolved dbResolve
 		return 1
 	}
 
-	state, alreadyStopped, err := backend.StopManagedDatabase(store, resolved, dbRuntimeHooks())
+	state, alreadyStopped, err := service.StopManagedDatabase(managedServiceContext(store, resolved.Environment, nil), resolved, dbRuntimeHooks())
 	if alreadyStopped {
 		fmt.Fprintf(stdout, "Database for environment %q is already stopped.\n", resolved.Environment.Name)
 		return 0
@@ -263,15 +272,15 @@ func runDBStatus(stdout, stderr io.Writer, store backend.Store, resolved dbResol
 		return 1
 	}
 
-	state, err := backend.LoadLiveManagedDatabaseStateForResolved(store.RootDir, resolved, pingDatabaseAddressFunc)
+	state, err := service.LoadLiveManagedDatabaseStateForResolved(store.RootDir, resolved, pingDatabaseAddressFunc)
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
 
-	address := backend.DatabaseAddress(backend.EffectiveDatabasePort(resolved.Database))
+	address := service.DatabaseAddress(service.EffectiveDatabasePort(resolved.Database))
 	if state != nil {
-		address = backend.DatabaseAddress(state.Port)
+		address = service.DatabaseAddress(state.Port)
 		fmt.Fprintf(stdout, "Database for environment %q is running on %s (pid %d).\n", resolved.Environment.Name, address, state.PID)
 		return 0
 	}
@@ -281,7 +290,7 @@ func runDBStatus(stdout, stderr io.Writer, store backend.Store, resolved dbResol
 }
 
 func ensureManagedDatabaseStarted(store backend.Store, resolved dbResolvedEnvironment) (dbRuntimeState, bool, error) {
-	return backend.EnsureManagedDatabaseStarted(store, resolved, dbRuntimeHooks())
+	return service.EnsureManagedDatabaseStarted(managedServiceContext(store, resolved.Environment, nil), resolved, dbRuntimeHooks())
 }
 
 func injectDatabaseConnectionArgs(rootDir string, resolved dbResolvedEnvironment, args []string) ([]string, error) {
@@ -310,13 +319,13 @@ func injectDatabaseConnectionArgsWithDatabase(rootDir string, resolved dbResolve
 		return appendDatabaseConnectionArg(args, databaseName, explicitDatabase && !hasDatabase), nil
 	}
 
-	state, err := backend.LoadLiveManagedDatabaseStateForResolved(rootDir, resolved, pingDatabaseAddressFunc)
+	state, err := service.LoadLiveManagedDatabaseStateForResolved(rootDir, resolved, pingDatabaseAddressFunc)
 	if err != nil {
 		return nil, err
 	}
 	if state != nil {
-		credentialsPath := backend.DatabaseCredentialStatePath(rootDir, resolved.Environment.Name)
-		credentials, credentialsErr := backend.LoadManagedDatabaseCredentials(credentialsPath)
+		credentialsPath := service.DatabaseCredentialStatePath(rootDir, resolved.Environment.Name)
+		credentials, credentialsErr := service.LoadManagedDatabaseCredentials(credentialsPath)
 		if errors.Is(credentialsErr, os.ErrNotExist) {
 			return nil, fmt.Errorf("database credentials for environment %q are missing under %s; stop and restart the database to re-bootstrap them", resolved.Environment.Name, filepath.Dir(credentialsPath))
 		}
@@ -327,18 +336,18 @@ func injectDatabaseConnectionArgsWithDatabase(rootDir string, resolved dbResolve
 			return nil, fmt.Errorf("database credentials for environment %q are incomplete under %s; stop and restart the database to re-bootstrap them", resolved.Environment.Name, filepath.Dir(credentialsPath))
 		}
 	} else {
-		if _, credentialsErr := backend.EnsureManagedDatabaseCredentialAssets(rootDir, resolved); credentialsErr != nil {
+		if _, credentialsErr := service.EnsureManagedDatabaseCredentialAssets(rootDir, resolved); credentialsErr != nil {
 			return nil, credentialsErr
 		}
 	}
 
-	port := backend.EffectiveDatabasePort(resolved.Database)
+	port := service.EffectiveDatabasePort(resolved.Database)
 	if state != nil && state.Port != 0 {
 		port = state.Port
 	}
 
 	injected := make([]string, 0, len(args)+4)
-	injected = append(injected, "--defaults-extra-file="+backend.DatabaseDefaultsFilePath(rootDir, resolved.Environment.Name))
+	injected = append(injected, "--defaults-extra-file="+service.DatabaseDefaultsFilePath(rootDir, resolved.Environment.Name))
 	if !hasProtocol {
 		injected = append(injected, "--protocol=tcp")
 	}
@@ -355,8 +364,8 @@ func injectDatabaseConnectionArgsWithDatabase(rootDir string, resolved dbResolve
 	return append(injected, args...), nil
 }
 
-func dbRuntimeHooks() backend.DatabaseRuntimeHooks {
-	return backend.DatabaseRuntimeHooks{
+func dbRuntimeHooks() service.DatabaseRuntimeHooks {
+	return service.DatabaseRuntimeHooks{
 		InitializeServer: initializeDatabaseServerFunc,
 		StartServer:      startDatabaseServerFunc,
 		StopServer:       stopDatabaseServerFunc,
@@ -497,7 +506,7 @@ func databaseConnectionOverrides(args []string) (hasDefaultsFile, hasHost, hasPo
 }
 
 func databaseInitializeArgs(spec dbServerSpec) []string {
-	return backend.DatabaseInitializeArgs(spec)
+	return service.DatabaseInitializeArgs(spec)
 }
 
 func openDatabaseImportReader(path string) (io.Reader, func() error, string, error) {
@@ -599,57 +608,57 @@ func resolveDatabaseDumpPath(path string) (string, bool, error) {
 }
 
 func databaseServerInitialized(spec dbServerSpec) (bool, error) {
-	return backend.DatabaseServerInitialized(spec)
+	return service.DatabaseServerInitialized(spec)
 }
 
 func databaseAddress(port int) string {
-	return backend.DatabaseAddress(port)
+	return service.DatabaseAddress(port)
 }
 
 func legacyDatabaseDataPath(rootDir, environmentName string) string {
-	return backend.LegacyDatabaseDataPath(rootDir, environmentName)
+	return service.LegacyDatabaseDataPath(rootDir, environmentName)
 }
 
 func databaseDataPath(rootDir, environmentName, engine, version string) string {
-	return backend.DatabaseDataPath(rootDir, environmentName, engine, version)
+	return service.DatabaseDataPath(rootDir, environmentName, engine, version)
 }
 
 func resolveDatabaseDataPath(rootDir string, resolved dbResolvedEnvironment) (string, error) {
-	return backend.ResolveDatabaseDataPath(rootDir, resolved)
+	return service.ResolveDatabaseDataPath(rootDir, resolved)
 }
 
 func databaseStatePath(rootDir, environmentName string) string {
-	return backend.DatabaseStatePath(rootDir, environmentName)
+	return service.DatabaseStatePath(rootDir, environmentName)
 }
 
 func databaseCredentialStatePath(rootDir, environmentName string) string {
-	return backend.DatabaseCredentialStatePath(rootDir, environmentName)
+	return service.DatabaseCredentialStatePath(rootDir, environmentName)
 }
 
 func databaseDefaultsFilePath(rootDir, environmentName string) string {
-	return backend.DatabaseDefaultsFilePath(rootDir, environmentName)
+	return service.DatabaseDefaultsFilePath(rootDir, environmentName)
 }
 
 func databaseBootstrapSQLPath(rootDir, environmentName string) string {
-	return backend.DatabaseBootstrapSQLPath(rootDir, environmentName)
+	return service.DatabaseBootstrapSQLPath(rootDir, environmentName)
 }
 
 func loadLiveDatabaseState(rootDir, environmentName string) (*dbRuntimeState, error) {
-	return backend.LoadLiveManagedDatabaseState(rootDir, environmentName, pingDatabaseAddressFunc)
+	return service.LoadLiveManagedDatabaseState(rootDir, environmentName, pingDatabaseAddressFunc)
 }
 
 func loadLiveDatabaseStateForResolved(rootDir string, resolved dbResolvedEnvironment) (*dbRuntimeState, error) {
-	return backend.LoadLiveManagedDatabaseStateForResolved(rootDir, resolved, pingDatabaseAddressFunc)
+	return service.LoadLiveManagedDatabaseStateForResolved(rootDir, resolved, pingDatabaseAddressFunc)
 }
 
 func loadDatabaseState(path string) (*dbRuntimeState, error) {
-	return backend.LoadManagedDatabaseState(path)
+	return service.LoadManagedDatabaseState(path)
 }
 
 func loadDatabaseCredentials(path string) (dbManagedCredentials, error) {
-	return backend.LoadManagedDatabaseCredentials(path)
+	return service.LoadManagedDatabaseCredentials(path)
 }
 
 func writeDatabaseState(path string, state dbRuntimeState) error {
-	return backend.WriteManagedDatabaseState(path, state)
+	return service.WriteManagedDatabaseState(path, state)
 }

@@ -1,8 +1,9 @@
-package backend
+package service
 
 import (
 	"fmt"
 	"net"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -15,18 +16,18 @@ const (
 	DefaultMailpitUIPort   = 8025
 )
 
-func normalizeMailpitConfig(mailpit *MailpitConfig) *MailpitConfig {
+func normalizeMailpitConfig(mailpit *config.MailpitConfig) *config.MailpitConfig {
 	return config.NormalizeMailpitConfig(mailpit)
 }
 
-func validateMailpitConfig(mailpit *MailpitConfig) error {
+func validateMailpitConfig(mailpit *config.MailpitConfig) error {
 	if mailpit == nil {
 		return nil
 	}
 	if strings.TrimSpace(mailpit.Version) == "" {
 		return fmt.Errorf("mailpit configuration requires version")
 	}
-	if err := validateVersion(toolMailpit, mailpit.Version); err != nil {
+	if err := validateServiceVersion(toolMailpit, mailpit.Version); err != nil {
 		return err
 	}
 	if mailpit.SMTPPort != 0 && !validPort(mailpit.SMTPPort) {
@@ -61,4 +62,18 @@ func MailpitAddress(port int) string {
 
 func validPort(port int) bool {
 	return port >= 1 && port <= 65535
+}
+
+var validServiceVersion = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+func validateServiceVersion(tool, version string) error {
+	trimmed := strings.TrimSpace(version)
+	if trimmed == "" {
+		return fmt.Errorf("%s version cannot be empty", tool)
+	}
+	if !validServiceVersion.MatchString(trimmed) {
+		return fmt.Errorf("invalid %s version %q: use letters, numbers, dots, dashes, or underscores", tool, version)
+	}
+
+	return nil
 }

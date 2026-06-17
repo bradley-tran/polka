@@ -6,6 +6,7 @@ import (
 
 	"polka/backend"
 	"polka/plugins"
+	"polka/service"
 )
 
 func runPostComposerHook(store backend.Store, tool string, args []string, workingDir string) error {
@@ -89,7 +90,7 @@ func ensurePostComposerDatabaseCredentials(store backend.Store, environment back
 		return nil, nil
 	}
 
-	credentials, err := backend.EnsureManagedDatabaseCredentialAssets(store.RootDir, backend.ResolvedDatabaseEnvironment{
+	credentials, err := service.EnsureManagedDatabaseCredentialAssets(store.RootDir, service.ResolvedDatabaseEnvironment{
 		Environment: environment,
 		Database:    environment.Database,
 	})

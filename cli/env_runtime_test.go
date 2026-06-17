@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"polka/backend"
+	"polka/service"
 )
 
 func TestParseEnvironmentFileSupportsCommentsQuotesAndExport(t *testing.T) {
@@ -173,7 +174,7 @@ func TestResolveRuntimeEnvironmentAppliesFrameworkDatabaseCredentialsBeforeEnvVa
 	writeTestConfigFile(t, projectDir, config)
 	writeTestActiveEnvironment(t, root, "demo")
 
-	credentialsPath := backend.DatabaseCredentialStatePath(root, "demo")
+	credentialsPath := service.DatabaseCredentialStatePath(root, "demo")
 	if err := os.MkdirAll(filepath.Dir(credentialsPath), 0o755); err != nil {
 		t.Fatalf("MkdirAll(credentials dir) error = %v", err)
 	}

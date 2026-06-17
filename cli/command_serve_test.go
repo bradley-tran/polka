@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"polka/backend"
+	"polka/service"
 )
 
 func TestRunServeUsesCurrentServerConfig(t *testing.T) {
@@ -755,13 +756,13 @@ func TestRunServeStartsConfiguredMailpitBeforeWebserver(t *testing.T) {
 	startMailpitServerFunc = func(spec mailpitServerSpec) (mailpitStartResult, error) {
 		order = append(order, "mailpit")
 		startedSpec = spec
-		mailpitRunning[backend.MailpitAddress(spec.SMTPPort)] = true
-		mailpitRunning[backend.MailpitAddress(spec.UIPort)] = true
+		mailpitRunning[service.MailpitAddress(spec.SMTPPort)] = true
+		mailpitRunning[service.MailpitAddress(spec.UIPort)] = true
 		return mailpitStartResult{PID: 5656}, nil
 	}
 	stopMailpitRuntimeFunc = func(state mailpitRuntimeState) error {
-		mailpitRunning[backend.MailpitAddress(state.SMTPPort)] = false
-		mailpitRunning[backend.MailpitAddress(state.UIPort)] = false
+		mailpitRunning[service.MailpitAddress(state.SMTPPort)] = false
+		mailpitRunning[service.MailpitAddress(state.UIPort)] = false
 		return nil
 	}
 	pingMailpitAddressFunc = func(address string) bool {
@@ -852,11 +853,11 @@ func TestRunServeStartsConfiguredPHPMyAdminBeforeWebserver(t *testing.T) {
 	running := map[string]bool{}
 	var phpMyAdminEndpoint serverEndpoint
 	var phpMyAdminDocroot string
-	ensurePHPMyAdminStorageConfiguredFunc = func(store backend.Store, environment backend.Environment, hooks backend.DatabaseRuntimeHooks) error {
+	ensurePHPMyAdminStorageConfiguredFunc = func(ctx service.Context, environment backend.Environment, hooks service.DatabaseRuntimeHooks) error {
 		order = append(order, "storage")
 		return nil
 	}
-	startPHPMyAdminServeFunc = func(store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout) (serveRuntimeState, error) {
+	startPHPMyAdminServeFunc = func(store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout, runtimeDir string) (serveRuntimeState, error) {
 		order = append(order, "phpmyadmin")
 		phpMyAdminEndpoint = endpoint
 		phpMyAdminDocroot = layout.Docroot
@@ -867,7 +868,7 @@ func TestRunServeStartsConfiguredPHPMyAdminBeforeWebserver(t *testing.T) {
 			ServerScheme:    endpoint.Scheme,
 			ServerAddress:   endpoint.Address,
 			Docroot:         layout.Docroot,
-			RuntimeDir:      phpMyAdminRuntimeDir(store.RootDir, environment.Name),
+			RuntimeDir:      runtimeDir,
 			PrimaryPID:      6262,
 			StartedAt:       serveNowFunc().UTC(),
 		}, nil

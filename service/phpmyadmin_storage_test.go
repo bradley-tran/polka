@@ -1,4 +1,4 @@
-package backend
+package service
 
 import (
 	"os"
@@ -6,19 +6,32 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"polka/config"
+	"polka/tools"
 )
 
 func TestEnsurePHPMyAdminStorageConfiguredImportsCreateTablesSQL(t *testing.T) {
 	projectDir := t.TempDir()
-	store := NewProjectStore(projectDir)
-	environment := Environment{
+	rootDir := filepath.Join(projectDir, ".polka")
+	envsDir := filepath.Join(rootDir, "envs")
+	environment := config.Environment{
 		Name:       "demo",
-		Database:   &DatabaseConfig{Engine: toolMySQL, Version: "8.4", Port: 3307},
-		PHPMyAdmin: &PHPMyAdminConfig{Version: "5.2"},
+		Database:   &config.DatabaseConfig{Engine: toolMySQL, Version: "8.4", Port: 3307},
+		PHPMyAdmin: &config.PHPMyAdminConfig{Version: "5.2"},
+	}
+	ctx := Context{
+		ProjectDir:  projectDir,
+		RootDir:     rootDir,
+		EnvsDir:     envsDir,
+		Environment: environment,
+		Registry:    tools.NewDefaultRegistry(),
+		RuntimeEnv:  func() ([]string, error) { return os.Environ(), nil },
+		TLSCert:     func(string) (string, string, error) { return "", "", nil },
 	}
 
-	writeFakeDatabaseClient(t, store.EnvsDir, toolMySQL, "8.4")
-	createTablesPath := filepath.Join(store.EnvsDir, toolPHPMyAdmin, "5.2", "sql", "create_tables.sql")
+	writeFakeDatabaseClient(t, envsDir, toolMySQL, "8.4")
+	createTablesPath := filepath.Join(envsDir, toolPHPMyAdmin, "5.2", "sql", "create_tables.sql")
 	if err := os.MkdirAll(filepath.Dir(createTablesPath), 0o755); err != nil {
 		t.Fatalf("MkdirAll(create_tables.sql dir) error = %v", err)
 	}
@@ -26,7 +39,7 @@ func TestEnsurePHPMyAdminStorageConfiguredImportsCreateTablesSQL(t *testing.T) {
 	if err := os.WriteFile(createTablesPath, []byte(createTablesSQL), 0o644); err != nil {
 		t.Fatalf("WriteFile(create_tables.sql) error = %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(store.EnvsDir, toolPHPMyAdmin, "5.2", "index.php"), []byte("<?php\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(envsDir, toolPHPMyAdmin, "5.2", "index.php"), []byte("<?php\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(index.php) error = %v", err)
 	}
 
@@ -37,7 +50,7 @@ func TestEnsurePHPMyAdminStorageConfiguredImportsCreateTablesSQL(t *testing.T) {
 		Port:            3307,
 		PID:             1234,
 	}
-	if err := WriteManagedDatabaseState(DatabaseStatePath(store.RootDir, environment.Name), state); err != nil {
+	if err := WriteManagedDatabaseState(DatabaseStatePath(rootDir, environment.Name), state); err != nil {
 		t.Fatalf("WriteManagedDatabaseState() error = %v", err)
 	}
 
@@ -46,7 +59,7 @@ func TestEnsurePHPMyAdminStorageConfiguredImportsCreateTablesSQL(t *testing.T) {
 	t.Setenv("POLKA_TEST_DB_ARGS_CAPTURE_PATH", argsCapturePath)
 	t.Setenv("POLKA_TEST_DB_STDIN_CAPTURE_PATH", stdinCapturePath)
 
-	err := EnsurePHPMyAdminStorageConfigured(store, environment, DatabaseRuntimeHooks{
+	err := EnsurePHPMyAdminStorageConfigured(ctx, environment, DatabaseRuntimeHooks{
 		PingAddress: func(address string) bool {
 			return address == DatabaseAddress(3307)
 		},
@@ -69,7 +82,7 @@ func TestEnsurePHPMyAdminStorageConfiguredImportsCreateTablesSQL(t *testing.T) {
 	}
 	args := string(argsData)
 	for _, expected := range []string{
-		"--defaults-extra-file=" + DatabaseDefaultsFilePath(store.RootDir, environment.Name),
+		"--defaults-extra-file=" + DatabaseDefaultsFilePath(rootDir, environment.Name),
 		"--protocol=tcp",
 		"--host=127.0.0.1",
 		"--port=3307",

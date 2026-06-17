@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"polka/backend"
+	"polka/service"
 )
 
 type cliHookRegistry struct {
@@ -42,6 +43,7 @@ type stopHookContext struct {
 
 type statusHookContext struct {
 	Stdout      io.Writer
+	Stderr      io.Writer
 	Store       backend.Store
 	Environment backend.Environment
 }
@@ -106,12 +108,24 @@ func defaultCLIHookRegistry() cliHookRegistry {
 }
 
 func (r cliHookRegistry) StartServices(ctx startHookContext) error {
-	for _, hook := range r.startServices {
-		if err := hook.run(ctx); err != nil {
-			return err
-		}
+	result, err := service.DefaultManager().Start(managedServiceContext(ctx.Store, ctx.Environment, ctx.Stderr), service.RuntimeHooks{
+		Database:                dbRuntimeHooks(),
+		Mailpit:                 mailpitRuntimeHooks(),
+		PHPMyAdmin:              phpMyAdminRuntimeHooks(ctx.Store),
+		EnsurePHPMyAdminStorage: ensurePHPMyAdminStorageConfiguredFunc,
+	})
+	if err != nil {
+		return err
+	}
+	if result.PHPMyAdmin == nil {
+		return nil
+	}
+	if result.PHPMyAdmin.AlreadyStarted {
+		fmt.Fprintf(ctx.Stdout, "phpMyAdmin for environment %q is already running at %s.\n", ctx.Environment.Name, serveStateURL(result.PHPMyAdmin.State))
+		return nil
 	}
 
+	fmt.Fprintf(ctx.Stdout, "Started phpMyAdmin for environment %q at %s.\n", ctx.Environment.Name, serveStateURL(result.PHPMyAdmin.State))
 	return nil
 }
 
@@ -127,10 +141,23 @@ func (r cliHookRegistry) StartWebserver(ctx webserverStartHookContext) (int, err
 
 func (r cliHookRegistry) Stop(ctx stopHookContext) error {
 	for _, hook := range r.stopHooks {
+		if hook.id != "webserver" {
+			continue
+		}
 		if err := hook.run(ctx); err != nil {
 			return err
 		}
 	}
+
+	result, err := service.DefaultManager().Stop(managedServiceContext(ctx.Store, ctx.Environment, ctx.Stderr), service.RuntimeHooks{
+		Database:   dbRuntimeHooks(),
+		Mailpit:    mailpitRuntimeHooks(),
+		PHPMyAdmin: phpMyAdminRuntimeHooks(ctx.Store),
+	})
+	if err != nil {
+		return err
+	}
+	writeManagedServiceStopSummary(ctx, result)
 
 	return nil
 }
@@ -146,6 +173,7 @@ func (r cliHookRegistry) WriteConfigStatus(ctx statusHookContext) error {
 }
 
 func (r cliHookRegistry) WriteRuntimeStatus(ctx statusHookContext) error {
+	service.DefaultManager().WarnMissingRuntimeTools(managedServiceContext(ctx.Store, ctx.Environment, ctx.Stderr))
 	for _, hook := range r.runtimeStatusHooks {
 		if err := hook.run(ctx); err != nil {
 			return err
@@ -153,6 +181,38 @@ func (r cliHookRegistry) WriteRuntimeStatus(ctx statusHookContext) error {
 	}
 
 	return nil
+}
+
+func writeManagedServiceStopSummary(ctx stopHookContext, result service.StopResult) {
+	if result.PHPMyAdmin != nil {
+		if result.PHPMyAdmin.AlreadyStopped {
+			if ctx.Environment.PHPMyAdmin != nil && strings.TrimSpace(ctx.Environment.PHPMyAdmin.Version) != "" {
+				fmt.Fprintf(ctx.Stdout, "phpMyAdmin for environment %q is already stopped.\n", ctx.Environment.Name)
+			}
+		} else {
+			fmt.Fprintf(ctx.Stdout, "Stopped phpMyAdmin for environment %q.\n", ctx.Environment.Name)
+		}
+	}
+
+	if result.Database != nil {
+		if result.Database.AlreadyStopped {
+			if ctx.Environment.Database != nil && strings.TrimSpace(ctx.Environment.Database.Engine) != "" {
+				fmt.Fprintf(ctx.Stdout, "Database for environment %q is already stopped.\n", ctx.Environment.Name)
+			}
+		} else {
+			fmt.Fprintf(ctx.Stdout, "Stopped %s for environment %q.\n", result.Database.State.Engine, ctx.Environment.Name)
+		}
+	}
+
+	if result.Mailpit != nil {
+		if result.Mailpit.AlreadyStopped {
+			if ctx.Environment.Mailpit != nil && strings.TrimSpace(ctx.Environment.Mailpit.Version) != "" {
+				fmt.Fprintf(ctx.Stdout, "Mailpit for environment %q is already stopped.\n", ctx.Environment.Name)
+			}
+		} else {
+			fmt.Fprintf(ctx.Stdout, "Stopped mailpit for environment %q.\n", ctx.Environment.Name)
+		}
+	}
 }
 
 func startDatabaseServiceHook(ctx startHookContext) error {
@@ -179,7 +239,7 @@ func startPHPMyAdminServiceHook(ctx startHookContext) error {
 		return nil
 	}
 
-	if err := ensurePHPMyAdminStorageConfiguredFunc(ctx.Store, ctx.Environment, dbRuntimeHooks()); err != nil {
+	if err := ensurePHPMyAdminStorageConfiguredFunc(managedServiceContext(ctx.Store, ctx.Environment, ctx.Stderr), ctx.Environment, dbRuntimeHooks()); err != nil {
 		return err
 	}
 
@@ -284,7 +344,7 @@ func stopDatabaseServiceHook(ctx stopHookContext) error {
 	}
 
 	resolved := dbResolvedEnvironment{Environment: ctx.Environment, Database: ctx.Environment.Database}
-	databaseState, databaseAlreadyStopped, err := backend.StopManagedDatabase(ctx.Store, resolved, dbRuntimeHooks())
+	databaseState, databaseAlreadyStopped, err := service.StopManagedDatabase(managedServiceContext(ctx.Store, ctx.Environment, ctx.Stderr), resolved, dbRuntimeHooks())
 	if err != nil {
 		return err
 	}
@@ -403,7 +463,7 @@ func statusDatabaseRuntimeHook(ctx statusHookContext) error {
 		return nil
 	}
 
-	liveDatabaseState, err := backend.LoadLiveManagedDatabaseState(ctx.Store.RootDir, ctx.Environment.Name, pingDatabaseAddressFunc)
+	liveDatabaseState, err := service.LoadLiveManagedDatabaseState(ctx.Store.RootDir, ctx.Environment.Name, pingDatabaseAddressFunc)
 	if err != nil {
 		return err
 	}

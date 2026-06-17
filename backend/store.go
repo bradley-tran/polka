@@ -16,6 +16,7 @@ import (
 
 	"polka/config"
 	"polka/plugins"
+	"polka/service"
 	"polka/tools"
 )
 
@@ -243,6 +244,11 @@ func (s Store) toolRegistry() *ToolRegistry {
 	}
 
 	return NewDefaultToolRegistry()
+}
+
+// ToolRegistry returns the active managed tool registry for this store.
+func (s Store) ToolRegistry() *ToolRegistry {
+	return s.toolRegistry()
 }
 
 func (s Store) pluginRegistry() *PluginRegistry {
@@ -1081,16 +1087,6 @@ func (s Store) ResolveToolLogs(tool, level string) ([]ToolLogEntry, error) {
 	return resolved, nil
 }
 
-// ToolLogRoot returns the predictable log root for one managed tool in one environment.
-func ToolLogRoot(rootDir, tool, environmentName string) string {
-	name := strings.TrimSpace(environmentName)
-	if name == "" {
-		name = "current"
-	}
-
-	return filepath.Join(rootDir, runDirectoryName, strings.ToLower(strings.TrimSpace(tool)), name)
-}
-
 func resolveToolLogPath(rootDir, tool, environmentName, pathTemplate string) (string, error) {
 	relativePath := strings.TrimSpace(pathTemplate)
 	if relativePath == "" {
@@ -1101,7 +1097,7 @@ func resolveToolLogPath(rootDir, tool, environmentName, pathTemplate string) (st
 		return "", fmt.Errorf("tool log path %q must be relative", pathTemplate)
 	}
 
-	root, err := filepath.Abs(ToolLogRoot(rootDir, tool, environmentName))
+	root, err := filepath.Abs(service.ToolLogRoot(rootDir, tool, environmentName))
 	if err != nil {
 		return "", fmt.Errorf("resolve tool log root: %w", err)
 	}
