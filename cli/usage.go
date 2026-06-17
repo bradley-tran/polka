@@ -62,7 +62,7 @@ const initUsage = `Usage:
 Create the local .polka directory, bootstrap polka.yaml, and sync the active environment's dispatch shims into .polka/bin.
 The generated default environment enables HTTPS and uses <directory>.localhost as server.hostname.
 Use --docroot PATH to set the generated default environment's document root.
-When framework is drupal, wordpress, laravel, or symfony, Polka writes an opinionated default config for that framework.
+When framework is codeigniter, drupal, wordpress, laravel, or symfony, Polka writes an opinionated default config for that framework.
 Framework init is config-only; it does not create app files, install tools, or start services. It fails if polka.yaml already exists.
 `
 

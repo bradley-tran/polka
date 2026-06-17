@@ -28,6 +28,8 @@ type dotenvAssignment struct {
 
 func frameworkPostComposer(ctx PostComposerContext, id string) error {
 	switch strings.ToLower(strings.TrimSpace(id)) {
+	case CodeIgniter:
+		return writeCodeIgniterDotenvSecrets(ctx)
 	case Drupal:
 		return writeDrupalSettingsSecrets(ctx)
 	case WordPress:
@@ -39,6 +41,30 @@ func frameworkPostComposer(ctx PostComposerContext, id string) error {
 	default:
 		return nil
 	}
+}
+
+func writeCodeIgniterDotenvSecrets(ctx PostComposerContext) error {
+	values := codeIgniterDatabaseRuntimeEnv(RuntimeEnvContext{
+		Environment: ctx.Environment,
+		Database:    ctx.Database,
+	})
+	if len(values) == 0 {
+		return nil
+	}
+
+	appRoot := frameworkComposerAppRoot(ctx, "public", CodeIgniter)
+	return writeDotenvSecretFile(
+		filepath.Join(appRoot, ".env"),
+		filepath.Join(appRoot, "env"),
+		orderedDotenvAssignments(values, []string{
+			"database.default.hostname",
+			"database.default.port",
+			"database.default.database",
+			"database.default.username",
+			"database.default.password",
+			"database.default.DBDriver",
+		}),
+	)
 }
 
 func writeDrupalSettingsSecrets(ctx PostComposerContext) error {
@@ -646,6 +672,11 @@ func composerPackageDirectoryName(name string) string {
 
 func frameworkAppRootLooksLike(path, framework string) bool {
 	switch strings.ToLower(strings.TrimSpace(framework)) {
+	case CodeIgniter:
+		return regularFileExists(filepath.Join(path, "spark")) ||
+			regularFileExists(filepath.Join(path, "env")) ||
+			regularFileExists(filepath.Join(path, ".env")) ||
+			regularFileExists(filepath.Join(path, "composer.json"))
 	case Drupal:
 		return regularFileExists(filepath.Join(path, "composer.json")) ||
 			regularFileExists(filepath.Join(path, defaultDrupalDocroot, "sites", "default", "default.settings.php")) ||

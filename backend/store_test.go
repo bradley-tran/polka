@@ -419,7 +419,7 @@ func TestStoreRejectsUnknownFrameworkConfig(t *testing.T) {
 
 	if _, err := store.readConfig(); err == nil {
 		t.Fatal("readConfig() error = nil, want unsupported framework error")
-	} else if !strings.Contains(err.Error(), "unsupported framework") || !strings.Contains(err.Error(), "drupal, laravel, symfony, wordpress") {
+	} else if !strings.Contains(err.Error(), "unsupported framework") || !strings.Contains(err.Error(), "codeigniter, drupal, laravel, symfony, wordpress") {
 		t.Fatalf("readConfig() error = %v, want supported framework list", err)
 	}
 }

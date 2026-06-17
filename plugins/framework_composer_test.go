@@ -10,6 +10,68 @@ import (
 	"polka/tools"
 )
 
+func TestCodeIgniterPostComposerUpdatesDotenvDatabaseSecrets(t *testing.T) {
+	projectDir := t.TempDir()
+	appRoot := filepath.Join(projectDir, "site")
+	if err := os.MkdirAll(filepath.Join(appRoot, "public"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(app) error = %v", err)
+	}
+	envData := strings.Join([]string{
+		"CI_ENVIRONMENT = development",
+		"# database.default.hostname = localhost",
+		"# database.default.database = ci4",
+		"# database.default.username = root",
+		"# database.default.password = root",
+		"# database.default.DBDriver = MySQLi",
+		"# database.default.port = 3306",
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(appRoot, "env"), []byte(envData), 0o644); err != nil {
+		t.Fatalf("WriteFile(env) error = %v", err)
+	}
+
+	codeIgniter, ok := NewDefaultRegistry().Framework(CodeIgniter)
+	if !ok {
+		t.Fatal("Framework(codeigniter) ok = false, want true")
+	}
+	err := codeIgniter.PostComposer(PostComposerContext{
+		ProjectDir: projectDir,
+		Environment: config.Environment{
+			Framework: CodeIgniter,
+			Docroot:   "site/public",
+		},
+		Database: &DatabaseCredentials{
+			Host:         "127.0.0.1",
+			Port:         3307,
+			DatabaseName: "demo",
+			User:         "polka",
+			Password:     "secret",
+		},
+	})
+	if err != nil {
+		t.Fatalf("PostComposer() error = %v", err)
+	}
+
+	updated, err := os.ReadFile(filepath.Join(appRoot, ".env"))
+	if err != nil {
+		t.Fatalf("ReadFile(.env) error = %v", err)
+	}
+	text := string(updated)
+	for _, expected := range []string{
+		"CI_ENVIRONMENT = development",
+		"database.default.hostname=127.0.0.1",
+		"database.default.port=3307",
+		"database.default.database=demo",
+		"database.default.username=polka",
+		"database.default.password=secret",
+		"database.default.DBDriver=MySQLi",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf(".env = %q, want %q", text, expected)
+		}
+	}
+}
+
 func TestDrupalPostComposerWritesPolkaSettingsFile(t *testing.T) {
 	projectDir := t.TempDir()
 	settingsDir := filepath.Join(projectDir, "drupal", "web", "sites", "default")

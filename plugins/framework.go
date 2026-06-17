@@ -10,10 +10,11 @@ import (
 )
 
 const (
-	Drupal    = "drupal"
-	WordPress = "wordpress"
-	Laravel   = "laravel"
-	Symfony   = "symfony"
+	CodeIgniter = "codeigniter"
+	Drupal      = "drupal"
+	WordPress   = "wordpress"
+	Laravel     = "laravel"
+	Symfony     = "symfony"
 )
 
 const (
@@ -99,6 +100,7 @@ type builtinFrameworkPlugin struct {
 // DefaultFrameworkPlugins returns the built-in framework plugins.
 func DefaultFrameworkPlugins() []FrameworkPlugin {
 	return []FrameworkPlugin{
+		newFrameworkPlugin(CodeIgniter, "public", true),
 		newFrameworkPlugin(Drupal, "web", true),
 		newFrameworkPlugin(WordPress, ".", false),
 		newFrameworkPlugin(Laravel, "public", true),
@@ -119,6 +121,10 @@ func newFrameworkPlugin(id, docroot string, includeComposerNodeAndMailpit bool) 
 			return frameworkOPcacheConfig(id)
 		},
 		runtimeEnv: func(ctx RuntimeEnvContext) map[string]string {
+			if id == CodeIgniter {
+				return codeIgniterDatabaseRuntimeEnv(ctx)
+			}
+
 			return frameworkDatabaseRuntimeEnv(ctx, id == Laravel, id == Symfony)
 		},
 		postComposer: func(ctx PostComposerContext) error {
@@ -222,6 +228,18 @@ func frameworkOPcacheConfig(id string) map[string]string {
 
 func frameworkPHPExtensions(id string) map[string]bool {
 	switch strings.ToLower(strings.TrimSpace(id)) {
+	case CodeIgniter:
+		return phpExtensionMap(
+			"curl",
+			"fileinfo",
+			"intl",
+			"mbstring",
+			"mysqli",
+			"opcache",
+			"openssl",
+			"pdo_mysql",
+			"zip",
+		)
 	case Drupal:
 		return phpExtensionMap(
 			"curl",
@@ -381,6 +399,23 @@ func frameworkDatabaseRuntimeEnv(ctx RuntimeEnvContext, includeLaravelConnection
 	}
 
 	return values
+}
+
+// codeIgniterDatabaseRuntimeEnv renders managed database credentials in CodeIgniter's config key form.
+func codeIgniterDatabaseRuntimeEnv(ctx RuntimeEnvContext) map[string]string {
+	credentials := normalizeDatabaseCredentials(ctx.Database)
+	if credentials == nil {
+		return nil
+	}
+
+	return map[string]string{
+		"database.default.hostname": credentials.Host,
+		"database.default.port":     strconv.Itoa(credentials.Port),
+		"database.default.database": credentials.DatabaseName,
+		"database.default.username": credentials.User,
+		"database.default.password": credentials.Password,
+		"database.default.DBDriver": "MySQLi",
+	}
 }
 
 // symfonyDatabaseURL renders managed database credentials in Symfony's Doctrine URL form.

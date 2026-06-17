@@ -11,10 +11,10 @@ import (
 func TestDefaultRegistrySupportsFrameworkPlugins(t *testing.T) {
 	registry := NewDefaultRegistry()
 
-	if got, want := registry.SupportedFrameworks(), []string{Drupal, Laravel, Symfony, WordPress}; !reflect.DeepEqual(got, want) {
+	if got, want := registry.SupportedFrameworks(), []string{CodeIgniter, Drupal, Laravel, Symfony, WordPress}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("SupportedFrameworks() = %#v, want %#v", got, want)
 	}
-	for _, id := range []string{Drupal, WordPress, Laravel, Symfony} {
+	for _, id := range []string{CodeIgniter, Drupal, WordPress, Laravel, Symfony} {
 		if _, ok := registry.Framework(id); !ok {
 			t.Fatalf("Framework(%q) ok = false, want true", id)
 		}
@@ -33,6 +33,32 @@ func TestRegistryRejectsDuplicateFrameworkPlugins(t *testing.T) {
 
 func TestFrameworkDefaultsUseExpectedPresetMatrix(t *testing.T) {
 	registry := NewDefaultRegistry()
+
+	codeIgniter, ok := registry.Framework(CodeIgniter)
+	if !ok {
+		t.Fatal("Framework(codeigniter) ok = false, want true")
+	}
+	codeIgniterDefaults := codeIgniter.Defaults()
+	if codeIgniterDefaults.Framework != CodeIgniter || codeIgniterDefaults.Docroot != "public" || codeIgniterDefaults.ComposerVersion != "2.8" || codeIgniterDefaults.NodeJSVersion != "24" || codeIgniterDefaults.Mailpit == nil {
+		t.Fatalf("CodeIgniter defaults = %#v, want full CodeIgniter preset", codeIgniterDefaults)
+	}
+	if codeIgniterDefaults.OPcachePreset != config.OPcachePresetDev || len(codeIgniterDefaults.OPcacheConfig) != 0 {
+		t.Fatalf("CodeIgniter OPcache defaults = %q %#v, want dev preset only", codeIgniterDefaults.OPcachePreset, codeIgniterDefaults.OPcacheConfig)
+	}
+	if len(codeIgniterDefaults.PHPExtensions) != 0 {
+		t.Fatalf("CodeIgniter defaults php-extensions = %#v, want init defaults omitted", codeIgniterDefaults.PHPExtensions)
+	}
+	assertExtensionsEnabled(t, codeIgniter.PHPExtensions(), []string{
+		"curl",
+		"fileinfo",
+		"intl",
+		"mbstring",
+		"mysqli",
+		"opcache",
+		"openssl",
+		"pdo_mysql",
+		"zip",
+	})
 
 	drupal, ok := registry.Framework(Drupal)
 	if !ok {
@@ -214,6 +240,36 @@ func TestFrameworkRuntimeEnvUsesDatabaseCredentials(t *testing.T) {
 		"DB_DATABASE":   "demo",
 		"DB_USERNAME":   "polka",
 		"DB_PASSWORD":   "secret",
+	} {
+		if values[key] != want {
+			t.Fatalf("RuntimeEnv()[%s] = %q, want %q", key, values[key], want)
+		}
+	}
+}
+
+func TestCodeIgniterRuntimeEnvUsesDatabaseConfigKeys(t *testing.T) {
+	registry := NewDefaultRegistry()
+	codeIgniter, ok := registry.Framework(CodeIgniter)
+	if !ok {
+		t.Fatal("Framework(codeigniter) ok = false, want true")
+	}
+
+	values := codeIgniter.RuntimeEnv(RuntimeEnvContext{
+		Database: &DatabaseCredentials{
+			Host:         "127.0.0.1",
+			Port:         3307,
+			DatabaseName: "demo",
+			User:         "polka",
+			Password:     "secret",
+		},
+	})
+	for key, want := range map[string]string{
+		"database.default.hostname": "127.0.0.1",
+		"database.default.port":     "3307",
+		"database.default.database": "demo",
+		"database.default.username": "polka",
+		"database.default.password": "secret",
+		"database.default.DBDriver": "MySQLi",
 	} {
 		if values[key] != want {
 			t.Fatalf("RuntimeEnv()[%s] = %q, want %q", key, values[key], want)

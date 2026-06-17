@@ -18,6 +18,7 @@ Creates the local `.polka` directory, bootstraps `polka.yaml` when it does not e
 
 ```bash
 polka init
+polka init codeigniter
 polka init drupal
 polka init wordpress
 polka init laravel
@@ -28,9 +29,9 @@ polka init drupal --docroot drupal/web
 
 Use `--docroot PATH` to set the generated default environment's document root.
 
-When `framework` is `drupal`, `wordpress`, `laravel`, or `symfony`, Polka writes an opinionated default config with a top-level `framework` key, framework docroot, managed tool versions, database settings, and phpMyAdmin settings. Framework init is config-only: it does not create project files, run Composer, install tools, write default PHP extension config, or start services. It fails if `polka.yaml` already exists.
+When `framework` is `codeigniter`, `drupal`, `wordpress`, `laravel`, or `symfony`, Polka writes an opinionated default config with a top-level `framework` key, framework docroot, managed tool versions, database settings, and phpMyAdmin settings. Framework init is config-only: it does not create project files, run Composer, install tools, write default PHP extension config, or start services. It fails if `polka.yaml` already exists.
 
-Drupal, Laravel, and Symfony presets use `web`, `public`, and `public` docroots respectively, and include PHP, Composer, Node.js, nginx, MariaDB, phpMyAdmin, and Mailpit. The WordPress preset uses the project root as docroot and includes PHP, nginx, MariaDB, and phpMyAdmin. With a framework, `--docroot PATH` overrides the preset docroot in the generated config.
+CodeIgniter, Laravel, and Symfony presets use the `public` docroot. Drupal uses `web`. These presets include PHP, Composer, Node.js, nginx, MariaDB, phpMyAdmin, and Mailpit. The WordPress preset uses the project root as docroot and includes PHP, nginx, MariaDB, and phpMyAdmin. With a framework, `--docroot PATH` overrides the preset docroot in the generated config.
 
 ### `polka new <name>`
 
@@ -248,7 +249,7 @@ Polka composes runtime environment variables for the active environment from fiv
 
 The `.env` file is loaded automatically from the directory containing `polka.yaml` when present. `env-file` paths are resolved relative to that same directory unless absolute, and `env-vars` always win when keys overlap. This runtime environment applies to `polka sh`, `polka exec`, `polka serve`, generated `.polka/bin` dispatch shims, and database client/import/export commands.
 
-After a successful dispatched `composer install`, `composer update`, or `composer create-project`, the active framework plugin may create or update framework-local secret files from Polka-managed database credentials. The built-in Drupal hook writes `settings.polka.php` and includes it from `settings.php`, WordPress updates `wp-config.php` DB constants, Laravel updates the app `.env` DB settings, and Symfony writes `DATABASE_URL` to `.env.local`.
+After a successful dispatched `composer install`, `composer update`, or `composer create-project`, the active framework plugin may create or update framework-local secret files from Polka-managed database credentials. The built-in CodeIgniter hook updates the app `.env` database settings, Drupal writes `settings.polka.php` and includes it from `settings.php`, WordPress updates `wp-config.php` DB constants, Laravel updates the app `.env` DB settings, and Symfony writes `DATABASE_URL` to `.env.local`.
 
 ## Platform Notes
 
