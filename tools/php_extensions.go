@@ -74,19 +74,23 @@ func configureInstalledPHPExtensions(envsDir, version string, extensions map[str
 }
 
 func configureInstalledPHPConfig(envsDir, version string, phpConfig PHPInstallConfig) error {
+	return configureInstalledPHPConfigForTool(envsDir, PHP, version, phpConfig)
+}
+
+func configureInstalledPHPConfigForTool(envsDir, tool, version string, phpConfig PHPInstallConfig) error {
 	if phpConfig.IsZero() {
 		return nil
 	}
 
-	phpPath, err := resolveInstalledTool(NewDefaultRegistry(), envsDir, PHP, version)
+	phpPath, err := resolveInstalledTool(NewDefaultRegistry(), envsDir, tool, version)
 	if err != nil {
 		return err
 	}
 
 	phpDir := filepath.Dir(phpPath)
-	extensionDir, err := filepath.Rel(phpDir, filepath.Join(envsDir, PHP, version, "ext"))
+	extensionDir, err := filepath.Rel(phpDir, filepath.Join(envsDir, tool, version, "ext"))
 	if err != nil {
-		extensionDir = filepath.Join(envsDir, PHP, version, "ext")
+		extensionDir = filepath.Join(envsDir, tool, version, "ext")
 	}
 
 	if len(phpConfig.Extensions) > 0 {

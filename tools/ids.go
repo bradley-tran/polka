@@ -8,6 +8,7 @@ import (
 
 const (
 	PHP        = "php"
+	PHPZTS     = "php-zts"
 	Composer   = "composer"
 	PIE        = "pie"
 	NodeJS     = "nodejs"

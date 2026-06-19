@@ -135,6 +135,14 @@ func applyToolConfigValue(environment *Environment, path []string, value string)
 	switch path[1] {
 	case toolPHP:
 		environment.PHPVersion = version
+		if version != "" {
+			environment.PHPZTSVersion = ""
+		}
+	case toolPHPZTS:
+		environment.PHPZTSVersion = version
+		if version != "" {
+			environment.PHPVersion = ""
+		}
 	case toolComposer:
 		environment.ComposerVersion = version
 	case toolPIE:

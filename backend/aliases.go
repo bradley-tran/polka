@@ -28,6 +28,7 @@ type HTTPToolDownloader = tools.HTTPDownloader
 
 const (
 	toolPHP        = tools.PHP
+	toolPHPZTS     = tools.PHPZTS
 	toolComposer   = tools.Composer
 	toolPIE        = tools.PIE
 	toolNodeJS     = tools.NodeJS
@@ -42,6 +43,16 @@ const (
 	toolMariaDB    = tools.MariaDB
 	toolSQLite     = tools.SQLite
 )
+
+// PrimaryPHPTool returns the configured primary PHP tool and version.
+func PrimaryPHPTool(environment Environment) (string, string) {
+	return config.PrimaryPHPTool(environment)
+}
+
+// PrimaryPHPVersion returns the configured primary PHP runtime version.
+func PrimaryPHPVersion(environment Environment) string {
+	return config.PrimaryPHPVersion(environment)
+}
 
 func NewToolRegistry(plugins ...ToolPlugin) (*ToolRegistry, error) {
 	return tools.NewRegistry(plugins...)

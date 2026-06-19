@@ -32,9 +32,11 @@ Examples:
   polka init laravel
   polka new api
   polka config tools.php 8.4
+  polka config tools.php-zts 8.4
   polka config --env api tools.mysql 8.0
   polka config --env api database.engine mysql
   polka install php:8.4
+  polka install php-zts:8.4
   polka install --env api
   polka cert-install
   polka db start
@@ -78,13 +80,14 @@ const configUsage = `Usage:
 
 Create or update one environment config value. The default environment is stored in polka.yaml; named environments are stored in polka.<name>.yaml.
 Use --env NAME to select a named environment. When --env is omitted, Polka updates the current environment, falling back to default when no local override is selected.
-Keys are dot-separated YAML paths such as tools.php, database.engine, settings.mailpit.smtp-port, env-vars.APP_ENV, php-extensions.xdebug, and opcache-config.opcache.enable_cli.
+Keys are dot-separated YAML paths such as tools.php, tools.php-zts, database.engine, settings.mailpit.smtp-port, env-vars.APP_ENV, php-extensions.xdebug, and opcache-config.opcache.enable_cli.
+tools.php and tools.php-zts are mutually exclusive primary runtimes; setting one clears the other and both provide the php command.
 `
 
 const installUsage = `Usage:
   polka install [tool:version] [--env NAME]
 
-Install one explicit tool version, such as php:8.4, or install every configured tool version for an environment when no tool argument is provided.
+Install one explicit tool version, such as php:8.4 or php-zts:8.4, or install every configured tool version for an environment when no tool argument is provided.
 Use --env NAME to select a named environment. When --env is omitted, Polka uses the current environment, falling back to default when no local override is selected.
 Polka installs tools from validated global cache payloads when available, otherwise downloads them into the cache first.
 `

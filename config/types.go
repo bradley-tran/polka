@@ -14,6 +14,7 @@ const (
 // ToolsConfig is the YAML shape for managed tool version labels inside an environment file.
 type ToolsConfig struct {
 	PHPVersion        string `yaml:"php,omitempty"`
+	PHPZTSVersion     string `yaml:"php-zts,omitempty"`
 	ComposerVersion   string `yaml:"composer,omitempty"`
 	PIEVersion        string `yaml:"pie,omitempty"`
 	NodeJSVersion     string `yaml:"nodejs,omitempty"`
@@ -81,6 +82,7 @@ type Environment struct {
 	Name            string            `yaml:"-"`
 	Framework       string            `yaml:"framework,omitempty"`
 	PHPVersion      string            `yaml:"php,omitempty"`
+	PHPZTSVersion   string            `yaml:"php-zts,omitempty"`
 	ComposerVersion string            `yaml:"composer,omitempty"`
 	PIEVersion      string            `yaml:"pie,omitempty"`
 	NodeJSVersion   string            `yaml:"nodejs,omitempty"`
@@ -131,6 +133,25 @@ type Config struct {
 	Version      int                    `yaml:"version"`
 	Root         string                 `yaml:"root"`
 	Environments map[string]Environment `yaml:"-"`
+}
+
+// PrimaryPHPTool returns the configured PHP runtime tool and version. The
+// caller must validate mutual exclusion when both runtime fields are present.
+func PrimaryPHPTool(environment Environment) (string, string) {
+	if version := strings.TrimSpace(environment.PHPZTSVersion); version != "" {
+		return "php-zts", version
+	}
+	if version := strings.TrimSpace(environment.PHPVersion); version != "" {
+		return "php", version
+	}
+
+	return "", ""
+}
+
+// PrimaryPHPVersion returns the version of the configured primary PHP runtime.
+func PrimaryPHPVersion(environment Environment) string {
+	_, version := PrimaryPHPTool(environment)
+	return version
 }
 
 // ProjectFileToEnvironment converts polka.yaml data into the internal environment model.
@@ -215,6 +236,7 @@ func EnvironmentFileFromEnvironment(environment Environment) EnvironmentFile {
 func ToolsConfigFromEnvironment(environment Environment) *ToolsConfig {
 	tools := &ToolsConfig{
 		PHPVersion:        environment.PHPVersion,
+		PHPZTSVersion:     environment.PHPZTSVersion,
 		ComposerVersion:   environment.ComposerVersion,
 		PIEVersion:        environment.PIEVersion,
 		NodeJSVersion:     environment.NodeJSVersion,
@@ -317,6 +339,7 @@ func ServerConfigFromEnvironment(environment Environment) *ServerConfig {
 // IsZero reports whether no managed tool settings are configured.
 func (tools ToolsConfig) IsZero() bool {
 	return strings.TrimSpace(tools.PHPVersion) == "" &&
+		strings.TrimSpace(tools.PHPZTSVersion) == "" &&
 		strings.TrimSpace(tools.ComposerVersion) == "" &&
 		strings.TrimSpace(tools.PIEVersion) == "" &&
 		strings.TrimSpace(tools.NodeJSVersion) == "" &&
@@ -351,6 +374,7 @@ func environmentFromFileParts(name string, framework string, tools *ToolsConfig,
 	}
 	if tools != nil {
 		environment.PHPVersion = tools.PHPVersion
+		environment.PHPZTSVersion = tools.PHPZTSVersion
 		environment.ComposerVersion = tools.ComposerVersion
 		environment.PIEVersion = tools.PIEVersion
 		environment.NodeJSVersion = tools.NodeJSVersion
@@ -486,6 +510,7 @@ func NormalizeEnvironment(name string, environment Environment) Environment {
 		Name:            name,
 		Framework:       strings.ToLower(strings.TrimSpace(environment.Framework)),
 		PHPVersion:      strings.TrimSpace(environment.PHPVersion),
+		PHPZTSVersion:   strings.TrimSpace(environment.PHPZTSVersion),
 		ComposerVersion: strings.TrimSpace(environment.ComposerVersion),
 		PIEVersion:      strings.TrimSpace(environment.PIEVersion),
 		NodeJSVersion:   strings.TrimSpace(environment.NodeJSVersion),

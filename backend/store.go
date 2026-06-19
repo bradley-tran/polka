@@ -470,8 +470,8 @@ func (s Store) writeEnvironment(name, phpVersion, composerVersion, nodeJSVersion
 		environment.Database = mergeDatabaseConfig(environment.Database, database)
 		environment = setDatabaseToolVersion(environment, database)
 	}
-	if environment.PHPVersion == "" && environment.ComposerVersion == "" && environment.PIEVersion == "" && environment.NodeJSVersion == "" && environment.MagoVersion == "" && environment.NginxVersion == "" && environment.MySQLVersion == "" && environment.MariaDBVersion == "" && environment.SQLiteVersion == "" && environment.PHPMyAdmin == nil && environment.Database == nil && environment.Mailpit == nil {
-		return Environment{}, fmt.Errorf("environment requires at least one of php, composer, nodejs, mago, nginx, mysql, mariadb, sqlite, phpmyadmin, database, or mailpit")
+	if environment.PHPVersion == "" && environment.PHPZTSVersion == "" && environment.ComposerVersion == "" && environment.PIEVersion == "" && environment.NodeJSVersion == "" && environment.MagoVersion == "" && environment.NginxVersion == "" && environment.MySQLVersion == "" && environment.MariaDBVersion == "" && environment.SQLiteVersion == "" && environment.PHPMyAdmin == nil && environment.Database == nil && environment.Mailpit == nil {
+		return Environment{}, fmt.Errorf("environment requires at least one of php, php-zts, composer, nodejs, mago, nginx, mysql, mariadb, sqlite, phpmyadmin, database, or mailpit")
 	}
 	if err := s.toolRegistry().ValidateEnvironment(environment); err != nil {
 		return Environment{}, err
@@ -601,10 +601,12 @@ func (s Store) installEnvironment(name string) (Environment, *ToolRegistry, erro
 }
 
 func validateInstallEnvironment(name string, environment Environment, requests []tools.InstallRequest, registry *ToolRegistry) error {
-	if len(environment.PHPExtensions) > 0 && environment.PHPVersion == "" && !installRequestsIncludeTool(requests, toolPHP) {
+	_, phpVersion := config.PrimaryPHPTool(environment)
+	includesPHP := installRequestsIncludeTool(requests, toolPHP) || installRequestsIncludeTool(requests, toolPHPZTS)
+	if len(environment.PHPExtensions) > 0 && phpVersion == "" && !includesPHP {
 		return fmt.Errorf("environment %q defines php-extensions but does not define a php version", name)
 	}
-	if environmentHasOPcacheConfig(environment) && environment.PHPVersion == "" && !installRequestsIncludeTool(requests, toolPHP) {
+	if environmentHasOPcacheConfig(environment) && phpVersion == "" && !includesPHP {
 		return fmt.Errorf("environment %q defines OPcache config but does not define a php version", name)
 	}
 	if err := registry.ValidateEnvironment(environment); err != nil {
@@ -690,7 +692,7 @@ func (s Store) installRequests(environment Environment, requests []tools.Install
 				Downloaded: downloaded,
 			}
 
-			if req.Tool == toolPHP {
+			if req.Tool == toolPHP || req.Tool == toolPHPZTS {
 				if !installPHPConfig.IsZero() {
 					baseProgress.Stage = InstallProgressConfiguring
 					safeReport(baseProgress)
@@ -800,6 +802,10 @@ func environmentWithInstallRequest(environment Environment, request tools.Instal
 	switch request.Tool {
 	case toolPHP:
 		environment.PHPVersion = request.Version
+		environment.PHPZTSVersion = ""
+	case toolPHPZTS:
+		environment.PHPZTSVersion = request.Version
+		environment.PHPVersion = ""
 	case toolComposer:
 		environment.ComposerVersion = request.Version
 	case toolPIE:
@@ -1002,17 +1008,20 @@ func (s Store) Remove(name string) error {
 }
 
 func (s Store) ResolveTool(tool string) (string, error) {
-	request, err := s.toolRegistry().ResolveDispatchRequest(tool)
-	if err != nil {
-		return "", err
-	}
-
 	current, err := s.Current()
 	if err != nil {
 		return "", err
 	}
 	if current == nil {
 		return "", fmt.Errorf("no active environment selected")
+	}
+	registry := s.toolRegistry()
+	if err := registry.ValidateEnvironment(*current); err != nil {
+		return "", err
+	}
+	request, err := registry.ResolveDispatchRequestForEnvironment(tool, *current)
+	if err != nil {
+		return "", err
 	}
 
 	version := strings.TrimSpace(request.Plugin.Version(*current))
@@ -1565,7 +1574,7 @@ func asYAMLStringMap(value any) (map[string]any, bool) {
 
 func knownToolVersionKey(key string) bool {
 	switch key {
-	case toolPHP, toolComposer, toolPIE, toolNodeJS, toolMago, toolNginx, toolMySQL, toolMariaDB, toolSQLite, toolMailpit, toolPHPMyAdmin:
+	case toolPHP, toolPHPZTS, toolComposer, toolPIE, toolNodeJS, toolMago, toolNginx, toolMySQL, toolMariaDB, toolSQLite, toolMailpit, toolPHPMyAdmin:
 		return true
 	default:
 		return false

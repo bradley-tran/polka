@@ -48,10 +48,21 @@ type phpWindowsAsset struct {
 }
 
 func phpPlugin() Plugin {
-	return newManifestPlugin(PHP, pluginHooks{
+	return phpRuntimePlugin(PHP, false)
+}
+
+func phpZTSPlugin() Plugin {
+	return phpRuntimePlugin(PHPZTS, true)
+}
+
+func phpRuntimePlugin(tool string, threadSafe bool) Plugin {
+	return newManifestPlugin(tool, pluginHooks{
 		validate: func(environment config.Environment) error {
-			if version := strings.TrimSpace(environment.PHPVersion); version != "" {
-				if err := validateVersion(PHP, version); err != nil {
+			if strings.TrimSpace(environment.PHPVersion) != "" && strings.TrimSpace(environment.PHPZTSVersion) != "" {
+				return fmt.Errorf("php and php-zts versions are mutually exclusive")
+			}
+			if version := strings.TrimSpace(pluginPHPVersion(tool, environment)); version != "" {
+				if err := validateVersion(tool, version); err != nil {
 					return err
 				}
 			}
@@ -67,12 +78,12 @@ func phpPlugin() Plugin {
 			return nil
 		},
 		download: func(ctx DownloadContext) error {
-			return downloadPHP(ctx.Client, ctx.CacheDir, ctx.Version)
+			return downloadPHP(ctx.Client, ctx.CacheDir, tool, ctx.Version, threadSafe)
 		},
 		postInstall: func(ctx InstallContext) error {
 			phpConfig := EffectivePHPConfigForInstall(ctx.Environment)
 			if phpConfigNeedsCABundle(phpConfig) {
-				caBundlePath, err := ensureInstalledPHPCABundle(ctx.EnvsDir, ctx.Result.Version)
+				caBundlePath, err := ensureInstalledPHPCABundle(ctx.EnvsDir, ctx.Result.Tool, ctx.Result.Version)
 				if err != nil {
 					return err
 				}
@@ -82,9 +93,17 @@ func phpPlugin() Plugin {
 				return nil
 			}
 
-			return configureInstalledPHPConfig(ctx.EnvsDir, ctx.Result.Version, phpConfig)
+			return configureInstalledPHPConfigForTool(ctx.EnvsDir, ctx.Result.Tool, ctx.Result.Version, phpConfig)
 		},
 	})
+}
+
+func pluginPHPVersion(tool string, environment config.Environment) string {
+	if tool == PHPZTS {
+		return environment.PHPZTSVersion
+	}
+
+	return environment.PHPVersion
 }
 
 func phpConfigNeedsCABundle(config PHPInstallConfig) bool {
@@ -101,8 +120,8 @@ func phpConfigNeedsCABundle(config PHPInstallConfig) bool {
 	return false
 }
 
-func ensureInstalledPHPCABundle(envsDir, version string) (string, error) {
-	caBundlePath := installedPHPCABundlePath(envsDir, version)
+func ensureInstalledPHPCABundle(envsDir, tool, version string) (string, error) {
+	caBundlePath := installedPHPCABundlePath(envsDir, tool, version)
 	exists, err := regularPHPFileExists(caBundlePath)
 	if err != nil {
 		return "", fmt.Errorf("stat php ca bundle %s: %w", caBundlePath, err)
@@ -126,8 +145,8 @@ func ensureInstalledPHPCABundle(envsDir, version string) (string, error) {
 	return systemPath, nil
 }
 
-func installedPHPCABundlePath(envsDir, version string) string {
-	return filepath.Join(envsDir, PHP, version, filepath.FromSlash(phpCABundlePath))
+func installedPHPCABundlePath(envsDir, tool, version string) string {
+	return filepath.Join(envsDir, tool, version, filepath.FromSlash(phpCABundlePath))
 }
 
 func findSystemCABundle() (string, error) {
@@ -229,11 +248,11 @@ func validateOPcachePreset(preset string) error {
 	}
 }
 
-func downloadPHP(client *http.Client, cacheDir, version string) error {
+func downloadPHP(client *http.Client, cacheDir, tool, version string, threadSafe bool) error {
 	if runtime.GOOS != "windows" {
 		return fmt.Errorf("automatic php download is only implemented on Windows")
 	}
-	if err := os.MkdirAll(filepath.Join(cacheDir, PHP), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(cacheDir, tool), 0o755); err != nil {
 		return fmt.Errorf("create php cache dir: %w", err)
 	}
 
@@ -248,12 +267,12 @@ func downloadPHP(client *http.Client, cacheDir, version string) error {
 		return fmt.Errorf("php version %q is not available in the Windows release index", version)
 	}
 
-	asset, err := selectPHPWindowsAsset(release)
+	asset, err := selectPHPWindowsAsset(release, threadSafe)
 	if err != nil {
 		return err
 	}
 
-	stagingDir, err := os.MkdirTemp(filepath.Join(cacheDir, PHP), version+"-tmp-")
+	stagingDir, err := os.MkdirTemp(filepath.Join(cacheDir, tool), version+"-tmp-")
 	if err != nil {
 		return fmt.Errorf("create php staging dir: %w", err)
 	}
@@ -268,7 +287,7 @@ func downloadPHP(client *http.Client, cacheDir, version string) error {
 		return err
 	}
 
-	_, err = cacheArchivePayload(cacheDir, PHP, version, release.Version, downloadAsset{
+	_, err = cacheArchivePayload(cacheDir, tool, version, release.Version, downloadAsset{
 		FileName:          filepath.Base(asset.Path),
 		URL:               archiveURL,
 		Checksum:          asset.SHA256,
@@ -326,19 +345,20 @@ func (r *phpWindowsRelease) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func selectPHPWindowsAsset(release phpWindowsRelease) (phpWindowsAsset, error) {
+func selectPHPWindowsAsset(release phpWindowsRelease, threadSafe bool) (phpWindowsAsset, error) {
 	architecture := "x64"
 	if runtime.GOARCH == "386" {
 		architecture = "x86"
 	}
 
+	flavor := "nts"
+	if threadSafe {
+		flavor = "ts"
+	}
 	preferences := []string{
-		"nts-vs17-" + architecture,
-		"nts-vs16-" + architecture,
-		"nts-vc15-" + architecture,
-		"ts-vs17-" + architecture,
-		"ts-vs16-" + architecture,
-		"ts-vc15-" + architecture,
+		flavor + "-vs17-" + architecture,
+		flavor + "-vs16-" + architecture,
+		flavor + "-vc15-" + architecture,
 	}
 
 	for _, key := range preferences {
@@ -347,7 +367,7 @@ func selectPHPWindowsAsset(release phpWindowsRelease) (phpWindowsAsset, error) {
 		}
 	}
 
-	return phpWindowsAsset{}, fmt.Errorf("no compatible Windows PHP binary found for %s on %s", release.Version, architecture)
+	return phpWindowsAsset{}, fmt.Errorf("no compatible Windows PHP %s binary found for %s on %s", strings.ToUpper(flavor), release.Version, architecture)
 }
 
 func phpSeries(version string) string {

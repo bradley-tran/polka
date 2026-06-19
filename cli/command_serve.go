@@ -293,7 +293,7 @@ func startPHPRuntimeServeInBackgroundAt(store backend.Store, environment backend
 }
 
 func runNginxServe(stdout, stderr io.Writer, store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout) (int, error) {
-	if strings.TrimSpace(environment.PHPVersion) == "" {
+	if backend.PrimaryPHPVersion(environment) == "" {
 		return 0, fmt.Errorf("environment %q defines nginx but does not define a php version", environment.Name)
 	}
 
@@ -357,7 +357,7 @@ func startNginxServeInBackground(store backend.Store, environment backend.Enviro
 }
 
 func startNginxServeInBackgroundAt(store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout, runtimeDir string) (serveRuntimeState, error) {
-	if strings.TrimSpace(environment.PHPVersion) == "" {
+	if backend.PrimaryPHPVersion(environment) == "" {
 		return serveRuntimeState{}, fmt.Errorf("environment %q defines nginx but does not define a php version", environment.Name)
 	}
 

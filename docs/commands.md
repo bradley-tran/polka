@@ -52,12 +52,13 @@ Creates or updates one environment config value. The default environment is stor
 
 ```bash
 polka config tools.php 8.4
+polka config tools.php-zts 8.4
 polka config --env blog tools.mysql 8.0
 polka config --env blog database.engine mysql
 polka config --env blog settings.mailpit.smtp-port 1025
 ```
 
-Use `--env name` to select a named environment. When `--env` is omitted, Polka updates the current environment, falling back to `default` when no local override is selected. Supported keys are schema-aware dot paths such as `tools.php`, `tools.pie`, `database.port`, `server.hostname`, `env-vars.APP_ENV`, `php-extensions.xdebug`, and `opcache-config.opcache.enable_cli`.
+Use `--env name` to select a named environment. When `--env` is omitted, Polka updates the current environment, falling back to `default` when no local override is selected. Supported keys are schema-aware dot paths such as `tools.php`, `tools.php-zts`, `tools.pie`, `database.port`, `server.hostname`, `env-vars.APP_ENV`, `php-extensions.xdebug`, and `opcache-config.opcache.enable_cli`. `tools.php` and `tools.php-zts` are mutually exclusive; setting one switches the primary runtime and both expose the standard `php` command.
 
 ### `polka install [tool:version] [--env name]`
 
@@ -66,6 +67,7 @@ Installs one explicit tool version, or every configured tool version for an envi
 ```bash
 polka install
 polka install php:8.4
+polka install php-zts:8.4
 polka install --env blog
 ```
 

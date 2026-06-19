@@ -302,6 +302,8 @@ func manifestVersionFunc(m pluginManifest) func(config.Environment) string {
 		switch id {
 		case PHP:
 			return environment.PHPVersion
+		case PHPZTS:
+			return environment.PHPZTSVersion
 		case Composer:
 			return environment.ComposerVersion
 		case PIE:

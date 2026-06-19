@@ -36,7 +36,7 @@ func phpMyAdminRuntimeHooks(store backend.Store) service.PHPMyAdminRuntimeHooks 
 }
 
 func startPHPMyAdminServe(store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout, runtimeDir string) (serveRuntimeState, error) {
-	if strings.TrimSpace(environment.PHPVersion) == "" {
+	if backend.PrimaryPHPVersion(environment) == "" {
 		return serveRuntimeState{}, fmt.Errorf("environment %q defines phpmyadmin but does not define a php version", environment.Name)
 	}
 

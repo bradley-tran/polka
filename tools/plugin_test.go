@@ -3,6 +3,7 @@ package tools
 import (
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"polka/config"
@@ -80,6 +81,38 @@ func TestDefaultRegistryKeepsNodeJSConfigOnly(t *testing.T) {
 	cleanup := registry.CleanupCommandNames()
 	if !containsString(cleanup, NodeJS) {
 		t.Fatalf("CleanupCommandNames() = %#v, want legacy nodejs cleanup entry", cleanup)
+	}
+}
+
+func TestDefaultRegistrySelectsConfiguredPHPProvider(t *testing.T) {
+	registry := NewDefaultRegistry()
+	tests := []struct {
+		name        string
+		environment config.Environment
+		wantTool    string
+	}{
+		{name: "NTS", environment: config.Environment{PHPVersion: "8.4"}, wantTool: PHP},
+		{name: "ZTS", environment: config.Environment{PHPZTSVersion: "8.4"}, wantTool: PHPZTS},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request, err := registry.ResolveDispatchRequestForEnvironment(PHP, test.environment)
+			if err != nil {
+				t.Fatalf("ResolveDispatchRequestForEnvironment(php) error = %v", err)
+			}
+			if request.ConfigTool != test.wantTool || request.Executable != PHP {
+				t.Fatalf("request = %#v, want %s/php", request, test.wantTool)
+			}
+		})
+	}
+}
+
+func TestDefaultRegistryRejectsMultiplePHPRuntimes(t *testing.T) {
+	registry := NewDefaultRegistry()
+	err := registry.ValidateEnvironment(config.Environment{PHPVersion: "8.4", PHPZTSVersion: "8.4"})
+	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("ValidateEnvironment() error = %v, want mutually exclusive error", err)
 	}
 }
 

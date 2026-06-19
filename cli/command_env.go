@@ -399,7 +399,7 @@ func runList(stdout io.Writer, store backend.Store) error {
 			marker = "*"
 		}
 
-		_, _ = fmt.Fprintf(stdout, "%s %s\tphp=%s\tcomposer=%s\tnodejs=%s\tdb=%s\n", marker, environment.Name, labelOrUnset(environment.PHPVersion), labelOrUnset(environment.ComposerVersion), labelOrUnset(environment.NodeJSVersion), labelDatabase(environment.Database))
+		_, _ = fmt.Fprintf(stdout, "%s %s\tphp=%s\tcomposer=%s\tnodejs=%s\tdb=%s\n", marker, environment.Name, labelOrUnset(backend.PrimaryPHPVersion(environment)), labelOrUnset(environment.ComposerVersion), labelOrUnset(environment.NodeJSVersion), labelDatabase(environment.Database))
 	}
 
 	return nil

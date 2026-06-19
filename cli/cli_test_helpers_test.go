@@ -27,6 +27,7 @@ type testConfigFile struct {
 type testEnvironmentConfig struct {
 	Framework     string                `yaml:"framework,omitempty"`
 	PHP           string                `yaml:"php"`
+	PHPZTS        string                `yaml:"php-zts,omitempty"`
 	Composer      string                `yaml:"composer"`
 	PIE           string                `yaml:"pie,omitempty"`
 	NodeJS        string                `yaml:"nodejs,omitempty"`
@@ -146,6 +147,7 @@ type testEnvironmentConfigData struct {
 
 type testToolsConfig struct {
 	PHP        string `yaml:"php,omitempty"`
+	PHPZTS     string `yaml:"php-zts,omitempty"`
 	Composer   string `yaml:"composer,omitempty"`
 	PIE        string `yaml:"pie,omitempty"`
 	NodeJS     string `yaml:"nodejs,omitempty"`
@@ -344,6 +346,7 @@ func testEnvironmentFromParts(framework string, tools *testToolsConfig, settings
 	}
 	if tools != nil {
 		environment.PHP = tools.PHP
+		environment.PHPZTS = tools.PHPZTS
 		environment.Composer = tools.Composer
 		environment.PIE = tools.PIE
 		environment.NodeJS = tools.NodeJS
@@ -394,6 +397,7 @@ func testNormalizeOPcacheConfig(values map[string]string) map[string]string {
 func testToolsFromEnvironment(environment testEnvironmentConfig) *testToolsConfig {
 	tools := &testToolsConfig{
 		PHP:        environment.PHP,
+		PHPZTS:     environment.PHPZTS,
 		Composer:   environment.Composer,
 		PIE:        environment.PIE,
 		NodeJS:     environment.NodeJS,
@@ -406,6 +410,7 @@ func testToolsFromEnvironment(environment testEnvironmentConfig) *testToolsConfi
 		PHPMyAdmin: testPHPMyAdminVersion(environment.PHPMyAdmin),
 	}
 	if strings.TrimSpace(tools.PHP) == "" &&
+		strings.TrimSpace(tools.PHPZTS) == "" &&
 		strings.TrimSpace(tools.Composer) == "" &&
 		strings.TrimSpace(tools.PIE) == "" &&
 		strings.TrimSpace(tools.NodeJS) == "" &&

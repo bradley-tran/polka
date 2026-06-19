@@ -38,7 +38,7 @@ For the full command reference, see [docs/commands.md](docs/commands.md). For th
 
 Polka config files store portable version labels under `tools` and non-version tool options under `settings`. The default environment lives in `polka.yaml`; named environments live in `polka.<name>.yaml`.
 
-Use `polka config <key> <value>` to update the current environment, or `polka config --env blog <key> <value>` to update a named environment. Keys are dot-separated config paths such as `tools.php`, `tools.pie`, `database.engine`, and `settings.mailpit.smtp-port`.
+Use `polka config <key> <value>` to update the current environment, or `polka config --env blog <key> <value>` to update a named environment. Keys are dot-separated config paths such as `tools.php`, `tools.php-zts`, `tools.pie`, `database.engine`, and `settings.mailpit.smtp-port`.
 
 ```yaml
 # polka.yaml
@@ -89,6 +89,16 @@ tools:
   composer: 2.6
 ```
 
+Use `php-zts` instead of `php` when the environment requires a Thread Safe PHP build:
+
+```yaml
+tools:
+  php-zts: 8.4
+  composer: 2.8
+```
+
+`php` and `php-zts` are mutually exclusive primary runtimes. Both provide the standard `php` command and are used by Composer, PIE, serving, phpMyAdmin, extensions, and OPcache configuration. Setting or explicitly installing one runtime clears the other. Automatic PHP downloads remain Windows-only; `php` selects only NTS archives and `php-zts` selects only TS archives.
+
 Polka resolves those versions against the local install layout under `.polka/envs`:
 
 Framework presets apply their default PHP extensions during install. User-defined `php-extensions` entries override those defaults, including `false` values that disable an extension. `opcache-preset` accepts `none`, `dev`, or `production`; `opcache-config` accepts `opcache.*` directives applied over the preset and any framework defaults. Re-run `polka install` after changing PHP extension or OPcache settings so Polka can regenerate `php.ini`.
@@ -106,6 +116,9 @@ Framework presets apply their default PHP extensions during install. User-define
 |   |   `-- 5.2/
 |   |       `-- index.php
 |   |-- php/
+|   |   `-- 8.4/
+|   |       `-- bin/php[.exe|.cmd|.bat]
+|   |-- php-zts/
 |   |   `-- 8.4/
 |   |       `-- bin/php[.exe|.cmd|.bat]
 |   `-- sqlite/

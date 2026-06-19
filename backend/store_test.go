@@ -504,6 +504,101 @@ func TestStoreInstallToolCopiesExplicitVersionIntoLayout(t *testing.T) {
 	}
 }
 
+func TestStoreInstallToolSwitchesToPHPZTSAndResolvesPHP(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+	writeCachedTool(t, store.CacheDir, toolPHPZTS, "8.4")
+
+	config := store.defaultConfig()
+	config.Environments[defaultEnvironmentName] = Environment{PHPVersion: "8.3"}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	result, err := store.InstallTool(defaultEnvironmentName, toolPHPZTS, "8.4")
+	if err != nil {
+		t.Fatalf("InstallTool(default, php-zts, 8.4) error = %v", err)
+	}
+	if result.Tool != toolPHPZTS || !strings.Contains(result.TargetPath, filepath.Join("php-zts", "8.4")) {
+		t.Fatalf("InstallTool() result = %#v, want php-zts layout", result)
+	}
+
+	environment, err := store.Current()
+	if err != nil {
+		t.Fatalf("Current() error = %v", err)
+	}
+	if environment.PHPVersion != "" || environment.PHPZTSVersion != "8.4" {
+		t.Fatalf("Current() = %#v, want only php-zts 8.4", environment)
+	}
+	resolved, err := store.ResolveTool("php")
+	if err != nil {
+		t.Fatalf("ResolveTool(php) error = %v", err)
+	}
+	if resolved != result.TargetPath {
+		t.Fatalf("ResolveTool(php) = %q, want %q", resolved, result.TargetPath)
+	}
+	assertPathExists(t, filepath.Join(store.BinDir, "php"))
+	assertPathExists(t, filepath.Join(store.BinDir, "php.cmd"))
+}
+
+func TestStoreInstallToolConfiguresPHPZTSInItsOwnLayout(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+	writeCachedTool(t, store.CacheDir, toolPHPZTS, "8.4")
+
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{
+		PHPExtensions: map[string]bool{"xdebug": false},
+	}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	result, err := store.InstallTool("demo", toolPHPZTS, "8.4")
+	if err != nil {
+		t.Fatalf("InstallTool(demo, php-zts, 8.4) error = %v", err)
+	}
+	phpIniPath := filepath.Join(filepath.Dir(result.TargetPath), "php.ini")
+	phpIni, err := os.ReadFile(phpIniPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%s) error = %v", phpIniPath, err)
+	}
+	if !strings.Contains(string(phpIni), ";extension=xdebug") {
+		t.Fatalf("php.ini = %q, want ZTS extension configuration", phpIni)
+	}
+	if !strings.Contains(phpIniPath, filepath.Join("php-zts", "8.4")) {
+		t.Fatalf("php.ini path = %q, want php-zts layout", phpIniPath)
+	}
+}
+
+func TestStoreConfigureValueSwitchesPrimaryPHPRuntime(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{PHPVersion: "8.3"}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	environment, err := store.ConfigureValue("demo", "tools.php-zts", "8.4")
+	if err != nil {
+		t.Fatalf("ConfigureValue(tools.php-zts) error = %v", err)
+	}
+	if environment.PHPVersion != "" || environment.PHPZTSVersion != "8.4" {
+		t.Fatalf("environment = %#v, want php-zts to replace php", environment)
+	}
+
+	environment, err = store.ConfigureValue("demo", "tools.php", "8.2")
+	if err != nil {
+		t.Fatalf("ConfigureValue(tools.php) error = %v", err)
+	}
+	if environment.PHPVersion != "8.2" || environment.PHPZTSVersion != "" {
+		t.Fatalf("environment = %#v, want php to replace php-zts", environment)
+	}
+}
+
 func TestStoreInstallToolAppliesEnvironmentPostInstallSettings(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
@@ -969,7 +1064,7 @@ func TestStoreInstallTreatsExtractedCacheWithoutMetadataAsMissing(t *testing.T) 
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
 	store.CacheDir = filepath.Join(projectDir, "global-cache")
-	extractedPHP := cachedFakePHPPath(store.CacheDir, "8.4")
+	extractedPHP := cachedFakePHPPath(store.CacheDir, toolPHP, "8.4")
 	if err := os.MkdirAll(filepath.Dir(extractedPHP), 0o755); err != nil {
 		t.Fatalf("MkdirAll(extracted php) error = %v", err)
 	}
@@ -2783,11 +2878,11 @@ func writeCachedTool(t *testing.T, cacheDir, tool, version string) string {
 	t.Helper()
 
 	path := toolInstallCandidatesIn(cacheDir, tool, version)[0]
-	if tool == toolPHP {
-		path = cachedFakePHPPath(cacheDir, version)
+	if tool == toolPHP || tool == toolPHPZTS {
+		path = cachedFakePHPPath(cacheDir, tool, version)
 	}
 	relativePath := cachedToolRelativePath(t, cacheDir, tool, version, path)
-	if tool == toolPHP {
+	if tool == toolPHP || tool == toolPHPZTS {
 		files := map[string][]byte{
 			relativePath:            fakePHPModuleListScript(nil),
 			"extras/ssl/cacert.pem": []byte("-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"),
@@ -2818,7 +2913,7 @@ func writeCachedTool(t *testing.T, cacheDir, tool, version string) string {
 func writeCachedPHPToolWithBuiltInModules(t *testing.T, cacheDir, version string, modules []string) string {
 	t.Helper()
 
-	path := cachedFakePHPPath(cacheDir, version)
+	path := cachedFakePHPPath(cacheDir, toolPHP, version)
 	files := map[string][]byte{
 		cachedToolRelativePath(t, cacheDir, toolPHP, version, path): fakePHPModuleListScript(modules),
 		"extras/ssl/cacert.pem": []byte("-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"),
@@ -2833,8 +2928,8 @@ func writeCachedPHPCABundle(t *testing.T, cacheDir, version string) {
 	writeCachedTool(t, cacheDir, toolPHP, version)
 }
 
-func cachedFakePHPPath(cacheDir, version string) string {
-	candidates := toolInstallCandidatesIn(cacheDir, toolPHP, version)
+func cachedFakePHPPath(cacheDir, tool, version string) string {
+	candidates := toolInstallCandidatesIn(cacheDir, tool, version)
 	if runtime.GOOS == "windows" {
 		for _, candidate := range candidates {
 			extension := strings.ToLower(filepath.Ext(candidate))

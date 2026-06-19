@@ -210,6 +210,39 @@ func (r *Registry) ResolveDispatchRequest(tool string) (DispatchRequest, error) 
 	return DispatchRequest{}, fmt.Errorf("unsupported tool %q", tool)
 }
 
+// ResolveDispatchRequestForEnvironment selects the configured provider when
+// multiple plugins expose the same command, such as php and php-zts.
+func (r *Registry) ResolveDispatchRequestForEnvironment(tool string, environment config.Environment) (DispatchRequest, error) {
+	if r == nil {
+		return DispatchRequest{}, fmt.Errorf("tool registry is not configured")
+	}
+
+	trimmed := strings.ToLower(strings.TrimSpace(tool))
+	var fallback *DispatchRequest
+	for _, plugin := range r.plugins {
+		for _, command := range plugin.DispatchCommands() {
+			if strings.EqualFold(strings.TrimSpace(command), trimmed) {
+				request := DispatchRequest{
+					ConfigTool: plugin.ID(),
+					Executable: strings.ToLower(strings.TrimSpace(command)),
+					Plugin:     plugin,
+				}
+				if strings.TrimSpace(plugin.Version(environment)) != "" {
+					return request, nil
+				}
+				if fallback == nil {
+					fallback = &request
+				}
+			}
+		}
+	}
+	if fallback != nil {
+		return *fallback, nil
+	}
+
+	return DispatchRequest{}, fmt.Errorf("unsupported tool %q", tool)
+}
+
 // ResolveLogRequest resolves either a manifest tool ID or a dispatch command
 // to the plugin that declares log files for that tool.
 func (r *Registry) ResolveLogRequest(tool string) (LogRequest, error) {

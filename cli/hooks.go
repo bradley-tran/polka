@@ -278,7 +278,7 @@ func startPHPWebserverHook(ctx webserverStartHookContext) (int, error) {
 }
 
 func startNginxWebserverHook(ctx webserverStartHookContext) (int, error) {
-	if strings.TrimSpace(ctx.Environment.PHPVersion) == "" {
+	if backend.PrimaryPHPVersion(ctx.Environment) == "" {
 		return 0, fmt.Errorf("environment %q defines nginx but does not define a php version", ctx.Environment.Name)
 	}
 
@@ -394,7 +394,11 @@ func stopPHPMyAdminServiceHook(ctx stopHookContext) error {
 }
 
 func statusPHPConfigHook(ctx statusHookContext) error {
-	_, _ = fmt.Fprintf(ctx.Stdout, "php %s\n", labelOrUnset(ctx.Environment.PHPVersion))
+	phpTool, phpVersion := backend.PrimaryPHPTool(ctx.Environment)
+	if phpTool == "" {
+		phpTool = "php"
+	}
+	_, _ = fmt.Fprintf(ctx.Stdout, "%s %s\n", phpTool, labelOrUnset(phpVersion))
 	return nil
 }
 
