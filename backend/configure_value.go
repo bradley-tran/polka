@@ -143,6 +143,8 @@ func applyToolConfigValue(environment *Environment, path []string, value string)
 		if version != "" {
 			environment.PHPVersion = ""
 		}
+	case toolFrankenPHP:
+		environment.FrankenPHPVersion = version
 	case toolComposer:
 		environment.ComposerVersion = version
 	case toolPIE:
@@ -209,6 +211,14 @@ func applyServerConfigValue(environment *Environment, path []string, value strin
 	}
 
 	switch path[1] {
+	case "type":
+		typeName := strings.ToLower(strings.TrimSpace(value))
+		switch typeName {
+		case "", config.ServerTypePHP, config.ServerTypeNginx, config.ServerTypeFrankenPHP:
+			environment.Server.Type = typeName
+		default:
+			return fmt.Errorf("unsupported server type %q: use php, nginx, or frankenphp", value)
+		}
 	case "hostname":
 		environment.Server.Hostname = strings.TrimSpace(value)
 	case "port":

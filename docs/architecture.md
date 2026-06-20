@@ -79,7 +79,7 @@ Automatic service startup skips a configured service when its matching managed t
 
 The `tools` package owns managed tool behavior:
 
-- tool IDs such as `PHP`, `PHPZTS`, `Composer`, `PIE`, `NodeJS`, `Mago`, `Nginx`, `Mailpit`, `PHPMyAdmin`, `MySQL`, `MariaDB`, and `SQLite`
+- tool IDs such as `PHP`, `PHPZTS`, `FrankenPHP`, `Composer`, `PIE`, `NodeJS`, `Mago`, `Nginx`, `Mailpit`, `PHPMyAdmin`, `MySQL`, `MariaDB`, and `SQLite`
 - tool plugin interfaces and registry
 - embedded YAML manifests for built-in plugin metadata
 - install candidate paths
@@ -120,11 +120,13 @@ Dispatch resolution uses the active environment recorded in `.polka/run/current`
 
 Node.js is config-only as `nodejs`, but it exposes `node`, `npm`, and `npx` dispatch commands. The `nodejs` command itself is not generated as an active shim. PIE and Mago are configured with `pie` and `mago`, and expose matching dispatch commands. phpMyAdmin does not generate a command shim either; Polka installs its web app archive, writes its generated `config.inc.php`, reads managed database credentials from Polka's runtime secrets when a managed database is configured, and uses its UI port plus the environment's root-level HTTPS setting when the CLI starts the managed phpMyAdmin service.
 
+FrankenPHP is configured independently from the primary PHP CLI and exposes a `frankenphp` shim. `server.type: frankenphp` selects its generated Caddyfile runtime for `polka serve`; omitting `server.type` preserves the legacy nginx-when-configured, PHP-otherwise selection. Windows installs also receive a generated `php.ini` for the bundle's dynamic extensions, selected at runtime through `PHPRC`.
+
 ## Runtime Services
 
 Runtime services are split between `service` and `cli`:
 
-- PHP built-in server and nginx serving remain command/runtime concerns in `cli`.
+- PHP built-in server, nginx, and FrankenPHP serving remain command/runtime concerns in `cli`.
 - Managed database lifecycle is in `service`.
 - Mailpit startup, shutdown, and status are in `service`, with CLI adapters for command output and test hooks.
 - phpMyAdmin startup, shutdown, status, and managed database storage import are in `service`; CLI supplies the PHP/nginx web runtime callbacks.

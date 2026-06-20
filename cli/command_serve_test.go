@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -325,6 +326,193 @@ func TestRunServeUsesNginxWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestRunServeUsesExplicitFrankenPHPWhenNginxIsConfigured(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	docroot := filepath.Join(projectDir, "site", "public")
+	if err := os.MkdirAll(docroot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(docroot) error = %v", err)
+	}
+
+	writeTestConfigFile(t, projectDir, testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {
+				PHP:        "8.4",
+				Nginx:      "1.30",
+				FrankenPHP: "1.12",
+				Server:     &testServerConfig{Type: "frankenphp", Hostname: "localhost", Port: 8080},
+			},
+		},
+	})
+	writeTestActiveEnvironment(t, root, "demo")
+
+	oldPHPServe := runPHPRuntimeServeFunc
+	oldNginxServe := runNginxServeFunc
+	oldFrankenPHPServe := runFrankenPHPServeFunc
+	t.Cleanup(func() {
+		runPHPRuntimeServeFunc = oldPHPServe
+		runNginxServeFunc = oldNginxServe
+		runFrankenPHPServeFunc = oldFrankenPHPServe
+	})
+
+	phpCalls := 0
+	nginxCalls := 0
+	frankenPHPCalls := 0
+	runPHPRuntimeServeFunc = func(stdout, stderr io.Writer, store backend.Store, serverAddress string, layout serveAppLayout) (int, error) {
+		phpCalls++
+		return 0, nil
+	}
+	runNginxServeFunc = func(stdout, stderr io.Writer, store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout) (int, error) {
+		nginxCalls++
+		return 0, nil
+	}
+	runFrankenPHPServeFunc = func(stdout, stderr io.Writer, store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout) (int, error) {
+		frankenPHPCalls++
+		if endpoint.Address != "localhost:8080" || layout.Docroot != docroot {
+			t.Fatalf("FrankenPHP context = %#v, %#v, want configured endpoint and docroot", endpoint, layout)
+		}
+		return 0, nil
+	}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "start", "--watch", filepath.Join("site", "public")}); code != 0 {
+		t.Fatalf("Run(serve with FrankenPHP) code = %d, stderr = %q", code, stderr.String())
+	}
+	if phpCalls != 0 || nginxCalls != 0 || frankenPHPCalls != 1 {
+		t.Fatalf("serve calls = php:%d nginx:%d frankenphp:%d, want only FrankenPHP", phpCalls, nginxCalls, frankenPHPCalls)
+	}
+}
+
+func TestResolveEnvironmentServerTypePreservesLegacySelection(t *testing.T) {
+	tests := []struct {
+		name        string
+		environment backend.Environment
+		want        string
+		wantErr     string
+	}{
+		{name: "legacy php", environment: backend.Environment{Name: "demo", PHPVersion: "8.4"}, want: "php"},
+		{name: "legacy nginx", environment: backend.Environment{Name: "demo", PHPVersion: "8.4", NginxVersion: "1.30", FrankenPHPVersion: "1.12"}, want: "nginx"},
+		{name: "explicit frankenphp", environment: backend.Environment{Name: "demo", FrankenPHPVersion: "1.12", Server: &backend.ServerConfig{Type: "frankenphp"}}, want: "frankenphp"},
+		{name: "missing frankenphp", environment: backend.Environment{Name: "demo", Server: &backend.ServerConfig{Type: "frankenphp"}}, wantErr: "does not define a frankenphp version"},
+		{name: "invalid type", environment: backend.Environment{Name: "demo", Server: &backend.ServerConfig{Type: "apache"}}, wantErr: "unsupported server type"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := resolveEnvironmentServerType(test.environment)
+			if test.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+					t.Fatalf("resolveEnvironmentServerType() error = %v, want %q", err, test.wantErr)
+				}
+				return
+			}
+			if err != nil || got != test.want {
+				t.Fatalf("resolveEnvironmentServerType() = %q, %v, want %q", got, err, test.want)
+			}
+		})
+	}
+}
+
+func TestPrepareFrankenPHPServeRuntimeUsesPolkaTLS(t *testing.T) {
+	runtimeDir := filepath.Join(t.TempDir(), "run", "frankenphp")
+	cacheDir := filepath.Join(t.TempDir(), "cache")
+	docroot := filepath.Join(t.TempDir(), "site", "public")
+	if err := os.MkdirAll(docroot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(docroot) error = %v", err)
+	}
+
+	configPath, err := prepareFrankenPHPServeRuntime(cacheDir, runtimeDir, serverEndpoint{
+		Scheme:  "https",
+		Address: "site.localhost:8443",
+		HTTPS:   true,
+	}, serveAppLayout{Docroot: docroot})
+	if err != nil {
+		t.Fatalf("prepareFrankenPHPServeRuntime() error = %v", err)
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile(Caddyfile) error = %v", err)
+	}
+	caddyfile := string(data)
+	certPath, keyPath := globalTLSCertificatePaths(cacheDir)
+	for _, want := range []string{
+		"admin off",
+		"auto_https disable_redirects",
+		"https://site.localhost:8443",
+		"root * " + strconv.Quote(filepath.ToSlash(docroot)),
+		"tls " + strconv.Quote(filepath.ToSlash(certPath)) + " " + strconv.Quote(filepath.ToSlash(keyPath)),
+		"php_server",
+	} {
+		if !strings.Contains(caddyfile, want) {
+			t.Fatalf("Caddyfile = %q, want %q", caddyfile, want)
+		}
+	}
+}
+
+func TestRenderFrankenPHPCaddyfileSupportsHTTP(t *testing.T) {
+	caddyfile := string(renderFrankenPHPCaddyfile(
+		serverEndpoint{Scheme: "http", Address: "localhost:8080"},
+		serveAppLayout{Docroot: filepath.Join("site", "public")},
+		serveTLSConfig{},
+	))
+	if !strings.Contains(caddyfile, "http://localhost:8080") || !strings.Contains(caddyfile, "php_server") {
+		t.Fatalf("Caddyfile = %q, want HTTP FrankenPHP server", caddyfile)
+	}
+	if strings.Contains(caddyfile, "\ttls ") {
+		t.Fatalf("Caddyfile = %q, want no TLS directive", caddyfile)
+	}
+}
+
+func TestServeStateMatchesResolvedServerType(t *testing.T) {
+	state := serveRuntimeState{
+		ServerKind:    "frankenphp",
+		ServerScheme:  "https",
+		ServerAddress: "localhost:8443",
+		Docroot:       filepath.Join("site", "public"),
+	}
+	endpoint := serverEndpoint{Scheme: "https", Address: "localhost:8443", HTTPS: true}
+	if !serveStateMatches(state, endpoint, state.Docroot, "frankenphp") {
+		t.Fatal("serveStateMatches() = false, want matching FrankenPHP state")
+	}
+	if serveStateMatches(state, endpoint, state.Docroot, "nginx") {
+		t.Fatal("serveStateMatches() = true, want server type mismatch")
+	}
+}
+
+func TestApplyFrankenPHPRuntimeConfigSetsManagedPHPRC(t *testing.T) {
+	installDir := t.TempDir()
+	target := filepath.Join(installDir, "frankenphp.exe")
+	if err := os.WriteFile(target, []byte("binary"), 0o755); err != nil {
+		t.Fatalf("WriteFile(frankenphp) error = %v", err)
+	}
+	phpIniPath := filepath.Join(installDir, "php.ini")
+	if err := os.WriteFile(phpIniPath, []byte("extension=openssl\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(php.ini) error = %v", err)
+	}
+
+	env, err := applyFrankenPHPRuntimeConfig("windows", []string{"APP_ENV=test", "PHPRC=system.ini"}, target)
+	if err != nil {
+		t.Fatalf("applyFrankenPHPRuntimeConfig() error = %v", err)
+	}
+	want := "PHPRC=" + phpIniPath
+	if !containsEnvironmentEntryFold(env, want) {
+		t.Fatalf("environment = %#v, want %q", env, want)
+	}
+}
+
+func containsEnvironmentEntryFold(env []string, want string) bool {
+	for _, entry := range env {
+		if strings.EqualFold(entry, want) {
+			return true
+		}
+	}
+
+	return false
+}
+
 func TestPreparePHPRuntimeServeRuntimeCreatesRouter(t *testing.T) {
 	runtimeDir := filepath.Join(t.TempDir(), "run", "start", "php")
 	docroot := filepath.Join(runtimeDir, "docroot")
@@ -536,8 +724,8 @@ func TestRunServeRejectsHTTPSWithoutNginx(t *testing.T) {
 	if code := Run(stdout, stderr, []string{"--root", root, "start"}); code != 1 {
 		t.Fatalf("Run(serve https without nginx) code = %d, stderr = %q", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "https requires nginx") {
-		t.Fatalf("Run(serve https without nginx) stderr = %q, want nginx guidance", stderr.String())
+	if !strings.Contains(stderr.String(), "use nginx or frankenphp") {
+		t.Fatalf("Run(serve https with PHP) stderr = %q, want managed HTTPS server guidance", stderr.String())
 	}
 }
 
@@ -864,7 +1052,7 @@ func TestRunServeStartsConfiguredPHPMyAdminBeforeWebserver(t *testing.T) {
 		running[endpoint.Address] = true
 		return serveRuntimeState{
 			EnvironmentName: environment.Name,
-			ServerKind:      desiredServeKind(endpoint.HTTPS),
+			ServerKind:      map[bool]string{false: "php", true: "nginx"}[endpoint.HTTPS],
 			ServerScheme:    endpoint.Scheme,
 			ServerAddress:   endpoint.Address,
 			Docroot:         layout.Docroot,

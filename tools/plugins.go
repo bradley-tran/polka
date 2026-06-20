@@ -4,6 +4,7 @@ func DefaultPlugins() []ToolPlugin {
 	return []ToolPlugin{
 		phpPlugin(),
 		phpZTSPlugin(),
+		frankenPHPPlugin(),
 		composerPlugin(),
 		piePlugin(),
 		nodeJSPlugin(),

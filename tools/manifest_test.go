@@ -11,7 +11,7 @@ import (
 )
 
 func TestBuiltinManifestsLoad(t *testing.T) {
-	for _, tool := range []string{PHP, PHPZTS, Composer, PIE, NodeJS, Mago, Nginx, Mailpit, PHPMyAdmin, MySQL, MariaDB, SQLite} {
+	for _, tool := range []string{PHP, PHPZTS, FrankenPHP, Composer, PIE, NodeJS, Mago, Nginx, Mailpit, PHPMyAdmin, MySQL, MariaDB, SQLite} {
 		t.Run(tool, func(t *testing.T) {
 			manifest, err := loadBuiltinManifest(tool)
 			if err != nil {

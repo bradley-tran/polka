@@ -29,6 +29,7 @@ type HTTPToolDownloader = tools.HTTPDownloader
 const (
 	toolPHP        = tools.PHP
 	toolPHPZTS     = tools.PHPZTS
+	toolFrankenPHP = tools.FrankenPHP
 	toolComposer   = tools.Composer
 	toolPIE        = tools.PIE
 	toolNodeJS     = tools.NodeJS

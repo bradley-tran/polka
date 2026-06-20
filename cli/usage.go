@@ -33,10 +33,13 @@ Examples:
   polka new api
   polka config tools.php 8.4
   polka config tools.php-zts 8.4
+  polka config tools.frankenphp 1.12
+  polka config server.type frankenphp
   polka config --env api tools.mysql 8.0
   polka config --env api database.engine mysql
   polka install php:8.4
   polka install php-zts:8.4
+  polka install frankenphp:1.12
   polka install --env api
   polka cert-install
   polka db start
@@ -80,14 +83,15 @@ const configUsage = `Usage:
 
 Create or update one environment config value. The default environment is stored in polka.yaml; named environments are stored in polka.<name>.yaml.
 Use --env NAME to select a named environment. When --env is omitted, Polka updates the current environment, falling back to default when no local override is selected.
-Keys are dot-separated YAML paths such as tools.php, tools.php-zts, database.engine, settings.mailpit.smtp-port, env-vars.APP_ENV, php-extensions.xdebug, and opcache-config.opcache.enable_cli.
+Keys are dot-separated YAML paths such as tools.php, tools.php-zts, tools.frankenphp, server.type, database.engine, settings.mailpit.smtp-port, env-vars.APP_ENV, php-extensions.xdebug, and opcache-config.opcache.enable_cli.
 tools.php and tools.php-zts are mutually exclusive primary runtimes; setting one clears the other and both provide the php command.
+server.type accepts php, nginx, or frankenphp. When omitted, Polka preserves the legacy behavior of selecting nginx when configured and PHP otherwise.
 `
 
 const installUsage = `Usage:
   polka install [tool:version] [--env NAME]
 
-Install one explicit tool version, such as php:8.4 or php-zts:8.4, or install every configured tool version for an environment when no tool argument is provided.
+Install one explicit tool version, such as php:8.4, php-zts:8.4, or frankenphp:1.12, or install every configured tool version for an environment when no tool argument is provided.
 Use --env NAME to select a named environment. When --env is omitted, Polka uses the current environment, falling back to default when no local override is selected.
 Polka installs tools from validated global cache payloads when available, otherwise downloads them into the cache first.
 `
@@ -132,8 +136,9 @@ const startUsage = `Usage:
 Start the active environment's local web server.
 When docroot is omitted, Polka uses docroot from the current environment file.
 When --server is omitted, Polka uses the current environment's server.hostname, server.port, and root-level https setting, defaulting to localhost:8000.
+server.type explicitly selects php, nginx, or frankenphp. When omitted, nginx is selected when configured and PHP is used otherwise.
 When the current environment defines a database, mailpit, or phpmyadmin, Polka starts those managed local services first.
-Set root-level https to true to serve the webserver and applicable managed services over HTTPS with Polka's generated local certificate.
+Set root-level https to true to serve nginx or FrankenPHP and applicable managed services over HTTPS with Polka's generated local certificate. PHP's built-in webserver does not support HTTPS.
 By default, Polka starts the webserver in the background and returns once it is listening.
 Pass --watch to keep the webserver attached to the current terminal with the previous foreground behavior.
 `

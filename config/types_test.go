@@ -19,3 +19,22 @@ func TestPHPZTSConfigRoundTrip(t *testing.T) {
 		t.Fatalf("PrimaryPHPTool() = %q, %q, want php-zts, 8.4", tool, version)
 	}
 }
+
+func TestFrankenPHPAndServerTypeConfigRoundTrip(t *testing.T) {
+	environment := ProjectFileToEnvironment("default", ProjectFile{
+		Tools:  &ToolsConfig{FrankenPHPVersion: " 1.12 "},
+		Server: &ServerConfig{Type: " FrankenPHP "},
+	})
+	normalized := NormalizeEnvironment("default", environment)
+	if normalized.FrankenPHPVersion != "1.12" || normalized.Server == nil || normalized.Server.Type != ServerTypeFrankenPHP {
+		t.Fatalf("NormalizeEnvironment() = %#v, want FrankenPHP 1.12 server", normalized)
+	}
+
+	file := ProjectFileFromEnvironment(1, ".polka", normalized)
+	if file.Tools == nil || file.Tools.FrankenPHPVersion != "1.12" {
+		t.Fatalf("ProjectFileFromEnvironment() tools = %#v, want FrankenPHP 1.12", file.Tools)
+	}
+	if file.Server == nil || file.Server.Type != ServerTypeFrankenPHP {
+		t.Fatalf("ProjectFileFromEnvironment() server = %#v, want frankenphp type", file.Server)
+	}
+}

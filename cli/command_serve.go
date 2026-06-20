@@ -24,34 +24,38 @@ import (
 	"github.com/spf13/cobra"
 
 	"polka/backend"
+	"polka/config"
 	"polka/plugins"
 	"polka/service"
 )
 
 const (
-	defaultServeHostname = "localhost"
-	defaultServePort     = 8000
-	servePollInterval    = 100 * time.Millisecond
-	serveStartupTimeout  = 5 * time.Second
-	serveRuntimeRoot     = "run"
-	serveRuntimeSubdir   = "serve"
-	serveStateFileName   = "state.json"
-	serveLogFileName     = "serve.log"
-	serveTLSSubdir       = "cert"
-	serveTLSCACertName   = "polka-local-ca.crt"
-	serveTLSCAKeyName    = "polka-local-ca.key"
-	serveTLSCertFileName = "polka-local.crt"
-	serveTLSKeyFileName  = "polka-local.key"
-	phpServeRouterName   = "php-router.php"
-	serveProxyHost       = "127.0.0.1"
-	serveShutdownTimeout = 5 * time.Second
+	defaultServeHostname    = "localhost"
+	defaultServePort        = 8000
+	servePollInterval       = 100 * time.Millisecond
+	serveStartupTimeout     = 5 * time.Second
+	serveRuntimeRoot        = "run"
+	serveRuntimeSubdir      = "serve"
+	serveStateFileName      = "state.json"
+	serveLogFileName        = "serve.log"
+	serveTLSSubdir          = "cert"
+	serveTLSCACertName      = "polka-local-ca.crt"
+	serveTLSCAKeyName       = "polka-local-ca.key"
+	serveTLSCertFileName    = "polka-local.crt"
+	serveTLSKeyFileName     = "polka-local.key"
+	phpServeRouterName      = "php-router.php"
+	frankenPHPCaddyfileName = "Caddyfile"
+	serveProxyHost          = "127.0.0.1"
+	serveShutdownTimeout    = 5 * time.Second
 )
 
 var (
 	runPHPRuntimeServeFunc         = runPHPRuntimeServe
 	runNginxServeFunc              = runNginxServe
+	runFrankenPHPServeFunc         = runFrankenPHPServe
 	startBackgroundPHPRuntimeServe = startPHPRuntimeServeInBackground
 	startBackgroundNginxServe      = startNginxServeInBackground
+	startBackgroundFrankenPHPServe = startFrankenPHPServeInBackground
 	stopServeRuntimeFunc           = stopServeRuntime
 	pingServeAddressFunc           = pingServeAddress
 	serveNowFunc                   = time.Now
@@ -67,7 +71,7 @@ type serveRuntimeState = service.ServeRuntimeState
 type serveAppLayout = service.AppLayout
 type serverEndpoint = service.Endpoint
 
-type nginxTLSConfig struct {
+type serveTLSConfig struct {
 	Enabled            bool
 	CertificatePath    string
 	CertificateKeyPath string
@@ -157,8 +161,13 @@ func runStart(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
-	if endpoint.HTTPS && strings.TrimSpace(current.NginxVersion) == "" {
-		fmt.Fprintln(stderr, "error: https requires nginx in the current environment")
+	serverType, err := resolveEnvironmentServerType(*current)
+	if err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
+	if endpoint.HTTPS && serverType == config.ServerTypePHP {
+		fmt.Fprintln(stderr, "error: https is not supported by the PHP webserver; use nginx or frankenphp")
 		return 1
 	}
 	docroot, err := resolveServeDocroot(store.ProjectDir, current.Docroot, input.Docroot)
@@ -188,7 +197,7 @@ func runStart(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 		return 1
 	}
 	if liveState != nil {
-		if serveStateMatches(*liveState, endpoint, layout.Docroot, current.NginxVersion != "") {
+		if serveStateMatches(*liveState, endpoint, layout.Docroot, serverType) {
 			fmt.Fprintf(stdout, "Webserver for environment %q is already running at %s.\n", current.Name, serveStateURL(*liveState))
 			return 0
 		}
@@ -202,6 +211,7 @@ func runStart(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 		Stderr:      stderr,
 		Store:       store,
 		Environment: *current,
+		ServerType:  serverType,
 		Input:       input,
 		Endpoint:    endpoint,
 		Layout:      layout,
@@ -212,6 +222,44 @@ func runStart(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 	}
 
 	return exitCode
+}
+
+// resolveEnvironmentServerType returns the configured webserver provider.
+// An omitted type preserves the legacy nginx-then-PHP selection behavior.
+func resolveEnvironmentServerType(environment backend.Environment) (string, error) {
+	serverType := ""
+	if environment.Server != nil {
+		serverType = strings.ToLower(strings.TrimSpace(environment.Server.Type))
+	}
+	if serverType == "" {
+		if strings.TrimSpace(environment.NginxVersion) != "" {
+			serverType = config.ServerTypeNginx
+		} else {
+			serverType = config.ServerTypePHP
+		}
+	}
+
+	switch serverType {
+	case config.ServerTypePHP:
+		if backend.PrimaryPHPVersion(environment) == "" {
+			return "", fmt.Errorf("environment %q selects the PHP webserver but does not define a php or php-zts version", environment.Name)
+		}
+	case config.ServerTypeNginx:
+		if strings.TrimSpace(environment.NginxVersion) == "" {
+			return "", fmt.Errorf("environment %q selects nginx but does not define an nginx version", environment.Name)
+		}
+		if backend.PrimaryPHPVersion(environment) == "" {
+			return "", fmt.Errorf("environment %q selects nginx but does not define a php or php-zts version", environment.Name)
+		}
+	case config.ServerTypeFrankenPHP:
+		if strings.TrimSpace(environment.FrankenPHPVersion) == "" {
+			return "", fmt.Errorf("environment %q selects frankenphp but does not define a frankenphp version", environment.Name)
+		}
+	default:
+		return "", fmt.Errorf("unsupported server type %q: use php, nginx, or frankenphp", serverType)
+	}
+
+	return serverType, nil
 }
 
 func runPHPRuntimeServe(stdout, stderr io.Writer, store backend.Store, serverAddress string, layout serveAppLayout) (int, error) {
@@ -277,7 +325,7 @@ func startPHPRuntimeServeInBackgroundAt(store backend.Store, environment backend
 
 	state := serveRuntimeState{
 		EnvironmentName: environment.Name,
-		ServerKind:      desiredServeKind(false),
+		ServerKind:      config.ServerTypePHP,
 		ServerAddress:   serverAddress,
 		Docroot:         layout.Docroot,
 		RuntimeDir:      runtimeDir,
@@ -290,6 +338,112 @@ func startPHPRuntimeServeInBackgroundAt(store backend.Store, environment backend
 	_ = command.Process.Release()
 
 	return state, nil
+}
+
+// runFrankenPHPServe runs FrankenPHP attached to the current terminal.
+func runFrankenPHPServe(stdout, stderr io.Writer, store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout) (int, error) {
+	frankenPHPTarget, err := store.ResolveTool(config.ServerTypeFrankenPHP)
+	if err != nil {
+		return 0, err
+	}
+	env, err := resolveFrankenPHPRuntimeEnvironment(store, frankenPHPTarget)
+	if err != nil {
+		return 0, err
+	}
+	runtimeDir := service.ToolLogRoot(store.RootDir, config.ServerTypeFrankenPHP, environment.Name)
+	configPath, err := prepareFrankenPHPServeRuntime(store.CacheDir, runtimeDir, endpoint, layout)
+	if err != nil {
+		return 0, err
+	}
+
+	args := []string{"run", "--config", configPath, "--adapter", "caddyfile"}
+	return executeTargetWithEnv(stdout, stderr, env, frankenPHPTarget, args)
+}
+
+// startFrankenPHPServeInBackground starts and records the managed FrankenPHP process.
+func startFrankenPHPServeInBackground(store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout) (serveRuntimeState, error) {
+	runtimeDir := service.ToolLogRoot(store.RootDir, config.ServerTypeFrankenPHP, environment.Name)
+	return startFrankenPHPServeInBackgroundAt(store, environment, endpoint, layout, runtimeDir)
+}
+
+func startFrankenPHPServeInBackgroundAt(store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout, runtimeDir string) (serveRuntimeState, error) {
+	frankenPHPTarget, err := store.ResolveTool(config.ServerTypeFrankenPHP)
+	if err != nil {
+		return serveRuntimeState{}, err
+	}
+	env, err := resolveFrankenPHPRuntimeEnvironment(store, frankenPHPTarget)
+	if err != nil {
+		return serveRuntimeState{}, err
+	}
+	configPath, err := prepareFrankenPHPServeRuntime(store.CacheDir, runtimeDir, endpoint, layout)
+	if err != nil {
+		return serveRuntimeState{}, err
+	}
+	logPath := filepath.Join(runtimeDir, serveLogFileName)
+	logFile, err := openServeLog(logPath)
+	if err != nil {
+		return serveRuntimeState{}, err
+	}
+
+	args := []string{"run", "--config", configPath, "--adapter", "caddyfile"}
+	command, err := prepareCommand(frankenPHPTarget, args)
+	if err != nil {
+		_ = logFile.Close()
+		return serveRuntimeState{}, err
+	}
+	command.Stdout = logFile
+	command.Stderr = logFile
+	command.Env = env
+
+	if err := command.Start(); err != nil {
+		_ = logFile.Close()
+		return serveRuntimeState{}, fmt.Errorf("start FrankenPHP webserver: %w", err)
+	}
+	if err := waitForServeAddress(serveProbeAddress(endpoint.Address), serveStartupTimeout); err != nil {
+		stopServeProcess(command.Process)
+		_ = logFile.Close()
+		return serveRuntimeState{}, fmt.Errorf("start FrankenPHP webserver on %s: %w (see %s)", endpoint.Address, err, logPath)
+	}
+
+	state := serveRuntimeState{
+		EnvironmentName: environment.Name,
+		ServerKind:      config.ServerTypeFrankenPHP,
+		ServerScheme:    endpoint.Scheme,
+		ServerAddress:   endpoint.Address,
+		Docroot:         layout.Docroot,
+		RuntimeDir:      runtimeDir,
+		LogPath:         logPath,
+		ConfigPath:      configPath,
+		PrimaryPID:      command.Process.Pid,
+		StartedAt:       serveNowFunc().UTC(),
+	}
+	_ = logFile.Close()
+	_ = command.Process.Release()
+
+	return state, nil
+}
+
+// resolveFrankenPHPRuntimeEnvironment points the Windows bundle at its managed php.ini.
+func resolveFrankenPHPRuntimeEnvironment(store backend.Store, frankenPHPTarget string) ([]string, error) {
+	env, err := resolveRuntimeEnvironment(runtime.GOOS, os.Environ(), store)
+	if err != nil {
+		return nil, err
+	}
+	return applyFrankenPHPRuntimeConfig(runtime.GOOS, env, frankenPHPTarget)
+}
+
+// applyFrankenPHPRuntimeConfig overlays the generated ini without changing other runtime values.
+func applyFrankenPHPRuntimeConfig(goos string, env []string, frankenPHPTarget string) ([]string, error) {
+	phpIniPath := filepath.Join(filepath.Dir(frankenPHPTarget), "php.ini")
+	exists, err := regularFileExists(phpIniPath)
+	if err != nil {
+		return nil, fmt.Errorf("stat FrankenPHP php.ini %s: %w", phpIniPath, err)
+	}
+	if !exists {
+		return env, nil
+	}
+
+	return replaceEnvValue(goos, env, "PHPRC", phpIniPath), nil
 }
 
 func runNginxServe(stdout, stderr io.Writer, store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout) (int, error) {
@@ -445,7 +599,7 @@ func startNginxServeInBackgroundAt(store backend.Store, environment backend.Envi
 
 	state := serveRuntimeState{
 		EnvironmentName: environment.Name,
-		ServerKind:      desiredServeKind(true),
+		ServerKind:      config.ServerTypeNginx,
 		ServerScheme:    endpoint.Scheme,
 		ServerAddress:   endpoint.Address,
 		Docroot:         layout.Docroot,
@@ -721,6 +875,66 @@ func renderPHPRuntimeRouter(layout serveAppLayout) []byte {
 	return []byte(builder.String())
 }
 
+// prepareFrankenPHPServeRuntime writes the generated Caddyfile and TLS material references.
+func prepareFrankenPHPServeRuntime(cacheDir, runtimeDir string, endpoint serverEndpoint, layout serveAppLayout) (string, error) {
+	if err := os.MkdirAll(runtimeDir, 0o755); err != nil {
+		return "", fmt.Errorf("create FrankenPHP runtime directory: %w", err)
+	}
+
+	host, _, err := net.SplitHostPort(endpoint.Address)
+	if err != nil {
+		return "", fmt.Errorf("parse serve address %q: %w", endpoint.Address, err)
+	}
+	tlsConfig := serveTLSConfig{}
+	if endpoint.HTTPS {
+		certPath, keyPath, err := ensureGlobalTLSCertificate(cacheDir, host)
+		if err != nil {
+			return "", err
+		}
+		tlsConfig = serveTLSConfig{
+			Enabled:            true,
+			CertificatePath:    certPath,
+			CertificateKeyPath: keyPath,
+		}
+	}
+
+	configPath := filepath.Join(runtimeDir, frankenPHPCaddyfileName)
+	configData := renderFrankenPHPCaddyfile(endpoint, layout, tlsConfig)
+	if err := os.WriteFile(configPath, configData, 0o644); err != nil {
+		return "", fmt.Errorf("write FrankenPHP Caddyfile: %w", err)
+	}
+
+	return configPath, nil
+}
+
+// renderFrankenPHPCaddyfile renders a self-contained development server configuration.
+func renderFrankenPHPCaddyfile(endpoint serverEndpoint, layout serveAppLayout, tlsConfig serveTLSConfig) []byte {
+	var builder strings.Builder
+	builder.WriteString("{\n")
+	builder.WriteString("\tadmin off\n")
+	builder.WriteString("\tauto_https disable_redirects\n")
+	builder.WriteString("}\n\n")
+	builder.WriteString(endpoint.Scheme)
+	builder.WriteString("://")
+	builder.WriteString(endpoint.Address)
+	builder.WriteString(" {\n")
+	builder.WriteString("\troot * ")
+	builder.WriteString(strconv.Quote(filepath.ToSlash(layout.Docroot)))
+	builder.WriteString("\n")
+	builder.WriteString("\tencode zstd br gzip\n")
+	if tlsConfig.Enabled {
+		builder.WriteString("\ttls ")
+		builder.WriteString(strconv.Quote(filepath.ToSlash(tlsConfig.CertificatePath)))
+		builder.WriteString(" ")
+		builder.WriteString(strconv.Quote(filepath.ToSlash(tlsConfig.CertificateKeyPath)))
+		builder.WriteString("\n")
+	}
+	builder.WriteString("\tphp_server\n")
+	builder.WriteString("}\n")
+
+	return []byte(builder.String())
+}
+
 func prepareNginxServeRuntime(cacheDir, runtimeDir string, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout, backendAddress string) (string, string, error) {
 	tempRoot := filepath.Join(runtimeDir, "temp")
 	logsDir := filepath.Join(runtimeDir, "logs")
@@ -745,13 +959,13 @@ func prepareNginxServeRuntime(cacheDir, runtimeDir string, environment backend.E
 	if err != nil {
 		return "", "", fmt.Errorf("parse serve port %q: %w", portText, err)
 	}
-	tlsConfig := nginxTLSConfig{}
+	tlsConfig := serveTLSConfig{}
 	if endpoint.HTTPS {
 		certPath, keyPath, err := ensureGlobalTLSCertificate(cacheDir, host)
 		if err != nil {
 			return "", "", err
 		}
-		tlsConfig = nginxTLSConfig{
+		tlsConfig = serveTLSConfig{
 			Enabled:            true,
 			CertificatePath:    certPath,
 			CertificateKeyPath: keyPath,
@@ -774,7 +988,7 @@ func prepareNginxServeRuntime(cacheDir, runtimeDir string, environment backend.E
 	return configPath, phpLogPath, nil
 }
 
-func renderFrameworkNginxServeConfig(environment backend.Environment, host string, port int, layout serveAppLayout, backendAddress string, tlsConfig nginxTLSConfig) ([]byte, error) {
+func renderFrameworkNginxServeConfig(environment backend.Environment, host string, port int, layout serveAppLayout, backendAddress string, tlsConfig serveTLSConfig) ([]byte, error) {
 	if strings.TrimSpace(environment.Framework) == "" {
 		return nil, nil
 	}
@@ -806,7 +1020,7 @@ func renderFrameworkNginxServeConfig(environment backend.Environment, host strin
 	return result.Config, nil
 }
 
-func renderNginxServeConfig(host string, port int, layout serveAppLayout, backendAddress string, tlsConfig nginxTLSConfig) []byte {
+func renderNginxServeConfig(host string, port int, layout serveAppLayout, backendAddress string, tlsConfig serveTLSConfig) []byte {
 	listenAddress := renderNginxListenAddress(host, port)
 	serverName := strings.TrimSpace(host)
 	if serverName == "" {
@@ -958,7 +1172,7 @@ func createGlobalTLSCertificate(cacheDir, host string) (string, string, error) {
 	caCertPath, caKeyPath := globalTLSCACertificatePaths(cacheDir)
 	certDir := filepath.Dir(certPath)
 	if err := os.MkdirAll(certDir, 0o755); err != nil {
-		return "", "", fmt.Errorf("create nginx tls certificate directory: %w", err)
+		return "", "", fmt.Errorf("create local tls certificate directory: %w", err)
 	}
 
 	caPrivateKey, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -1010,7 +1224,7 @@ func createGlobalTLSServerCertificateWithCA(cacheDir, host string, caCertificate
 	certPath, keyPath := globalTLSCertificatePaths(cacheDir)
 	serverPrivateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		return "", "", fmt.Errorf("generate nginx tls private key: %w", err)
+		return "", "", fmt.Errorf("generate local tls private key: %w", err)
 	}
 	serverSerialNumber, err := randomTLSSerialNumber()
 	if err != nil {
@@ -1033,14 +1247,14 @@ func createGlobalTLSServerCertificateWithCA(cacheDir, host string, caCertificate
 	}
 	serverDER, err := x509.CreateCertificate(rand.Reader, &serverTemplate, caCertificate, &serverPrivateKey.PublicKey, caPrivateKey)
 	if err != nil {
-		return "", "", fmt.Errorf("generate nginx tls certificate: %w", err)
+		return "", "", fmt.Errorf("generate local tls certificate: %w", err)
 	}
 
 	if err := writePEMFile(certPath, 0o644, "CERTIFICATE", serverDER); err != nil {
-		return "", "", fmt.Errorf("write nginx tls certificate: %w", err)
+		return "", "", fmt.Errorf("write local tls certificate: %w", err)
 	}
 	if err := writePEMFile(keyPath, 0o600, "RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(serverPrivateKey)); err != nil {
-		return "", "", fmt.Errorf("write nginx tls private key: %w", err)
+		return "", "", fmt.Errorf("write local tls private key: %w", err)
 	}
 
 	return certPath, keyPath, nil
@@ -1418,14 +1632,6 @@ func openServeLog(path string) (*os.File, error) {
 	return logFile, nil
 }
 
-func desiredServeKind(useNginx bool) string {
-	if useNginx {
-		return "nginx"
-	}
-
-	return "php"
-}
-
 func serveRuntimeLabel(kind string) string {
 	trimmed := strings.TrimSpace(kind)
 	if trimmed == "" {
@@ -1435,12 +1641,12 @@ func serveRuntimeLabel(kind string) string {
 	return trimmed + " webserver"
 }
 
-func serveStateMatches(state serveRuntimeState, endpoint serverEndpoint, docroot string, useNginx bool) bool {
+func serveStateMatches(state serveRuntimeState, endpoint serverEndpoint, docroot, serverType string) bool {
 	stateScheme := strings.TrimSpace(state.ServerScheme)
 	if stateScheme == "" {
 		stateScheme = "http"
 	}
-	return strings.EqualFold(strings.TrimSpace(state.ServerKind), desiredServeKind(useNginx)) &&
+	return strings.EqualFold(strings.TrimSpace(state.ServerKind), strings.TrimSpace(serverType)) &&
 		strings.EqualFold(stateScheme, strings.TrimSpace(endpoint.Scheme)) &&
 		strings.EqualFold(strings.TrimSpace(state.ServerAddress), strings.TrimSpace(endpoint.Address)) &&
 		filepath.Clean(state.Docroot) == filepath.Clean(docroot)

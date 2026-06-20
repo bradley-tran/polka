@@ -504,6 +504,79 @@ func TestStoreInstallToolCopiesExplicitVersionIntoLayout(t *testing.T) {
 	}
 }
 
+func TestStoreInstallsAndConfiguresFrankenPHP(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+	writeCachedTool(t, store.CacheDir, toolFrankenPHP, "1.12")
+
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+	result, err := store.InstallTool("demo", toolFrankenPHP, "1.12")
+	if err != nil {
+		t.Fatalf("InstallTool(frankenphp) error = %v", err)
+	}
+	if result.Tool != toolFrankenPHP || !strings.Contains(result.TargetPath, filepath.Join("frankenphp", "1.12")) {
+		t.Fatalf("InstallTool() result = %#v, want FrankenPHP layout", result)
+	}
+	if err := store.Use("demo"); err != nil {
+		t.Fatalf("Use(demo) error = %v", err)
+	}
+	resolved, err := store.ResolveTool(toolFrankenPHP)
+	if err != nil {
+		t.Fatalf("ResolveTool(frankenphp) error = %v", err)
+	}
+	if resolved != result.TargetPath {
+		t.Fatalf("ResolveTool(frankenphp) = %q, want %q", resolved, result.TargetPath)
+	}
+
+	environment, err := store.ConfigureValue("demo", "server.type", " FrankenPHP ")
+	if err != nil {
+		t.Fatalf("ConfigureValue(server.type) error = %v", err)
+	}
+	if environment.FrankenPHPVersion != "1.12" || environment.Server == nil || environment.Server.Type != "frankenphp" {
+		t.Fatalf("configured environment = %#v, want FrankenPHP server", environment)
+	}
+	if _, err := store.ConfigureValue("demo", "server.type", "apache"); err == nil || !strings.Contains(err.Error(), "unsupported server type") {
+		t.Fatalf("ConfigureValue(invalid server.type) error = %v, want validation error", err)
+	}
+}
+
+func TestStoreInstallConfiguresWindowsFrankenPHPForFramework(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows FrankenPHP uses dynamically loaded bundled extensions")
+	}
+
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+	writeCachedTool(t, store.CacheDir, toolFrankenPHP, "1.12")
+
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{Framework: "laravel", PHPVersion: "8.4", OPcachePreset: "dev"}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+	result, err := store.InstallTool("demo", toolFrankenPHP, "1.12")
+	if err != nil {
+		t.Fatalf("InstallTool(frankenphp) error = %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(result.TargetPath), "php.ini"))
+	if err != nil {
+		t.Fatalf("ReadFile(FrankenPHP php.ini) error = %v", err)
+	}
+	ini := string(data)
+	for _, directive := range []string{"extension=openssl", "extension=mbstring", "opcache.enable=1"} {
+		if !strings.Contains(ini, directive) {
+			t.Fatalf("FrankenPHP php.ini = %q, want %q", ini, directive)
+		}
+	}
+}
+
 func TestStoreInstallToolSwitchesToPHPZTSAndResolvesPHP(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
@@ -2897,6 +2970,14 @@ func writeCachedTool(t *testing.T, cacheDir, tool, version string) string {
 	}
 	files := map[string][]byte{
 		relativePath: []byte("placeholder\n"),
+	}
+	if tool == toolFrankenPHP {
+		phpName := "php"
+		if runtime.GOOS == "windows" {
+			phpName = "php.cmd"
+		}
+		files[phpName] = fakePHPModuleListScript([]string{"Zend OPcache"})
+		files["extras/ssl/cacert.pem"] = []byte("-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
 	}
 	if tool == toolNodeJS {
 		for _, command := range []string{toolNode, toolNPM, toolNPX} {

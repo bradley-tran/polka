@@ -11,7 +11,7 @@ func TestDefaultCLIHookRegistryLifecycleOrder(t *testing.T) {
 	if got, want := startServiceHookIDs(registry.startServices), []string{"database", "mailpit", "phpmyadmin"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("start service hooks = %#v, want %#v", got, want)
 	}
-	if got, want := webserverHookIDs(registry.webservers), []string{"nginx", "php"}; !reflect.DeepEqual(got, want) {
+	if got, want := webserverHookIDs(registry.webservers), []string{"nginx", "frankenphp", "php"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("webserver hooks = %#v, want %#v", got, want)
 	}
 	if got, want := stopHookIDs(registry.stopHooks), []string{"webserver", "phpmyadmin", "database", "mailpit"}; !reflect.DeepEqual(got, want) {
@@ -26,7 +26,7 @@ func TestDefaultCLIHookRegistryConfigStatusOrder(t *testing.T) {
 	registry := defaultCLIHookRegistry()
 
 	got := statusHookIDs(registry.configStatusHooks)
-	want := []string{"php", "composer", "pie", "nodejs", "mago", "nginx", "sqlite", "phpmyadmin", "database", "mailpit"}
+	want := []string{"php", "composer", "pie", "nodejs", "mago", "nginx", "frankenphp", "sqlite", "phpmyadmin", "database", "mailpit"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("config status hooks = %#v, want %#v", got, want)
 	}

@@ -28,6 +28,7 @@ type testEnvironmentConfig struct {
 	Framework     string                `yaml:"framework,omitempty"`
 	PHP           string                `yaml:"php"`
 	PHPZTS        string                `yaml:"php-zts,omitempty"`
+	FrankenPHP    string                `yaml:"frankenphp,omitempty"`
 	Composer      string                `yaml:"composer"`
 	PIE           string                `yaml:"pie,omitempty"`
 	NodeJS        string                `yaml:"nodejs,omitempty"`
@@ -95,6 +96,7 @@ type testDatabaseConfig struct {
 }
 
 type testServerConfig struct {
+	Type     string `yaml:"type,omitempty"`
 	Hostname string `yaml:"hostname,omitempty"`
 	Port     int    `yaml:"port,omitempty"`
 	HTTPS    bool   `yaml:"https,omitempty"`
@@ -148,6 +150,7 @@ type testEnvironmentConfigData struct {
 type testToolsConfig struct {
 	PHP        string `yaml:"php,omitempty"`
 	PHPZTS     string `yaml:"php-zts,omitempty"`
+	FrankenPHP string `yaml:"frankenphp,omitempty"`
 	Composer   string `yaml:"composer,omitempty"`
 	PIE        string `yaml:"pie,omitempty"`
 	NodeJS     string `yaml:"nodejs,omitempty"`
@@ -347,6 +350,7 @@ func testEnvironmentFromParts(framework string, tools *testToolsConfig, settings
 	if tools != nil {
 		environment.PHP = tools.PHP
 		environment.PHPZTS = tools.PHPZTS
+		environment.FrankenPHP = tools.FrankenPHP
 		environment.Composer = tools.Composer
 		environment.PIE = tools.PIE
 		environment.NodeJS = tools.NodeJS
@@ -398,6 +402,7 @@ func testToolsFromEnvironment(environment testEnvironmentConfig) *testToolsConfi
 	tools := &testToolsConfig{
 		PHP:        environment.PHP,
 		PHPZTS:     environment.PHPZTS,
+		FrankenPHP: environment.FrankenPHP,
 		Composer:   environment.Composer,
 		PIE:        environment.PIE,
 		NodeJS:     environment.NodeJS,
@@ -411,6 +416,7 @@ func testToolsFromEnvironment(environment testEnvironmentConfig) *testToolsConfi
 	}
 	if strings.TrimSpace(tools.PHP) == "" &&
 		strings.TrimSpace(tools.PHPZTS) == "" &&
+		strings.TrimSpace(tools.FrankenPHP) == "" &&
 		strings.TrimSpace(tools.Composer) == "" &&
 		strings.TrimSpace(tools.PIE) == "" &&
 		strings.TrimSpace(tools.NodeJS) == "" &&

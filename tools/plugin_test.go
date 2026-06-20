@@ -12,18 +12,19 @@ import (
 func TestDefaultRegistryInstallRequestsUseConfiguredToolOrder(t *testing.T) {
 	registry := NewDefaultRegistry()
 	environment := config.Environment{
-		PHPVersion:      "8.4",
-		ComposerVersion: "2.8",
-		PIEVersion:      "1.4",
-		NodeJSVersion:   "24",
-		MagoVersion:     "1.27",
-		NginxVersion:    "1.30",
-		PHPMyAdmin:      &config.PHPMyAdminConfig{Version: "5.2", Port: 8081, HTTPS: true},
-		Mailpit:         &config.MailpitConfig{Version: "1.30"},
-		MySQLVersion:    "8.4",
-		MariaDBVersion:  "11.8",
-		SQLiteVersion:   "3.53",
-		Database:        &config.DatabaseConfig{Engine: MariaDB, Version: "11.8"},
+		PHPVersion:        "8.4",
+		FrankenPHPVersion: "1.12",
+		ComposerVersion:   "2.8",
+		PIEVersion:        "1.4",
+		NodeJSVersion:     "24",
+		MagoVersion:       "1.27",
+		NginxVersion:      "1.30",
+		PHPMyAdmin:        &config.PHPMyAdminConfig{Version: "5.2", Port: 8081, HTTPS: true},
+		Mailpit:           &config.MailpitConfig{Version: "1.30"},
+		MySQLVersion:      "8.4",
+		MariaDBVersion:    "11.8",
+		SQLiteVersion:     "3.53",
+		Database:          &config.DatabaseConfig{Engine: MariaDB, Version: "11.8"},
 	}
 
 	requests := registry.InstallRequests(environment)
@@ -34,6 +35,7 @@ func TestDefaultRegistryInstallRequestsUseConfiguredToolOrder(t *testing.T) {
 
 	want := []string{
 		"php:8.4",
+		"frankenphp:1.12",
 		"composer:2.8",
 		"pie:1.4",
 		"nodejs:24",

@@ -9,12 +9,16 @@ const (
 	OPcachePresetNone       = "none"
 	OPcachePresetDev        = "dev"
 	OPcachePresetProduction = "production"
+	ServerTypePHP           = "php"
+	ServerTypeNginx         = "nginx"
+	ServerTypeFrankenPHP    = "frankenphp"
 )
 
 // ToolsConfig is the YAML shape for managed tool version labels inside an environment file.
 type ToolsConfig struct {
 	PHPVersion        string `yaml:"php,omitempty"`
 	PHPZTSVersion     string `yaml:"php-zts,omitempty"`
+	FrankenPHPVersion string `yaml:"frankenphp,omitempty"`
 	ComposerVersion   string `yaml:"composer,omitempty"`
 	PIEVersion        string `yaml:"pie,omitempty"`
 	NodeJSVersion     string `yaml:"nodejs,omitempty"`
@@ -79,29 +83,30 @@ type EnvironmentFile struct {
 }
 
 type Environment struct {
-	Name            string            `yaml:"-"`
-	Framework       string            `yaml:"framework,omitempty"`
-	PHPVersion      string            `yaml:"php,omitempty"`
-	PHPZTSVersion   string            `yaml:"php-zts,omitempty"`
-	ComposerVersion string            `yaml:"composer,omitempty"`
-	PIEVersion      string            `yaml:"pie,omitempty"`
-	NodeJSVersion   string            `yaml:"nodejs,omitempty"`
-	MagoVersion     string            `yaml:"mago,omitempty"`
-	NginxVersion    string            `yaml:"nginx,omitempty"`
-	MySQLVersion    string            `yaml:"mysql,omitempty"`
-	MariaDBVersion  string            `yaml:"mariadb,omitempty"`
-	SQLiteVersion   string            `yaml:"sqlite,omitempty"`
-	Docroot         string            `yaml:"docroot,omitempty"`
-	HTTPS           bool              `yaml:"https,omitempty"`
-	EnvFile         string            `yaml:"env-file,omitempty"`
-	EnvVars         map[string]string `yaml:"env-vars,omitempty"`
-	Database        *DatabaseConfig   `yaml:"database,omitempty"`
-	Mailpit         *MailpitConfig    `yaml:"mailpit,omitempty"`
-	PHPMyAdmin      *PHPMyAdminConfig `yaml:"phpmyadmin,omitempty"`
-	PHPExtensions   map[string]bool   `yaml:"php-extensions,omitempty"`
-	OPcachePreset   string            `yaml:"opcache-preset,omitempty"`
-	OPcacheConfig   map[string]string `yaml:"opcache-config,omitempty"`
-	Server          *ServerConfig     `yaml:"server,omitempty"`
+	Name              string            `yaml:"-"`
+	Framework         string            `yaml:"framework,omitempty"`
+	PHPVersion        string            `yaml:"php,omitempty"`
+	PHPZTSVersion     string            `yaml:"php-zts,omitempty"`
+	FrankenPHPVersion string            `yaml:"frankenphp,omitempty"`
+	ComposerVersion   string            `yaml:"composer,omitempty"`
+	PIEVersion        string            `yaml:"pie,omitempty"`
+	NodeJSVersion     string            `yaml:"nodejs,omitempty"`
+	MagoVersion       string            `yaml:"mago,omitempty"`
+	NginxVersion      string            `yaml:"nginx,omitempty"`
+	MySQLVersion      string            `yaml:"mysql,omitempty"`
+	MariaDBVersion    string            `yaml:"mariadb,omitempty"`
+	SQLiteVersion     string            `yaml:"sqlite,omitempty"`
+	Docroot           string            `yaml:"docroot,omitempty"`
+	HTTPS             bool              `yaml:"https,omitempty"`
+	EnvFile           string            `yaml:"env-file,omitempty"`
+	EnvVars           map[string]string `yaml:"env-vars,omitempty"`
+	Database          *DatabaseConfig   `yaml:"database,omitempty"`
+	Mailpit           *MailpitConfig    `yaml:"mailpit,omitempty"`
+	PHPMyAdmin        *PHPMyAdminConfig `yaml:"phpmyadmin,omitempty"`
+	PHPExtensions     map[string]bool   `yaml:"php-extensions,omitempty"`
+	OPcachePreset     string            `yaml:"opcache-preset,omitempty"`
+	OPcacheConfig     map[string]string `yaml:"opcache-config,omitempty"`
+	Server            *ServerConfig     `yaml:"server,omitempty"`
 }
 
 type DatabaseConfig struct {
@@ -124,6 +129,7 @@ type PHPMyAdminConfig struct {
 }
 
 type ServerConfig struct {
+	Type     string `yaml:"type,omitempty"`
 	Hostname string `yaml:"hostname,omitempty"`
 	Port     int    `yaml:"port,omitempty"`
 	HTTPS    bool   `yaml:"https,omitempty"`
@@ -237,6 +243,7 @@ func ToolsConfigFromEnvironment(environment Environment) *ToolsConfig {
 	tools := &ToolsConfig{
 		PHPVersion:        environment.PHPVersion,
 		PHPZTSVersion:     environment.PHPZTSVersion,
+		FrankenPHPVersion: environment.FrankenPHPVersion,
 		ComposerVersion:   environment.ComposerVersion,
 		PIEVersion:        environment.PIEVersion,
 		NodeJSVersion:     environment.NodeJSVersion,
@@ -326,10 +333,11 @@ func ServerConfigFromEnvironment(environment Environment) *ServerConfig {
 	}
 
 	server := &ServerConfig{
+		Type:     strings.ToLower(strings.TrimSpace(environment.Server.Type)),
 		Hostname: strings.TrimSpace(environment.Server.Hostname),
 		Port:     environment.Server.Port,
 	}
-	if server.Hostname == "" && server.Port == 0 {
+	if server.Type == "" && server.Hostname == "" && server.Port == 0 {
 		return nil
 	}
 
@@ -340,6 +348,7 @@ func ServerConfigFromEnvironment(environment Environment) *ServerConfig {
 func (tools ToolsConfig) IsZero() bool {
 	return strings.TrimSpace(tools.PHPVersion) == "" &&
 		strings.TrimSpace(tools.PHPZTSVersion) == "" &&
+		strings.TrimSpace(tools.FrankenPHPVersion) == "" &&
 		strings.TrimSpace(tools.ComposerVersion) == "" &&
 		strings.TrimSpace(tools.PIEVersion) == "" &&
 		strings.TrimSpace(tools.NodeJSVersion) == "" &&
@@ -375,6 +384,7 @@ func environmentFromFileParts(name string, framework string, tools *ToolsConfig,
 	if tools != nil {
 		environment.PHPVersion = tools.PHPVersion
 		environment.PHPZTSVersion = tools.PHPZTSVersion
+		environment.FrankenPHPVersion = tools.FrankenPHPVersion
 		environment.ComposerVersion = tools.ComposerVersion
 		environment.PIEVersion = tools.PIEVersion
 		environment.NodeJSVersion = tools.NodeJSVersion
@@ -507,29 +517,30 @@ func PrimaryDatabaseConfigFromTools(tools *ToolsConfig, database *DatabaseConfig
 
 func NormalizeEnvironment(name string, environment Environment) Environment {
 	normalized := Environment{
-		Name:            name,
-		Framework:       strings.ToLower(strings.TrimSpace(environment.Framework)),
-		PHPVersion:      strings.TrimSpace(environment.PHPVersion),
-		PHPZTSVersion:   strings.TrimSpace(environment.PHPZTSVersion),
-		ComposerVersion: strings.TrimSpace(environment.ComposerVersion),
-		PIEVersion:      strings.TrimSpace(environment.PIEVersion),
-		NodeJSVersion:   strings.TrimSpace(environment.NodeJSVersion),
-		MagoVersion:     strings.TrimSpace(environment.MagoVersion),
-		NginxVersion:    strings.TrimSpace(environment.NginxVersion),
-		MySQLVersion:    strings.TrimSpace(environment.MySQLVersion),
-		MariaDBVersion:  strings.TrimSpace(environment.MariaDBVersion),
-		SQLiteVersion:   strings.TrimSpace(environment.SQLiteVersion),
-		Docroot:         strings.TrimSpace(environment.Docroot),
-		HTTPS:           environment.HTTPS,
-		EnvFile:         strings.TrimSpace(environment.EnvFile),
-		EnvVars:         NormalizeEnvironmentVariables(environment.EnvVars),
-		Database:        NormalizeDatabaseConfig(environment.Database),
-		Mailpit:         NormalizeMailpitConfig(environment.Mailpit),
-		PHPMyAdmin:      NormalizePHPMyAdminConfig(environment.PHPMyAdmin),
-		PHPExtensions:   NormalizePHPExtensions(environment.PHPExtensions),
-		OPcachePreset:   NormalizeOPcachePreset(environment.OPcachePreset),
-		OPcacheConfig:   NormalizeOPcacheConfig(environment.OPcacheConfig),
-		Server:          NormalizeServerConfig(environment.Server),
+		Name:              name,
+		Framework:         strings.ToLower(strings.TrimSpace(environment.Framework)),
+		PHPVersion:        strings.TrimSpace(environment.PHPVersion),
+		PHPZTSVersion:     strings.TrimSpace(environment.PHPZTSVersion),
+		FrankenPHPVersion: strings.TrimSpace(environment.FrankenPHPVersion),
+		ComposerVersion:   strings.TrimSpace(environment.ComposerVersion),
+		PIEVersion:        strings.TrimSpace(environment.PIEVersion),
+		NodeJSVersion:     strings.TrimSpace(environment.NodeJSVersion),
+		MagoVersion:       strings.TrimSpace(environment.MagoVersion),
+		NginxVersion:      strings.TrimSpace(environment.NginxVersion),
+		MySQLVersion:      strings.TrimSpace(environment.MySQLVersion),
+		MariaDBVersion:    strings.TrimSpace(environment.MariaDBVersion),
+		SQLiteVersion:     strings.TrimSpace(environment.SQLiteVersion),
+		Docroot:           strings.TrimSpace(environment.Docroot),
+		HTTPS:             environment.HTTPS,
+		EnvFile:           strings.TrimSpace(environment.EnvFile),
+		EnvVars:           NormalizeEnvironmentVariables(environment.EnvVars),
+		Database:          NormalizeDatabaseConfig(environment.Database),
+		Mailpit:           NormalizeMailpitConfig(environment.Mailpit),
+		PHPMyAdmin:        NormalizePHPMyAdminConfig(environment.PHPMyAdmin),
+		PHPExtensions:     NormalizePHPExtensions(environment.PHPExtensions),
+		OPcachePreset:     NormalizeOPcachePreset(environment.OPcachePreset),
+		OPcacheConfig:     NormalizeOPcacheConfig(environment.OPcacheConfig),
+		Server:            NormalizeServerConfig(environment.Server),
 	}
 
 	return populateDatabaseToolVersion(inheritEnvironmentHTTPS(normalized))
@@ -650,11 +661,12 @@ func NormalizeServerConfig(server *ServerConfig) *ServerConfig {
 	}
 
 	normalized := &ServerConfig{
+		Type:     strings.ToLower(strings.TrimSpace(server.Type)),
 		Hostname: strings.TrimSpace(server.Hostname),
 		Port:     server.Port,
 		HTTPS:    server.HTTPS,
 	}
-	if normalized.Hostname == "" && normalized.Port == 0 && !normalized.HTTPS {
+	if normalized.Type == "" && normalized.Hostname == "" && normalized.Port == 0 && !normalized.HTTPS {
 		return nil
 	}
 

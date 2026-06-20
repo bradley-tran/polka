@@ -52,6 +52,13 @@ func runDispatch(stdout, stderr io.Writer, args []string, store backend.Store) i
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
+	if strings.EqualFold(tool, "frankenphp") {
+		env, err = applyFrankenPHPRuntimeConfig(runtime.GOOS, env, target)
+		if err != nil {
+			fmt.Fprintf(stderr, "error: %v\n", err)
+			return 1
+		}
+	}
 
 	workingDir, err := os.Getwd()
 	if err != nil {

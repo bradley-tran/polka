@@ -1,0 +1,27 @@
+id: frankenphp
+install-candidates:
+  windows-amd64:
+    - frankenphp.exe
+  linux-amd64:
+    - frankenphp
+dispatch-commands:
+  - frankenphp
+logs:
+  debug:
+    - serve.log
+download:
+  github:
+    owner: php
+    repo: frankenphp
+    tag-prefix: v
+  assets:
+    windows-amd64:
+      filename: frankenphp-windows-x86_64.zip
+      url: https://github.com/php/frankenphp/releases/download/{tag}/frankenphp-windows-x86_64.zip
+      checksum-algorithm: sha256
+      archive-format: zip
+    linux-amd64:
+      filename: frankenphp-linux-x86_64
+      url: https://github.com/php/frankenphp/releases/download/{tag}/frankenphp-linux-x86_64
+      checksum-algorithm: sha256
+      install-path: frankenphp

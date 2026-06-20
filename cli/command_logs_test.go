@@ -47,6 +47,30 @@ func TestRunLogsFiltersByLevel(t *testing.T) {
 	}
 }
 
+func TestRunLogsPrintsFrankenPHPServeLog(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	writeTestConfigFile(t, projectDir, testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {FrankenPHP: "1.12"},
+		},
+	})
+	writeTestActiveEnvironment(t, root, "demo")
+	writeTestLogFile(t, filepath.Join(root, "run", "frankenphp", "demo", "serve.log"), "frankenphp-debug\n")
+
+	if code := Run(stdout, stderr, []string{"--root", root, "logs", "frankenphp"}); code != 0 {
+		t.Fatalf("Run(logs frankenphp) code = %d, stderr = %q", code, stderr.String())
+	}
+	if stdout.String() != "frankenphp-debug\n" {
+		t.Fatalf("Run(logs frankenphp) stdout = %q, want serve log", stdout.String())
+	}
+}
+
 func TestRunLogsErrorsWhenNoMatchingFilesExist(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")

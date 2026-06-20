@@ -304,6 +304,8 @@ func manifestVersionFunc(m pluginManifest) func(config.Environment) string {
 			return environment.PHPVersion
 		case PHPZTS:
 			return environment.PHPZTSVersion
+		case FrankenPHP:
+			return environment.FrankenPHPVersion
 		case Composer:
 			return environment.ComposerVersion
 		case PIE:

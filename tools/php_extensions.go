@@ -88,9 +88,20 @@ func configureInstalledPHPConfigForTool(envsDir, tool, version string, phpConfig
 	}
 
 	phpDir := filepath.Dir(phpPath)
-	extensionDir, err := filepath.Rel(phpDir, filepath.Join(envsDir, tool, version, "ext"))
+	return configurePHPConfigAt(
+		phpPath,
+		filepath.Join(envsDir, tool, version, "ext"),
+		filepath.Join(phpDir, "php.ini"),
+		phpConfig,
+	)
+}
+
+// configurePHPConfigAt writes php.ini for a specific PHP executable and extension directory.
+func configurePHPConfigAt(phpPath, extensionPath, phpIniPath string, phpConfig PHPInstallConfig) error {
+	phpDir := filepath.Dir(phpIniPath)
+	extensionDir, err := filepath.Rel(phpDir, extensionPath)
 	if err != nil {
-		extensionDir = filepath.Join(envsDir, tool, version, "ext")
+		extensionDir = extensionPath
 	}
 
 	if len(phpConfig.Extensions) > 0 {
@@ -106,7 +117,6 @@ func configureInstalledPHPConfigForTool(envsDir, tool, version string, phpConfig
 		return err
 	}
 
-	phpIniPath := filepath.Join(phpDir, "php.ini")
 	if err := os.WriteFile(phpIniPath, configData, 0o644); err != nil {
 		return fmt.Errorf("write php config: %w", err)
 	}

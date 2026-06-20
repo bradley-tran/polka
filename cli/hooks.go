@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"polka/backend"
+	"polka/config"
 	"polka/service"
 )
 
@@ -29,6 +30,7 @@ type webserverStartHookContext struct {
 	Stderr      io.Writer
 	Store       backend.Store
 	Environment backend.Environment
+	ServerType  string
 	Input       serveCommandInput
 	Endpoint    serverEndpoint
 	Layout      serveAppLayout
@@ -55,7 +57,7 @@ type startServiceHook struct {
 
 type webserverStartHook struct {
 	id      string
-	matches func(backend.Environment) bool
+	matches func(webserverStartHookContext) bool
 	run     func(webserverStartHookContext) (int, error)
 }
 
@@ -78,6 +80,7 @@ func defaultCLIHookRegistry() cliHookRegistry {
 		},
 		webservers: []webserverStartHook{
 			{id: "nginx", matches: environmentUsesNginx, run: startNginxWebserverHook},
+			{id: "frankenphp", matches: environmentUsesFrankenPHP, run: startFrankenPHPWebserverHook},
 			{id: "php", matches: environmentUsesPHPWebserver, run: startPHPWebserverHook},
 		},
 		stopHooks: []stopHook{
@@ -93,6 +96,7 @@ func defaultCLIHookRegistry() cliHookRegistry {
 			{id: "nodejs", run: statusNodeJSConfigHook},
 			{id: "mago", run: statusMagoConfigHook},
 			{id: "nginx", run: statusNginxConfigHook},
+			{id: "frankenphp", run: statusFrankenPHPConfigHook},
 			{id: "sqlite", run: statusSQLiteConfigHook},
 			{id: "phpmyadmin", run: statusPHPMyAdminConfigHook},
 			{id: "database", run: statusDatabaseConfigHook},
@@ -131,7 +135,7 @@ func (r cliHookRegistry) StartServices(ctx startHookContext) error {
 
 func (r cliHookRegistry) StartWebserver(ctx webserverStartHookContext) (int, error) {
 	for _, hook := range r.webservers {
-		if hook.matches(ctx.Environment) {
+		if hook.matches(ctx) {
 			return hook.run(ctx)
 		}
 	}
@@ -256,12 +260,16 @@ func startPHPMyAdminServiceHook(ctx startHookContext) error {
 	return nil
 }
 
-func environmentUsesNginx(environment backend.Environment) bool {
-	return strings.TrimSpace(environment.NginxVersion) != ""
+func environmentUsesNginx(ctx webserverStartHookContext) bool {
+	return ctx.ServerType == config.ServerTypeNginx
 }
 
-func environmentUsesPHPWebserver(environment backend.Environment) bool {
-	return strings.TrimSpace(environment.NginxVersion) == ""
+func environmentUsesFrankenPHP(ctx webserverStartHookContext) bool {
+	return ctx.ServerType == config.ServerTypeFrankenPHP
+}
+
+func environmentUsesPHPWebserver(ctx webserverStartHookContext) bool {
+	return ctx.ServerType == config.ServerTypePHP
 }
 
 func startPHPWebserverHook(ctx webserverStartHookContext) (int, error) {
@@ -295,12 +303,26 @@ func startNginxWebserverHook(ctx webserverStartHookContext) (int, error) {
 	return finishBackgroundWebserverStart(ctx, startedState)
 }
 
+func startFrankenPHPWebserverHook(ctx webserverStartHookContext) (int, error) {
+	if ctx.Input.Watch {
+		_, _ = fmt.Fprintf(ctx.Stdout, "FrankenPHP webserver started at %s\n", serverEndpointURL(ctx.Endpoint))
+		return runFrankenPHPServeFunc(ctx.Stdout, ctx.Stderr, ctx.Store, ctx.Environment, ctx.Endpoint, ctx.Layout)
+	}
+
+	startedState, err := startBackgroundFrankenPHPServe(ctx.Store, ctx.Environment, ctx.Endpoint, ctx.Layout)
+	if err != nil {
+		return 0, err
+	}
+
+	return finishBackgroundWebserverStart(ctx, startedState)
+}
+
 func finishBackgroundWebserverStart(ctx webserverStartHookContext, startedState serveRuntimeState) (int, error) {
 	if strings.TrimSpace(startedState.EnvironmentName) == "" {
 		startedState.EnvironmentName = ctx.Environment.Name
 	}
 	if strings.TrimSpace(startedState.ServerKind) == "" {
-		startedState.ServerKind = desiredServeKind(strings.TrimSpace(ctx.Environment.NginxVersion) != "")
+		startedState.ServerKind = ctx.ServerType
 	}
 	if strings.TrimSpace(startedState.ServerScheme) == "" {
 		startedState.ServerScheme = ctx.Endpoint.Scheme
@@ -424,6 +446,11 @@ func statusMagoConfigHook(ctx statusHookContext) error {
 
 func statusNginxConfigHook(ctx statusHookContext) error {
 	_, _ = fmt.Fprintf(ctx.Stdout, "nginx %s\n", labelOrUnset(ctx.Environment.NginxVersion))
+	return nil
+}
+
+func statusFrankenPHPConfigHook(ctx statusHookContext) error {
+	_, _ = fmt.Fprintf(ctx.Stdout, "frankenphp %s\n", labelOrUnset(ctx.Environment.FrankenPHPVersion))
 	return nil
 }
 

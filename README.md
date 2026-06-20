@@ -1,6 +1,6 @@
 # Polka
 
-Polka is a CLI tool for managing PHP virtual environments. It provides a consistent interface for installing and managing multiple local versions of PHP, Composer, Node.js, and other development tools on a per-project basis. Polka also includes support for serving web applications with nginx, phpMyAdmin, managed databases, and Mailpit.
+Polka is a CLI tool for managing PHP virtual environments. It provides a consistent interface for installing and managing multiple local versions of PHP, Composer, Node.js, and other development tools on a per-project basis. Polka also includes support for serving web applications with nginx or FrankenPHP, phpMyAdmin, managed databases, and Mailpit.
 
 ## Quick start
 
@@ -38,7 +38,7 @@ For the full command reference, see [docs/commands.md](docs/commands.md). For th
 
 Polka config files store portable version labels under `tools` and non-version tool options under `settings`. The default environment lives in `polka.yaml`; named environments live in `polka.<name>.yaml`.
 
-Use `polka config <key> <value>` to update the current environment, or `polka config --env blog <key> <value>` to update a named environment. Keys are dot-separated config paths such as `tools.php`, `tools.php-zts`, `tools.pie`, `database.engine`, and `settings.mailpit.smtp-port`.
+Use `polka config <key> <value>` to update the current environment, or `polka config --env blog <key> <value>` to update a named environment. Keys are dot-separated config paths such as `tools.php`, `tools.php-zts`, `tools.frankenphp`, `server.type`, `database.engine`, and `settings.mailpit.smtp-port`.
 
 ```yaml
 # polka.yaml
@@ -99,6 +99,21 @@ tools:
 
 `php` and `php-zts` are mutually exclusive primary runtimes. Both provide the standard `php` command and are used by Composer, PIE, serving, phpMyAdmin, extensions, and OPcache configuration. Setting or explicitly installing one runtime clears the other. Automatic PHP downloads remain Windows-only; `php` selects only NTS archives and `php-zts` selects only TS archives.
 
+To serve with FrankenPHP, configure its release version and select it explicitly:
+
+```yaml
+tools:
+  php: 8.4
+  composer: 2.8
+  frankenphp: "1.12"
+server:
+  type: frankenphp
+  hostname: blog.localhost
+  port: 8443
+```
+
+`server.type` accepts `php`, `nginx`, or `frankenphp`. When omitted, existing behavior is preserved: nginx is selected when configured, otherwise PHP's built-in server is used. FrankenPHP has its own `frankenphp` command and embedded server runtime, but it does not replace the managed `php`/`php-zts` CLI used by Composer, PIE, and phpMyAdmin. On Windows, Polka mirrors the effective framework, extension, and OPcache settings into the bundled FrankenPHP runtime and supplies that generated `php.ini` through `PHPRC`. Both nginx and FrankenPHP reuse Polka's generated HTTPS certificate.
+
 Polka resolves those versions against the local install layout under `.polka/envs`:
 
 Framework presets apply their default PHP extensions during install. User-defined `php-extensions` entries override those defaults, including `false` values that disable an extension. `opcache-preset` accepts `none`, `dev`, or `production`; `opcache-config` accepts `opcache.*` directives applied over the preset and any framework defaults. Re-run `polka install` after changing PHP extension or OPcache settings so Polka can regenerate `php.ini`.
@@ -109,6 +124,9 @@ Framework presets apply their default PHP extensions during install. User-define
 |   |-- composer/
 |   |   `-- 2.8/
 |   |       `-- bin/composer[.cmd|.bat|.exe|.phar]
+|   |-- frankenphp/
+|   |   `-- 1.12/
+|   |       `-- frankenphp[.exe]
 |   |-- nodejs/
 |   |   `-- 24/
 |   |       `-- node[.exe]
@@ -125,6 +143,7 @@ Framework presets apply their default PHP extensions during install. User-define
 |       `-- 3.53/
 |           `-- sqlite3[.exe]
 `-- bin/
+  |-- frankenphp[.cmd]
   |-- node[.cmd]
   |-- npm[.cmd]
   |-- npx[.cmd]
