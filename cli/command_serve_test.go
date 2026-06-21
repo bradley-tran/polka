@@ -394,7 +394,9 @@ func TestResolveEnvironmentServerTypePreservesLegacySelection(t *testing.T) {
 		wantErr     string
 	}{
 		{name: "legacy php", environment: backend.Environment{Name: "demo", PHPVersion: "8.4"}, want: "php"},
+		{name: "legacy php with FrankenPHP CLI", environment: backend.Environment{Name: "demo", FrankenPHPVersion: "1.12"}, want: "php"},
 		{name: "legacy nginx", environment: backend.Environment{Name: "demo", PHPVersion: "8.4", NginxVersion: "1.30", FrankenPHPVersion: "1.12"}, want: "nginx"},
+		{name: "nginx requires standalone PHP", environment: backend.Environment{Name: "demo", NginxVersion: "1.30", FrankenPHPVersion: "1.12"}, wantErr: "does not define a php or php-zts version"},
 		{name: "explicit frankenphp", environment: backend.Environment{Name: "demo", FrankenPHPVersion: "1.12", Server: &backend.ServerConfig{Type: "frankenphp"}}, want: "frankenphp"},
 		{name: "missing frankenphp", environment: backend.Environment{Name: "demo", Server: &backend.ServerConfig{Type: "frankenphp"}}, wantErr: "does not define a frankenphp version"},
 		{name: "invalid type", environment: backend.Environment{Name: "demo", Server: &backend.ServerConfig{Type: "apache"}}, wantErr: "unsupported server type"},
@@ -482,7 +484,7 @@ func TestServeStateMatchesResolvedServerType(t *testing.T) {
 	}
 }
 
-func TestApplyFrankenPHPRuntimeConfigSetsManagedPHPRC(t *testing.T) {
+func TestApplyManagedPHPRuntimeConfigSetsManagedPHPRC(t *testing.T) {
 	installDir := t.TempDir()
 	target := filepath.Join(installDir, "frankenphp.exe")
 	if err := os.WriteFile(target, []byte("binary"), 0o755); err != nil {
@@ -493,9 +495,9 @@ func TestApplyFrankenPHPRuntimeConfigSetsManagedPHPRC(t *testing.T) {
 		t.Fatalf("WriteFile(php.ini) error = %v", err)
 	}
 
-	env, err := applyFrankenPHPRuntimeConfig("windows", []string{"APP_ENV=test", "PHPRC=system.ini"}, target)
+	env, err := applyManagedPHPRuntimeConfig("windows", []string{"APP_ENV=test", "PHPRC=system.ini"}, target)
 	if err != nil {
-		t.Fatalf("applyFrankenPHPRuntimeConfig() error = %v", err)
+		t.Fatalf("applyManagedPHPRuntimeConfig() error = %v", err)
 	}
 	want := "PHPRC=" + phpIniPath
 	if !containsEnvironmentEntryFold(env, want) {

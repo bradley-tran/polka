@@ -97,7 +97,7 @@ tools:
   composer: 2.8
 ```
 
-`php` and `php-zts` are mutually exclusive primary runtimes. Both provide the standard `php` command and are used by Composer, PIE, serving, phpMyAdmin, extensions, and OPcache configuration. Setting or explicitly installing one runtime clears the other. Automatic PHP downloads remain Windows-only; `php` selects only NTS archives and `php-zts` selects only TS archives.
+`php` and `php-zts` are mutually exclusive standalone runtimes. Both provide the standard `php` command and are used by Composer, PIE, serving, phpMyAdmin, extensions, and OPcache configuration. Setting or explicitly installing one runtime clears the other. Automatic PHP downloads remain Windows-only; `php` selects only NTS archives and `php-zts` selects only TS archives.
 
 To serve with FrankenPHP, configure its release version and select it explicitly:
 
@@ -112,7 +112,7 @@ server:
   port: 8443
 ```
 
-`server.type` accepts `php`, `nginx`, or `frankenphp`. When omitted, existing behavior is preserved: nginx is selected when configured, otherwise PHP's built-in server is used. FrankenPHP has its own `frankenphp` command and embedded server runtime, but it does not replace the managed `php`/`php-zts` CLI used by Composer, PIE, and phpMyAdmin. On Windows, Polka mirrors the effective framework, extension, and OPcache settings into the bundled FrankenPHP runtime and supplies that generated `php.ini` through `PHPRC`. Both nginx and FrankenPHP reuse Polka's generated HTTPS certificate.
+`server.type` accepts `php`, `nginx`, or `frankenphp`. When omitted, existing behavior is preserved: nginx is selected when configured, otherwise PHP's built-in server is used. FrankenPHP exposes both `frankenphp` and `php`: its bundled CLI supplies `php` when neither `php` nor `php-zts` is configured, while either standalone tool takes precedence when present. Composer, PIE, the PHP webserver, phpMyAdmin, extension settings, and OPcache settings use the same selected CLI provider. nginx still requires standalone `php`/`php-zts` because it needs `php-cgi`. When both FrankenPHP and a standalone PHP tool are configured, install and shim-refreshing commands warn that the CLI and FrankenPHP server runtimes may differ. Polka mirrors the effective framework, extension, and OPcache settings into the bundled FrankenPHP runtime and supplies its generated `php.ini` through `PHPRC`. Both nginx and FrankenPHP reuse Polka's generated HTTPS certificate.
 
 Polka resolves those versions against the local install layout under `.polka/envs`:
 
@@ -126,7 +126,8 @@ Framework presets apply their default PHP extensions during install. User-define
 |   |       `-- bin/composer[.cmd|.bat|.exe|.phar]
 |   |-- frankenphp/
 |   |   `-- 1.12/
-|   |       `-- frankenphp[.exe]
+|   |       |-- frankenphp[.exe]
+|   |       `-- php[.exe|.cmd]
 |   |-- nodejs/
 |   |   `-- 24/
 |   |       `-- node[.exe]

@@ -2,15 +2,18 @@ package cli
 
 import (
 	"fmt"
-	"strings"
 
 	"polka/backend"
+	"polka/config"
 	"polka/service"
 )
 
 var (
 	startPHPMyAdminServeFunc              = startPHPMyAdminServe
 	ensurePHPMyAdminStorageConfiguredFunc = service.EnsurePHPMyAdminStorageConfigured
+	startPHPMyAdminPHPRuntimeServeFunc    = startPHPRuntimeServeInBackgroundAt
+	startPHPMyAdminNginxServeFunc         = startNginxServeInBackgroundAt
+	startPHPMyAdminFrankenPHPServeFunc    = startFrankenPHPServeInBackgroundAt
 )
 
 func ensureManagedPHPMyAdminStarted(store backend.Store, environment backend.Environment) (serveRuntimeState, bool, error) {
@@ -36,19 +39,26 @@ func phpMyAdminRuntimeHooks(store backend.Store) service.PHPMyAdminRuntimeHooks 
 }
 
 func startPHPMyAdminServe(store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout, runtimeDir string) (serveRuntimeState, error) {
-	if backend.PrimaryPHPVersion(environment) == "" {
-		return serveRuntimeState{}, fmt.Errorf("environment %q defines phpmyadmin but does not define a php version", environment.Name)
+	if !backend.HasPHPCLI(environment) {
+		return serveRuntimeState{}, fmt.Errorf("environment %q defines phpmyadmin but does not define a PHP CLI provider", environment.Name)
 	}
 
 	if endpoint.HTTPS {
-		if strings.TrimSpace(environment.NginxVersion) == "" {
-			return serveRuntimeState{}, fmt.Errorf("https requires nginx in the current environment")
+		serverType, err := resolveEnvironmentServerType(environment)
+		if err != nil {
+			return serveRuntimeState{}, err
 		}
-
-		return startNginxServeInBackgroundAt(store, environment, endpoint, layout, runtimeDir)
+		switch serverType {
+		case config.ServerTypeFrankenPHP:
+			return startPHPMyAdminFrankenPHPServeFunc(store, environment, endpoint, layout, runtimeDir)
+		case config.ServerTypeNginx:
+			return startPHPMyAdminNginxServeFunc(store, environment, endpoint, layout, runtimeDir)
+		default:
+			return serveRuntimeState{}, fmt.Errorf("https requires nginx or FrankenPHP in the current environment")
+		}
 	}
 
-	return startPHPRuntimeServeInBackgroundAt(store, environment, endpoint.Address, layout, runtimeDir)
+	return startPHPMyAdminPHPRuntimeServeFunc(store, environment, endpoint.Address, layout, runtimeDir)
 }
 
 func loadLivePHPMyAdminState(rootDir, environmentName string) (*serveRuntimeState, error) {

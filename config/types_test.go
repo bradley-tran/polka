@@ -38,3 +38,18 @@ func TestFrankenPHPAndServerTypeConfigRoundTrip(t *testing.T) {
 		t.Fatalf("ProjectFileFromEnvironment() server = %#v, want frankenphp type", file.Server)
 	}
 }
+
+func TestPHPCLIProviderFallsBackToFrankenPHP(t *testing.T) {
+	tool, version := PHPCLIProvider(Environment{FrankenPHPVersion: "1.12"})
+	if tool != ServerTypeFrankenPHP || version != "1.12" {
+		t.Fatalf("PHPCLIProvider() = %q, %q, want frankenphp, 1.12", tool, version)
+	}
+	if !HasPHPCLI(Environment{FrankenPHPVersion: "1.12"}) {
+		t.Fatal("HasPHPCLI() = false, want FrankenPHP fallback")
+	}
+
+	tool, version = PHPCLIProvider(Environment{PHPVersion: "8.4", FrankenPHPVersion: "1.12"})
+	if tool != "php" || version != "8.4" {
+		t.Fatalf("PHPCLIProvider(mixed) = %q, %q, want php, 8.4", tool, version)
+	}
+}

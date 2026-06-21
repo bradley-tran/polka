@@ -601,13 +601,13 @@ func (s Store) installEnvironment(name string) (Environment, *ToolRegistry, erro
 }
 
 func validateInstallEnvironment(name string, environment Environment, requests []tools.InstallRequest, registry *ToolRegistry) error {
-	_, phpVersion := config.PrimaryPHPTool(environment)
-	includesPHP := installRequestsIncludeTool(requests, toolPHP) || installRequestsIncludeTool(requests, toolPHPZTS)
-	if len(environment.PHPExtensions) > 0 && phpVersion == "" && !includesPHP {
-		return fmt.Errorf("environment %q defines php-extensions but does not define a php version", name)
+	hasPHPCLI := config.HasPHPCLI(environment)
+	includesPHP := installRequestsIncludeTool(requests, toolPHP) || installRequestsIncludeTool(requests, toolPHPZTS) || installRequestsIncludeTool(requests, toolFrankenPHP)
+	if len(environment.PHPExtensions) > 0 && !hasPHPCLI && !includesPHP {
+		return fmt.Errorf("environment %q defines php-extensions but does not define a PHP CLI provider", name)
 	}
-	if environmentHasOPcacheConfig(environment) && phpVersion == "" && !includesPHP {
-		return fmt.Errorf("environment %q defines OPcache config but does not define a php version", name)
+	if environmentHasOPcacheConfig(environment) && !hasPHPCLI && !includesPHP {
+		return fmt.Errorf("environment %q defines OPcache config but does not define a PHP CLI provider", name)
 	}
 	if err := registry.ValidateEnvironment(environment); err != nil {
 		return err

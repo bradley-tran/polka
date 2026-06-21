@@ -532,6 +532,15 @@ func TestStoreInstallsAndConfiguresFrankenPHP(t *testing.T) {
 	if resolved != result.TargetPath {
 		t.Fatalf("ResolveTool(frankenphp) = %q, want %q", resolved, result.TargetPath)
 	}
+	phpTarget, err := store.ResolveTool(toolPHP)
+	if err != nil {
+		t.Fatalf("ResolveTool(php fallback) error = %v", err)
+	}
+	if filepath.Dir(phpTarget) != filepath.Dir(result.TargetPath) {
+		t.Fatalf("ResolveTool(php fallback) = %q, want FrankenPHP install directory", phpTarget)
+	}
+	assertPathExists(t, filepath.Join(store.BinDir, "php"))
+	assertPathExists(t, filepath.Join(store.BinDir, "php.cmd"))
 
 	environment, err := store.ConfigureValue("demo", "server.type", " FrankenPHP ")
 	if err != nil {
@@ -545,18 +554,14 @@ func TestStoreInstallsAndConfiguresFrankenPHP(t *testing.T) {
 	}
 }
 
-func TestStoreInstallConfiguresWindowsFrankenPHPForFramework(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("Windows FrankenPHP uses dynamically loaded bundled extensions")
-	}
-
+func TestStoreInstallConfiguresFrankenPHPForFrameworkWithoutStandalonePHP(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
 	store.CacheDir = filepath.Join(projectDir, "global-cache")
 	writeCachedTool(t, store.CacheDir, toolFrankenPHP, "1.12")
 
 	config := store.defaultConfig()
-	config.Environments["demo"] = Environment{Framework: "laravel", PHPVersion: "8.4", OPcachePreset: "dev"}
+	config.Environments["demo"] = Environment{Framework: "laravel", FrankenPHPVersion: "1.12", OPcachePreset: "dev"}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
 	}
@@ -2975,6 +2980,8 @@ func writeCachedTool(t *testing.T, cacheDir, tool, version string) string {
 		phpName := "php"
 		if runtime.GOOS == "windows" {
 			phpName = "php.cmd"
+		} else {
+			files[relativePath] = fakeFrankenPHPModuleListScript([]string{"Zend OPcache"})
 		}
 		files[phpName] = fakePHPModuleListScript([]string{"Zend OPcache"})
 		files["extras/ssl/cacert.pem"] = []byte("-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
@@ -2989,6 +2996,27 @@ func writeCachedTool(t *testing.T, cacheDir, tool, version string) string {
 	}
 
 	return writeCachedArchivePayload(t, cacheDir, tool, version, files)
+}
+
+func fakeFrankenPHPModuleListScript(modules []string) []byte {
+	var builder strings.Builder
+	builder.WriteString("#!/bin/sh\n")
+	builder.WriteString("if [ \"$1\" = \"php-cli\" ]; then shift; fi\n")
+	builder.WriteString("if [ \"$1\" = \"-nm\" ]; then\n")
+	builder.WriteString("  printf '[PHP Modules]\\nCore\\n[Zend Modules]\\n'\n")
+	for _, module := range modules {
+		builder.WriteString("  printf '%s\\n' ")
+		builder.WriteString(shellTestLiteral(module))
+		builder.WriteString("\n")
+	}
+	builder.WriteString("  exit 0\n")
+	builder.WriteString("fi\n")
+	builder.WriteString("exit 1\n")
+	return []byte(builder.String())
+}
+
+func shellTestLiteral(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
 func writeCachedPHPToolWithBuiltInModules(t *testing.T, cacheDir, version string, modules []string) string {

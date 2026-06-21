@@ -55,6 +55,16 @@ func PrimaryPHPVersion(environment Environment) string {
 	return config.PrimaryPHPVersion(environment)
 }
 
+// PHPCLIProvider returns the configured provider for the php command.
+func PHPCLIProvider(environment Environment) (string, string) {
+	return config.PHPCLIProvider(environment)
+}
+
+// HasPHPCLI reports whether the environment has a standalone or bundled PHP CLI.
+func HasPHPCLI(environment Environment) bool {
+	return config.HasPHPCLI(environment)
+}
+
 func NewToolRegistry(plugins ...ToolPlugin) (*ToolRegistry, error) {
 	return tools.NewRegistry(plugins...)
 }

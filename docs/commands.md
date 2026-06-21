@@ -235,13 +235,13 @@ Loads SQL from a `.sql` or `.sql.gz` file into the active database server. Use `
 
 The `mago` tool key installs the Mago binary and creates a `mago` command shim.
 
-The `frankenphp` tool key installs an official FrankenPHP release and creates a `frankenphp` command shim. It is selected for `polka serve` only by `server.type: frankenphp` and remains separate from the managed PHP CLI runtime. On Windows, `polka install` writes a generated `php.ini` for FrankenPHP using the environment's effective framework extensions, user extension overrides, and OPcache settings; Polka supplies it through `PHPRC` for serving and dispatched FrankenPHP commands.
+The `frankenphp` tool key installs an official FrankenPHP release and creates `frankenphp` and `php` command shims. FrankenPHP supplies the `php` CLI only when neither `php` nor `php-zts` is configured; a standalone PHP tool always takes precedence. Configuring both is supported, but install, config, and environment-selection commands warn that the CLI and FrankenPHP server runtimes may differ. FrankenPHP is selected as the webserver only by `server.type: frankenphp`. On Linux, the managed `php` command invokes `frankenphp php-cli`. `polka install` writes a generated `php.ini` for FrankenPHP using the environment's effective framework extensions, user extension overrides, and OPcache settings; Polka supplies it through `PHPRC` for serving and dispatched PHP or FrankenPHP commands.
 
 The `pie` tool key installs PIE's stable `pie.phar` release and creates a `pie` command shim. Dispatching `pie` runs the PHAR through the environment's managed PHP executable.
 
 The `sqlite` tool key installs SQLite's command-line tools and creates a `sqlite3` command shim.
 
-The `phpmyadmin` tool key installs the phpMyAdmin web app archive under `.polka/envs/phpmyadmin/<version>`, writes a generated `config.inc.php` with a fresh `blowfish_secret`, and uses managed database credentials to skip the phpMyAdmin login screen when a managed database is configured. Its UI `port` setting lives under `settings.phpmyadmin`. It inherits HTTPS from the environment's root-level `https` setting. It does not create a command shim.
+The `phpmyadmin` tool key installs the phpMyAdmin web app archive under `.polka/envs/phpmyadmin/<version>`, writes a generated `config.inc.php` with a fresh `blowfish_secret`, and uses managed database credentials to skip the phpMyAdmin login screen when a managed database is configured. Its UI `port` setting lives under `settings.phpmyadmin`. It inherits HTTPS and the selected nginx or FrankenPHP HTTPS provider from the environment. It does not create a command shim.
 
 The `mailpit` tool key installs Mailpit and creates a `mailpit` command shim. Its SMTP and UI port settings live under `settings.mailpit`.
 

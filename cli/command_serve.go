@@ -241,8 +241,8 @@ func resolveEnvironmentServerType(environment backend.Environment) (string, erro
 
 	switch serverType {
 	case config.ServerTypePHP:
-		if backend.PrimaryPHPVersion(environment) == "" {
-			return "", fmt.Errorf("environment %q selects the PHP webserver but does not define a php or php-zts version", environment.Name)
+		if !backend.HasPHPCLI(environment) {
+			return "", fmt.Errorf("environment %q selects the PHP webserver but does not define a PHP CLI provider", environment.Name)
 		}
 	case config.ServerTypeNginx:
 		if strings.TrimSpace(environment.NginxVersion) == "" {
@@ -271,6 +271,10 @@ func runPHPRuntimeServe(stdout, stderr io.Writer, store backend.Store, serverAdd
 	if err != nil {
 		return 0, err
 	}
+	env, err = applyManagedPHPRuntimeConfig(runtime.GOOS, env, phpTarget)
+	if err != nil {
+		return 0, err
+	}
 	runtimeDir := servePHPRuntimeDir(store.RootDir, layout.Docroot)
 	routerPath, err := preparePHPRuntimeServeRuntime(runtimeDir, layout)
 	if err != nil {
@@ -290,6 +294,10 @@ func startPHPRuntimeServeInBackgroundAt(store backend.Store, environment backend
 		return serveRuntimeState{}, err
 	}
 	env, err := resolveRuntimeEnvironment(runtime.GOOS, os.Environ(), store)
+	if err != nil {
+		return serveRuntimeState{}, err
+	}
+	env, err = applyManagedPHPRuntimeConfig(runtime.GOOS, env, phpTarget)
 	if err != nil {
 		return serveRuntimeState{}, err
 	}
@@ -429,15 +437,15 @@ func resolveFrankenPHPRuntimeEnvironment(store backend.Store, frankenPHPTarget s
 	if err != nil {
 		return nil, err
 	}
-	return applyFrankenPHPRuntimeConfig(runtime.GOOS, env, frankenPHPTarget)
+	return applyManagedPHPRuntimeConfig(runtime.GOOS, env, frankenPHPTarget)
 }
 
-// applyFrankenPHPRuntimeConfig overlays the generated ini without changing other runtime values.
-func applyFrankenPHPRuntimeConfig(goos string, env []string, frankenPHPTarget string) ([]string, error) {
-	phpIniPath := filepath.Join(filepath.Dir(frankenPHPTarget), "php.ini")
+// applyManagedPHPRuntimeConfig overlays a generated sibling ini when present.
+func applyManagedPHPRuntimeConfig(goos string, env []string, phpTarget string) ([]string, error) {
+	phpIniPath := filepath.Join(filepath.Dir(phpTarget), "php.ini")
 	exists, err := regularFileExists(phpIniPath)
 	if err != nil {
-		return nil, fmt.Errorf("stat FrankenPHP php.ini %s: %w", phpIniPath, err)
+		return nil, fmt.Errorf("stat managed php.ini %s: %w", phpIniPath, err)
 	}
 	if !exists {
 		return env, nil

@@ -15,11 +15,35 @@ func TestFrankenPHPPluginUsesConfiguredVersionAndManifest(t *testing.T) {
 	if version := plugin.Version(config.Environment{FrankenPHPVersion: "1.12"}); version != "1.12" {
 		t.Fatalf("Version() = %q, want 1.12", version)
 	}
-	if commands := plugin.DispatchCommands(); len(commands) != 1 || commands[0] != FrankenPHP {
-		t.Fatalf("DispatchCommands() = %#v, want frankenphp", commands)
+	if commands := plugin.DispatchCommands(); len(commands) != 2 || commands[0] != FrankenPHP || commands[1] != PHP {
+		t.Fatalf("DispatchCommands() = %#v, want frankenphp and php", commands)
 	}
 	if logs := plugin.Logs(); len(logs) != 1 || logs[0].Path != "serve.log" || logs[0].Level != LogLevelDebug {
 		t.Fatalf("Logs() = %#v, want debug serve.log", logs)
+	}
+}
+
+func TestWriteFrankenPHPPHPCLIWrapperUsesPHPCLISubcommand(t *testing.T) {
+	installDir := t.TempDir()
+	if err := writeFrankenPHPPHPCLIWrapper(installDir); err != nil {
+		t.Fatalf("writeFrankenPHPPHPCLIWrapper() error = %v", err)
+	}
+	path := filepath.Join(installDir, PHP)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(wrapper) error = %v", err)
+	}
+	if !strings.Contains(string(data), "frankenphp\" php-cli \"$@\"") {
+		t.Fatalf("wrapper = %q, want FrankenPHP php-cli forwarding", data)
+	}
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("Stat(wrapper) error = %v", err)
+		}
+		if info.Mode().Perm()&0o111 == 0 {
+			t.Fatalf("wrapper mode = %o, want executable", info.Mode().Perm())
+		}
 	}
 }
 
@@ -68,7 +92,7 @@ func TestFrankenPHPPostInstallMakesBinaryExecutable(t *testing.T) {
 	}
 }
 
-func TestConfigureInstalledWindowsFrankenPHPWritesPHPIni(t *testing.T) {
+func TestConfigureInstalledFrankenPHPWritesPHPIni(t *testing.T) {
 	installDir := t.TempDir()
 	frankenPHPTarget := filepath.Join(installDir, "frankenphp")
 	if runtime.GOOS == "windows" {
@@ -79,10 +103,11 @@ func TestConfigureInstalledWindowsFrankenPHPWritesPHPIni(t *testing.T) {
 	}
 	writeFakeFrankenPHPPHP(t, installDir)
 
-	err := configureInstalledWindowsFrankenPHP(InstallContext{
+	err := configureInstalledFrankenPHP(InstallContext{
 		EnvsDir: filepath.Dir(filepath.Dir(installDir)),
 		Environment: config.Environment{
 			PHPExtensions: map[string]bool{"mbstring": true},
+			OPcachePreset: "dev",
 		},
 		Result: InstallResult{
 			Tool:       FrankenPHP,
@@ -91,7 +116,7 @@ func TestConfigureInstalledWindowsFrankenPHPWritesPHPIni(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("configureInstalledWindowsFrankenPHP() error = %v", err)
+		t.Fatalf("configureInstalledFrankenPHP() error = %v", err)
 	}
 
 	data, err := os.ReadFile(filepath.Join(installDir, "php.ini"))
@@ -99,7 +124,7 @@ func TestConfigureInstalledWindowsFrankenPHPWritesPHPIni(t *testing.T) {
 		t.Fatalf("ReadFile(php.ini) error = %v", err)
 	}
 	ini := string(data)
-	if !strings.Contains(ini, "extension_dir=\"ext\"") || !strings.Contains(ini, "extension=mbstring") {
+	if !strings.Contains(ini, "extension_dir=\"ext\"") || !strings.Contains(ini, "extension=mbstring") || !strings.Contains(ini, "opcache.enable=1") {
 		t.Fatalf("php.ini = %q, want bundled extension configuration", ini)
 	}
 }

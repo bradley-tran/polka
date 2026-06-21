@@ -52,14 +52,6 @@ func runDispatch(stdout, stderr io.Writer, args []string, store backend.Store) i
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
-	if strings.EqualFold(tool, "frankenphp") {
-		env, err = applyFrankenPHPRuntimeConfig(runtime.GOOS, env, target)
-		if err != nil {
-			fmt.Fprintf(stderr, "error: %v\n", err)
-			return 1
-		}
-	}
-
 	workingDir, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(stderr, "error: resolve current working directory: %v\n", err)
@@ -68,6 +60,7 @@ func runDispatch(stdout, stderr io.Writer, args []string, store backend.Store) i
 
 	composerArgs := append([]string(nil), args[1:]...)
 	dispatchArgs := args[1:]
+	usesManagedPHP := strings.EqualFold(tool, "php") || strings.EqualFold(tool, "frankenphp")
 	if dispatchPHARRequiresManagedPHP(tool, target) {
 		phpTarget, resolveErr := store.ResolveTool("php")
 		if resolveErr != nil {
@@ -77,6 +70,14 @@ func runDispatch(stdout, stderr io.Writer, args []string, store backend.Store) i
 
 		dispatchArgs = append([]string{target}, dispatchArgs...)
 		target = phpTarget
+		usesManagedPHP = true
+	}
+	if usesManagedPHP {
+		env, err = applyManagedPHPRuntimeConfig(runtime.GOOS, env, target)
+		if err != nil {
+			fmt.Fprintf(stderr, "error: %v\n", err)
+			return 1
+		}
 	}
 
 	exitCode, err := executeTargetWithEnv(stdout, stderr, env, target, dispatchArgs)

@@ -678,6 +678,34 @@ func TestRunInstallAcceptsExplicitToolVersion(t *testing.T) {
 	}
 }
 
+func TestMixedFrankenPHPAndStandalonePHPWarnsDuringShimRefreshAndInstall(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	cacheDir := filepath.Join(projectDir, "global-cache")
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	writeCachedPHP(t, cacheDir, "8.4", fakePHPScript())
+	runTestConfigValue(t, stdout, stderr, root, defaultEnvironmentName, "tools.frankenphp", "1.12")
+	stdout.Reset()
+	stderr.Reset()
+
+	runTestConfigValue(t, stdout, stderr, root, defaultEnvironmentName, "tools.php", "8.4")
+	if !strings.Contains(stderr.String(), "selects php 8.4 for the php shim") || !strings.Contains(stderr.String(), "their PHP versions may differ") {
+		t.Fatalf("Run(config mixed PHP) stderr = %q, want mixed-runtime warning", stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+
+	if code := Run(stdout, stderr, []string{"--root", root, "install", "php:8.4"}); code != 0 {
+		t.Fatalf("Run(install mixed PHP) code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "selects php 8.4 for the php shim") {
+		t.Fatalf("Run(install mixed PHP) stderr = %q, want mixed-runtime warning", stderr.String())
+	}
+}
+
 func TestRunInstallUsesEnvFlagForNamedEnvironment(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")

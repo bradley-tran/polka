@@ -80,6 +80,41 @@ func TestRunConfigSetsVersionLabelsAndDispatchesPhp(t *testing.T) {
 	}
 }
 
+func TestRunDispatchFallsBackToFrankenPHPBundledPHP(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	cacheDir := filepath.Join(projectDir, "global-cache")
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	writeCachedFrankenPHP(t, cacheDir, "1.12")
+	writeTestConfigFile(t, projectDir, testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {FrankenPHP: "1.12"},
+		},
+	})
+	writeTestActiveEnvironment(t, root, "demo")
+
+	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
+		t.Fatalf("Run(install FrankenPHP) code = %d, stderr = %q", code, stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(root, "bin", "php.cmd")); err != nil {
+		t.Fatalf("Stat(php shim) error = %v", err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+
+	if code := Run(stdout, stderr, []string{"--root", root, "dispatch", "php", "-v"}); code != 0 {
+		t.Fatalf("Run(dispatch php fallback) code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "fake-frankenphp-php -v") {
+		t.Fatalf("Run(dispatch php fallback) stdout = %q, want bundled FrankenPHP CLI", stdout.String())
+	}
+}
+
 func TestRunDispatchLoadsProjectAndConfiguredEnvironmentVariables(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")

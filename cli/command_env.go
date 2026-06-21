@@ -116,7 +116,7 @@ func newConfigCommand(ctx *commandContext) *cobra.Command {
 			input.Key = args[0]
 			input.Value = args[1]
 
-			return runConfig(cmd.OutOrStdout(), store, input)
+			return runConfig(cmd.OutOrStdout(), cmd.ErrOrStderr(), store, input)
 		},
 	}
 	cmd.Flags().StringVar(&input.Name, "env", "", "environment name")
@@ -148,7 +148,7 @@ func newInstallCommand(ctx *commandContext) *cobra.Command {
 				input.Version = version
 			}
 
-			return runInstall(cmd.OutOrStdout(), store, input)
+			return runInstall(cmd.OutOrStdout(), cmd.ErrOrStderr(), store, input)
 		},
 	}
 	cmd.Flags().StringVar(&input.Name, "env", "", "environment name")
@@ -185,7 +185,7 @@ func newUseCommand(ctx *commandContext) *cobra.Command {
 				return &statusError{code: 1, err: err}
 			}
 
-			return runUse(cmd.OutOrStdout(), store, strings.TrimSpace(args[0]))
+			return runUse(cmd.OutOrStdout(), cmd.ErrOrStderr(), store, strings.TrimSpace(args[0]))
 		},
 	}
 	configureCommand(cmd, useUsage)
@@ -261,7 +261,7 @@ func normalizeInitCommandInput(input initCommandInput) (initCommandInput, error)
 	return input, nil
 }
 
-func runInstall(stdout io.Writer, store backend.Store, input installCommandInput) error {
+func runInstall(stdout, stderr io.Writer, store backend.Store, input installCommandInput) error {
 	resolvedName, setCurrent, err := resolveCommandEnvironmentName(stdout, store, input.Name, "Installing")
 	if err != nil {
 		return err
@@ -312,6 +312,11 @@ func runInstall(stdout io.Writer, store backend.Store, input installCommandInput
 			return err
 		}
 	}
+	environment, err := environmentByName(store, input.Name)
+	if err != nil {
+		return err
+	}
+	writePHPCLIRuntimeWarning(stderr, environment)
 	if input.Tool != "" {
 		_, _ = fmt.Fprintf(stdout, "Installed %s:%s for '%s' environment\n", input.Tool, input.Version, input.Name)
 	} else {
@@ -338,7 +343,7 @@ func runNew(stdout io.Writer, store backend.Store, input newCommandInput) error 
 	return nil
 }
 
-func runConfig(stdout io.Writer, store backend.Store, input configCommandInput) error {
+func runConfig(stdout, stderr io.Writer, store backend.Store, input configCommandInput) error {
 	resolvedName, setCurrent, err := resolveCommandEnvironmentName(stdout, store, input.Name, "Configuring")
 	if err != nil {
 		return err
@@ -355,6 +360,7 @@ func runConfig(stdout io.Writer, store backend.Store, input configCommandInput) 
 		}
 	}
 
+	writePHPCLIRuntimeWarning(stderr, environment)
 	_, _ = fmt.Fprintf(stdout, "Configured %s\t%s=%s\n", environment.Name, strings.TrimSpace(input.Key), input.Value)
 	return nil
 }
@@ -399,19 +405,62 @@ func runList(stdout io.Writer, store backend.Store) error {
 			marker = "*"
 		}
 
-		_, _ = fmt.Fprintf(stdout, "%s %s\tphp=%s\tcomposer=%s\tnodejs=%s\tdb=%s\n", marker, environment.Name, labelOrUnset(backend.PrimaryPHPVersion(environment)), labelOrUnset(environment.ComposerVersion), labelOrUnset(environment.NodeJSVersion), labelDatabase(environment.Database))
+		_, _ = fmt.Fprintf(stdout, "%s %s\tphp=%s\tcomposer=%s\tnodejs=%s\tdb=%s\n", marker, environment.Name, phpCLIListLabel(environment), labelOrUnset(environment.ComposerVersion), labelOrUnset(environment.NodeJSVersion), labelDatabase(environment.Database))
 	}
 
 	return nil
 }
 
-func runUse(stdout io.Writer, store backend.Store, name string) error {
+func runUse(stdout, stderr io.Writer, store backend.Store, name string) error {
 	if err := store.Use(name); err != nil {
 		return err
+	}
+	current, err := store.Current()
+	if err != nil {
+		return err
+	}
+	if current != nil {
+		writePHPCLIRuntimeWarning(stderr, *current)
 	}
 
 	_, _ = fmt.Fprintf(stdout, "Selected %s\n", name)
 	return nil
+}
+
+// environmentByName returns a normalized environment after a command mutates it.
+func environmentByName(store backend.Store, name string) (backend.Environment, error) {
+	environments, err := store.List()
+	if err != nil {
+		return backend.Environment{}, err
+	}
+	for _, environment := range environments {
+		if environment.Name == name {
+			return environment, nil
+		}
+	}
+
+	return backend.Environment{}, fmt.Errorf("environment %q does not exist", name)
+}
+
+// writePHPCLIRuntimeWarning makes an intentional split PHP runtime visible.
+func writePHPCLIRuntimeWarning(stderr io.Writer, environment backend.Environment) {
+	phpTool, phpVersion := backend.PrimaryPHPTool(environment)
+	frankenPHPVersion := strings.TrimSpace(environment.FrankenPHPVersion)
+	if phpTool == "" || frankenPHPVersion == "" {
+		return
+	}
+
+	_, _ = fmt.Fprintf(stderr, "warning: environment %q selects %s %s for the php shim instead of FrankenPHP %s's bundled PHP; their PHP versions may differ\n", environment.Name, phpTool, phpVersion, frankenPHPVersion)
+}
+
+// phpCLIListLabel distinguishes a FrankenPHP release from a PHP version.
+func phpCLIListLabel(environment backend.Environment) string {
+	tool, version := backend.PHPCLIProvider(environment)
+	if tool == "frankenphp" {
+		return "frankenphp:" + version
+	}
+
+	return labelOrUnset(version)
 }
 
 func runStatus(stdout, stderr io.Writer, store backend.Store) error {

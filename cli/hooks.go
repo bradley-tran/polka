@@ -416,9 +416,13 @@ func stopPHPMyAdminServiceHook(ctx stopHookContext) error {
 }
 
 func statusPHPConfigHook(ctx statusHookContext) error {
-	phpTool, phpVersion := backend.PrimaryPHPTool(ctx.Environment)
+	phpTool, phpVersion := backend.PHPCLIProvider(ctx.Environment)
 	if phpTool == "" {
 		phpTool = "php"
+	}
+	if phpTool == config.ServerTypeFrankenPHP {
+		_, _ = fmt.Fprintf(ctx.Stdout, "php via frankenphp %s\n", phpVersion)
+		return nil
 	}
 	_, _ = fmt.Fprintf(ctx.Stdout, "%s %s\n", phpTool, labelOrUnset(phpVersion))
 	return nil

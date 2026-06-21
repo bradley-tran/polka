@@ -95,6 +95,9 @@ func TestDefaultRegistrySelectsConfiguredPHPProvider(t *testing.T) {
 	}{
 		{name: "NTS", environment: config.Environment{PHPVersion: "8.4"}, wantTool: PHP},
 		{name: "ZTS", environment: config.Environment{PHPZTSVersion: "8.4"}, wantTool: PHPZTS},
+		{name: "FrankenPHP fallback", environment: config.Environment{FrankenPHPVersion: "1.12"}, wantTool: FrankenPHP},
+		{name: "NTS before FrankenPHP", environment: config.Environment{PHPVersion: "8.4", FrankenPHPVersion: "1.12"}, wantTool: PHP},
+		{name: "ZTS before FrankenPHP", environment: config.Environment{PHPZTSVersion: "8.4", FrankenPHPVersion: "1.12"}, wantTool: PHPZTS},
 	}
 
 	for _, test := range tests {

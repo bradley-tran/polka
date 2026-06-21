@@ -11,7 +11,7 @@ import (
 	"polka/config"
 )
 
-// frankenPHPPlugin installs the official server binary without treating it as the PHP CLI provider.
+// frankenPHPPlugin installs the official server and exposes its bundled PHP CLI.
 func frankenPHPPlugin() Plugin {
 	return newManifestPlugin(FrankenPHP, pluginHooks{
 		validate: func(environment config.Environment) error {
@@ -27,17 +27,32 @@ func frankenPHPPlugin() Plugin {
 				if err := os.Chmod(ctx.Result.TargetPath, 0o755); err != nil {
 					return fmt.Errorf("make installed FrankenPHP executable: %w", err)
 				}
-
-				return nil
+				if err := writeFrankenPHPPHPCLIWrapper(filepath.Dir(ctx.Result.TargetPath)); err != nil {
+					return err
+				}
 			}
 
-			return configureInstalledWindowsFrankenPHP(ctx)
+			return configureInstalledFrankenPHP(ctx)
 		},
 	})
 }
 
-// configureInstalledWindowsFrankenPHP enables the dynamic extensions shipped in the Windows archive.
-func configureInstalledWindowsFrankenPHP(ctx InstallContext) error {
+// writeFrankenPHPPHPCLIWrapper adapts the Linux subcommand into a normal php executable.
+func writeFrankenPHPPHPCLIWrapper(installDir string) error {
+	path := filepath.Join(installDir, PHP)
+	contents := "#!/bin/sh\n" +
+		"set -eu\n" +
+		"SCRIPT_DIR=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\n" +
+		"exec \"$SCRIPT_DIR/frankenphp\" php-cli \"$@\"\n"
+	if err := os.WriteFile(path, []byte(contents), 0o755); err != nil {
+		return fmt.Errorf("write FrankenPHP PHP CLI wrapper: %w", err)
+	}
+
+	return nil
+}
+
+// configureInstalledFrankenPHP applies PHP settings to the bundled CLI and server runtime.
+func configureInstalledFrankenPHP(ctx InstallContext) error {
 	phpConfig := EffectivePHPConfigForInstall(ctx.Environment)
 	if phpConfigNeedsCABundle(phpConfig) {
 		caBundlePath, err := ensureInstalledPHPCABundle(ctx.EnvsDir, ctx.Result.Tool, ctx.Result.Version)

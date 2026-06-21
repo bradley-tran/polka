@@ -6,6 +6,16 @@ install-candidates:
     - frankenphp
 dispatch-commands:
   - frankenphp
+  - php
+dispatch-candidates:
+  php:
+    windows-amd64:
+      - php.exe
+      - php.cmd
+      - php.bat
+      - php
+    linux-amd64:
+      - php
 logs:
   debug:
     - serve.log

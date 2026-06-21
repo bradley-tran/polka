@@ -160,6 +160,25 @@ func PrimaryPHPVersion(environment Environment) string {
 	return version
 }
 
+// PHPCLIProvider returns the configured provider for the php command. A
+// standalone PHP runtime takes precedence over FrankenPHP's bundled CLI.
+func PHPCLIProvider(environment Environment) (string, string) {
+	if tool, version := PrimaryPHPTool(environment); tool != "" {
+		return tool, version
+	}
+	if version := strings.TrimSpace(environment.FrankenPHPVersion); version != "" {
+		return ServerTypeFrankenPHP, version
+	}
+
+	return "", ""
+}
+
+// HasPHPCLI reports whether the environment configures any php command provider.
+func HasPHPCLI(environment Environment) bool {
+	tool, _ := PHPCLIProvider(environment)
+	return tool != ""
+}
+
 // ProjectFileToEnvironment converts polka.yaml data into the internal environment model.
 func ProjectFileToEnvironment(name string, file ProjectFile) Environment {
 	return environmentFromFileParts(

@@ -84,7 +84,7 @@ const configUsage = `Usage:
 Create or update one environment config value. The default environment is stored in polka.yaml; named environments are stored in polka.<name>.yaml.
 Use --env NAME to select a named environment. When --env is omitted, Polka updates the current environment, falling back to default when no local override is selected.
 Keys are dot-separated YAML paths such as tools.php, tools.php-zts, tools.frankenphp, server.type, database.engine, settings.mailpit.smtp-port, env-vars.APP_ENV, php-extensions.xdebug, and opcache-config.opcache.enable_cli.
-tools.php and tools.php-zts are mutually exclusive primary runtimes; setting one clears the other and both provide the php command.
+tools.php and tools.php-zts are mutually exclusive standalone runtimes; setting one clears the other and both take precedence for the php command. FrankenPHP supplies php when neither is configured.
 server.type accepts php, nginx, or frankenphp. When omitted, Polka preserves the legacy behavior of selecting nginx when configured and PHP otherwise.
 `
 
@@ -94,6 +94,7 @@ const installUsage = `Usage:
 Install one explicit tool version, such as php:8.4, php-zts:8.4, or frankenphp:1.12, or install every configured tool version for an environment when no tool argument is provided.
 Use --env NAME to select a named environment. When --env is omitted, Polka uses the current environment, falling back to default when no local override is selected.
 Polka installs tools from validated global cache payloads when available, otherwise downloads them into the cache first.
+When FrankenPHP and standalone PHP are both configured, Polka warns that the php CLI and FrankenPHP server runtimes may differ.
 `
 
 const certInstallUsage = `Usage:

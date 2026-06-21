@@ -754,6 +754,20 @@ func writeCachedPHP(t *testing.T, cacheDir, version string, script []byte) strin
 	return writeCachedArchivePayload(t, cacheDir, "php", version, files)
 }
 
+func writeCachedFrankenPHP(t *testing.T, cacheDir, version string) string {
+	t.Helper()
+
+	files := map[string][]byte{}
+	if runtime.GOOS == "windows" {
+		files["frankenphp.exe"] = []byte("placeholder\n")
+		files["php.cmd"] = []byte("@echo off\r\necho fake-frankenphp-php %*\r\n")
+	} else {
+		files["frankenphp"] = []byte("#!/bin/sh\nif [ \"$1\" = \"php-cli\" ]; then\n  shift\n  printf 'fake-frankenphp-php %s\\n' \"$*\"\n  exit 0\nfi\nexit 1\n")
+	}
+
+	return writeCachedArchivePayload(t, cacheDir, "frankenphp", version, files)
+}
+
 func writeCachedComposer(t *testing.T, cacheDir, version string, data []byte) string {
 	t.Helper()
 
