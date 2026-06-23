@@ -92,7 +92,7 @@ database:
   port: 5432
 ```
 
-PostgreSQL exposes the `psql` shim and is supported by the CakePHP, CodeIgniter, Drupal, Laravel, and Symfony integrations. WordPress and phpMyAdmin are MySQL-family only, so Polka rejects either pairing with PostgreSQL.
+PostgreSQL exposes the `psql` shim and is supported by the CakePHP, CodeIgniter, Drupal, Laravel, and Symfony integrations. WordPress is MySQL-family only, so Polka rejects WordPress with PostgreSQL. phpMyAdmin can still be configured, but Polka warns that it only supports MySQL/MariaDB and starts it without managed PostgreSQL login or storage integration.
 
 ```yaml
 # polka.legacy.yaml

@@ -835,6 +835,28 @@ func TestRunConfigPersistsDatabaseSettings(t *testing.T) {
 	}
 }
 
+func TestRunConfigAllowsPHPMyAdminWithPostgreSQLWarning(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.postgresql", "17")
+	runTestConfigValue(t, stdout, stderr, root, "demo", "database.engine", "postgresql")
+	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.phpmyadmin", "5.2")
+
+	environment := readTestEnvironmentConfig(t, projectDir, "demo")
+	if environment.PHPMyAdmin == nil || environment.PHPMyAdmin.Version != "5.2" {
+		t.Fatalf("environment = %#v, want phpMyAdmin configured", environment)
+	}
+	if environment.Database == nil || environment.Database.Engine != "postgresql" {
+		t.Fatalf("environment.Database = %#v, want PostgreSQL", environment.Database)
+	}
+	if !strings.Contains(stderr.String(), "phpMyAdmin with PostgreSQL") {
+		t.Fatalf("Run(config) stderr = %q, want warning", stderr.String())
+	}
+}
+
 func TestRunConfigPersistsNodeJSSetting(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")

@@ -61,6 +61,10 @@ func EnsurePHPMyAdminStorageConfigured(ctx Context, environment config.Environme
 	if environment.Database == nil || strings.TrimSpace(environment.Database.Engine) == "" {
 		return nil
 	}
+	if PHPMyAdminUsesPostgreSQL(environment) {
+		warnPHPMyAdminPostgreSQL(ctx, environment)
+		return nil
+	}
 
 	docroot, err := ResolvePHPMyAdminDocroot(ctx.EnvsDir, environment.PHPMyAdmin.Version)
 	if err != nil {
@@ -86,6 +90,34 @@ func EnsurePHPMyAdminStorageConfigured(ctx Context, environment config.Environme
 	}
 
 	return nil
+}
+
+// PHPMyAdminUsesPostgreSQL reports whether an environment pairs phpMyAdmin
+// with PostgreSQL, which phpMyAdmin cannot manage directly.
+func PHPMyAdminUsesPostgreSQL(environment config.Environment) bool {
+	return environment.PHPMyAdmin != nil &&
+		strings.TrimSpace(environment.PHPMyAdmin.Version) != "" &&
+		environment.Database != nil &&
+		strings.EqualFold(strings.TrimSpace(environment.Database.Engine), toolPostgreSQL)
+}
+
+// PHPMyAdminPostgreSQLWarning formats the user-facing warning for the supported
+// but non-integrated phpMyAdmin/PostgreSQL pairing.
+func PHPMyAdminPostgreSQLWarning(environmentName string) string {
+	name := strings.TrimSpace(environmentName)
+	if name == "" {
+		name = "current"
+	}
+
+	return fmt.Sprintf("environment %q configures phpMyAdmin with PostgreSQL; phpMyAdmin only supports MySQL/MariaDB, so Polka will start phpMyAdmin without managed PostgreSQL login or storage integration\n", name)
+}
+
+func warnPHPMyAdminPostgreSQL(ctx Context, environment config.Environment) {
+	if !PHPMyAdminUsesPostgreSQL(environment) {
+		return
+	}
+
+	ctx.warnf("%s", PHPMyAdminPostgreSQLWarning(environment.Name))
 }
 
 func importPHPMyAdminStorageSQL(ctx Context, resolved ResolvedDatabaseEnvironment, state ManagedDatabaseRuntimeState, sqlPath string) error {

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -90,6 +91,38 @@ func TestEnsurePHPMyAdminStorageConfiguredImportsCreateTablesSQL(t *testing.T) {
 		if !strings.Contains(args, expected) {
 			t.Fatalf("database client args = %q, want %q", args, expected)
 		}
+	}
+}
+
+func TestEnsurePHPMyAdminStorageConfiguredWarnsAndSkipsPostgreSQL(t *testing.T) {
+	environment := config.Environment{
+		Name:       "demo",
+		Database:   &config.DatabaseConfig{Engine: toolPostgreSQL, Version: "17", Port: 5432},
+		PHPMyAdmin: &config.PHPMyAdminConfig{Version: "5.2"},
+	}
+	warnings := &strings.Builder{}
+	ctx := Context{
+		Environment: environment,
+		Warnf: func(format string, args ...any) {
+			warnings.WriteString(fmt.Sprintf(format, args...))
+		},
+	}
+
+	startedDatabase := false
+	err := EnsurePHPMyAdminStorageConfigured(ctx, environment, DatabaseRuntimeHooks{
+		StartServer: func(ManagedDatabaseServerSpec) (ManagedDatabaseStartResult, error) {
+			startedDatabase = true
+			return ManagedDatabaseStartResult{}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("EnsurePHPMyAdminStorageConfigured() error = %v", err)
+	}
+	if startedDatabase {
+		t.Fatal("EnsurePHPMyAdminStorageConfigured() started PostgreSQL, want storage bootstrap skipped")
+	}
+	if !strings.Contains(warnings.String(), "phpMyAdmin with PostgreSQL") {
+		t.Fatalf("warnings = %q, want PostgreSQL/phpMyAdmin compatibility warning", warnings.String())
 	}
 }
 

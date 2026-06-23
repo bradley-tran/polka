@@ -248,7 +248,7 @@ The `sqlite` tool key installs SQLite's command-line tools, creates a `sqlite3` 
 
 The `postgresql` tool key installs PostgreSQL, creates a `psql` command shim, and enables `pgsql` and `pdo_pgsql` for configured PHP runtimes. Windows uses EnterpriseDB's portable binaries; Linux amd64 uses the corresponding portable embedded PostgreSQL archive published through Maven Central because current EnterpriseDB releases no longer provide Linux binary archives.
 
-The `phpmyadmin` tool key installs the phpMyAdmin web app archive under `.polka/envs/phpmyadmin/<version>`, writes a generated `config.inc.php` with a fresh `blowfish_secret`, and uses managed database credentials to skip the phpMyAdmin login screen when a managed database is configured. Its UI `port` setting lives under `settings.phpmyadmin`. It inherits HTTPS and the selected nginx or FrankenPHP HTTPS provider from the environment. It does not create a command shim.
+The `phpmyadmin` tool key installs the phpMyAdmin web app archive under `.polka/envs/phpmyadmin/<version>`, writes a generated `config.inc.php` with a fresh `blowfish_secret`, and uses managed MySQL/MariaDB credentials to skip the phpMyAdmin login screen when one of those managed databases is configured. With PostgreSQL, Polka warns because phpMyAdmin only supports MySQL/MariaDB, then starts phpMyAdmin without managed PostgreSQL login or storage integration. Its UI `port` setting lives under `settings.phpmyadmin`. It inherits HTTPS and the selected nginx or FrankenPHP HTTPS provider from the environment. It does not create a command shim.
 
 The `mailpit` tool key installs Mailpit and creates a `mailpit` command shim. Its SMTP and UI port settings live under `settings.mailpit`.
 

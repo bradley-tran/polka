@@ -112,6 +112,7 @@ func (m Manager) Stop(ctx Context, hooks RuntimeHooks) (StopResult, error) {
 }
 
 func (m Manager) WarnMissingRuntimeTools(ctx Context) {
+	warnPHPMyAdminPostgreSQL(ctx, ctx.Environment)
 	if ctx.Environment.PHPMyAdmin != nil && strings.TrimSpace(ctx.Environment.PHPMyAdmin.Version) != "" {
 		_ = ctx.skipMissingTool("phpmyadmin", toolPHPMyAdmin)
 	}

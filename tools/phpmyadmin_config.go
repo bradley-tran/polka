@@ -82,9 +82,9 @@ func generatePHPMyAdminBlowfishSecret() (string, error) {
 }
 
 // phpMyAdminManagedDatabaseCredentialsPath resolves the runtime credentials file
-// that Polka writes before starting phpMyAdmin for a managed database.
+// that Polka writes before starting phpMyAdmin for managed MySQL/MariaDB.
 func phpMyAdminManagedDatabaseCredentialsPath(rootDir, environmentName string, database *config.DatabaseConfig) (string, error) {
-	if database == nil || strings.TrimSpace(database.Engine) == "" || strings.TrimSpace(environmentName) == "" {
+	if !phpMyAdminSupportsManagedDatabase(database) || strings.TrimSpace(environmentName) == "" {
 		return "", nil
 	}
 
@@ -99,7 +99,7 @@ func phpMyAdminManagedDatabaseCredentialsPath(rootDir, environmentName string, d
 func renderPHPMyAdminConfig(blowfishSecret string, database *config.DatabaseConfig, credentialsPath string) []byte {
 	port := phpMyAdminDefaultDBPort
 	enableStorage := false
-	if database != nil && strings.TrimSpace(database.Engine) != "" {
+	if phpMyAdminSupportsManagedDatabase(database) {
 		enableStorage = true
 		if database.Port != 0 {
 			port = database.Port
@@ -169,6 +169,19 @@ func renderPHPMyAdminConfig(blowfishSecret string, database *config.DatabaseConf
 	builder.WriteString("$cfg['SaveDir'] = '';\n")
 
 	return []byte(builder.String())
+}
+
+func phpMyAdminSupportsManagedDatabase(database *config.DatabaseConfig) bool {
+	if database == nil {
+		return false
+	}
+
+	switch strings.ToLower(strings.TrimSpace(database.Engine)) {
+	case MySQL, MariaDB:
+		return true
+	default:
+		return false
+	}
 }
 
 func phpSingleQuotedString(value string) string {

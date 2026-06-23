@@ -317,6 +317,7 @@ func runInstall(stdout, stderr io.Writer, store backend.Store, input installComm
 		return err
 	}
 	writePHPCLIRuntimeWarning(stderr, environment)
+	writePHPMyAdminPostgreSQLWarning(stderr, environment)
 	if input.Tool != "" {
 		_, _ = fmt.Fprintf(stdout, "Installed %s:%s for '%s' environment\n", input.Tool, input.Version, input.Name)
 	} else {
@@ -361,6 +362,7 @@ func runConfig(stdout, stderr io.Writer, store backend.Store, input configComman
 	}
 
 	writePHPCLIRuntimeWarning(stderr, environment)
+	writePHPMyAdminPostgreSQLWarning(stderr, environment)
 	_, _ = fmt.Fprintf(stdout, "Configured %s\t%s=%s\n", environment.Name, strings.TrimSpace(input.Key), input.Value)
 	return nil
 }
@@ -421,6 +423,7 @@ func runUse(stdout, stderr io.Writer, store backend.Store, name string) error {
 	}
 	if current != nil {
 		writePHPCLIRuntimeWarning(stderr, *current)
+		writePHPMyAdminPostgreSQLWarning(stderr, *current)
 	}
 
 	_, _ = fmt.Fprintf(stdout, "Selected %s\n", name)
@@ -451,6 +454,14 @@ func writePHPCLIRuntimeWarning(stderr io.Writer, environment backend.Environment
 	}
 
 	_, _ = fmt.Fprintf(stderr, "warning: environment %q selects %s %s for the php shim instead of FrankenPHP %s's bundled PHP; their PHP versions may differ\n", environment.Name, phpTool, phpVersion, frankenPHPVersion)
+}
+
+func writePHPMyAdminPostgreSQLWarning(stderr io.Writer, environment backend.Environment) {
+	if !service.PHPMyAdminUsesPostgreSQL(environment) {
+		return
+	}
+
+	_, _ = fmt.Fprintf(stderr, "warning: %s", service.PHPMyAdminPostgreSQLWarning(environment.Name))
 }
 
 // phpCLIListLabel distinguishes a FrankenPHP release from a PHP version.

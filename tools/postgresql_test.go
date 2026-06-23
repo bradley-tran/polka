@@ -99,14 +99,13 @@ func TestPostgreSQLPluginUsesPSQLDispatch(t *testing.T) {
 	}
 }
 
-func TestPHPMyAdminRejectsPostgreSQL(t *testing.T) {
+func TestPHPMyAdminAllowsPostgreSQL(t *testing.T) {
 	environment := config.Environment{
 		PostgreSQLVersion: "17",
 		Database:          &config.DatabaseConfig{Engine: PostgreSQL, Version: "17"},
 		PHPMyAdmin:        &config.PHPMyAdminConfig{Version: "5.2"},
 	}
-	err := NewDefaultRegistry().ValidateEnvironment(environment)
-	if err == nil || !strings.Contains(err.Error(), "phpmyadmin does not support") {
-		t.Fatalf("ValidateEnvironment() error = %v, want phpmyadmin incompatibility", err)
+	if err := NewDefaultRegistry().ValidateEnvironment(environment); err != nil {
+		t.Fatalf("ValidateEnvironment() error = %v, want PostgreSQL/phpMyAdmin warning-only pairing", err)
 	}
 }

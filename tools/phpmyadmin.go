@@ -20,9 +20,6 @@ func phpMyAdminPlugin() Plugin {
 			if err := validatePHPMyAdminConfig(environment.PHPMyAdmin); err != nil {
 				return err
 			}
-			if environment.PHPMyAdmin != nil && environment.Database != nil && strings.EqualFold(strings.TrimSpace(environment.Database.Engine), PostgreSQL) {
-				return fmt.Errorf("phpmyadmin does not support database engine %q", PostgreSQL)
-			}
 
 			return nil
 		},

@@ -80,3 +80,31 @@ func TestRenderPHPMyAdminConfigSkipsStorageWithoutManagedDatabase(t *testing.T) 
 		t.Fatalf("renderPHPMyAdminConfig() = %q, want default database port", configText)
 	}
 }
+
+func TestRenderPHPMyAdminConfigSkipsManagedDatabaseForPostgreSQL(t *testing.T) {
+	database := &config.DatabaseConfig{Engine: PostgreSQL, Version: "17", Port: 5432}
+	credentialsPath, err := phpMyAdminManagedDatabaseCredentialsPath(t.TempDir(), "demo", database)
+	if err != nil {
+		t.Fatalf("phpMyAdminManagedDatabaseCredentialsPath() error = %v", err)
+	}
+	if credentialsPath != "" {
+		t.Fatalf("phpMyAdminManagedDatabaseCredentialsPath() = %q, want empty for PostgreSQL", credentialsPath)
+	}
+
+	configText := string(renderPHPMyAdminConfig("abcdefghijklmnopqrstuvwxyz123456", database, filepath.Join("secrets", "db", "demo.json")))
+	for _, unexpected := range []string{
+		"$polkaCredentials",
+		"['pmadb']",
+		"'5432'",
+	} {
+		if strings.Contains(configText, unexpected) {
+			t.Fatalf("renderPHPMyAdminConfig() = %q, want no PostgreSQL managed integration marker %q", configText, unexpected)
+		}
+	}
+	if !strings.Contains(configText, "$cfg['Servers'][$i]['auth_type'] = 'cookie';") {
+		t.Fatalf("renderPHPMyAdminConfig() = %q, want cookie auth for PostgreSQL", configText)
+	}
+	if !strings.Contains(configText, "$cfg['Servers'][$i]['port'] = '3306';") {
+		t.Fatalf("renderPHPMyAdminConfig() = %q, want MySQL default port for PostgreSQL pairing", configText)
+	}
+}
