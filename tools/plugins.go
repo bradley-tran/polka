@@ -14,6 +14,7 @@ func DefaultPlugins() []ToolPlugin {
 		phpMyAdminPlugin(),
 		mysqlPlugin(),
 		mariaDBPlugin(),
+		postgreSQLPlugin(),
 		sqlitePlugin(),
 	}
 }

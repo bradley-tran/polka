@@ -840,7 +840,7 @@ func TestStoreInstallAppliesFrameworkPHPExtensionsWithoutConfig(t *testing.T) {
 		t.Fatalf("ReadFile(installed php.ini) error = %v", err)
 	}
 	phpIni := string(phpIniData)
-	for _, want := range []string{"extension=gd", "extension=mbstring", "extension=pdo_mysql", "zend_extension=opcache"} {
+	for _, want := range []string{"extension=gd", "extension=mbstring", "zend_extension=opcache"} {
 		if !strings.Contains(phpIni, want) {
 			t.Fatalf("php.ini = %q, want framework default %s", phpIni, want)
 		}
@@ -891,6 +891,25 @@ func TestStoreInstallFrameworkPHPExtensionsHonorUserOverrides(t *testing.T) {
 		if !strings.Contains(phpIni, want) {
 			t.Fatalf("php.ini = %q, want merged extension entry %s", phpIni, want)
 		}
+	}
+}
+
+func TestStoreToolPHPExtensionsHonorUserOverrides(t *testing.T) {
+	store := NewProjectStore(t.TempDir())
+
+	effective := store.withPluginPHPExtensions(Environment{
+		Framework:      "drupal",
+		MariaDBVersion: "11.8",
+		PHPExtensions: map[string]bool{
+			"pdo_mysql": false,
+		},
+	})
+
+	if !effective.PHPExtensions["gd"] || !effective.PHPExtensions["mysqli"] {
+		t.Fatalf("php-extensions = %#v, want framework and tool extensions", effective.PHPExtensions)
+	}
+	if enabled, ok := effective.PHPExtensions["pdo_mysql"]; !ok || enabled {
+		t.Fatalf("php-extensions = %#v, want explicit pdo_mysql=false", effective.PHPExtensions)
 	}
 }
 
@@ -1063,6 +1082,31 @@ func TestStoreConfigureValueInfersDatabaseVersionFromTool(t *testing.T) {
 	}
 }
 
+func TestStoreConfigureValueInfersPostgreSQLVersionFromTool(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+
+	if _, err := store.ConfigureValue("data", "tools.postgresql", "17"); err != nil {
+		t.Fatalf("ConfigureValue(tools.postgresql) error = %v", err)
+	}
+	environment, err := store.ConfigureValue("data", "database.engine", "postgresql")
+	if err != nil {
+		t.Fatalf("ConfigureValue(database.engine) error = %v", err)
+	}
+	if environment.Database == nil || environment.Database.Engine != toolPostgreSQL || environment.Database.Version != "17" {
+		t.Fatalf("environment.Database = %#v, want postgresql 17", environment.Database)
+	}
+
+	data, err := os.ReadFile(store.environmentConfigFile("data"))
+	if err != nil {
+		t.Fatalf("ReadFile(data config) error = %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "tools:\n  postgresql: \"17\"") || !strings.Contains(text, "database:\n  engine: postgresql") {
+		t.Fatalf("config = %q, want postgresql tool and database engine", text)
+	}
+}
+
 func TestStoreConfigureValueSetsPIEToolVersion(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
@@ -1230,6 +1274,7 @@ func TestStoreInstallWithProgressReportsStages(t *testing.T) {
 	want := []string{
 		"1/2 php 8.4 using cache",
 		"1/2 php 8.4 installing",
+		"1/2 php 8.4 configuring",
 		"1/2 php 8.4 installed",
 		"2/2 mysql 8.4 downloading",
 		"2/2 mysql 8.4 installing",
@@ -3269,6 +3314,10 @@ func (logAliasTestPlugin) ID() string {
 
 func (logAliasTestPlugin) Version(Environment) string {
 	return "1.0"
+}
+
+func (logAliasTestPlugin) PHPExtensions() map[string]bool {
+	return nil
 }
 
 func (logAliasTestPlugin) Validate(Environment) error {

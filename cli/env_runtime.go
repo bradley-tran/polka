@@ -62,6 +62,17 @@ func resolveRuntimeEnvironment(goos string, inherited []string, store backend.St
 	if err != nil {
 		return nil, fmt.Errorf("load framework env-vars for environment %q: %w", current.Name, err)
 	}
+	if current.Database != nil && strings.EqualFold(strings.TrimSpace(current.Database.Engine), "postgresql") {
+		pgPassPath := service.DatabasePGPassFilePath(store.RootDir, current.Name)
+		if exists, statErr := regularFileExists(pgPassPath); statErr != nil {
+			return nil, fmt.Errorf("stat postgresql password file %s: %w", pgPassPath, statErr)
+		} else if exists {
+			resolved, err = overlayEnvironmentVariables(goos, resolved, map[string]string{"PGPASSFILE": pgPassPath})
+			if err != nil {
+				return nil, fmt.Errorf("load postgresql client environment for %q: %w", current.Name, err)
+			}
+		}
+	}
 
 	resolved, err = overlayEnvironmentVariables(goos, resolved, current.EnvVars)
 	if err != nil {
@@ -118,6 +129,8 @@ func frameworkDatabaseCredentialsFromManaged(environment backend.Environment, cr
 	}
 
 	return &plugins.DatabaseCredentials{
+		Engine:       environment.Database.Engine,
+		Version:      environment.Database.Version,
 		Host:         service.DatabaseListenHost,
 		Port:         port,
 		DatabaseName: databaseName,

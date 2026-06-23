@@ -1,4 +1,8 @@
 id: cakephp
+database-engines:
+  - mysql
+  - mariadb
+  - postgresql
 defaults:
   docroot: webroot
   tools:
@@ -22,10 +26,8 @@ defaults:
 php-extensions:
   - intl
   - mbstring
-  - mysqli
   - opcache
   - openssl
-  - pdo_mysql
   - simplexml
 runtime-env:
   database:

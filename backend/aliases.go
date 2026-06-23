@@ -42,6 +42,7 @@ const (
 	toolPHPMyAdmin = tools.PHPMyAdmin
 	toolMySQL      = tools.MySQL
 	toolMariaDB    = tools.MariaDB
+	toolPostgreSQL = tools.PostgreSQL
 	toolSQLite     = tools.SQLite
 )
 

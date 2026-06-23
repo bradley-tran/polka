@@ -470,8 +470,8 @@ func (s Store) writeEnvironment(name, phpVersion, composerVersion, nodeJSVersion
 		environment.Database = mergeDatabaseConfig(environment.Database, database)
 		environment = setDatabaseToolVersion(environment, database)
 	}
-	if environment.PHPVersion == "" && environment.PHPZTSVersion == "" && environment.FrankenPHPVersion == "" && environment.ComposerVersion == "" && environment.PIEVersion == "" && environment.NodeJSVersion == "" && environment.MagoVersion == "" && environment.NginxVersion == "" && environment.MySQLVersion == "" && environment.MariaDBVersion == "" && environment.SQLiteVersion == "" && environment.PHPMyAdmin == nil && environment.Database == nil && environment.Mailpit == nil {
-		return Environment{}, fmt.Errorf("environment requires at least one of php, php-zts, frankenphp, composer, nodejs, mago, nginx, mysql, mariadb, sqlite, phpmyadmin, database, or mailpit")
+	if environment.PHPVersion == "" && environment.PHPZTSVersion == "" && environment.FrankenPHPVersion == "" && environment.ComposerVersion == "" && environment.PIEVersion == "" && environment.NodeJSVersion == "" && environment.MagoVersion == "" && environment.NginxVersion == "" && environment.MySQLVersion == "" && environment.MariaDBVersion == "" && environment.PostgreSQLVersion == "" && environment.SQLiteVersion == "" && environment.PHPMyAdmin == nil && environment.Database == nil && environment.Mailpit == nil {
+		return Environment{}, fmt.Errorf("environment requires at least one of php, php-zts, frankenphp, composer, nodejs, mago, nginx, mysql, mariadb, postgresql, sqlite, phpmyadmin, database, or mailpit")
 	}
 	if err := s.toolRegistry().ValidateEnvironment(environment); err != nil {
 		return Environment{}, err
@@ -728,29 +728,27 @@ func (s Store) installRequests(environment Environment, requests []tools.Install
 }
 
 func (s Store) withFrameworkPHPConfig(environment Environment) Environment {
-	environment = s.withFrameworkPHPExtensions(environment)
+	environment = s.withPluginPHPExtensions(environment)
 	return s.withFrameworkOPcacheConfig(environment)
 }
 
-func (s Store) withFrameworkPHPExtensions(environment Environment) Environment {
-	if strings.TrimSpace(environment.Framework) == "" {
-		return environment
+func (s Store) withPluginPHPExtensions(environment Environment) Environment {
+	merged := map[string]bool{}
+	if strings.TrimSpace(environment.Framework) != "" {
+		if plugin, ok := s.FrameworkPlugin(environment.Framework); ok {
+			for name, enabled := range plugin.PHPExtensions() {
+				merged[name] = enabled
+			}
+		}
 	}
-	plugin, ok := s.FrameworkPlugin(environment.Framework)
-	if !ok {
-		return environment
-	}
-	frameworkExtensions := plugin.PHPExtensions()
-	if len(frameworkExtensions) == 0 {
-		return environment
-	}
-
-	merged := make(map[string]bool, len(frameworkExtensions)+len(environment.PHPExtensions))
-	for name, enabled := range frameworkExtensions {
+	for name, enabled := range s.toolRegistry().PHPExtensions(environment) {
 		merged[name] = enabled
 	}
 	for name, enabled := range environment.PHPExtensions {
 		merged[name] = enabled
+	}
+	if len(merged) == 0 {
+		return environment
 	}
 	environment.PHPExtensions = config.NormalizePHPExtensions(merged)
 
@@ -826,6 +824,11 @@ func environmentWithInstallRequest(environment Environment, request tools.Instal
 	case toolMariaDB:
 		environment.MariaDBVersion = request.Version
 		if environment.Database != nil && strings.EqualFold(strings.TrimSpace(environment.Database.Engine), toolMariaDB) {
+			environment.Database.Version = request.Version
+		}
+	case toolPostgreSQL:
+		environment.PostgreSQLVersion = request.Version
+		if environment.Database != nil && strings.EqualFold(strings.TrimSpace(environment.Database.Engine), toolPostgreSQL) {
 			environment.Database.Version = request.Version
 		}
 	case toolSQLite:
@@ -1287,7 +1290,7 @@ func (s Store) readNamedEnvironmentFile(name string) (Environment, error) {
 }
 
 func (s Store) validateEnvironmentFramework(environment Environment) error {
-	return s.pluginRegistry().ValidateFramework(environment.Framework)
+	return s.pluginRegistry().ValidateEnvironment(environment)
 }
 
 func (s Store) writeConfig(loadedConfig Config) error {
@@ -1576,7 +1579,7 @@ func asYAMLStringMap(value any) (map[string]any, bool) {
 
 func knownToolVersionKey(key string) bool {
 	switch key {
-	case toolPHP, toolPHPZTS, toolFrankenPHP, toolComposer, toolPIE, toolNodeJS, toolMago, toolNginx, toolMySQL, toolMariaDB, toolSQLite, toolMailpit, toolPHPMyAdmin:
+	case toolPHP, toolPHPZTS, toolFrankenPHP, toolComposer, toolPIE, toolNodeJS, toolMago, toolNginx, toolMySQL, toolMariaDB, toolPostgreSQL, toolSQLite, toolMailpit, toolPHPMyAdmin:
 		return true
 	default:
 		return false

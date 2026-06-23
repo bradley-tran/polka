@@ -72,7 +72,7 @@ Framework init is config-only; it does not create app files, install tools, or s
 `
 
 const newUsage = `Usage:
-  polka new <name> [--php VERSION] [--composer VERSION] [--nodejs VERSION] [--db-engine mysql|mariadb --db-version VERSION [--db-port PORT]]
+  polka new <name> [--php VERSION] [--composer VERSION] [--nodejs VERSION] [--db-engine mysql|mariadb|postgresql --db-version VERSION [--db-port PORT]]
 
 Create a new named environment definition in polka.<name>.yaml.
 When omitted, --php defaults to 8.4, --composer defaults to 2.8, and --nodejs defaults to 24.

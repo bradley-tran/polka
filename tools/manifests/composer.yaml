@@ -1,4 +1,7 @@
 id: composer
+php-extensions:
+  - openssl
+  - zip
 install-candidates:
   windows-amd64:
     - bin/composer.cmd

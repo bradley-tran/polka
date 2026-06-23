@@ -17,7 +17,14 @@ var (
 func phpMyAdminPlugin() Plugin {
 	return newManifestPlugin(PHPMyAdmin, pluginHooks{
 		validate: func(environment config.Environment) error {
-			return validatePHPMyAdminConfig(environment.PHPMyAdmin)
+			if err := validatePHPMyAdminConfig(environment.PHPMyAdmin); err != nil {
+				return err
+			}
+			if environment.PHPMyAdmin != nil && environment.Database != nil && strings.EqualFold(strings.TrimSpace(environment.Database.Engine), PostgreSQL) {
+				return fmt.Errorf("phpmyadmin does not support database engine %q", PostgreSQL)
+			}
+
+			return nil
 		},
 		download: func(ctx DownloadContext) error {
 			return downloadPHPMyAdmin(ctx.Client, ctx.CacheDir, ctx.Version)

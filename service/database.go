@@ -21,6 +21,7 @@ import (
 const (
 	DatabaseListenHost                = "127.0.0.1"
 	DefaultDatabasePort               = 3306
+	DefaultPostgreSQLPort             = 5432
 	managedDatabasePollInterval       = 200 * time.Millisecond
 	managedDatabaseStartupTimeout     = 10 * time.Second
 	managedDatabaseShutdownTimeout    = 5 * time.Second
@@ -44,11 +45,16 @@ type ManagedDatabaseServerSpec struct {
 	Version          string
 	InstallDir       string
 	Target           string
+	InitializeTarget string
 	AdminTarget      string
+	CreateTarget     string
 	DataDir          string
 	LogPath          string
 	DefaultsFile     string
 	BootstrapSQLFile string
+	PasswordFile     string
+	BootstrapMarker  string
+	DatabaseName     string
 	Port             int
 }
 
@@ -259,11 +265,20 @@ func EnsureManagedDatabaseCredentialAssets(rootDir string, resolved ResolvedData
 	if err := writeManagedDatabaseCredentials(path, credentials); err != nil {
 		return ManagedDatabaseCredentials{}, err
 	}
-	if err := writeManagedDatabaseDefaultsFile(DatabaseDefaultsFilePath(rootDir, resolved.Environment.Name), credentials); err != nil {
-		return ManagedDatabaseCredentials{}, err
-	}
-	if err := writeManagedDatabaseBootstrapSQLFile(DatabaseBootstrapSQLPath(rootDir, resolved.Environment.Name), credentials); err != nil {
-		return ManagedDatabaseCredentials{}, err
+	if strings.EqualFold(resolved.Database.Engine, toolPostgreSQL) {
+		if err := writeManagedDatabasePasswordFile(DatabasePasswordFilePath(rootDir, resolved.Environment.Name), credentials); err != nil {
+			return ManagedDatabaseCredentials{}, err
+		}
+		if err := writeManagedDatabasePGPassFile(DatabasePGPassFilePath(rootDir, resolved.Environment.Name), credentials); err != nil {
+			return ManagedDatabaseCredentials{}, err
+		}
+	} else {
+		if err := writeManagedDatabaseDefaultsFile(DatabaseDefaultsFilePath(rootDir, resolved.Environment.Name), credentials); err != nil {
+			return ManagedDatabaseCredentials{}, err
+		}
+		if err := writeManagedDatabaseBootstrapSQLFile(DatabaseBootstrapSQLPath(rootDir, resolved.Environment.Name), credentials); err != nil {
+			return ManagedDatabaseCredentials{}, err
+		}
 	}
 
 	return credentials, nil
@@ -303,7 +318,9 @@ func InitializeDatabaseServer(spec ManagedDatabaseServerSpec) error {
 	defer logFile.Close()
 
 	initializeTarget := spec.Target
-	if spec.Engine == toolMariaDB {
+	if spec.Engine == toolPostgreSQL {
+		initializeTarget = spec.InitializeTarget
+	} else if spec.Engine == toolMariaDB {
 		initializeTarget, err = resolveDatabaseBootstrapTarget(spec.InstallDir, spec.Engine)
 		if err != nil {
 			return err
@@ -322,6 +339,11 @@ func InitializeDatabaseServer(spec ManagedDatabaseServerSpec) error {
 
 	if err := command.Run(); err != nil {
 		return fmt.Errorf("initialize %s data directory: %w (see %s)", spec.Engine, err, spec.LogPath)
+	}
+	if spec.Engine == toolPostgreSQL {
+		if err := os.WriteFile(spec.BootstrapMarker, []byte("pending\n"), 0o600); err != nil {
+			return fmt.Errorf("write postgresql bootstrap marker: %w", err)
+		}
 	}
 
 	return nil
@@ -351,6 +373,16 @@ func StartDatabaseServer(spec ManagedDatabaseServerSpec) (ManagedDatabaseStartRe
 	address := DatabaseAddress(spec.Port)
 	for time.Now().Before(deadline) {
 		if PingDatabaseAddress(address) {
+			if spec.Engine == toolPostgreSQL {
+				if err := bootstrapPostgreSQLDatabase(spec, logFile); err != nil {
+					if command.Process != nil {
+						_ = command.Process.Kill()
+						_ = command.Process.Release()
+					}
+					_ = logFile.Close()
+					return ManagedDatabaseStartResult{}, err
+				}
+			}
 			_ = logFile.Close()
 			_ = command.Process.Release()
 			return ManagedDatabaseStartResult{PID: pid}, nil
@@ -368,6 +400,40 @@ func StartDatabaseServer(spec ManagedDatabaseServerSpec) (ManagedDatabaseStartRe
 	return ManagedDatabaseStartResult{}, fmt.Errorf("%s server did not start listening on %s within %s (see %s)", spec.Engine, address, managedDatabaseStartupTimeout, spec.LogPath)
 }
 
+func bootstrapPostgreSQLDatabase(spec ManagedDatabaseServerSpec, logFile *os.File) error {
+	_, err := os.Stat(spec.BootstrapMarker)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("stat postgresql bootstrap marker: %w", err)
+	}
+
+	args := []string{
+		"--host=" + DatabaseListenHost,
+		"--port=" + strconv.Itoa(spec.Port),
+		"--username=" + ManagedDatabaseUserName,
+		"--maintenance-db=postgres",
+		"--encoding=UTF8",
+		spec.DatabaseName,
+	}
+	command, err := prepareDatabaseCommand(spec.CreateTarget, args)
+	if err != nil {
+		return err
+	}
+	command.Env = append(os.Environ(), "PGPASSFILE="+spec.DefaultsFile)
+	command.Stdout = logFile
+	command.Stderr = logFile
+	if err := command.Run(); err != nil {
+		return fmt.Errorf("create postgresql database %q: %w (see %s)", spec.DatabaseName, err, spec.LogPath)
+	}
+	if err := os.Remove(spec.BootstrapMarker); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove postgresql bootstrap marker: %w", err)
+	}
+
+	return nil
+}
+
 func StopDatabaseServer(state ManagedDatabaseRuntimeState) error {
 	address := DatabaseAddress(state.Port)
 	if !PingDatabaseAddress(address) {
@@ -376,7 +442,7 @@ func StopDatabaseServer(state ManagedDatabaseRuntimeState) error {
 	if strings.TrimSpace(state.AdminTarget) == "" {
 		return fmt.Errorf("database state for %q does not include an admin target", state.EnvironmentName)
 	}
-	if strings.TrimSpace(state.DefaultsFile) == "" {
+	if state.Engine != toolPostgreSQL && strings.TrimSpace(state.DefaultsFile) == "" {
 		return fmt.Errorf("database state for %q does not include a defaults file", state.EnvironmentName)
 	}
 
@@ -386,7 +452,11 @@ func StopDatabaseServer(state ManagedDatabaseRuntimeState) error {
 	}
 	defer logFile.Close()
 
-	command, err := prepareDatabaseCommand(state.AdminTarget, []string{"--defaults-extra-file=" + state.DefaultsFile, "shutdown"})
+	args := []string{"--defaults-extra-file=" + state.DefaultsFile, "shutdown"}
+	if state.Engine == toolPostgreSQL {
+		args = []string{"-D", state.DataDir, "stop", "-m", "fast", "-w", "-t", strconv.Itoa(int(managedDatabaseShutdownTimeout.Seconds()))}
+	}
+	command, err := prepareDatabaseCommand(state.AdminTarget, args)
 	if err != nil {
 		return err
 	}
@@ -410,6 +480,16 @@ func StopDatabaseServer(state ManagedDatabaseRuntimeState) error {
 }
 
 func DatabaseInitializeArgs(spec ManagedDatabaseServerSpec) []string {
+	if spec.Engine == toolPostgreSQL {
+		return []string{
+			"--pgdata=" + spec.DataDir,
+			"--username=" + ManagedDatabaseUserName,
+			"--pwfile=" + spec.PasswordFile,
+			"--auth-host=scram-sha-256",
+			"--auth-local=trust",
+			"--encoding=UTF8",
+		}
+	}
 	if spec.Engine == toolMariaDB {
 		return []string{
 			"--datadir=" + spec.DataDir,
@@ -425,6 +505,13 @@ func DatabaseInitializeArgs(spec ManagedDatabaseServerSpec) []string {
 }
 
 func DatabaseStartArgs(spec ManagedDatabaseServerSpec) []string {
+	if spec.Engine == toolPostgreSQL {
+		return []string{
+			"-D", spec.DataDir,
+			"-h", DatabaseListenHost,
+			"-p", strconv.Itoa(spec.Port),
+		}
+	}
 	args := []string{
 		"--basedir=" + spec.InstallDir,
 		"--datadir=" + spec.DataDir,
@@ -446,6 +533,17 @@ func DatabaseServerInitialized(spec ManagedDatabaseServerSpec) (bool, error) {
 	if err != nil || !initialized {
 		return initialized, err
 	}
+	if spec.Engine == toolPostgreSQL {
+		data, err := os.ReadFile(filepath.Join(spec.DataDir, "PG_VERSION"))
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		if err != nil {
+			return false, fmt.Errorf("read postgresql data version: %w", err)
+		}
+
+		return strings.TrimSpace(string(data)) != "", nil
+	}
 
 	entries, err := os.ReadDir(filepath.Join(spec.DataDir, "mysql"))
 	if errors.Is(err, os.ErrNotExist) {
@@ -459,6 +557,9 @@ func DatabaseServerInitialized(spec ManagedDatabaseServerSpec) (bool, error) {
 }
 
 func EffectiveDatabasePort(database *config.DatabaseConfig) int {
+	if database != nil && database.Port == 0 && strings.EqualFold(strings.TrimSpace(database.Engine), toolPostgreSQL) {
+		return DefaultPostgreSQLPort
+	}
 	if database == nil || database.Port == 0 {
 		return DefaultDatabasePort
 	}
@@ -468,6 +569,15 @@ func EffectiveDatabasePort(database *config.DatabaseConfig) int {
 
 func DatabaseAddress(port int) string {
 	return net.JoinHostPort(DatabaseListenHost, strconv.Itoa(port))
+}
+
+// DatabaseClientCommand returns the dispatch command for a database engine.
+func DatabaseClientCommand(engine string) string {
+	if strings.EqualFold(strings.TrimSpace(engine), toolPostgreSQL) {
+		return "psql"
+	}
+
+	return strings.ToLower(strings.TrimSpace(engine))
 }
 
 func PingDatabaseAddress(address string) bool {
@@ -545,6 +655,16 @@ func DatabaseDefaultsFilePath(rootDir, environmentName string) string {
 
 func DatabaseBootstrapSQLPath(rootDir, environmentName string) string {
 	return filepath.Join(rootDir, managedDatabaseSecretDirectory, managedDatabaseSecretSubdirectory, environmentName+".bootstrap.sql")
+}
+
+// DatabasePasswordFilePath returns the initdb password file for an environment.
+func DatabasePasswordFilePath(rootDir, environmentName string) string {
+	return filepath.Join(rootDir, managedDatabaseSecretDirectory, managedDatabaseSecretSubdirectory, environmentName, "password")
+}
+
+// DatabasePGPassFilePath returns the PostgreSQL client password file for an environment.
+func DatabasePGPassFilePath(rootDir, environmentName string) string {
+	return filepath.Join(rootDir, managedDatabaseSecretDirectory, managedDatabaseSecretSubdirectory, environmentName, "pgpass")
 }
 
 func LoadLiveManagedDatabaseState(rootDir, environmentName string, ping func(string) bool) (*ManagedDatabaseRuntimeState, error) {
@@ -655,6 +775,20 @@ func buildManagedDatabaseServerSpec(ctx Context, resolved ResolvedDatabaseEnviro
 	if err != nil {
 		return ManagedDatabaseServerSpec{}, err
 	}
+	initializeTarget := target
+	createTarget := ""
+	defaultsFile := DatabaseDefaultsFilePath(ctx.RootDir, resolved.Environment.Name)
+	if resolved.Database.Engine == toolPostgreSQL {
+		initializeTarget, err = resolveDatabaseInitializeTarget(ctx.EnvsDir, resolved.Database.Engine, resolved.Database.Version)
+		if err != nil {
+			return ManagedDatabaseServerSpec{}, err
+		}
+		createTarget, err = resolveDatabaseCreateTarget(ctx.EnvsDir, resolved.Database.Engine, resolved.Database.Version)
+		if err != nil {
+			return ManagedDatabaseServerSpec{}, err
+		}
+		defaultsFile = DatabasePGPassFilePath(ctx.RootDir, resolved.Environment.Name)
+	}
 
 	return ManagedDatabaseServerSpec{
 		EnvironmentName:  resolved.Environment.Name,
@@ -662,11 +796,16 @@ func buildManagedDatabaseServerSpec(ctx Context, resolved ResolvedDatabaseEnviro
 		Version:          resolved.Database.Version,
 		InstallDir:       installDir,
 		Target:           target,
+		InitializeTarget: initializeTarget,
 		AdminTarget:      adminTarget,
+		CreateTarget:     createTarget,
 		DataDir:          dataDir,
 		LogPath:          DatabaseEngineLogPath(ctx.RootDir, resolved.Database.Engine, resolved.Environment.Name),
-		DefaultsFile:     DatabaseDefaultsFilePath(ctx.RootDir, resolved.Environment.Name),
+		DefaultsFile:     defaultsFile,
 		BootstrapSQLFile: DatabaseBootstrapSQLPath(ctx.RootDir, resolved.Environment.Name),
+		PasswordFile:     DatabasePasswordFilePath(ctx.RootDir, resolved.Environment.Name),
+		BootstrapMarker:  filepath.Join(dataDir, ".polka-bootstrap"),
+		DatabaseName:     credentials.DatabaseName,
 		Port:             credentials.Port,
 	}, nil
 }
@@ -679,6 +818,16 @@ func resolveDatabaseServerTarget(envsDir, engine, version string) (string, error
 func resolveDatabaseAdminTarget(envsDir, engine, version string) (string, error) {
 	installDir := filepath.Join(envsDir, engine, version)
 	return resolveDatabaseToolTarget(installDir, engine, databaseAdminCandidates, "%s admin client version %q is not installed under %s", envsDir, version)
+}
+
+func resolveDatabaseInitializeTarget(envsDir, engine, version string) (string, error) {
+	installDir := filepath.Join(envsDir, engine, version)
+	return resolveDatabaseToolTarget(installDir, engine, databaseInitializeCandidates, "%s initialization utility version %q is not installed under %s", envsDir, version)
+}
+
+func resolveDatabaseCreateTarget(envsDir, engine, version string) (string, error) {
+	installDir := filepath.Join(envsDir, engine, version)
+	return resolveDatabaseToolTarget(installDir, engine, databaseCreateCandidates, "%s database creation utility version %q is not installed under %s", envsDir, version)
 }
 
 func resolveDatabaseToolTarget(installDir, engine string, candidates func(string, string) []string, message string, envsDir, version string) (string, error) {
@@ -726,6 +875,11 @@ func databaseServerCandidates(installDir, engine string) []string {
 				filepath.Join(installDir, "mysqld.cmd"),
 				filepath.Join(installDir, "mysqld.bat"),
 			}
+		case toolPostgreSQL:
+			return []string{
+				filepath.Join(installDir, "bin", "postgres.exe"),
+				filepath.Join(installDir, "postgres.exe"),
+			}
 		}
 	}
 
@@ -741,6 +895,11 @@ func databaseServerCandidates(installDir, engine string) []string {
 			filepath.Join(installDir, "bin", "mysqld"),
 			filepath.Join(installDir, "mariadbd"),
 			filepath.Join(installDir, "mysqld"),
+		}
+	case toolPostgreSQL:
+		return []string{
+			filepath.Join(installDir, "bin", "postgres"),
+			filepath.Join(installDir, "postgres"),
 		}
 	default:
 		return nil
@@ -774,6 +933,11 @@ func databaseAdminCandidates(installDir, engine string) []string {
 				filepath.Join(installDir, "mysqladmin.cmd"),
 				filepath.Join(installDir, "mysqladmin.bat"),
 			}
+		case toolPostgreSQL:
+			return []string{
+				filepath.Join(installDir, "bin", "pg_ctl.exe"),
+				filepath.Join(installDir, "pg_ctl.exe"),
+			}
 		}
 	}
 
@@ -789,6 +953,11 @@ func databaseAdminCandidates(installDir, engine string) []string {
 			filepath.Join(installDir, "bin", "mysqladmin"),
 			filepath.Join(installDir, "mariadb-admin"),
 			filepath.Join(installDir, "mysqladmin"),
+		}
+	case toolPostgreSQL:
+		return []string{
+			filepath.Join(installDir, "bin", "pg_ctl"),
+			filepath.Join(installDir, "pg_ctl"),
 		}
 	default:
 		return nil
@@ -822,6 +991,11 @@ func databaseDumpCandidates(installDir, engine string) []string {
 				filepath.Join(installDir, "mysqldump.cmd"),
 				filepath.Join(installDir, "mysqldump.bat"),
 			}
+		case toolPostgreSQL:
+			return []string{
+				filepath.Join(installDir, "bin", "pg_dump.exe"),
+				filepath.Join(installDir, "pg_dump.exe"),
+			}
 		}
 	}
 
@@ -838,9 +1012,36 @@ func databaseDumpCandidates(installDir, engine string) []string {
 			filepath.Join(installDir, "mariadb-dump"),
 			filepath.Join(installDir, "mysqldump"),
 		}
+	case toolPostgreSQL:
+		return []string{
+			filepath.Join(installDir, "bin", "pg_dump"),
+			filepath.Join(installDir, "pg_dump"),
+		}
 	default:
 		return nil
 	}
+}
+
+func databaseInitializeCandidates(installDir, engine string) []string {
+	if engine != toolPostgreSQL {
+		return nil
+	}
+	if runtime.GOOS == "windows" {
+		return []string{filepath.Join(installDir, "bin", "initdb.exe"), filepath.Join(installDir, "initdb.exe")}
+	}
+
+	return []string{filepath.Join(installDir, "bin", "initdb"), filepath.Join(installDir, "initdb")}
+}
+
+func databaseCreateCandidates(installDir, engine string) []string {
+	if engine != toolPostgreSQL {
+		return nil
+	}
+	if runtime.GOOS == "windows" {
+		return []string{filepath.Join(installDir, "bin", "createdb.exe"), filepath.Join(installDir, "createdb.exe")}
+	}
+
+	return []string{filepath.Join(installDir, "bin", "createdb"), filepath.Join(installDir, "createdb")}
 }
 
 func resolveDatabaseBootstrapTarget(installDir, engine string) (string, error) {
@@ -927,6 +1128,12 @@ func openDatabaseLog(logPath string) (*os.File, error) {
 }
 
 func detectDatabaseDataLayout(dataDir string) (string, error) {
+	if exists, err := pathExists(filepath.Join(dataDir, "PG_VERSION")); err != nil {
+		return "", err
+	} else if exists {
+		return toolPostgreSQL, nil
+	}
+
 	for _, marker := range []string{"#innodb_redo", "undo_001", "undo_002"} {
 		exists, err := pathExists(filepath.Join(dataDir, marker))
 		if err != nil {
@@ -993,6 +1200,22 @@ func writeManagedDatabaseBootstrapSQLFile(path string, credentials ManagedDataba
 	bootstrap := []byte(renderManagedDatabaseBootstrapSQL(credentials))
 	if err := writeManagedDatabaseSecretFile(path, bootstrap); err != nil {
 		return fmt.Errorf("write database bootstrap SQL %s: %w", path, err)
+	}
+
+	return nil
+}
+
+func writeManagedDatabasePasswordFile(path string, credentials ManagedDatabaseCredentials) error {
+	if err := writeManagedDatabaseSecretFile(path, []byte(credentials.Password+"\n")); err != nil {
+		return fmt.Errorf("write postgresql password file %s: %w", path, err)
+	}
+
+	return nil
+}
+
+func writeManagedDatabasePGPassFile(path string, credentials ManagedDatabaseCredentials) error {
+	if err := writeManagedDatabaseSecretFile(path, []byte(renderManagedDatabasePGPassFile(credentials))); err != nil {
+		return fmt.Errorf("write postgresql password file %s: %w", path, err)
 	}
 
 	return nil
@@ -1065,6 +1288,21 @@ func renderManagedDatabaseBootstrapSQL(credentials ManagedDatabaseCredentials) s
 	builder.WriteString("FLUSH PRIVILEGES;\n")
 
 	return builder.String()
+}
+
+func renderManagedDatabasePGPassFile(credentials ManagedDatabaseCredentials) string {
+	return strings.Join([]string{
+		escapePGPassField(DatabaseListenHost),
+		strconv.Itoa(credentials.Port),
+		"*",
+		escapePGPassField(credentials.User),
+		escapePGPassField(credentials.Password),
+	}, ":") + "\n"
+}
+
+func escapePGPassField(value string) string {
+	escaped := strings.ReplaceAll(value, "\\", "\\\\")
+	return strings.ReplaceAll(escaped, ":", "\\:")
 }
 
 func quoteDatabaseIdentifier(name string) string {

@@ -1,4 +1,8 @@
 id: codeigniter
+database-engines:
+  - mysql
+  - mariadb
+  - postgresql
 defaults:
   docroot: public
   tools:
@@ -24,10 +28,8 @@ php-extensions:
   - fileinfo
   - intl
   - mbstring
-  - mysqli
   - opcache
   - openssl
-  - pdo_mysql
   - zip
 runtime-env:
   database:

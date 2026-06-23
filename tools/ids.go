@@ -22,6 +22,8 @@ const (
 	PHPMyAdmin = "phpmyadmin"
 	MySQL      = "mysql"
 	MariaDB    = "mariadb"
+	PostgreSQL = "postgresql"
+	PSQL       = "psql"
 	SQLite     = "sqlite"
 )
 

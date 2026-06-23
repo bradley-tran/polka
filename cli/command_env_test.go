@@ -770,6 +770,22 @@ func TestRunNewUsesDefaultVersions(t *testing.T) {
 	}
 }
 
+func TestRunNewCreatesPostgreSQLEnvironment(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	args := []string{"--root", root, "new", "reporting", "--db-engine", "postgresql", "--db-version", "17", "--db-port", "5544"}
+	if code := Run(stdout, stderr, args); code != 0 {
+		t.Fatalf("Run(new postgresql) code = %d, stderr = %q", code, stderr.String())
+	}
+	environment := readTestEnvironmentConfig(t, projectDir, "reporting")
+	if environment.PostgreSQL != "17" || environment.Database == nil || environment.Database.Engine != "postgresql" || environment.Database.Version != "17" || environment.Database.Port != 5544 {
+		t.Fatalf("environment = %#v, want postgresql 17 on port 5544", environment)
+	}
+}
+
 func TestRunNewRejectsDefaultEnvironmentName(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")

@@ -42,6 +42,7 @@ Creates a named environment definition in `polka.<name>.yaml`.
 polka new blog
 polka new legacy --php 8.2 --composer 2.6 --nodejs 22
 polka new app --db-engine mariadb --db-version 11.8 --db-port 3306
+polka new reporting --db-engine postgresql --db-version 17 --db-port 5432
 ```
 
 When tool flags are omitted, Polka currently defaults to `php=8.4`, `composer=2.8`, and `nodejs=24`. Database settings require `--db-engine` and `--db-version` together. `--db-port` is optional.
@@ -57,6 +58,8 @@ polka config tools.frankenphp 1.12
 polka config server.type frankenphp
 polka config --env blog tools.mysql 8.0
 polka config --env blog database.engine mysql
+polka config --env reporting tools.postgresql 17
+polka config --env reporting database.engine postgresql
 polka config --env blog settings.mailpit.smtp-port 1025
 ```
 
@@ -187,9 +190,10 @@ polka logs nginx --level error
 polka logs frankenphp
 polka logs mailpit
 polka logs mariadb --level error
+polka logs postgresql --level error
 ```
 
-Manifest log paths are resolved under `.polka/run/<tool>/<environment>`. When `--level` is omitted, Polka prints `info`, `error`, and `debug` logs in that order. Missing log files are skipped. If no matching declared log file exists on disk, the command exits with an error. Built-in log declarations cover `nginx`, `frankenphp`, `mailpit`, `phpmyadmin`, `mysql`, and `mariadb`.
+Manifest log paths are resolved under `.polka/run/<tool>/<environment>`. When `--level` is omitted, Polka prints `info`, `error`, and `debug` logs in that order. Missing log files are skipped. If no matching declared log file exists on disk, the command exits with an error. Built-in log declarations cover `nginx`, `frankenphp`, `mailpit`, `phpmyadmin`, `mysql`, `mariadb`, and `postgresql`.
 
 ### `polka cert-install`
 
@@ -197,23 +201,24 @@ Clears and regenerates the global Polka CA/server certificate pair, then install
 
 ## Database Commands
 
-Polka dispatches database commands to the primary database selected by `database.engine` in the current environment. Managed database versions are stored as `tools.mysql` or `tools.mariadb`; shared options such as `database.port` live under the root-level `database` section.
+Polka dispatches database commands to the primary database selected by `database.engine` in the current environment. Managed database versions are stored as `tools.mysql`, `tools.mariadb`, or `tools.postgresql`; shared options such as `database.port` live under the root-level `database` section. PostgreSQL defaults to port `5432` and exposes `psql`; MySQL and MariaDB default to `3306`.
 
 ### `polka db [args...]`
 
-Forwards arguments to the active environment's database client. Polka injects connection options for the managed local server unless native connection options such as `--defaults-file`, `--host`, `--port`, `--socket`, or a non-TCP `--protocol` are provided.
+Forwards arguments to the active environment's database client. Polka injects connection options for the managed local server unless the equivalent native client options are provided. PostgreSQL connections use the generated `.pgpass` through `PGPASSFILE` rather than exposing the managed password in process arguments.
 
 ```bash
 polka db --version
 polka db --execute "show databases"
 polka db --db-name app_test --execute "show tables"
+polka db --db-name app_test --command "select current_database()"
 ```
 
 Use `polka db client [args...]` to force client dispatch when the first argument is a reserved Polka database subcommand such as `status`.
 
 ### `polka db start`
 
-Initializes the local database data directory if needed and starts the managed database server.
+Initializes the local database data directory if needed and starts the managed database server. PostgreSQL clusters use UTF-8, SCRAM host authentication, a generated `polka` superuser, and a database named after the active environment.
 
 ### `polka db stop`
 
@@ -225,7 +230,7 @@ Shows whether the managed database server is running and which address it uses.
 
 ### `polka db export <path.sql|path.sql.gz>`
 
-Dumps the selected database to a SQL file. Use `--db-name NAME` to target a database other than the default database named after the active environment.
+Dumps the selected database to a SQL file. Use `--db-name NAME` to target a database other than the default database named after the active environment. PostgreSQL exports are plain SQL without ownership or privilege statements.
 
 ### `polka db import <path.sql|path.sql.gz>`
 
@@ -239,13 +244,15 @@ The `frankenphp` tool key installs an official FrankenPHP release and creates `f
 
 The `pie` tool key installs PIE's stable `pie.phar` release and creates a `pie` command shim. Dispatching `pie` runs the PHAR through the environment's managed PHP executable.
 
-The `sqlite` tool key installs SQLite's command-line tools and creates a `sqlite3` command shim.
+The `sqlite` tool key installs SQLite's command-line tools, creates a `sqlite3` command shim, and enables `pdo_sqlite` and `sqlite3` for configured PHP runtimes.
+
+The `postgresql` tool key installs PostgreSQL, creates a `psql` command shim, and enables `pgsql` and `pdo_pgsql` for configured PHP runtimes. Windows uses EnterpriseDB's portable binaries; Linux amd64 uses the corresponding portable embedded PostgreSQL archive published through Maven Central because current EnterpriseDB releases no longer provide Linux binary archives.
 
 The `phpmyadmin` tool key installs the phpMyAdmin web app archive under `.polka/envs/phpmyadmin/<version>`, writes a generated `config.inc.php` with a fresh `blowfish_secret`, and uses managed database credentials to skip the phpMyAdmin login screen when a managed database is configured. Its UI `port` setting lives under `settings.phpmyadmin`. It inherits HTTPS and the selected nginx or FrankenPHP HTTPS provider from the environment. It does not create a command shim.
 
 The `mailpit` tool key installs Mailpit and creates a `mailpit` command shim. Its SMTP and UI port settings live under `settings.mailpit`.
 
-When an environment defines `php-extensions`, `opcache-preset`, `opcache-config`, or a framework with generated PHP defaults, `polka install` writes a generated `php.ini` next to the installed PHP executable. Framework PHP extension defaults are applied during install, and user-defined `php-extensions` entries override them, including `false` values that disable a framework default. Before writing `php.ini`, Polka checks `php -nm` and skips extensions that are already built into that PHP binary. If the effective extension config enables `curl` or `openssl`, Polka also configures `curl.cainfo` and `openssl.cafile` with a CA bundle. If `composer` is configured for that environment, `openssl` and `zip` are enabled by default unless the effective `php-extensions` config explicitly sets either one to `false`.
+When an environment defines `php-extensions`, configures a tool with PHP dependencies, selects `opcache-preset` or `opcache-config`, or uses a framework with generated PHP defaults, `polka install` writes a generated `php.ini` next to each configured PHP, PHP-ZTS, and FrankenPHP runtime. Extensions are merged in this order: framework requirements, every configured tool's requirements, then user-defined `php-extensions`. Explicit `false` values therefore disable framework or tool defaults. MySQL and MariaDB enable `mysqli` and `pdo_mysql`; PostgreSQL enables `pgsql` and `pdo_pgsql`; SQLite enables `pdo_sqlite` and `sqlite3`; Composer enables `openssl` and `zip`. Before writing `php.ini`, Polka checks `php -nm` and skips extensions that are already built into that PHP binary. If the effective extension config enables `curl` or `openssl`, Polka also configures `curl.cainfo` and `openssl.cafile` with a CA bundle.
 
 `opcache-preset` may be omitted, `none`, `dev`, or `production`. `dev` enables OPcache with timestamp validation and immediate revalidation. `production` enables OPcache with timestamp validation disabled. `opcache-config` accepts `opcache.*` directives and is applied over the preset; framework-provided directives, such as Drupal's `opcache.save_comments = 1`, sit between the preset and user config. Re-run `polka install` after changing PHP extension or OPcache settings.
 

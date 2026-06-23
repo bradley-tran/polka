@@ -35,7 +35,7 @@ func normalizeDatabaseEngine(engine string) (string, error) {
 	switch trimmed {
 	case "":
 		return "", nil
-	case MySQL, MariaDB:
+	case MySQL, MariaDB, PostgreSQL:
 		return trimmed, nil
 	default:
 		return "", fmt.Errorf("unsupported database engine %q", engine)
@@ -54,6 +54,8 @@ func resolveDatabaseDownloadAsset(client *http.Client, tool, requestedVersion, g
 		resolvedVersion, err = resolveMySQLReleaseVersion(client, requestedVersion)
 	case MariaDB:
 		resolvedVersion, err = resolveMariaDBReleaseVersion(client, requestedVersion)
+	case PostgreSQL:
+		resolvedVersion, err = resolvePostgreSQLReleaseVersion(client, requestedVersion)
 	default:
 		return "", databaseDownloadAsset{}, fmt.Errorf("unsupported database tool %q", tool)
 	}
@@ -66,7 +68,8 @@ func resolveDatabaseDownloadAsset(client *http.Client, tool, requestedVersion, g
 		return "", databaseDownloadAsset{}, err
 	}
 	asset, err := resolveManifestDownloadAsset(tool, manifest.Download.Assets, requestedVersion, resolvedVersion, resolvedVersion, goos, goarch, map[string]string{
-		"major_minor": versionMajorMinor(resolvedVersion),
+		"major_minor":   versionMajorMinor(resolvedVersion),
+		"maven_version": postgreSQLMavenVersion(resolvedVersion),
 	})
 	if err != nil {
 		return "", databaseDownloadAsset{}, err

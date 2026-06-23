@@ -119,7 +119,7 @@ func runDBClient(stdout, stderr io.Writer, store backend.Store, resolved dbResol
 		return 1
 	}
 
-	return runDispatch(stdout, stderr, append([]string{resolved.Database.Engine}, dispatchArgs...), store)
+	return runDispatch(stdout, stderr, append([]string{service.DatabaseClientCommand(resolved.Database.Engine)}, dispatchArgs...), store)
 }
 
 func runDBExport(stdout, stderr io.Writer, store backend.Store, resolved dbResolvedEnvironment, args []string) int {
@@ -135,13 +135,23 @@ func runDBExport(stdout, stderr io.Writer, store backend.Store, resolved dbResol
 		return 1
 	}
 
-	dumpArgs, err := injectDatabaseConnectionArgsWithDatabase(store.RootDir, resolved, nil, "", false)
+	dumpDatabaseName := ""
+	dumpDatabaseExplicit := false
+	if strings.EqualFold(resolved.Database.Engine, "postgresql") {
+		dumpDatabaseName = databaseName
+		dumpDatabaseExplicit = true
+	}
+	dumpArgs, err := injectDatabaseConnectionArgsWithDatabase(store.RootDir, resolved, nil, dumpDatabaseName, dumpDatabaseExplicit)
 	if err != nil {
 		_ = finalizeExport(false)
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
-	dumpArgs = append(dumpArgs, "--databases", databaseName, "--routines", "--events")
+	if strings.EqualFold(resolved.Database.Engine, "postgresql") {
+		dumpArgs = append(dumpArgs, "--format=plain", "--no-owner", "--no-privileges")
+	} else {
+		dumpArgs = append(dumpArgs, "--databases", databaseName, "--routines", "--events")
+	}
 
 	dumpTarget, err := service.ResolveDatabaseDumpTarget(store.EnvsDir, resolved.Database.Engine, resolved.Database.Version)
 	if err != nil {
@@ -193,6 +203,9 @@ func runDBImport(stdout, stderr io.Writer, store backend.Store, resolved dbResol
 		_ = closeImport()
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
+	}
+	if strings.EqualFold(resolved.Database.Engine, "postgresql") {
+		dispatchArgs = append(dispatchArgs, "--set=ON_ERROR_STOP=1")
 	}
 
 	target, err := store.ResolveTool(resolved.Database.Engine)
@@ -308,6 +321,10 @@ func injectDatabaseConnectionArgs(rootDir string, resolved dbResolvedEnvironment
 }
 
 func injectDatabaseConnectionArgsWithDatabase(rootDir string, resolved dbResolvedEnvironment, args []string, databaseName string, explicitDatabase bool) ([]string, error) {
+	if strings.EqualFold(strings.TrimSpace(resolved.Database.Engine), "postgresql") {
+		return injectPostgreSQLConnectionArgs(rootDir, resolved, args, databaseName, explicitDatabase)
+	}
+
 	hasDefaultsFile, hasHost, hasPort, hasSocket, hasProtocol, protocol, hasDatabase := databaseConnectionOverrides(args)
 	if explicitDatabase && hasDatabase {
 		return nil, fmt.Errorf("use either --db-name or native --database/-D, not both")
@@ -362,6 +379,72 @@ func injectDatabaseConnectionArgsWithDatabase(rootDir string, resolved dbResolve
 	}
 
 	return append(injected, args...), nil
+}
+
+func injectPostgreSQLConnectionArgs(rootDir string, resolved dbResolvedEnvironment, args []string, databaseName string, explicitDatabase bool) ([]string, error) {
+	hasHost, hasPort, hasUser, hasDatabase := postgreSQLConnectionOverrides(args)
+	if explicitDatabase && hasDatabase {
+		return nil, fmt.Errorf("use either --db-name or native --dbname/-d, not both")
+	}
+
+	state, err := service.LoadLiveManagedDatabaseStateForResolved(rootDir, resolved, pingDatabaseAddressFunc)
+	if err != nil {
+		return nil, err
+	}
+	credentials, err := service.EnsureManagedDatabaseCredentialAssets(rootDir, resolved)
+	if err != nil {
+		return nil, err
+	}
+	port := service.EffectiveDatabasePort(resolved.Database)
+	if state != nil && state.Port != 0 {
+		port = state.Port
+	}
+
+	injected := make([]string, 0, len(args)+4)
+	if !hasHost {
+		injected = append(injected, "--host="+dbListenHost)
+	}
+	if !hasPort {
+		injected = append(injected, "--port="+strconv.Itoa(port))
+	}
+	if !hasUser {
+		injected = append(injected, "--username="+credentials.User)
+	}
+	if !hasDatabase && strings.TrimSpace(databaseName) != "" {
+		injected = append(injected, "--dbname="+databaseName)
+	}
+
+	return append(injected, args...), nil
+}
+
+func postgreSQLConnectionOverrides(args []string) (hasHost, hasPort, hasUser, hasDatabase bool) {
+	for index := 0; index < len(args); index++ {
+		argument := strings.TrimSpace(args[index])
+		switch {
+		case argument == "--host" || argument == "-h":
+			hasHost = true
+			index++
+		case strings.HasPrefix(argument, "--host=") || strings.HasPrefix(argument, "-h") && len(argument) > 2:
+			hasHost = true
+		case argument == "--port" || argument == "-p":
+			hasPort = true
+			index++
+		case strings.HasPrefix(argument, "--port=") || strings.HasPrefix(argument, "-p") && len(argument) > 2:
+			hasPort = true
+		case argument == "--username" || argument == "-U":
+			hasUser = true
+			index++
+		case strings.HasPrefix(argument, "--username=") || strings.HasPrefix(argument, "-U") && len(argument) > 2:
+			hasUser = true
+		case argument == "--dbname" || argument == "-d":
+			hasDatabase = true
+			index++
+		case strings.HasPrefix(argument, "--dbname=") || strings.HasPrefix(argument, "-d") && len(argument) > 2:
+			hasDatabase = true
+		}
+	}
+
+	return hasHost, hasPort, hasUser, hasDatabase
 }
 
 func dbRuntimeHooks() service.DatabaseRuntimeHooks {

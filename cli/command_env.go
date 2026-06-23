@@ -93,7 +93,7 @@ func newNewCommand(ctx *commandContext) *cobra.Command {
 	cmd.Flags().StringVar(&input.PHPVersion, "php", defaultNewPHPVersion, "PHP version")
 	cmd.Flags().StringVar(&input.ComposerVersion, "composer", defaultNewComposerVersion, "Composer version")
 	cmd.Flags().StringVar(&input.NodeJSVersion, "nodejs", defaultNewNodeJSVersion, "Node.js version")
-	cmd.Flags().StringVar(&input.DatabaseEngine, "db-engine", "", "database engine (mysql or mariadb)")
+	cmd.Flags().StringVar(&input.DatabaseEngine, "db-engine", "", "database engine (mysql, mariadb, or postgresql)")
 	cmd.Flags().StringVar(&input.DatabaseVersion, "db-version", "", "database version")
 	cmd.Flags().IntVar(&input.DatabasePort, "db-port", 0, "database port")
 	configureCommand(cmd, newUsage)

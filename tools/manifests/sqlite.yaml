@@ -1,4 +1,7 @@
 id: sqlite
+php-extensions:
+  - pdo_sqlite
+  - sqlite3
 install-candidates:
   windows-amd64:
     - sqlite3.cmd

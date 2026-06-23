@@ -36,6 +36,7 @@ type testEnvironmentConfig struct {
 	Nginx         string                `yaml:"nginx,omitempty"`
 	MySQL         string                `yaml:"mysql,omitempty"`
 	MariaDB       string                `yaml:"mariadb,omitempty"`
+	PostgreSQL    string                `yaml:"postgresql,omitempty"`
 	SQLite        string                `yaml:"sqlite,omitempty"`
 	PHPMyAdmin    *testPHPMyAdminConfig `yaml:"phpmyadmin,omitempty"`
 	Docroot       string                `yaml:"docroot,omitempty"`
@@ -158,6 +159,7 @@ type testToolsConfig struct {
 	Nginx      string `yaml:"nginx,omitempty"`
 	MySQL      string `yaml:"mysql,omitempty"`
 	MariaDB    string `yaml:"mariadb,omitempty"`
+	PostgreSQL string `yaml:"postgresql,omitempty"`
 	SQLite     string `yaml:"sqlite,omitempty"`
 	Mailpit    string `yaml:"mailpit,omitempty"`
 	PHPMyAdmin string `yaml:"phpmyadmin,omitempty"`
@@ -358,6 +360,7 @@ func testEnvironmentFromParts(framework string, tools *testToolsConfig, settings
 		environment.Nginx = tools.Nginx
 		environment.MySQL = tools.MySQL
 		environment.MariaDB = tools.MariaDB
+		environment.PostgreSQL = tools.PostgreSQL
 		environment.SQLite = tools.SQLite
 		environment.Database = testDatabaseFromTools(tools, database)
 		environment = testPopulateDatabaseToolVersion(environment)
@@ -410,6 +413,7 @@ func testToolsFromEnvironment(environment testEnvironmentConfig) *testToolsConfi
 		Nginx:      environment.Nginx,
 		MySQL:      testDatabaseToolVersion(environment, "mysql"),
 		MariaDB:    testDatabaseToolVersion(environment, "mariadb"),
+		PostgreSQL: testDatabaseToolVersion(environment, "postgresql"),
 		SQLite:     environment.SQLite,
 		Mailpit:    testMailpitVersion(environment.Mailpit),
 		PHPMyAdmin: testPHPMyAdminVersion(environment.PHPMyAdmin),
@@ -424,6 +428,7 @@ func testToolsFromEnvironment(environment testEnvironmentConfig) *testToolsConfi
 		strings.TrimSpace(tools.Nginx) == "" &&
 		strings.TrimSpace(tools.MySQL) == "" &&
 		strings.TrimSpace(tools.MariaDB) == "" &&
+		strings.TrimSpace(tools.PostgreSQL) == "" &&
 		strings.TrimSpace(tools.SQLite) == "" &&
 		strings.TrimSpace(tools.Mailpit) == "" &&
 		strings.TrimSpace(tools.PHPMyAdmin) == "" {
@@ -511,6 +516,10 @@ func testDatabaseToolVersion(environment testEnvironmentConfig, engine string) s
 		if strings.TrimSpace(environment.MariaDB) != "" {
 			return environment.MariaDB
 		}
+	case "postgresql":
+		if strings.TrimSpace(environment.PostgreSQL) != "" {
+			return environment.PostgreSQL
+		}
 	default:
 		return ""
 	}
@@ -545,10 +554,12 @@ func testDatabaseFromTools(tools *testToolsConfig, database *testDatabaseConfig)
 	}
 	if strings.TrimSpace(merged.Engine) == "" {
 		switch {
-		case strings.TrimSpace(tools.MySQL) != "" && strings.TrimSpace(tools.MariaDB) == "":
+		case strings.TrimSpace(tools.MySQL) != "" && strings.TrimSpace(tools.MariaDB) == "" && strings.TrimSpace(tools.PostgreSQL) == "":
 			merged.Engine = "mysql"
-		case strings.TrimSpace(tools.MariaDB) != "" && strings.TrimSpace(tools.MySQL) == "":
+		case strings.TrimSpace(tools.MariaDB) != "" && strings.TrimSpace(tools.MySQL) == "" && strings.TrimSpace(tools.PostgreSQL) == "":
 			merged.Engine = "mariadb"
+		case strings.TrimSpace(tools.PostgreSQL) != "" && strings.TrimSpace(tools.MySQL) == "" && strings.TrimSpace(tools.MariaDB) == "":
+			merged.Engine = "postgresql"
 		}
 	}
 	switch strings.ToLower(strings.TrimSpace(merged.Engine)) {
@@ -559,6 +570,10 @@ func testDatabaseFromTools(tools *testToolsConfig, database *testDatabaseConfig)
 	case "mariadb":
 		if strings.TrimSpace(merged.Version) == "" {
 			merged.Version = tools.MariaDB
+		}
+	case "postgresql":
+		if strings.TrimSpace(merged.Version) == "" {
+			merged.Version = tools.PostgreSQL
 		}
 	}
 	if strings.TrimSpace(merged.Engine) == "" && strings.TrimSpace(merged.Version) == "" && merged.Port == 0 {
@@ -581,6 +596,10 @@ func testPopulateDatabaseToolVersion(environment testEnvironmentConfig) testEnvi
 	case "mariadb":
 		if strings.TrimSpace(environment.MariaDB) == "" {
 			environment.MariaDB = environment.Database.Version
+		}
+	case "postgresql":
+		if strings.TrimSpace(environment.PostgreSQL) == "" {
+			environment.PostgreSQL = environment.Database.Version
 		}
 	}
 

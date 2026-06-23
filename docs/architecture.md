@@ -62,13 +62,13 @@ This package exists to avoid import cycles. Both `backend` and `tools` can depen
 
 The `plugins` package owns Polka's higher-level built-in plugin registry. It groups installable tool plugins from `tools` with framework plugins such as `cakephp`, `codeigniter`, `drupal`, `wordpress`, `laravel`, and `symfony`.
 
-Framework plugins provide config defaults and optional hooks for PHP extensions, runtime environment variables, OPcache directives, post-Composer secret file generation, and nginx config generation. Built-in framework metadata lives in `plugins/manifests/*.yaml` and is embedded into the binary; the manifest data selects reusable Go strategies for framework-specific runtime environment and post-Composer behavior. In v1, framework init is config-only and framework nginx hooks delegate to the generic front-controller config.
+Framework plugins provide config defaults and optional hooks for framework-common PHP extensions, runtime environment variables, OPcache directives, post-Composer secret file generation, and nginx config generation. Database driver extensions belong to the configured database tool rather than the framework. Built-in framework metadata lives in `plugins/manifests/*.yaml` and is embedded into the binary; the manifest data selects reusable Go strategies for framework-specific runtime environment and post-Composer behavior. In v1, framework init is config-only and framework nginx hooks delegate to the generic front-controller config.
 
 ### `service`
 
 The `service` package owns long-running managed services:
 
-- managed MySQL and MariaDB server lifecycle, credentials, state, and data paths
+- managed MySQL, MariaDB, and PostgreSQL server lifecycle, credentials, state, and data paths
 - Mailpit server lifecycle, state, ports, and logs
 - phpMyAdmin service lifecycle, UI endpoint helpers, state, and managed database storage bootstrap
 - service matching against the active `tools.Registry`
@@ -79,9 +79,10 @@ Automatic service startup skips a configured service when its matching managed t
 
 The `tools` package owns managed tool behavior:
 
-- tool IDs such as `PHP`, `PHPZTS`, `FrankenPHP`, `Composer`, `PIE`, `NodeJS`, `Mago`, `Nginx`, `Mailpit`, `PHPMyAdmin`, `MySQL`, `MariaDB`, and `SQLite`
+- tool IDs such as `PHP`, `PHPZTS`, `FrankenPHP`, `Composer`, `PIE`, `NodeJS`, `Mago`, `Nginx`, `Mailpit`, `PHPMyAdmin`, `MySQL`, `MariaDB`, `PostgreSQL`, and `SQLite`
 - tool plugin interfaces and registry
 - embedded YAML manifests for built-in plugin metadata
+- PHP extension dependencies declared by tool manifests
 - install candidate paths
 - dispatch command mappings
 - download templates, release resolution, checksums, cache metadata, and archive extraction
@@ -96,7 +97,7 @@ The current plugin system is internal and compile-time only. Built-in tool metad
 
 1. `cli` resolves the requested environment name from `--env`, the active environment, or `default`.
 2. For an explicit `tool:version`, `cli` calls `backend.Store.InstallToolWithProgress`; otherwise it calls `backend.Store.InstallWithProgress`.
-3. `backend.Store` loads and normalizes `polka.yaml` for the default environment or `polka.<name>.yaml` for named environments, then validates the install request(s).
+3. `backend.Store` loads and normalizes `polka.yaml` for the default environment or `polka.<name>.yaml` for named environments, then validates the install request(s). It builds the effective PHP extension set from framework-common requirements, every configured tool's manifest requirements, and explicit environment overrides in that order.
 4. For each requested tool, `backend.Store` checks the global cache metadata and cached payload checksum.
 5. If the cache is missing or invalid, `tools.HTTPDownloader` invokes the matching plugin download hook.
 6. `backend.Store` installs from the cached payload into `.polka/envs/<tool>/<version>`; archive payloads are extracted on demand, while single-file payloads such as PHARs are placed at their expected install path.
@@ -118,7 +119,7 @@ Managed command shims in `.polka/bin` call back into Polka:
 
 Dispatch resolution uses the active environment recorded in `.polka/run/current`, or `default` from `polka.yaml` when no local override is selected. It maps command names to the configured provider, reads that environment's definition from `polka.yaml` or `polka.<name>.yaml`, and locates the installed executable under `.polka/envs`. The mutually exclusive `php` and `php-zts` tools both provide the standard `php` command; environment-aware dispatch selects the configured NTS or ZTS provider. PHAR tools such as Composer and PIE are launched through that managed PHP executable. After a successful dispatched `composer install`, `composer update`, or `composer create-project`, Polka runs the active framework's post-Composer hook so the framework can create or update local secret files from Polka-managed database credentials.
 
-Node.js is config-only as `nodejs`, but it exposes `node`, `npm`, and `npx` dispatch commands. The `nodejs` command itself is not generated as an active shim. PIE and Mago are configured with `pie` and `mago`, and expose matching dispatch commands. phpMyAdmin does not generate a command shim either; Polka installs its web app archive, writes its generated `config.inc.php`, reads managed database credentials from Polka's runtime secrets when a managed database is configured, and uses its UI port plus the environment's root-level HTTPS setting when the CLI starts the managed phpMyAdmin service.
+Node.js is config-only as `nodejs`, but it exposes `node`, `npm`, and `npx` dispatch commands. The `nodejs` command itself is not generated as an active shim. PostgreSQL is configured as `postgresql` and exposes `psql`. PIE and Mago are configured with `pie` and `mago`, and expose matching dispatch commands. phpMyAdmin does not generate a command shim either; Polka installs its web app archive, writes its generated `config.inc.php`, reads managed MySQL/MariaDB credentials from Polka's runtime secrets, and uses its UI port plus the environment's root-level HTTPS setting when the CLI starts the managed phpMyAdmin service. PostgreSQL/phpMyAdmin configurations are rejected.
 
 FrankenPHP exposes `frankenphp` and acts as the fallback provider for the shared `php` shim. A configured `php` or `php-zts` plugin wins provider selection; otherwise Windows dispatches the bundled `php.exe` and Linux uses a generated wrapper around `frankenphp php-cli`. `server.type: frankenphp` selects its generated Caddyfile runtime for `polka serve`; omitting `server.type` preserves the legacy nginx-when-configured, PHP-otherwise selection. Mixed standalone and FrankenPHP configs are allowed and produce a CLI warning because their PHP runtimes may differ. FrankenPHP installs receive the effective generated `php.ini`, selected at runtime through `PHPRC`; built-in modules are omitted from extension-loading directives.
 
@@ -133,7 +134,9 @@ Runtime services are split between `service` and `cli`:
 - Certificates remain CLI-managed assets and are passed to services through callback adapters.
 - Shell and session commands compose environment variables and `PATH` behavior around the active environment.
 
-The database tool plugins install and dispatch database clients, while database server lifecycle logic lives in `service`.
+The database tool plugins install and dispatch database clients, while database server lifecycle logic lives in `service`. PostgreSQL uses `initdb`, `postgres`, `createdb`, `pg_ctl`, `psql`, and `pg_dump`, with client authentication supplied through a project-local `.pgpass` file.
+
+PostgreSQL release labels are resolved from PostgreSQL's structured version index. Windows payloads use EnterpriseDB portable archives. Linux amd64 payloads unwrap the portable PostgreSQL tarball from the Zonky embedded-postgres Maven artifact because EnterpriseDB no longer publishes Linux binary archives for supported PostgreSQL versions.
 
 ## Dependency Rules
 

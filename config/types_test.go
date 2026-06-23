@@ -2,6 +2,26 @@ package config
 
 import "testing"
 
+func TestPostgreSQLToolAndDatabaseRoundTrip(t *testing.T) {
+	environment := Environment{
+		Name:              "demo",
+		PostgreSQLVersion: "17",
+		Database:          &DatabaseConfig{Engine: "postgresql", Version: "17", Port: 5544},
+	}
+	file := EnvironmentFileFromEnvironment(environment)
+	if file.Tools == nil || file.Tools.PostgreSQLVersion != "17" {
+		t.Fatalf("EnvironmentFileFromEnvironment().Tools = %#v, want postgresql 17", file.Tools)
+	}
+	if file.Database == nil || file.Database.Engine != "postgresql" || file.Database.Port != 5544 || file.Database.Version != "" {
+		t.Fatalf("EnvironmentFileFromEnvironment().Database = %#v, want postgresql runtime settings", file.Database)
+	}
+
+	roundTrip := EnvironmentFileToEnvironment("demo", file)
+	if roundTrip.PostgreSQLVersion != "17" || roundTrip.Database == nil || roundTrip.Database.Version != "17" {
+		t.Fatalf("EnvironmentFileToEnvironment() = %#v, want restored postgresql version", roundTrip)
+	}
+}
+
 func TestPHPZTSConfigRoundTrip(t *testing.T) {
 	environment := ProjectFileToEnvironment("default", ProjectFile{
 		Tools: &ToolsConfig{PHPZTSVersion: "8.4"},

@@ -82,6 +82,18 @@ opcache-config:
   opcache.enable_cli: "1"
 ```
 
+PostgreSQL is available as a managed alternative on Windows and Linux amd64. Its version label may be a major release such as `17`; Polka resolves that label to the newest available minor release while keeping the configured label stable.
+
+```yaml
+tools:
+  postgresql: "17"
+database:
+  engine: postgresql
+  port: 5432
+```
+
+PostgreSQL exposes the `psql` shim and is supported by the CakePHP, CodeIgniter, Drupal, Laravel, and Symfony integrations. WordPress and phpMyAdmin are MySQL-family only, so Polka rejects either pairing with PostgreSQL.
+
 ```yaml
 # polka.legacy.yaml
 tools:
@@ -116,7 +128,7 @@ server:
 
 Polka resolves those versions against the local install layout under `.polka/envs`:
 
-Framework presets apply their default PHP extensions during install. User-defined `php-extensions` entries override those defaults, including `false` values that disable an extension. `opcache-preset` accepts `none`, `dev`, or `production`; `opcache-config` accepts `opcache.*` directives applied over the preset and any framework defaults. Re-run `polka install` after changing PHP extension or OPcache settings so Polka can regenerate `php.ini`.
+Framework presets and configured tools apply their required PHP extensions during install. Tool requirements include database drivers and Composer's `openssl` and `zip` extensions. User-defined `php-extensions` entries override those defaults, including `false` values that disable an extension. `opcache-preset` accepts `none`, `dev`, or `production`; `opcache-config` accepts `opcache.*` directives applied over the preset and any framework defaults. Re-run `polka install` after changing PHP extension or OPcache settings so Polka can regenerate `php.ini`.
 
 ```text
 .polka/

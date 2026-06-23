@@ -47,6 +47,8 @@ func setDatabaseToolVersion(environment Environment, database *DatabaseConfig) E
 		environment.MySQLVersion = strings.TrimSpace(database.Version)
 	case toolMariaDB:
 		environment.MariaDBVersion = strings.TrimSpace(database.Version)
+	case toolPostgreSQL:
+		environment.PostgreSQLVersion = strings.TrimSpace(database.Version)
 	}
 
 	return environment
@@ -57,7 +59,7 @@ func normalizeDatabaseEngine(engine string) (string, error) {
 	switch trimmed {
 	case "":
 		return "", nil
-	case toolMySQL, toolMariaDB:
+	case toolMySQL, toolMariaDB, toolPostgreSQL:
 		return trimmed, nil
 	default:
 		return "", fmt.Errorf("unsupported database engine %q", engine)

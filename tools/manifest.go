@@ -24,6 +24,7 @@ type pluginHooks struct {
 
 type pluginManifest struct {
 	ID                 string                           `yaml:"id"`
+	PHPExtensions      []string                         `yaml:"php-extensions"`
 	InstallCandidates  manifestPlatformPaths            `yaml:"install-candidates"`
 	DispatchCommands   []string                         `yaml:"dispatch-commands"`
 	CleanupCommands    []string                         `yaml:"cleanup-commands"`
@@ -99,6 +100,7 @@ func parsePluginManifest(data []byte) (pluginManifest, error) {
 	if err := manifest.validate(); err != nil {
 		return pluginManifest{}, err
 	}
+	manifest.PHPExtensions = normalizeManifestPHPExtensions(manifest.PHPExtensions)
 
 	return manifest, nil
 }
@@ -110,6 +112,11 @@ func (m pluginManifest) validate() error {
 	}
 	if !validName.MatchString(id) {
 		return fmt.Errorf("invalid tool manifest id %q: use letters, numbers, dots, dashes, or underscores", m.ID)
+	}
+	for index, extension := range m.PHPExtensions {
+		if err := validatePHPExtensionName(extension); err != nil {
+			return fmt.Errorf("tool manifest %q php-extensions[%d]: %w", id, index, err)
+		}
 	}
 	if len(m.InstallCandidates) == 0 {
 		return fmt.Errorf("tool manifest %q requires install-candidates", id)
@@ -283,6 +290,7 @@ func (m pluginManifest) toPlugin(hooks pluginHooks) (Plugin, error) {
 	return builtinPlugin{
 		id:                 manifestID,
 		version:            manifestVersionFunc(m),
+		phpExtensions:      manifestPHPExtensionMap(m.PHPExtensions),
 		validate:           hooks.validate,
 		installCandidates:  manifestInstallCandidatesFunc(m),
 		dispatchCommands:   normalizeCommands(m.DispatchCommands),
@@ -328,7 +336,7 @@ func manifestVersionFunc(m pluginManifest) func(config.Environment) string {
 				return ""
 			}
 			return environment.PHPMyAdmin.Version
-		case MySQL, MariaDB:
+		case MySQL, MariaDB, PostgreSQL:
 			return config.DatabaseToolVersion(environment, id)
 		default:
 			return ""

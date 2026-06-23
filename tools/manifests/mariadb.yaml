@@ -1,4 +1,7 @@
 id: mariadb
+php-extensions:
+  - mysqli
+  - pdo_mysql
 install-candidates:
   windows-amd64:
     - bin/mariadb.cmd

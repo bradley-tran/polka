@@ -15,12 +15,13 @@ import (
 var builtinFrameworkManifestFiles embed.FS
 
 type frameworkManifest struct {
-	ID            string                        `yaml:"id"`
-	Defaults      config.EnvironmentFile        `yaml:"defaults"`
-	PHPExtensions []string                      `yaml:"php-extensions"`
-	OPcacheConfig map[string]string             `yaml:"opcache-config"`
-	RuntimeEnv    frameworkRuntimeEnvManifest   `yaml:"runtime-env"`
-	PostComposer  frameworkPostComposerManifest `yaml:"post-composer"`
+	ID              string                        `yaml:"id"`
+	Defaults        config.EnvironmentFile        `yaml:"defaults"`
+	PHPExtensions   []string                      `yaml:"php-extensions"`
+	DatabaseEngines []string                      `yaml:"database-engines"`
+	OPcacheConfig   map[string]string             `yaml:"opcache-config"`
+	RuntimeEnv      frameworkRuntimeEnvManifest   `yaml:"runtime-env"`
+	PostComposer    frameworkPostComposerManifest `yaml:"post-composer"`
 }
 
 type frameworkRuntimeEnvManifest struct {
@@ -87,6 +88,7 @@ func parseFrameworkManifest(data []byte) (frameworkManifest, error) {
 	manifest.RuntimeEnv.Database = normalizeRuntimeDatabaseManifest(manifest.RuntimeEnv.Database)
 	manifest.PostComposer = normalizePostComposerManifest(manifest.ID, manifest.PostComposer)
 	manifest.OPcacheConfig = config.NormalizeOPcacheConfig(manifest.OPcacheConfig)
+	manifest.DatabaseEngines = normalizeManifestStrings(manifest.DatabaseEngines)
 
 	return manifest, nil
 }
@@ -112,7 +114,6 @@ func (m frameworkManifest) validate() error {
 	if err := validateFrameworkPostComposerManifest(id, m.PostComposer); err != nil {
 		return err
 	}
-
 	return nil
 }
 
@@ -232,10 +233,26 @@ func (m frameworkManifest) toPlugin() (FrameworkPlugin, error) {
 		id:              strings.ToLower(strings.TrimSpace(m.ID)),
 		defaults:        config.NormalizeEnvironment("", defaults),
 		phpExtensions:   phpExtensionMap(m.PHPExtensions...),
+		databaseEngines: stringSet(m.DatabaseEngines),
 		opcacheConfig:   config.NormalizeOPcacheConfig(m.OPcacheConfig),
 		runtimeDatabase: m.RuntimeEnv.Database,
 		postComposer:    m.PostComposer,
 	}, nil
+}
+
+func stringSet(values []string) map[string]bool {
+	if len(values) == 0 {
+		return nil
+	}
+
+	set := make(map[string]bool, len(values))
+	for _, value := range values {
+		if normalized := strings.ToLower(strings.TrimSpace(value)); normalized != "" {
+			set[normalized] = true
+		}
+	}
+
+	return set
 }
 
 func frameworkManifestRuntimeEnv(ctx RuntimeEnvContext, database frameworkRuntimeDatabaseManifest) map[string]string {

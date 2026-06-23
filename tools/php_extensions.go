@@ -13,8 +13,6 @@ import (
 	"polka/config"
 )
 
-var composerDefaultExtensions = []string{"openssl", "zip"}
-
 // PHPInstallConfig is the effective generated php.ini content for an environment.
 type PHPInstallConfig struct {
 	Extensions    map[string]bool
@@ -36,21 +34,33 @@ func EffectivePHPConfigForInstall(environment config.Environment) PHPInstallConf
 }
 
 func EffectivePHPExtensionsForInstall(environment config.Environment) map[string]bool {
-	if environment.ComposerVersion == "" {
-		return environment.PHPExtensions
-	}
+	return config.NormalizePHPExtensions(environment.PHPExtensions)
+}
 
-	effective := make(map[string]bool, len(environment.PHPExtensions)+len(composerDefaultExtensions))
-	for name, enabled := range environment.PHPExtensions {
-		effective[name] = enabled
-	}
-	for _, name := range composerDefaultExtensions {
-		if _, ok := effective[name]; !ok {
-			effective[name] = true
+func normalizeManifestPHPExtensions(extensions []string) []string {
+	normalized := make([]string, 0, len(extensions))
+	seen := make(map[string]struct{}, len(extensions))
+	for _, extension := range extensions {
+		name := strings.ToLower(strings.TrimSpace(extension))
+		if _, exists := seen[name]; exists {
+			continue
 		}
+		seen[name] = struct{}{}
+		normalized = append(normalized, name)
+	}
+	return normalized
+}
+
+func manifestPHPExtensionMap(extensions []string) map[string]bool {
+	if len(extensions) == 0 {
+		return nil
 	}
 
-	return effective
+	result := make(map[string]bool, len(extensions))
+	for _, extension := range extensions {
+		result[extension] = true
+	}
+	return result
 }
 
 // EffectiveOPcacheConfigForInstall overlays explicit directives over the selected preset.

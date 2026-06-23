@@ -1,4 +1,7 @@
 id: wordpress
+database-engines:
+  - mysql
+  - mariadb
 defaults:
   docroot: .
   tools:
@@ -24,10 +27,8 @@ php-extensions:
   - iconv
   - intl
   - mbstring
-  - mysqli
   - opcache
   - openssl
-  - pdo_mysql
   - shmop
   - simplexml
   - sockets

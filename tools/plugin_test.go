@@ -23,6 +23,7 @@ func TestDefaultRegistryInstallRequestsUseConfiguredToolOrder(t *testing.T) {
 		Mailpit:           &config.MailpitConfig{Version: "1.30"},
 		MySQLVersion:      "8.4",
 		MariaDBVersion:    "11.8",
+		PostgreSQLVersion: "17",
 		SQLiteVersion:     "3.53",
 		Database:          &config.DatabaseConfig{Engine: MariaDB, Version: "11.8"},
 	}
@@ -45,6 +46,7 @@ func TestDefaultRegistryInstallRequestsUseConfiguredToolOrder(t *testing.T) {
 		"phpmyadmin:5.2",
 		"mysql:8.4",
 		"mariadb:11.8",
+		"postgresql:17",
 		"sqlite:3.53",
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -193,6 +195,10 @@ func (p testPlugin) ID() string {
 
 func (p testPlugin) Version(config.Environment) string {
 	return ""
+}
+
+func (p testPlugin) PHPExtensions() map[string]bool {
+	return nil
 }
 
 func (p testPlugin) Validate(config.Environment) error {

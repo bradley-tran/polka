@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
@@ -21,11 +22,14 @@ const (
 const (
 	defaultMariaDBVersion = "11.8"
 	defaultDatabasePort   = 3306
+	defaultPostgreSQLPort = 5432
 	defaultDatabaseHost   = "127.0.0.1"
 )
 
 // DatabaseCredentials is the framework-safe shape of generated database credentials.
 type DatabaseCredentials struct {
+	Engine       string
+	Version      string
 	Host         string
 	Port         int
 	DatabaseName string
@@ -73,6 +77,7 @@ type FrameworkPlugin interface {
 	ID() string
 	Defaults() config.Environment
 	PHPExtensions() map[string]bool
+	ValidateEnvironment(config.Environment) error
 	OPcacheConfig() map[string]string
 	RuntimeEnv(RuntimeEnvContext) map[string]string
 	PostComposer(PostComposerContext) error
@@ -83,6 +88,7 @@ type builtinFrameworkPlugin struct {
 	id              string
 	defaults        config.Environment
 	phpExtensions   map[string]bool
+	databaseEngines map[string]bool
 	opcacheConfig   map[string]string
 	runtimeDatabase frameworkRuntimeDatabaseManifest
 	postComposer    frameworkPostComposerManifest
@@ -115,6 +121,19 @@ func (p builtinFrameworkPlugin) Defaults() config.Environment {
 
 func (p builtinFrameworkPlugin) PHPExtensions() map[string]bool {
 	return copyBoolMap(p.phpExtensions)
+}
+
+// ValidateEnvironment rejects database engines unsupported by this framework.
+func (p builtinFrameworkPlugin) ValidateEnvironment(environment config.Environment) error {
+	if environment.Database == nil || len(p.databaseEngines) == 0 {
+		return nil
+	}
+	engine := strings.ToLower(strings.TrimSpace(environment.Database.Engine))
+	if engine == "" || p.databaseEngines[engine] {
+		return nil
+	}
+
+	return fmt.Errorf("framework %q does not support database engine %q", p.id, engine)
 }
 
 func (p builtinFrameworkPlugin) OPcacheConfig() map[string]string {
@@ -186,7 +205,7 @@ func frameworkDatabaseRuntimeEnv(ctx RuntimeEnvContext, includeLaravelConnection
 	}
 	port := ctx.Database.Port
 	if port == 0 {
-		port = defaultDatabasePort
+		port = frameworkDefaultDatabasePort(ctx.Database.Engine)
 	}
 
 	values := map[string]string{
@@ -197,7 +216,11 @@ func frameworkDatabaseRuntimeEnv(ctx RuntimeEnvContext, includeLaravelConnection
 		"DB_PASSWORD": ctx.Database.Password,
 	}
 	if includeLaravelConnection {
-		values["DB_CONNECTION"] = "mysql"
+		if isPostgreSQL(ctx.Database.Engine) {
+			values["DB_CONNECTION"] = "pgsql"
+		} else {
+			values["DB_CONNECTION"] = "mysql"
+		}
 	}
 	if includeSymfonyDatabaseURL {
 		values["DATABASE_URL"] = symfonyDatabaseURL(ctx, host, port)
@@ -213,13 +236,18 @@ func codeIgniterDatabaseRuntimeEnv(ctx RuntimeEnvContext) map[string]string {
 		return nil
 	}
 
+	driver := "MySQLi"
+	if isPostgreSQL(credentials.Engine) {
+		driver = "Postgre"
+	}
+
 	return map[string]string{
 		"database.default.hostname": credentials.Host,
 		"database.default.port":     strconv.Itoa(credentials.Port),
 		"database.default.database": credentials.DatabaseName,
 		"database.default.username": credentials.User,
 		"database.default.password": credentials.Password,
-		"database.default.DBDriver": "MySQLi",
+		"database.default.DBDriver": driver,
 	}
 }
 
@@ -228,12 +256,18 @@ func symfonyDatabaseURL(ctx RuntimeEnvContext, host string, port int) string {
 	user := url.UserPassword(ctx.Database.User, ctx.Database.Password).String()
 	databaseName := strings.TrimPrefix(url.PathEscape(ctx.Database.DatabaseName), "/")
 	serverVersion := symfonyDatabaseServerVersion(ctx.Environment)
-	values := url.Values{"charset": []string{"utf8mb4"}}
+	scheme := "mysql"
+	charset := "utf8mb4"
+	if isPostgreSQL(ctx.Database.Engine) {
+		scheme = "postgresql"
+		charset = "utf8"
+	}
+	values := url.Values{"charset": []string{charset}}
 	if serverVersion != "" {
 		values.Set("serverVersion", serverVersion)
 	}
 
-	return "mysql://" + user + "@" + host + ":" + strconv.Itoa(port) + "/" + databaseName + "?" + values.Encode()
+	return scheme + "://" + user + "@" + host + ":" + strconv.Itoa(port) + "/" + databaseName + "?" + values.Encode()
 }
 
 // symfonyDatabaseServerVersion converts Polka's database selection to Doctrine's serverVersion value.
@@ -261,7 +295,24 @@ func symfonyDatabaseServerVersion(environment config.Environment) string {
 			return "mysql"
 		}
 		return version
+	case tools.PostgreSQL:
+		if version == "" {
+			version = strings.TrimSpace(environment.PostgreSQLVersion)
+		}
+		return version
 	default:
 		return ""
 	}
+}
+
+func frameworkDefaultDatabasePort(engine string) int {
+	if isPostgreSQL(engine) {
+		return defaultPostgreSQLPort
+	}
+
+	return defaultDatabasePort
+}
+
+func isPostgreSQL(engine string) bool {
+	return strings.EqualFold(strings.TrimSpace(engine), tools.PostgreSQL)
 }

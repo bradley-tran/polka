@@ -26,6 +26,7 @@ type ToolsConfig struct {
 	NginxVersion      string `yaml:"nginx,omitempty"`
 	MySQLVersion      string `yaml:"mysql,omitempty"`
 	MariaDBVersion    string `yaml:"mariadb,omitempty"`
+	PostgreSQLVersion string `yaml:"postgresql,omitempty"`
 	SQLiteVersion     string `yaml:"sqlite,omitempty"`
 	MailpitVersion    string `yaml:"mailpit,omitempty"`
 	PHPMyAdminVersion string `yaml:"phpmyadmin,omitempty"`
@@ -95,6 +96,7 @@ type Environment struct {
 	NginxVersion      string            `yaml:"nginx,omitempty"`
 	MySQLVersion      string            `yaml:"mysql,omitempty"`
 	MariaDBVersion    string            `yaml:"mariadb,omitempty"`
+	PostgreSQLVersion string            `yaml:"postgresql,omitempty"`
 	SQLiteVersion     string            `yaml:"sqlite,omitempty"`
 	Docroot           string            `yaml:"docroot,omitempty"`
 	HTTPS             bool              `yaml:"https,omitempty"`
@@ -270,6 +272,7 @@ func ToolsConfigFromEnvironment(environment Environment) *ToolsConfig {
 		NginxVersion:      environment.NginxVersion,
 		MySQLVersion:      DatabaseToolVersion(environment, "mysql"),
 		MariaDBVersion:    DatabaseToolVersion(environment, "mariadb"),
+		PostgreSQLVersion: DatabaseToolVersion(environment, "postgresql"),
 		SQLiteVersion:     environment.SQLiteVersion,
 		MailpitVersion:    ToolVersionFromMailpitConfig(environment.Mailpit),
 		PHPMyAdminVersion: ToolVersionFromPHPMyAdminConfig(environment.PHPMyAdmin),
@@ -375,6 +378,7 @@ func (tools ToolsConfig) IsZero() bool {
 		strings.TrimSpace(tools.NginxVersion) == "" &&
 		strings.TrimSpace(tools.MySQLVersion) == "" &&
 		strings.TrimSpace(tools.MariaDBVersion) == "" &&
+		strings.TrimSpace(tools.PostgreSQLVersion) == "" &&
 		strings.TrimSpace(tools.SQLiteVersion) == "" &&
 		strings.TrimSpace(tools.MailpitVersion) == "" &&
 		strings.TrimSpace(tools.PHPMyAdminVersion) == ""
@@ -411,6 +415,7 @@ func environmentFromFileParts(name string, framework string, tools *ToolsConfig,
 		environment.NginxVersion = tools.NginxVersion
 		environment.MySQLVersion = tools.MySQLVersion
 		environment.MariaDBVersion = tools.MariaDBVersion
+		environment.PostgreSQLVersion = tools.PostgreSQLVersion
 		environment.SQLiteVersion = tools.SQLiteVersion
 		environment.Database = PrimaryDatabaseConfigFromTools(tools, database)
 		environment = populateDatabaseToolVersion(environment)
@@ -461,6 +466,10 @@ func populateDatabaseToolVersion(environment Environment) Environment {
 		if strings.TrimSpace(environment.MariaDBVersion) == "" {
 			environment.MariaDBVersion = environment.Database.Version
 		}
+	case "postgresql":
+		if strings.TrimSpace(environment.PostgreSQLVersion) == "" {
+			environment.PostgreSQLVersion = environment.Database.Version
+		}
 	}
 
 	return environment
@@ -476,6 +485,10 @@ func DatabaseToolVersion(environment Environment, engine string) string {
 	case "mariadb":
 		if strings.TrimSpace(environment.MariaDBVersion) != "" {
 			return environment.MariaDBVersion
+		}
+	case "postgresql":
+		if strings.TrimSpace(environment.PostgreSQLVersion) != "" {
+			return environment.PostgreSQLVersion
 		}
 	default:
 		return ""
@@ -516,10 +529,12 @@ func PrimaryDatabaseConfigFromTools(tools *ToolsConfig, database *DatabaseConfig
 	}
 	if merged.Engine == "" {
 		switch {
-		case strings.TrimSpace(tools.MySQLVersion) != "" && strings.TrimSpace(tools.MariaDBVersion) == "":
+		case strings.TrimSpace(tools.MySQLVersion) != "" && strings.TrimSpace(tools.MariaDBVersion) == "" && strings.TrimSpace(tools.PostgreSQLVersion) == "":
 			merged.Engine = "mysql"
-		case strings.TrimSpace(tools.MariaDBVersion) != "" && strings.TrimSpace(tools.MySQLVersion) == "":
+		case strings.TrimSpace(tools.MariaDBVersion) != "" && strings.TrimSpace(tools.MySQLVersion) == "" && strings.TrimSpace(tools.PostgreSQLVersion) == "":
 			merged.Engine = "mariadb"
+		case strings.TrimSpace(tools.PostgreSQLVersion) != "" && strings.TrimSpace(tools.MySQLVersion) == "" && strings.TrimSpace(tools.MariaDBVersion) == "":
+			merged.Engine = "postgresql"
 		}
 	}
 	if merged.Version == "" {
@@ -528,6 +543,8 @@ func PrimaryDatabaseConfigFromTools(tools *ToolsConfig, database *DatabaseConfig
 			merged.Version = tools.MySQLVersion
 		case "mariadb":
 			merged.Version = tools.MariaDBVersion
+		case "postgresql":
+			merged.Version = tools.PostgreSQLVersion
 		}
 	}
 
@@ -548,6 +565,7 @@ func NormalizeEnvironment(name string, environment Environment) Environment {
 		NginxVersion:      strings.TrimSpace(environment.NginxVersion),
 		MySQLVersion:      strings.TrimSpace(environment.MySQLVersion),
 		MariaDBVersion:    strings.TrimSpace(environment.MariaDBVersion),
+		PostgreSQLVersion: strings.TrimSpace(environment.PostgreSQLVersion),
 		SQLiteVersion:     strings.TrimSpace(environment.SQLiteVersion),
 		Docroot:           strings.TrimSpace(environment.Docroot),
 		HTTPS:             environment.HTTPS,

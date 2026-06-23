@@ -183,6 +183,8 @@ func normalizeDatabaseCredentials(credentials *DatabaseCredentials) *DatabaseCre
 	}
 
 	normalized := &DatabaseCredentials{
+		Engine:       strings.ToLower(strings.TrimSpace(credentials.Engine)),
+		Version:      strings.TrimSpace(credentials.Version),
 		Host:         strings.TrimSpace(credentials.Host),
 		Port:         credentials.Port,
 		DatabaseName: strings.TrimSpace(credentials.DatabaseName),
@@ -193,7 +195,7 @@ func normalizeDatabaseCredentials(credentials *DatabaseCredentials) *DatabaseCre
 		normalized.Host = defaultWordPressDatabaseHost
 	}
 	if normalized.Port == 0 {
-		normalized.Port = defaultWordPressDatabasePort
+		normalized.Port = frameworkDefaultDatabasePort(normalized.Engine)
 	}
 	if normalized.DatabaseName == "" || normalized.User == "" {
 		return nil
@@ -371,15 +373,21 @@ func cakePHPRawConfigValue(value string) cakePHPConfigValue {
 }
 
 func cakePHPDatasourceConfigs(credentials *DatabaseCredentials) map[string]map[string]cakePHPConfigValue {
+	driver := "Cake\\Database\\Driver\\Mysql"
+	encoding := "utf8mb4"
+	if isPostgreSQL(credentials.Engine) {
+		driver = "Cake\\Database\\Driver\\Postgres"
+		encoding = "utf8"
+	}
 	config := map[string]cakePHPConfigValue{
 		"className": cakePHPStringConfigValue("Cake\\Database\\Connection"),
-		"driver":    cakePHPStringConfigValue("Cake\\Database\\Driver\\Mysql"),
+		"driver":    cakePHPStringConfigValue(driver),
 		"host":      cakePHPStringConfigValue(credentials.Host),
 		"port":      cakePHPStringConfigValue(strconv.Itoa(credentials.Port)),
 		"username":  cakePHPStringConfigValue(credentials.User),
 		"password":  cakePHPStringConfigValue(credentials.Password),
 		"database":  cakePHPStringConfigValue(credentials.DatabaseName),
-		"encoding":  cakePHPStringConfigValue("utf8mb4"),
+		"encoding":  cakePHPStringConfigValue(encoding),
 		"url":       cakePHPRawConfigValue("null"),
 	}
 
@@ -711,6 +719,14 @@ func ensureDrupalPolkaInclude(path string) error {
 }
 
 func renderDrupalPolkaSettings(credentials *DatabaseCredentials) string {
+	namespace := "Drupal\\\\mysql\\\\Driver\\\\Database\\\\mysql"
+	driver := "mysql"
+	autoload := "core/modules/mysql/src/Driver/Database/mysql/"
+	if isPostgreSQL(credentials.Engine) {
+		namespace = "Drupal\\\\pgsql\\\\Driver\\\\Database\\\\pgsql"
+		driver = "pgsql"
+		autoload = "core/modules/pgsql/src/Driver/Database/pgsql/"
+	}
 	return strings.Join([]string{
 		"<?php",
 		"",
@@ -722,9 +738,9 @@ func renderDrupalPolkaSettings(credentials *DatabaseCredentials) string {
 		"  'prefix' => '',",
 		"  'host' => " + phpSingleQuotedString(credentials.Host) + ",",
 		"  'port' => " + phpSingleQuotedString(strconv.Itoa(credentials.Port)) + ",",
-		"  'namespace' => 'Drupal\\\\mysql\\\\Driver\\\\Database\\\\mysql',",
-		"  'driver' => 'mysql',",
-		"  'autoload' => 'core/modules/mysql/src/Driver/Database/mysql/',",
+		"  'namespace' => '" + namespace + "',",
+		"  'driver' => '" + driver + "',",
+		"  'autoload' => '" + autoload + "',",
 		"];",
 		"",
 	}, "\n")

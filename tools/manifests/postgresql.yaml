@@ -1,0 +1,26 @@
+id: postgresql
+php-extensions:
+  - pgsql
+  - pdo_pgsql
+install-candidates:
+  windows-amd64:
+    - bin/psql.exe
+    - psql.exe
+  linux-amd64:
+    - bin/psql
+    - psql
+dispatch-commands:
+  - psql
+logs:
+  error:
+    - server.log
+download:
+  assets:
+    windows-amd64:
+      filename: postgresql-{version}-1-windows-x64-binaries.zip
+      url: https://get.enterprisedb.com/postgresql/postgresql-{version}-1-windows-x64-binaries.zip
+      archive-format: zip
+    linux-amd64:
+      filename: embedded-postgres-binaries-linux-amd64-{maven_version}.jar
+      url: https://repo1.maven.org/maven2/io/zonky/test/postgres/embedded-postgres-binaries-linux-amd64/{maven_version}/embedded-postgres-binaries-linux-amd64-{maven_version}.jar
+      archive-format: zip

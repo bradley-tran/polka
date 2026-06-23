@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"polka/config"
 	"polka/tools"
 )
 
@@ -129,4 +130,16 @@ func (r *Registry) ValidateFramework(id string) error {
 	}
 
 	return nil
+}
+
+// ValidateEnvironment validates framework-specific compatibility constraints.
+func (r *Registry) ValidateEnvironment(environment config.Environment) error {
+	if err := r.ValidateFramework(environment.Framework); err != nil {
+		return err
+	}
+	if strings.TrimSpace(environment.Framework) == "" {
+		return nil
+	}
+	plugin, _ := r.Framework(environment.Framework)
+	return plugin.ValidateEnvironment(environment)
 }

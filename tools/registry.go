@@ -54,6 +54,7 @@ type LogEntry struct {
 type ToolPlugin interface {
 	ID() string
 	Version(config.Environment) string
+	PHPExtensions() map[string]bool
 	Validate(config.Environment) error
 	InstallCandidates(root, version string) []string
 	DispatchCommands() []string
@@ -189,6 +190,29 @@ func (r *Registry) InstallRequests(environment config.Environment) []InstallRequ
 	return requests
 }
 
+// PHPExtensions returns the union of extensions required by configured tools.
+func (r *Registry) PHPExtensions(environment config.Environment) map[string]bool {
+	if r == nil {
+		return nil
+	}
+
+	extensions := map[string]bool{}
+	for _, plugin := range r.plugins {
+		if plugin.Version(environment) == "" {
+			continue
+		}
+		for name, enabled := range plugin.PHPExtensions() {
+			if enabled {
+				extensions[name] = true
+			}
+		}
+	}
+	if len(extensions) == 0 {
+		return nil
+	}
+	return extensions
+}
+
 func (r *Registry) ResolveDispatchRequest(tool string) (DispatchRequest, error) {
 	if r == nil {
 		return DispatchRequest{}, fmt.Errorf("tool registry is not configured")
@@ -321,6 +345,7 @@ func uniqueToolCommands(plugins []ToolPlugin, commandList func(ToolPlugin) []str
 type builtinPlugin struct {
 	id                 string
 	version            func(config.Environment) string
+	phpExtensions      map[string]bool
 	validate           func(config.Environment) error
 	installCandidates  func(root, version string) []string
 	dispatchCommands   []string
@@ -342,6 +367,19 @@ func (p builtinPlugin) Version(environment config.Environment) string {
 	}
 
 	return strings.TrimSpace(p.version(environment))
+}
+
+// PHPExtensions returns a defensive copy of the extensions required by the tool.
+func (p builtinPlugin) PHPExtensions() map[string]bool {
+	if len(p.phpExtensions) == 0 {
+		return nil
+	}
+
+	extensions := make(map[string]bool, len(p.phpExtensions))
+	for name, enabled := range p.phpExtensions {
+		extensions[name] = enabled
+	}
+	return extensions
 }
 
 func (p builtinPlugin) Validate(environment config.Environment) error {

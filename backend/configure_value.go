@@ -159,6 +159,8 @@ func applyToolConfigValue(environment *Environment, path []string, value string)
 		environment.MySQLVersion = version
 	case toolMariaDB:
 		environment.MariaDBVersion = version
+	case toolPostgreSQL:
+		environment.PostgreSQLVersion = version
 	case toolSQLite:
 		environment.SQLiteVersion = version
 	case toolMailpit:
@@ -341,17 +343,22 @@ func normalizeConfigValueEnvironment(environment Environment) Environment {
 	switch strings.ToLower(strings.TrimSpace(database.Engine)) {
 	case "":
 		switch {
-		case strings.TrimSpace(environment.MySQLVersion) != "" && strings.TrimSpace(environment.MariaDBVersion) == "":
+		case strings.TrimSpace(environment.MySQLVersion) != "" && strings.TrimSpace(environment.MariaDBVersion) == "" && strings.TrimSpace(environment.PostgreSQLVersion) == "":
 			database.Engine = toolMySQL
 			database.Version = strings.TrimSpace(environment.MySQLVersion)
-		case strings.TrimSpace(environment.MariaDBVersion) != "" && strings.TrimSpace(environment.MySQLVersion) == "":
+		case strings.TrimSpace(environment.MariaDBVersion) != "" && strings.TrimSpace(environment.MySQLVersion) == "" && strings.TrimSpace(environment.PostgreSQLVersion) == "":
 			database.Engine = toolMariaDB
 			database.Version = strings.TrimSpace(environment.MariaDBVersion)
+		case strings.TrimSpace(environment.PostgreSQLVersion) != "" && strings.TrimSpace(environment.MySQLVersion) == "" && strings.TrimSpace(environment.MariaDBVersion) == "":
+			database.Engine = toolPostgreSQL
+			database.Version = strings.TrimSpace(environment.PostgreSQLVersion)
 		}
 	case toolMySQL:
 		database.Version = strings.TrimSpace(environment.MySQLVersion)
 	case toolMariaDB:
 		database.Version = strings.TrimSpace(environment.MariaDBVersion)
+	case toolPostgreSQL:
+		database.Version = strings.TrimSpace(environment.PostgreSQLVersion)
 	}
 	environment.Database = config.NormalizeDatabaseConfig(&database)
 

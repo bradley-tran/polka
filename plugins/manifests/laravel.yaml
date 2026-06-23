@@ -1,4 +1,8 @@
 id: laravel
+database-engines:
+  - mysql
+  - mariadb
+  - postgresql
 defaults:
   docroot: public
   tools:
@@ -27,10 +31,8 @@ php-extensions:
   - gd
   - intl
   - mbstring
-  - mysqli
   - opcache
   - openssl
-  - pdo_mysql
   - pdo_sqlite
   - simplexml
   - sqlite3
