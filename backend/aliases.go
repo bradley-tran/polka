@@ -38,6 +38,7 @@ const (
 	toolNPX        = tools.NPX
 	toolMago       = tools.Mago
 	toolNginx      = tools.Nginx
+	toolApache     = tools.Apache
 	toolMailpit    = tools.Mailpit
 	toolPHPMyAdmin = tools.PHPMyAdmin
 	toolMySQL      = tools.MySQL

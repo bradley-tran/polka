@@ -34,6 +34,7 @@ type testEnvironmentConfig struct {
 	NodeJS        string                `yaml:"nodejs,omitempty"`
 	Mago          string                `yaml:"mago,omitempty"`
 	Nginx         string                `yaml:"nginx,omitempty"`
+	Apache        string                `yaml:"apache,omitempty"`
 	MySQL         string                `yaml:"mysql,omitempty"`
 	MariaDB       string                `yaml:"mariadb,omitempty"`
 	PostgreSQL    string                `yaml:"postgresql,omitempty"`
@@ -157,6 +158,7 @@ type testToolsConfig struct {
 	NodeJS     string `yaml:"nodejs,omitempty"`
 	Mago       string `yaml:"mago,omitempty"`
 	Nginx      string `yaml:"nginx,omitempty"`
+	Apache     string `yaml:"apache,omitempty"`
 	MySQL      string `yaml:"mysql,omitempty"`
 	MariaDB    string `yaml:"mariadb,omitempty"`
 	PostgreSQL string `yaml:"postgresql,omitempty"`
@@ -358,6 +360,7 @@ func testEnvironmentFromParts(framework string, tools *testToolsConfig, settings
 		environment.NodeJS = tools.NodeJS
 		environment.Mago = tools.Mago
 		environment.Nginx = tools.Nginx
+		environment.Apache = tools.Apache
 		environment.MySQL = tools.MySQL
 		environment.MariaDB = tools.MariaDB
 		environment.PostgreSQL = tools.PostgreSQL
@@ -411,6 +414,7 @@ func testToolsFromEnvironment(environment testEnvironmentConfig) *testToolsConfi
 		NodeJS:     environment.NodeJS,
 		Mago:       environment.Mago,
 		Nginx:      environment.Nginx,
+		Apache:     environment.Apache,
 		MySQL:      testDatabaseToolVersion(environment, "mysql"),
 		MariaDB:    testDatabaseToolVersion(environment, "mariadb"),
 		PostgreSQL: testDatabaseToolVersion(environment, "postgresql"),
@@ -426,6 +430,7 @@ func testToolsFromEnvironment(environment testEnvironmentConfig) *testToolsConfi
 		strings.TrimSpace(tools.NodeJS) == "" &&
 		strings.TrimSpace(tools.Mago) == "" &&
 		strings.TrimSpace(tools.Nginx) == "" &&
+		strings.TrimSpace(tools.Apache) == "" &&
 		strings.TrimSpace(tools.MySQL) == "" &&
 		strings.TrimSpace(tools.MariaDB) == "" &&
 		strings.TrimSpace(tools.PostgreSQL) == "" &&

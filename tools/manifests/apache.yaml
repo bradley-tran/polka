@@ -1,0 +1,35 @@
+id: apache
+install-candidates:
+  windows-amd64:
+    - Apache24/bin/httpd.exe
+    - bin/httpd.exe
+    - httpd.exe
+  linux-amd64:
+    - bin/httpd
+    - httpd
+dispatch-commands:
+  - apache
+  - httpd
+dispatch-candidates:
+  httpd:
+    windows-amd64:
+      - Apache24/bin/httpd.exe
+      - bin/httpd.exe
+      - httpd.exe
+    linux-amd64:
+      - bin/httpd
+      - httpd
+logs:
+  info:
+    - logs/access.log
+  error:
+    - logs/error.log
+  debug:
+    - serve.log
+    - php.log
+download:
+  assets:
+    windows-amd64:
+      filename: httpd-{version}-{build}-Win64-VS{vs}.zip
+      url: https://www.apachelounge.com/download/VS{vs}/binaries/httpd-{version}-{build}-Win64-VS{vs}.zip
+      archive-format: zip

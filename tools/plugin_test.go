@@ -19,6 +19,7 @@ func TestDefaultRegistryInstallRequestsUseConfiguredToolOrder(t *testing.T) {
 		NodeJSVersion:     "24",
 		MagoVersion:       "1.27",
 		NginxVersion:      "1.30",
+		ApacheVersion:     "2.4",
 		PHPMyAdmin:        &config.PHPMyAdminConfig{Version: "5.2", Port: 8081, HTTPS: true},
 		Mailpit:           &config.MailpitConfig{Version: "1.30"},
 		MySQLVersion:      "8.4",
@@ -42,6 +43,7 @@ func TestDefaultRegistryInstallRequestsUseConfiguredToolOrder(t *testing.T) {
 		"nodejs:24",
 		"mago:1.27",
 		"nginx:1.30",
+		"apache:2.4",
 		"mailpit:1.30",
 		"phpmyadmin:5.2",
 		"mysql:8.4",
@@ -85,6 +87,21 @@ func TestDefaultRegistryKeepsNodeJSConfigOnly(t *testing.T) {
 	cleanup := registry.CleanupCommandNames()
 	if !containsString(cleanup, NodeJS) {
 		t.Fatalf("CleanupCommandNames() = %#v, want legacy nodejs cleanup entry", cleanup)
+	}
+}
+
+func TestDefaultRegistryResolvesApacheDispatchCommands(t *testing.T) {
+	registry := NewDefaultRegistry()
+	environment := config.Environment{ApacheVersion: "2.4"}
+
+	for _, command := range []string{Apache, "httpd"} {
+		request, err := registry.ResolveDispatchRequestForEnvironment(command, environment)
+		if err != nil {
+			t.Fatalf("ResolveDispatchRequestForEnvironment(%s) error = %v", command, err)
+		}
+		if request.ConfigTool != Apache || request.Executable != command {
+			t.Fatalf("request for %s = %#v, want apache/%s", command, request, command)
+		}
 	}
 }
 

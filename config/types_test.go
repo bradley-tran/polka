@@ -59,6 +59,25 @@ func TestFrankenPHPAndServerTypeConfigRoundTrip(t *testing.T) {
 	}
 }
 
+func TestApacheAndServerTypeConfigRoundTrip(t *testing.T) {
+	environment := ProjectFileToEnvironment("default", ProjectFile{
+		Tools:  &ToolsConfig{ApacheVersion: " 2.4 "},
+		Server: &ServerConfig{Type: " Apache "},
+	})
+	normalized := NormalizeEnvironment("default", environment)
+	if normalized.ApacheVersion != "2.4" || normalized.Server == nil || normalized.Server.Type != ServerTypeApache {
+		t.Fatalf("NormalizeEnvironment() = %#v, want Apache 2.4 server", normalized)
+	}
+
+	file := ProjectFileFromEnvironment(1, ".polka", normalized)
+	if file.Tools == nil || file.Tools.ApacheVersion != "2.4" {
+		t.Fatalf("ProjectFileFromEnvironment() tools = %#v, want Apache 2.4", file.Tools)
+	}
+	if file.Server == nil || file.Server.Type != ServerTypeApache {
+		t.Fatalf("ProjectFileFromEnvironment() server = %#v, want apache type", file.Server)
+	}
+}
+
 func TestPHPCLIProviderFallsBackToFrankenPHP(t *testing.T) {
 	tool, version := PHPCLIProvider(Environment{FrankenPHPVersion: "1.12"})
 	if tool != ServerTypeFrankenPHP || version != "1.12" {

@@ -79,7 +79,7 @@ Automatic service startup skips a configured service when its matching managed t
 
 The `tools` package owns managed tool behavior:
 
-- tool IDs such as `PHP`, `PHPZTS`, `FrankenPHP`, `Composer`, `PIE`, `NodeJS`, `Mago`, `Nginx`, `Mailpit`, `PHPMyAdmin`, `MySQL`, `MariaDB`, `PostgreSQL`, and `SQLite`
+- tool IDs such as `PHP`, `PHPZTS`, `FrankenPHP`, `Composer`, `PIE`, `NodeJS`, `Mago`, `Nginx`, `Apache`, `Mailpit`, `PHPMyAdmin`, `MySQL`, `MariaDB`, `PostgreSQL`, and `SQLite`
 - tool plugin interfaces and registry
 - embedded YAML manifests for built-in plugin metadata
 - PHP extension dependencies declared by tool manifests
@@ -121,16 +121,16 @@ Dispatch resolution uses the active environment recorded in `.polka/run/current`
 
 Node.js is config-only as `nodejs`, but it exposes `node`, `npm`, and `npx` dispatch commands. The `nodejs` command itself is not generated as an active shim. PostgreSQL is configured as `postgresql` and exposes `psql`. PIE and Mago are configured with `pie` and `mago`, and expose matching dispatch commands. phpMyAdmin does not generate a command shim either; Polka installs its web app archive, writes its generated `config.inc.php`, reads managed MySQL/MariaDB credentials from Polka's runtime secrets, and uses its UI port plus the environment's root-level HTTPS setting when the CLI starts the managed phpMyAdmin service. PostgreSQL/phpMyAdmin configurations are allowed with a warning, and phpMyAdmin's managed login/storage integration is skipped for PostgreSQL.
 
-FrankenPHP exposes `frankenphp` and acts as the fallback provider for the shared `php` shim. A configured `php` or `php-zts` plugin wins provider selection; otherwise Windows dispatches the bundled `php.exe` and Linux uses a generated wrapper around `frankenphp php-cli`. `server.type: frankenphp` selects its generated Caddyfile runtime for `polka serve`; omitting `server.type` preserves the legacy nginx-when-configured, PHP-otherwise selection. Mixed standalone and FrankenPHP configs are allowed and produce a CLI warning because their PHP runtimes may differ. FrankenPHP installs receive the effective generated `php.ini`, selected at runtime through `PHPRC`; built-in modules are omitted from extension-loading directives.
+FrankenPHP exposes `frankenphp` and acts as the fallback provider for the shared `php` shim. A configured `php` or `php-zts` plugin wins provider selection; otherwise Windows dispatches the bundled `php.exe` and Linux uses a generated wrapper around `frankenphp php-cli`. `server.type: frankenphp` selects its generated Caddyfile runtime for `polka serve`; omitting `server.type` preserves the legacy nginx-when-configured, PHP-otherwise selection. Apache is configured as `apache`, exposes `apache` and `httpd`, and is selected only by `server.type: apache`; its runtime uses generated Apache config plus a managed `php-cgi` FastCGI backend. Mixed standalone and FrankenPHP configs are allowed and produce a CLI warning because their PHP runtimes may differ. FrankenPHP installs receive the effective generated `php.ini`, selected at runtime through `PHPRC`; built-in modules are omitted from extension-loading directives.
 
 ## Runtime Services
 
 Runtime services are split between `service` and `cli`:
 
-- PHP built-in server, nginx, and FrankenPHP serving remain command/runtime concerns in `cli`.
+- PHP built-in server, nginx, Apache, and FrankenPHP serving remain command/runtime concerns in `cli`.
 - Managed database lifecycle is in `service`.
 - Mailpit startup, shutdown, and status are in `service`, with CLI adapters for command output and test hooks.
-- phpMyAdmin startup, shutdown, status, and managed MySQL/MariaDB storage import are in `service`; CLI supplies the PHP/nginx web runtime callbacks.
+- phpMyAdmin startup, shutdown, status, and managed MySQL/MariaDB storage import are in `service`; CLI supplies the PHP/nginx/Apache/FrankenPHP web runtime callbacks.
 - Certificates remain CLI-managed assets and are passed to services through callback adapters.
 - Shell and session commands compose environment variables and `PATH` behavior around the active environment.
 

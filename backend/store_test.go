@@ -549,7 +549,7 @@ func TestStoreInstallsAndConfiguresFrankenPHP(t *testing.T) {
 	if environment.FrankenPHPVersion != "1.12" || environment.Server == nil || environment.Server.Type != "frankenphp" {
 		t.Fatalf("configured environment = %#v, want FrankenPHP server", environment)
 	}
-	if _, err := store.ConfigureValue("demo", "server.type", "apache"); err == nil || !strings.Contains(err.Error(), "unsupported server type") {
+	if _, err := store.ConfigureValue("demo", "server.type", "caddy"); err == nil || !strings.Contains(err.Error(), "unsupported server type") {
 		t.Fatalf("ConfigureValue(invalid server.type) error = %v, want validation error", err)
 	}
 }
@@ -1131,6 +1131,27 @@ func TestStoreConfigureValueSetsPIEToolVersion(t *testing.T) {
 	}
 }
 
+func TestStoreConfigureValueSetsApacheToolAndServerType(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+
+	environment, err := store.ConfigureValue("demo", "tools.apache", "2.4")
+	if err != nil {
+		t.Fatalf("ConfigureValue(tools.apache) error = %v", err)
+	}
+	if environment.ApacheVersion != "2.4" {
+		t.Fatalf("environment.ApacheVersion = %q, want 2.4", environment.ApacheVersion)
+	}
+
+	environment, err = store.ConfigureValue("demo", "server.type", " Apache ")
+	if err != nil {
+		t.Fatalf("ConfigureValue(server.type) error = %v", err)
+	}
+	if environment.Server == nil || environment.Server.Type != "apache" {
+		t.Fatalf("environment.Server = %#v, want apache type", environment.Server)
+	}
+}
+
 func TestStoreConfigureValueValidatesBeforeWrite(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
@@ -1466,6 +1487,119 @@ func TestStoreInstallDownloadsConfiguredNginx(t *testing.T) {
 	}
 	assertPathExists(t, filepath.Join(store.BinDir, toolNginx))
 	assertPathExists(t, filepath.Join(store.BinDir, toolNginx+".cmd"))
+}
+
+func TestStoreInstallDownloadsConfiguredApache(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+	store.Downloader = fakeDownloader(func(cacheDir, tool, version string) error {
+		_ = writeCachedTool(t, cacheDir, tool, version)
+		return nil
+	})
+
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{ApacheVersion: "2.4"}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	results, err := store.Install("demo")
+	if err != nil {
+		t.Fatalf("Install(demo) error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("Install(demo) length = %d, want 1", len(results))
+	}
+	result := results[0]
+	if result.Tool != toolApache || result.Version != "2.4" {
+		t.Fatalf("Install(demo) result = %#v, want apache 2.4", result)
+	}
+	if !result.Downloaded {
+		t.Fatalf("Install(demo) Downloaded = false, want true after cache miss")
+	}
+	assertPathExists(t, result.TargetPath)
+	if !strings.Contains(result.TargetPath, filepath.Join("envs", toolApache, "2.4")) {
+		t.Fatalf("Install(demo) target = %q, want versioned apache env path", result.TargetPath)
+	}
+
+	if err := store.Use("demo"); err != nil {
+		t.Fatalf("Use(demo) error = %v", err)
+	}
+	resolvedPath, err := store.ResolveTool(toolApache)
+	if err != nil {
+		t.Fatalf("ResolveTool(apache) error = %v", err)
+	}
+	if resolvedPath != result.TargetPath {
+		t.Fatalf("ResolveTool(apache) = %q, want %q", resolvedPath, result.TargetPath)
+	}
+	httpdPath, err := store.ResolveTool("httpd")
+	if err != nil {
+		t.Fatalf("ResolveTool(httpd) error = %v", err)
+	}
+	if httpdPath != result.TargetPath {
+		t.Fatalf("ResolveTool(httpd) = %q, want %q", httpdPath, result.TargetPath)
+	}
+	assertPathExists(t, filepath.Join(store.BinDir, toolApache))
+	assertPathExists(t, filepath.Join(store.BinDir, toolApache+".cmd"))
+	assertPathExists(t, filepath.Join(store.BinDir, "httpd"))
+	assertPathExists(t, filepath.Join(store.BinDir, "httpd"+".cmd"))
+}
+
+func TestStoreInstallDownloadsApacheLoungeLayout(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Apache Lounge archive layout is Windows-specific")
+	}
+
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+	store.Downloader = fakeDownloader(func(cacheDir, tool, version string) error {
+		files := map[string][]byte{
+			"ReadMe.txt":                  []byte("apache lounge readme\n"),
+			"Apache24/bin/httpd.exe":      []byte("placeholder\n"),
+			"Apache24/modules/mod_ssl.so": []byte("placeholder\n"),
+		}
+		_ = writeCachedArchivePayload(t, cacheDir, tool, version, files)
+		return nil
+	})
+
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{ApacheVersion: "2.4"}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	results, err := store.Install("demo")
+	if err != nil {
+		t.Fatalf("Install(demo) error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("Install(demo) length = %d, want 1", len(results))
+	}
+
+	wantTarget := filepath.Join(store.EnvsDir, toolApache, "2.4", "Apache24", "bin", "httpd.exe")
+	if results[0].TargetPath != wantTarget {
+		t.Fatalf("Install(demo) target = %q, want Apache Lounge executable %q", results[0].TargetPath, wantTarget)
+	}
+
+	if err := store.Use("demo"); err != nil {
+		t.Fatalf("Use(demo) error = %v", err)
+	}
+	resolvedPath, err := store.ResolveTool(toolApache)
+	if err != nil {
+		t.Fatalf("ResolveTool(apache) error = %v", err)
+	}
+	if resolvedPath != wantTarget {
+		t.Fatalf("ResolveTool(apache) = %q, want %q", resolvedPath, wantTarget)
+	}
+	httpdPath, err := store.ResolveTool("httpd")
+	if err != nil {
+		t.Fatalf("ResolveTool(httpd) error = %v", err)
+	}
+	if httpdPath != wantTarget {
+		t.Fatalf("ResolveTool(httpd) = %q, want %q", httpdPath, wantTarget)
+	}
 }
 
 func TestStoreInstallDownloadsConfiguredMago(t *testing.T) {
@@ -2763,6 +2897,33 @@ func TestStoreResolveToolLogsExpandsEnvironmentAndFilters(t *testing.T) {
 	}}
 	if !reflect.DeepEqual(logs, want) {
 		t.Fatalf("ResolveToolLogs(nginx, error) = %#v, want %#v", logs, want)
+	}
+}
+
+func TestStoreResolveToolLogsSupportsApache(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{ApacheVersion: "2.4"}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+	if err := store.writeActiveEnvironmentName("demo"); err != nil {
+		t.Fatalf("writeActiveEnvironmentName() error = %v", err)
+	}
+
+	logs, err := store.ResolveToolLogs("apache", "error")
+	if err != nil {
+		t.Fatalf("ResolveToolLogs(apache, error) error = %v", err)
+	}
+
+	want := []ToolLogEntry{{
+		Path:  filepath.Join(store.RootDir, "run", "apache", "demo", "logs", "error.log"),
+		Level: "error",
+	}}
+	if !reflect.DeepEqual(logs, want) {
+		t.Fatalf("ResolveToolLogs(apache, error) = %#v, want %#v", logs, want)
 	}
 }
 

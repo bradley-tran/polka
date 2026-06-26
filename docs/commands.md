@@ -55,6 +55,8 @@ Creates or updates one environment config value. The default environment is stor
 polka config tools.php 8.4
 polka config tools.php-zts 8.4
 polka config tools.frankenphp 1.12
+polka config tools.apache 2.4
+polka config server.type apache
 polka config server.type frankenphp
 polka config --env blog tools.mysql 8.0
 polka config --env blog database.engine mysql
@@ -63,7 +65,7 @@ polka config --env reporting database.engine postgresql
 polka config --env blog settings.mailpit.smtp-port 1025
 ```
 
-Use `--env name` to select a named environment. When `--env` is omitted, Polka updates the current environment, falling back to `default` when no local override is selected. Supported keys are schema-aware dot paths such as `tools.php`, `tools.php-zts`, `tools.frankenphp`, `tools.pie`, `database.port`, `server.type`, `server.hostname`, `env-vars.APP_ENV`, `php-extensions.xdebug`, and `opcache-config.opcache.enable_cli`. `tools.php` and `tools.php-zts` are mutually exclusive; setting one switches the primary runtime and both expose the standard `php` command. `server.type` accepts `php`, `nginx`, or `frankenphp`.
+Use `--env name` to select a named environment. When `--env` is omitted, Polka updates the current environment, falling back to `default` when no local override is selected. Supported keys are schema-aware dot paths such as `tools.php`, `tools.php-zts`, `tools.frankenphp`, `tools.apache`, `tools.pie`, `database.port`, `server.type`, `server.hostname`, `env-vars.APP_ENV`, `php-extensions.xdebug`, and `opcache-config.opcache.enable_cli`. `tools.php` and `tools.php-zts` are mutually exclusive; setting one switches the primary runtime and both expose the standard `php` command. `server.type` accepts `php`, `nginx`, `apache`, or `frankenphp`.
 
 ### `polka install [tool:version] [--env name]`
 
@@ -74,6 +76,7 @@ polka install
 polka install php:8.4
 polka install php-zts:8.4
 polka install frankenphp:1.12
+polka install apache:2.4
 polka install --env blog
 ```
 
@@ -170,11 +173,11 @@ When `docroot` is omitted, Polka uses `docroot` from the current environment fil
 
 By default, Polka starts the webserver in the background, waits for it to begin listening, and records runtime state so `polka stop` can stop it later. Pass `--watch` to keep the webserver attached to the current terminal.
 
-Set `server.type` to `php`, `nginx`, or `frankenphp` to select the webserver explicitly. When it is omitted, Polka preserves the existing behavior of selecting nginx when configured and PHP otherwise. Nginx starts `php-cgi` on an internal loopback port with a generated FastCGI config. FrankenPHP runs through a generated Caddyfile. PHP's built-in webserver uses a generated router that serves existing static files and forwards missing requests into the app router or front controller.
+Set `server.type` to `php`, `nginx`, `apache`, or `frankenphp` to select the webserver explicitly. When it is omitted, Polka preserves the existing behavior of selecting nginx when configured and PHP otherwise; Apache is selected only by `server.type: apache`. Nginx and Apache start `php-cgi` on an internal loopback port with generated FastCGI configs. Apache enables project `.htaccess` files by default. FrankenPHP runs through a generated Caddyfile. PHP's built-in webserver uses a generated router that serves existing static files and forwards missing requests into the app router or front controller.
 
 If the environment defines `mailpit`, `phpmyadmin`, or a managed database, Polka starts those local services before the webserver. `polka status` prints the full Mailpit and phpMyAdmin UI URLs.
 
-HTTPS requires nginx or FrankenPHP at start time. Both use the generated server certificate from the global Polka cache. The certificate covers `localhost`, `*.localhost`, `127.0.0.1`, and `::1`, and is signed by a generated local Polka CA. Hostnames ending in `.localhost`, such as `blog.localhost`, work without editing the hosts file.
+HTTPS requires nginx, Apache, or FrankenPHP at start time. They use the generated server certificate from the global Polka cache. The certificate covers `localhost`, `*.localhost`, `127.0.0.1`, and `::1`, and is signed by a generated local Polka CA. Hostnames ending in `.localhost`, such as `blog.localhost`, work without editing the hosts file.
 
 ### `polka stop`
 
@@ -187,13 +190,14 @@ Prints existing log files declared by one managed tool's manifest for the active
 ```bash
 polka logs nginx
 polka logs nginx --level error
+polka logs apache
 polka logs frankenphp
 polka logs mailpit
 polka logs mariadb --level error
 polka logs postgresql --level error
 ```
 
-Manifest log paths are resolved under `.polka/run/<tool>/<environment>`. When `--level` is omitted, Polka prints `info`, `error`, and `debug` logs in that order. Missing log files are skipped. If no matching declared log file exists on disk, the command exits with an error. Built-in log declarations cover `nginx`, `frankenphp`, `mailpit`, `phpmyadmin`, `mysql`, `mariadb`, and `postgresql`.
+Manifest log paths are resolved under `.polka/run/<tool>/<environment>`. When `--level` is omitted, Polka prints `info`, `error`, and `debug` logs in that order. Missing log files are skipped. If no matching declared log file exists on disk, the command exits with an error. Built-in log declarations cover `nginx`, `apache`, `frankenphp`, `mailpit`, `phpmyadmin`, `mysql`, `mariadb`, and `postgresql`.
 
 ### `polka cert-install`
 
@@ -271,6 +275,8 @@ After a successful dispatched `composer install`, `composer update`, or `compose
 ## Platform Notes
 
 Automatic nginx downloads are currently implemented on Windows amd64.
+
+Automatic Apache downloads use Apache Lounge builds and are currently implemented on Windows amd64.
 
 Automatic Mailpit downloads are currently implemented for Windows amd64 and Linux amd64.
 

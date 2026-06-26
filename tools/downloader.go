@@ -40,6 +40,8 @@ const (
 	checksumAlgorithmMD5      checksumAlgorithm = "md5"
 	checksumAlgorithmSHA256   checksumAlgorithm = "sha256"
 	checksumAlgorithmSHA3_256 checksumAlgorithm = "sha3-256"
+
+	downloadMaxAttempts = 3
 )
 
 type archiveFormat string
@@ -53,6 +55,7 @@ const (
 var (
 	downloadTemplatePattern = regexp.MustCompile(`\{([A-Za-z0-9_]+)\}`)
 	githubAPIBaseURL        = "https://api.github.com"
+	downloadRetryBaseDelay  = 250 * time.Millisecond
 )
 
 func (d HTTPDownloader) Download(cacheDir, tool, version string) error {
@@ -723,7 +726,7 @@ func downloadFile(client *http.Client, url, targetPath string) error {
 	}
 	setDownloadRequestHeaders(request)
 
-	response, err := client.Do(request)
+	response, err := doDownloadRequest(client, request)
 	if err != nil {
 		return fmt.Errorf("download %s: %w", url, err)
 	}
@@ -757,7 +760,7 @@ func downloadText(client *http.Client, url, description string) (string, error) 
 	}
 	setDownloadRequestHeaders(request)
 
-	response, err := client.Do(request)
+	response, err := doDownloadRequest(client, request)
 	if err != nil {
 		return "", fmt.Errorf("download %s %s: %w", description, url, err)
 	}
@@ -784,7 +787,7 @@ func downloadJSON(client *http.Client, url, description string, target any) erro
 	setDownloadRequestHeaders(request)
 	request.Header.Set("Accept", "application/vnd.github+json")
 
-	response, err := client.Do(request)
+	response, err := doDownloadRequest(client, request)
 	if err != nil {
 		return fmt.Errorf("download %s %s: %w", description, url, err)
 	}
@@ -812,6 +815,102 @@ func effectiveHTTPClient(client *http.Client) *http.Client {
 	return &http.Client{Timeout: 10 * time.Minute}
 }
 
+// doDownloadRequest executes a download request with bounded retries for
+// transient network errors and HTTP statuses. Callers own the returned body.
+func doDownloadRequest(client *http.Client, request *http.Request) (*http.Response, error) {
+	var lastErr error
+	for attempt := 1; attempt <= downloadMaxAttempts; attempt++ {
+		response, err := client.Do(request.Clone(request.Context()))
+		if err == nil {
+			if response.StatusCode == http.StatusOK || !retryableDownloadStatus(response.StatusCode) || attempt == downloadMaxAttempts {
+				return response, nil
+			}
+
+			lastErr = fmt.Errorf("unexpected status %s", response.Status)
+			delay := downloadRetryDelay(response, attempt)
+			drainAndCloseResponse(response)
+			if err := waitDownloadRetry(request, delay); err != nil {
+				return nil, err
+			}
+			continue
+		}
+
+		lastErr = err
+		if attempt < downloadMaxAttempts {
+			if err := waitDownloadRetry(request, downloadRetryDelay(nil, attempt)); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return nil, lastErr
+}
+
+func retryableDownloadStatus(statusCode int) bool {
+	switch statusCode {
+	case http.StatusRequestTimeout, http.StatusTooEarly, http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
+}
+
+func downloadRetryDelay(response *http.Response, attempt int) time.Duration {
+	if response != nil {
+		if delay, ok := retryAfterDelay(response.Header.Get("Retry-After")); ok {
+			return delay
+		}
+	}
+	if downloadRetryBaseDelay <= 0 {
+		return 0
+	}
+
+	return downloadRetryBaseDelay << (attempt - 1)
+}
+
+// retryAfterDelay parses Retry-After values from both delta-seconds and HTTP
+// date formats, matching the forms commonly returned by download hosts.
+func retryAfterDelay(value string) (time.Duration, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, false
+	}
+	if seconds, err := strconv.Atoi(value); err == nil && seconds >= 0 {
+		return time.Duration(seconds) * time.Second, true
+	}
+	retryAt, err := http.ParseTime(value)
+	if err != nil {
+		return 0, false
+	}
+	delay := time.Until(retryAt)
+	if delay < 0 {
+		return 0, true
+	}
+
+	return delay, true
+}
+
+func waitDownloadRetry(request *http.Request, delay time.Duration) error {
+	if delay <= 0 {
+		return nil
+	}
+
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-request.Context().Done():
+		return request.Context().Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func drainAndCloseResponse(response *http.Response) {
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 1<<20))
+	_ = response.Body.Close()
+}
+
 func downloadChecksumValue(client *http.Client, checksumURL string, algorithm checksumAlgorithm, sourceFileName string) (string, error) {
 	checksumData, err := downloadText(client, checksumURL, "checksum")
 	if err != nil {
@@ -832,6 +931,10 @@ func parseChecksumValue(value string) (string, error) {
 
 func parseChecksumValueForAlgorithm(algorithm checksumAlgorithm, value, sourceFileName string) (string, error) {
 	normalizedSourceFileName := normalizeChecksumFileName(sourceFileName)
+	if checksum, ok, err := parseLabeledChecksumValueForAlgorithm(algorithm, value, normalizedSourceFileName); ok || err != nil {
+		return checksum, err
+	}
+
 	lines := strings.Split(strings.TrimSpace(value), "\n")
 	firstChecksum := ""
 	for _, line := range lines {
@@ -881,7 +984,58 @@ func normalizeChecksumFileName(fileName string) string {
 	normalized = strings.TrimPrefix(normalized, "*")
 	normalized = strings.TrimPrefix(normalized, "./")
 	normalized = strings.ReplaceAll(normalized, "\\", "/")
+	normalized = strings.TrimSuffix(normalized, ":")
 	return strings.TrimSpace(filepath.Base(normalized))
+}
+
+// parseLabeledChecksumValueForAlgorithm handles checksum sidecars that label
+// each algorithm on one line and place the checksum value on the following line.
+func parseLabeledChecksumValueForAlgorithm(algorithm checksumAlgorithm, value, normalizedSourceFileName string) (string, bool, error) {
+	label, ok := checksumLabelForAlgorithm(algorithm)
+	if !ok {
+		return "", false, nil
+	}
+
+	lines := strings.Split(strings.TrimSpace(value), "\n")
+	for index, line := range lines {
+		fields := strings.Fields(strings.TrimSpace(strings.TrimPrefix(line, "\ufeff")))
+		if len(fields) == 0 {
+			continue
+		}
+		if strings.TrimSuffix(strings.ToUpper(fields[0]), ":") != label+"-CHECKSUM" {
+			continue
+		}
+		if normalizedSourceFileName != "" && !checksumLineMatchesSource(fields[1:], normalizedSourceFileName) {
+			continue
+		}
+
+		for _, valueLine := range lines[index+1:] {
+			valueFields := strings.Fields(strings.TrimSpace(valueLine))
+			if len(valueFields) == 0 {
+				continue
+			}
+
+			checksum, _, err := validateChecksumValue(algorithm, valueFields[0])
+			return checksum, true, err
+		}
+
+		return "", true, fmt.Errorf("missing %s checksum value", algorithm)
+	}
+
+	return "", false, nil
+}
+
+func checksumLabelForAlgorithm(algorithm checksumAlgorithm) (string, bool) {
+	switch algorithm {
+	case checksumAlgorithmMD5:
+		return "MD5", true
+	case checksumAlgorithmSHA256:
+		return "SHA256", true
+	case checksumAlgorithmSHA3_256:
+		return "SHA3-256", true
+	default:
+		return "", false
+	}
 }
 
 func validateChecksumValue(algorithm checksumAlgorithm, checksum string) (string, int, error) {

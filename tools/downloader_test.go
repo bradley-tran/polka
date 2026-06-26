@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ulikunitz/xz"
 )
@@ -55,6 +56,54 @@ func TestParseChecksumValueAcceptsSha256sumFormat(t *testing.T) {
 	}
 	if value != expected {
 		t.Fatalf("parseChecksumValue(sha256sum) = %q, want %q", value, expected)
+	}
+}
+
+func TestParseChecksumValueAcceptsApacheLoungeFormat(t *testing.T) {
+	expected := strings.Repeat("A", 64)
+	checksumData := strings.Join([]string{
+		"\ufeffChecksums created with GPGHash",
+		"",
+		"SHA1-Checksum for: httpd-2.4.68-260617-Win64-VS18.zip:",
+		strings.Repeat("B", 40),
+		"",
+		"SHA256-Checksum for: httpd-2.4.68-260617-Win64-VS18.zip:",
+		expected,
+	}, "\n")
+
+	value, err := parseChecksumValueForAlgorithm(checksumAlgorithmSHA256, checksumData, "httpd-2.4.68-260617-Win64-VS18.zip")
+	if err != nil {
+		t.Fatalf("parseChecksumValueForAlgorithm(apache lounge) error = %v", err)
+	}
+	if value != expected {
+		t.Fatalf("parseChecksumValueForAlgorithm(apache lounge) = %q, want %q", value, expected)
+	}
+}
+
+func TestDownloadTextRetriesTransientStatus(t *testing.T) {
+	withTemporaryDuration(t, &downloadRetryBaseDelay, 0)
+
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts == 1 {
+			http.Error(w, "try again", http.StatusServiceUnavailable)
+			return
+		}
+
+		_, _ = w.Write([]byte("ready"))
+	}))
+	defer server.Close()
+
+	value, err := downloadText(server.Client(), server.URL, "retry test")
+	if err != nil {
+		t.Fatalf("downloadText() error = %v", err)
+	}
+	if value != "ready" {
+		t.Fatalf("downloadText() = %q, want ready", value)
+	}
+	if attempts != 2 {
+		t.Fatalf("download attempts = %d, want 2", attempts)
 	}
 }
 
@@ -276,6 +325,44 @@ func TestResolveNginxDownloadAssetSupportsSeriesLabels(t *testing.T) {
 				t.Fatalf("resolveNginxDownloadAsset(%s) checksum algorithm = %q, want none", test.version, asset.ChecksumAlgorithm)
 			}
 		})
+	}
+}
+
+func TestResolveApacheDownloadAssetSupportsApacheLoungeSeriesLabels(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(strings.Join([]string{
+			`<a href="httpd-2.4.67-260101-Win64-VS17.zip">older</a>`,
+			`<a href="/download/VS18/binaries/httpd-2.4.68-260610-Win64-VS18.zip">new</a>`,
+			`<a href="/download/VS18/binaries/httpd-2.4.68-260617-Win64-VS18.zip">newer-build</a>`,
+			`<a href="httpd-2.4.68-260617-Win32-VS18.zip">wrong-arch</a>`,
+		}, "\n")))
+	}))
+	defer server.Close()
+
+	withTemporaryString(t, &apacheLoungeDownloadURL, server.URL)
+
+	resolvedVersion, asset, err := resolveApacheDownloadAsset(server.Client(), "2.4", "windows", "amd64")
+	if err != nil {
+		t.Fatalf("resolveApacheDownloadAsset(2.4) error = %v", err)
+	}
+	if resolvedVersion != "2.4.68" {
+		t.Fatalf("resolveApacheDownloadAsset(2.4) resolved version = %q, want 2.4.68", resolvedVersion)
+	}
+	if asset.FileName != "httpd-2.4.68-260617-Win64-VS18.zip" {
+		t.Fatalf("resolveApacheDownloadAsset(2.4) file = %q, want newest Apache Lounge build", asset.FileName)
+	}
+	wantURL := server.URL + "/download/VS18/binaries/httpd-2.4.68-260617-Win64-VS18.zip"
+	if asset.URL != wantURL {
+		t.Fatalf("resolveApacheDownloadAsset(2.4) URL = %q, want %q", asset.URL, wantURL)
+	}
+	if asset.ChecksumURL != wantURL+".txt" {
+		t.Fatalf("resolveApacheDownloadAsset(2.4) checksum URL = %q, want %q", asset.ChecksumURL, wantURL+".txt")
+	}
+	if asset.ChecksumAlgorithm != checksumAlgorithmSHA256 {
+		t.Fatalf("resolveApacheDownloadAsset(2.4) checksum algorithm = %q, want %q", asset.ChecksumAlgorithm, checksumAlgorithmSHA256)
+	}
+	if asset.ArchiveFormat != archiveFormatZip {
+		t.Fatalf("resolveApacheDownloadAsset(2.4) archive format = %q, want %q", asset.ArchiveFormat, archiveFormatZip)
 	}
 }
 
@@ -795,6 +882,16 @@ func writeTarArchive(t *testing.T, writer io.Writer, rootDir, filePath string, c
 }
 
 func withTemporaryString(t *testing.T, target *string, value string) {
+	t.Helper()
+
+	original := *target
+	*target = value
+	t.Cleanup(func() {
+		*target = original
+	})
+}
+
+func withTemporaryDuration(t *testing.T, target *time.Duration, value time.Duration) {
 	t.Helper()
 
 	original := *target

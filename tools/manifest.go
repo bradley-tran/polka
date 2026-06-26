@@ -324,6 +324,8 @@ func manifestVersionFunc(m pluginManifest) func(config.Environment) string {
 			return environment.MagoVersion
 		case Nginx:
 			return environment.NginxVersion
+		case Apache:
+			return environment.ApacheVersion
 		case SQLite:
 			return environment.SQLiteVersion
 		case Mailpit:

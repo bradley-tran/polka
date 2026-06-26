@@ -80,6 +80,7 @@ func defaultCLIHookRegistry() cliHookRegistry {
 		},
 		webservers: []webserverStartHook{
 			{id: "nginx", matches: environmentUsesNginx, run: startNginxWebserverHook},
+			{id: "apache", matches: environmentUsesApache, run: startApacheWebserverHook},
 			{id: "frankenphp", matches: environmentUsesFrankenPHP, run: startFrankenPHPWebserverHook},
 			{id: "php", matches: environmentUsesPHPWebserver, run: startPHPWebserverHook},
 		},
@@ -96,6 +97,7 @@ func defaultCLIHookRegistry() cliHookRegistry {
 			{id: "nodejs", run: statusNodeJSConfigHook},
 			{id: "mago", run: statusMagoConfigHook},
 			{id: "nginx", run: statusNginxConfigHook},
+			{id: "apache", run: statusApacheConfigHook},
 			{id: "frankenphp", run: statusFrankenPHPConfigHook},
 			{id: "sqlite", run: statusSQLiteConfigHook},
 			{id: "phpmyadmin", run: statusPHPMyAdminConfigHook},
@@ -264,6 +266,10 @@ func environmentUsesNginx(ctx webserverStartHookContext) bool {
 	return ctx.ServerType == config.ServerTypeNginx
 }
 
+func environmentUsesApache(ctx webserverStartHookContext) bool {
+	return ctx.ServerType == config.ServerTypeApache
+}
+
 func environmentUsesFrankenPHP(ctx webserverStartHookContext) bool {
 	return ctx.ServerType == config.ServerTypeFrankenPHP
 }
@@ -296,6 +302,24 @@ func startNginxWebserverHook(ctx webserverStartHookContext) (int, error) {
 	}
 
 	startedState, err := startBackgroundNginxServe(ctx.Store, ctx.Environment, ctx.Endpoint, ctx.Layout)
+	if err != nil {
+		return 0, err
+	}
+
+	return finishBackgroundWebserverStart(ctx, startedState)
+}
+
+func startApacheWebserverHook(ctx webserverStartHookContext) (int, error) {
+	if backend.PrimaryPHPVersion(ctx.Environment) == "" {
+		return 0, fmt.Errorf("environment %q defines apache but does not define a php version", ctx.Environment.Name)
+	}
+
+	if ctx.Input.Watch {
+		_, _ = fmt.Fprintf(ctx.Stdout, "apache webserver started at %s\n", serverEndpointURL(ctx.Endpoint))
+		return runApacheServeFunc(ctx.Stdout, ctx.Stderr, ctx.Store, ctx.Environment, ctx.Endpoint, ctx.Layout)
+	}
+
+	startedState, err := startBackgroundApacheServe(ctx.Store, ctx.Environment, ctx.Endpoint, ctx.Layout)
 	if err != nil {
 		return 0, err
 	}
@@ -450,6 +474,11 @@ func statusMagoConfigHook(ctx statusHookContext) error {
 
 func statusNginxConfigHook(ctx statusHookContext) error {
 	_, _ = fmt.Fprintf(ctx.Stdout, "nginx %s\n", labelOrUnset(ctx.Environment.NginxVersion))
+	return nil
+}
+
+func statusApacheConfigHook(ctx statusHookContext) error {
+	_, _ = fmt.Fprintf(ctx.Stdout, "apache %s\n", labelOrUnset(ctx.Environment.ApacheVersion))
 	return nil
 }
 

@@ -470,8 +470,8 @@ func (s Store) writeEnvironment(name, phpVersion, composerVersion, nodeJSVersion
 		environment.Database = mergeDatabaseConfig(environment.Database, database)
 		environment = setDatabaseToolVersion(environment, database)
 	}
-	if environment.PHPVersion == "" && environment.PHPZTSVersion == "" && environment.FrankenPHPVersion == "" && environment.ComposerVersion == "" && environment.PIEVersion == "" && environment.NodeJSVersion == "" && environment.MagoVersion == "" && environment.NginxVersion == "" && environment.MySQLVersion == "" && environment.MariaDBVersion == "" && environment.PostgreSQLVersion == "" && environment.SQLiteVersion == "" && environment.PHPMyAdmin == nil && environment.Database == nil && environment.Mailpit == nil {
-		return Environment{}, fmt.Errorf("environment requires at least one of php, php-zts, frankenphp, composer, nodejs, mago, nginx, mysql, mariadb, postgresql, sqlite, phpmyadmin, database, or mailpit")
+	if environment.PHPVersion == "" && environment.PHPZTSVersion == "" && environment.FrankenPHPVersion == "" && environment.ComposerVersion == "" && environment.PIEVersion == "" && environment.NodeJSVersion == "" && environment.MagoVersion == "" && environment.NginxVersion == "" && environment.ApacheVersion == "" && environment.MySQLVersion == "" && environment.MariaDBVersion == "" && environment.PostgreSQLVersion == "" && environment.SQLiteVersion == "" && environment.PHPMyAdmin == nil && environment.Database == nil && environment.Mailpit == nil {
+		return Environment{}, fmt.Errorf("environment requires at least one of php, php-zts, frankenphp, composer, nodejs, mago, nginx, apache, mysql, mariadb, postgresql, sqlite, phpmyadmin, database, or mailpit")
 	}
 	if err := s.toolRegistry().ValidateEnvironment(environment); err != nil {
 		return Environment{}, err
@@ -816,6 +816,8 @@ func environmentWithInstallRequest(environment Environment, request tools.Instal
 		environment.MagoVersion = request.Version
 	case toolNginx:
 		environment.NginxVersion = request.Version
+	case toolApache:
+		environment.ApacheVersion = request.Version
 	case toolMySQL:
 		environment.MySQLVersion = request.Version
 		if environment.Database != nil && strings.EqualFold(strings.TrimSpace(environment.Database.Engine), toolMySQL) {
@@ -1579,7 +1581,7 @@ func asYAMLStringMap(value any) (map[string]any, bool) {
 
 func knownToolVersionKey(key string) bool {
 	switch key {
-	case toolPHP, toolPHPZTS, toolFrankenPHP, toolComposer, toolPIE, toolNodeJS, toolMago, toolNginx, toolMySQL, toolMariaDB, toolPostgreSQL, toolSQLite, toolMailpit, toolPHPMyAdmin:
+	case toolPHP, toolPHPZTS, toolFrankenPHP, toolComposer, toolPIE, toolNodeJS, toolMago, toolNginx, toolApache, toolMySQL, toolMariaDB, toolPostgreSQL, toolSQLite, toolMailpit, toolPHPMyAdmin:
 		return true
 	default:
 		return false

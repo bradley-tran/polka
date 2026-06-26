@@ -10,6 +10,7 @@ func DefaultPlugins() []ToolPlugin {
 		nodeJSPlugin(),
 		magoPlugin(),
 		nginxPlugin(),
+		apachePlugin(),
 		mailpitPlugin(),
 		phpMyAdminPlugin(),
 		mysqlPlugin(),

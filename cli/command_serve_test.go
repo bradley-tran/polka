@@ -326,6 +326,126 @@ func TestRunServeUsesNginxWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestRunServeUsesExplicitApache(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	docroot := filepath.Join(projectDir, "site", "public")
+	if err := os.MkdirAll(docroot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(docroot) error = %v", err)
+	}
+
+	config := testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {
+				PHP:    "8.4",
+				Apache: "2.4",
+				Server: &testServerConfig{Type: "apache", Hostname: "localhost", Port: 8080},
+			},
+		},
+	}
+	writeTestConfigFile(t, projectDir, config)
+	writeTestActiveEnvironment(t, root, "demo")
+
+	oldPHPServe := runPHPRuntimeServeFunc
+	oldApacheServe := runApacheServeFunc
+	t.Cleanup(func() {
+		runPHPRuntimeServeFunc = oldPHPServe
+		runApacheServeFunc = oldApacheServe
+	})
+
+	phpCalls := 0
+	apacheCalls := 0
+	gotAddress := ""
+	gotDocroot := ""
+	runPHPRuntimeServeFunc = func(stdout, stderr io.Writer, store backend.Store, serverAddress string, layout serveAppLayout) (int, error) {
+		phpCalls++
+		return 0, nil
+	}
+	runApacheServeFunc = func(stdout, stderr io.Writer, store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout) (int, error) {
+		apacheCalls++
+		gotAddress = endpoint.Address
+		gotDocroot = layout.Docroot
+		_, _ = io.WriteString(stdout, "fake-apache "+endpoint.Address+" -t "+layout.Docroot+"\n")
+		return 0, nil
+	}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "start", "--watch", filepath.Join("site", "public")}); code != 0 {
+		t.Fatalf("Run(serve with apache) code = %d, stderr = %q", code, stderr.String())
+	}
+	if phpCalls != 0 {
+		t.Fatalf("php serve calls = %d, want apache branch only", phpCalls)
+	}
+	if apacheCalls != 1 {
+		t.Fatalf("apache serve calls = %d, want 1", apacheCalls)
+	}
+	if gotAddress != "localhost:8080" {
+		t.Fatalf("apache serve address = %q, want %q", gotAddress, "localhost:8080")
+	}
+	if gotDocroot != docroot {
+		t.Fatalf("apache docroot = %q, want %q", gotDocroot, docroot)
+	}
+	if !strings.Contains(stdout.String(), "fake-apache localhost:8080 -t "+docroot) {
+		t.Fatalf("Run(serve with apache) output = %q, want apache serve output", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "apache webserver started at http://localhost:8080") {
+		t.Fatalf("Run(serve with apache) output = %q, want apache startup info line", stdout.String())
+	}
+}
+
+func TestRunServeDoesNotSelectApacheWhenServerTypeOmitted(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	docroot := filepath.Join(projectDir, "site", "public")
+	if err := os.MkdirAll(docroot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(docroot) error = %v", err)
+	}
+
+	writeTestConfigFile(t, projectDir, testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {
+				PHP:     "8.4",
+				Apache:  "2.4",
+				Server:  &testServerConfig{Hostname: "localhost", Port: 8080},
+				Docroot: filepath.ToSlash(filepath.Join("site", "public")),
+			},
+		},
+	})
+	writeTestActiveEnvironment(t, root, "demo")
+
+	oldPHPServe := runPHPRuntimeServeFunc
+	oldApacheServe := runApacheServeFunc
+	t.Cleanup(func() {
+		runPHPRuntimeServeFunc = oldPHPServe
+		runApacheServeFunc = oldApacheServe
+	})
+
+	phpCalls := 0
+	apacheCalls := 0
+	runPHPRuntimeServeFunc = func(stdout, stderr io.Writer, store backend.Store, serverAddress string, layout serveAppLayout) (int, error) {
+		phpCalls++
+		return 0, nil
+	}
+	runApacheServeFunc = func(stdout, stderr io.Writer, store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout) (int, error) {
+		apacheCalls++
+		return 0, nil
+	}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "start", "--watch"}); code != 0 {
+		t.Fatalf("Run(serve with implicit apache) code = %d, stderr = %q", code, stderr.String())
+	}
+	if phpCalls != 1 || apacheCalls != 0 {
+		t.Fatalf("serve calls = php:%d apache:%d, want PHP fallback only", phpCalls, apacheCalls)
+	}
+}
+
 func TestRunServeUsesExplicitFrankenPHPWhenNginxIsConfigured(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
@@ -397,9 +517,12 @@ func TestResolveEnvironmentServerTypePreservesLegacySelection(t *testing.T) {
 		{name: "legacy php with FrankenPHP CLI", environment: backend.Environment{Name: "demo", FrankenPHPVersion: "1.12"}, want: "php"},
 		{name: "legacy nginx", environment: backend.Environment{Name: "demo", PHPVersion: "8.4", NginxVersion: "1.30", FrankenPHPVersion: "1.12"}, want: "nginx"},
 		{name: "nginx requires standalone PHP", environment: backend.Environment{Name: "demo", NginxVersion: "1.30", FrankenPHPVersion: "1.12"}, wantErr: "does not define a php or php-zts version"},
+		{name: "explicit apache", environment: backend.Environment{Name: "demo", PHPVersion: "8.4", ApacheVersion: "2.4", Server: &backend.ServerConfig{Type: "apache"}}, want: "apache"},
+		{name: "apache requires apache tool", environment: backend.Environment{Name: "demo", PHPVersion: "8.4", Server: &backend.ServerConfig{Type: "apache"}}, wantErr: "does not define an apache version"},
+		{name: "apache requires standalone PHP", environment: backend.Environment{Name: "demo", ApacheVersion: "2.4", FrankenPHPVersion: "1.12", Server: &backend.ServerConfig{Type: "apache"}}, wantErr: "does not define a php or php-zts version"},
 		{name: "explicit frankenphp", environment: backend.Environment{Name: "demo", FrankenPHPVersion: "1.12", Server: &backend.ServerConfig{Type: "frankenphp"}}, want: "frankenphp"},
 		{name: "missing frankenphp", environment: backend.Environment{Name: "demo", Server: &backend.ServerConfig{Type: "frankenphp"}}, wantErr: "does not define a frankenphp version"},
-		{name: "invalid type", environment: backend.Environment{Name: "demo", Server: &backend.ServerConfig{Type: "apache"}}, wantErr: "unsupported server type"},
+		{name: "invalid type", environment: backend.Environment{Name: "demo", Server: &backend.ServerConfig{Type: "caddy"}}, wantErr: "unsupported server type"},
 	}
 
 	for _, test := range tests {
@@ -623,6 +746,111 @@ func TestPrepareNginxServeRuntimeCreatesLogsPath(t *testing.T) {
 	}
 }
 
+func TestPrepareApacheServeRuntimeCreatesLogsPath(t *testing.T) {
+	runtimeDir := filepath.Join(t.TempDir(), "run", "apache", "demo")
+	apacheRoot := filepath.Join(t.TempDir(), "Apache24")
+	docroot := filepath.Join(runtimeDir, "docroot")
+	if err := os.MkdirAll(docroot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(docroot) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(docroot, "index.php"), []byte("<?php\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(index.php) error = %v", err)
+	}
+	layout, err := resolveServeAppLayout(docroot)
+	if err != nil {
+		t.Fatalf("resolveServeAppLayout() error = %v", err)
+	}
+
+	configPath, phpLogPath, err := prepareApacheServeRuntime(filepath.Join(runtimeDir, "root"), runtimeDir, apacheRoot, serverEndpoint{Scheme: "http", Address: "localhost:8080"}, layout, "127.0.0.1:9000")
+	if err != nil {
+		t.Fatalf("prepareApacheServeRuntime() error = %v", err)
+	}
+	if configPath != filepath.Join(runtimeDir, "httpd.conf") {
+		t.Fatalf("config path = %q, want %q", configPath, filepath.Join(runtimeDir, "httpd.conf"))
+	}
+	if phpLogPath != filepath.Join(runtimeDir, "php.log") {
+		t.Fatalf("php log path = %q, want %q", phpLogPath, filepath.Join(runtimeDir, "php.log"))
+	}
+	if info, err := os.Stat(filepath.Join(runtimeDir, "logs")); err != nil {
+		t.Fatalf("Stat(logs dir) error = %v", err)
+	} else if !info.IsDir() {
+		t.Fatalf("logs path mode = %v, want directory", info.Mode())
+	}
+	configData, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile(config) error = %v", err)
+	}
+	config := string(configData)
+	for _, want := range []string{
+		"LoadModule proxy_fcgi_module",
+		"Listen 127.0.0.1:8080",
+		"LogFormat \"%h %l %u %t \\\"%r\\\" %>s %b\" common",
+		"DocumentRoot " + strconv.Quote(filepath.ToSlash(docroot)),
+		"CustomLog " + strconv.Quote(filepath.ToSlash(filepath.Join(runtimeDir, "logs", "access.log"))) + " common",
+		"AddType text/css .css",
+		"AddType application/javascript .js .mjs",
+		"AllowOverride All",
+		"Options FollowSymLinks",
+		"RewriteCond %{REQUEST_FILENAME} !-f",
+		"RewriteCond %{REQUEST_FILENAME} !-d",
+		"RewriteRule ^ index.php [QSA,L]",
+		"Require all denied",
+		"ProxyFCGIBackendType GENERIC",
+		"ProxyFCGISetEnvIf \"true\" SCRIPT_FILENAME \"%{reqenv:DOCUMENT_ROOT}%{reqenv:SCRIPT_NAME}\"",
+		"SetHandler \"proxy:fcgi://127.0.0.1:9000/\"",
+	} {
+		if !strings.Contains(config, want) {
+			t.Fatalf("apache config = %q, want %q", config, want)
+		}
+	}
+	if strings.Contains(config, "LoadModule php") {
+		t.Fatalf("apache config = %q, want no mod_php configuration", config)
+	}
+	if runtime.GOOS == "windows" && strings.Contains(config, "mod_mpm_winnt.so") {
+		t.Fatalf("apache config = %q, want no dynamic Windows MPM module", config)
+	}
+}
+
+func TestPrepareApacheServeRuntimeCreatesHTTPSConfigForLocalhostHostname(t *testing.T) {
+	rootDir := t.TempDir()
+	runtimeDir := filepath.Join(rootDir, "run", "apache", "demo")
+	apacheRoot := filepath.Join(rootDir, "Apache24")
+	docroot := filepath.Join(runtimeDir, "docroot")
+	if err := os.MkdirAll(docroot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(docroot) error = %v", err)
+	}
+	layout, err := resolveServeAppLayout(docroot)
+	if err != nil {
+		t.Fatalf("resolveServeAppLayout() error = %v", err)
+	}
+
+	configPath, phpLogPath, err := prepareApacheServeRuntime(rootDir, runtimeDir, apacheRoot, serverEndpoint{Scheme: "https", Address: "site.localhost:8443", HTTPS: true}, layout, "127.0.0.1:9000")
+	if err != nil {
+		t.Fatalf("prepareApacheServeRuntime() error = %v", err)
+	}
+	if phpLogPath != filepath.Join(runtimeDir, "php.log") {
+		t.Fatalf("php log path = %q, want %q", phpLogPath, filepath.Join(runtimeDir, "php.log"))
+	}
+	configData, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile(config) error = %v", err)
+	}
+	config := string(configData)
+	certPath, keyPath := globalTLSCertificatePaths(rootDir)
+	for _, want := range []string{
+		"Listen 127.0.0.1:8443",
+		"ServerName site.localhost:8443",
+		"LoadModule ssl_module",
+		"SSLEngine on",
+		"SSLCertificateFile " + strconv.Quote(filepath.ToSlash(certPath)),
+		"SSLCertificateKeyFile " + strconv.Quote(filepath.ToSlash(keyPath)),
+	} {
+		if !strings.Contains(config, want) {
+			t.Fatalf("apache config = %q, want %q", config, want)
+		}
+	}
+}
+
 func TestPrepareNginxServeRuntimeFrameworkFallsBackToGenericConfig(t *testing.T) {
 	runtimeDir := filepath.Join(t.TempDir(), "run", "start", "demo")
 	docroot := filepath.Join(runtimeDir, "public")
@@ -726,7 +954,7 @@ func TestRunServeRejectsHTTPSWithoutNginx(t *testing.T) {
 	if code := Run(stdout, stderr, []string{"--root", root, "start"}); code != 1 {
 		t.Fatalf("Run(serve https without nginx) code = %d, stderr = %q", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "use nginx or frankenphp") {
+	if !strings.Contains(stderr.String(), "use nginx, apache, or frankenphp") {
 		t.Fatalf("Run(serve https with PHP) stderr = %q, want managed HTTPS server guidance", stderr.String())
 	}
 }

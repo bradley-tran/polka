@@ -18,6 +18,7 @@ const (
 	NPX        = "npx"
 	Mago       = "mago"
 	Nginx      = "nginx"
+	Apache     = "apache"
 	Mailpit    = "mailpit"
 	PHPMyAdmin = "phpmyadmin"
 	MySQL      = "mysql"

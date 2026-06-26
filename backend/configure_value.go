@@ -155,6 +155,8 @@ func applyToolConfigValue(environment *Environment, path []string, value string)
 		environment.MagoVersion = version
 	case toolNginx:
 		environment.NginxVersion = version
+	case toolApache:
+		environment.ApacheVersion = version
 	case toolMySQL:
 		environment.MySQLVersion = version
 	case toolMariaDB:
@@ -216,10 +218,10 @@ func applyServerConfigValue(environment *Environment, path []string, value strin
 	case "type":
 		typeName := strings.ToLower(strings.TrimSpace(value))
 		switch typeName {
-		case "", config.ServerTypePHP, config.ServerTypeNginx, config.ServerTypeFrankenPHP:
+		case "", config.ServerTypePHP, config.ServerTypeNginx, config.ServerTypeApache, config.ServerTypeFrankenPHP:
 			environment.Server.Type = typeName
 		default:
-			return fmt.Errorf("unsupported server type %q: use php, nginx, or frankenphp", value)
+			return fmt.Errorf("unsupported server type %q: use php, nginx, apache, or frankenphp", value)
 		}
 	case "hostname":
 		environment.Server.Hostname = strings.TrimSpace(value)

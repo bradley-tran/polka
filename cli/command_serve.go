@@ -52,9 +52,11 @@ const (
 var (
 	runPHPRuntimeServeFunc         = runPHPRuntimeServe
 	runNginxServeFunc              = runNginxServe
+	runApacheServeFunc             = runApacheServe
 	runFrankenPHPServeFunc         = runFrankenPHPServe
 	startBackgroundPHPRuntimeServe = startPHPRuntimeServeInBackground
 	startBackgroundNginxServe      = startNginxServeInBackground
+	startBackgroundApacheServe     = startApacheServeInBackground
 	startBackgroundFrankenPHPServe = startFrankenPHPServeInBackground
 	stopServeRuntimeFunc           = stopServeRuntime
 	pingServeAddressFunc           = pingServeAddress
@@ -167,7 +169,7 @@ func runStart(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 		return 1
 	}
 	if endpoint.HTTPS && serverType == config.ServerTypePHP {
-		fmt.Fprintln(stderr, "error: https is not supported by the PHP webserver; use nginx or frankenphp")
+		fmt.Fprintln(stderr, "error: https is not supported by the PHP webserver; use nginx, apache, or frankenphp")
 		return 1
 	}
 	docroot, err := resolveServeDocroot(store.ProjectDir, current.Docroot, input.Docroot)
@@ -251,12 +253,19 @@ func resolveEnvironmentServerType(environment backend.Environment) (string, erro
 		if backend.PrimaryPHPVersion(environment) == "" {
 			return "", fmt.Errorf("environment %q selects nginx but does not define a php or php-zts version", environment.Name)
 		}
+	case config.ServerTypeApache:
+		if strings.TrimSpace(environment.ApacheVersion) == "" {
+			return "", fmt.Errorf("environment %q selects apache but does not define an apache version", environment.Name)
+		}
+		if backend.PrimaryPHPVersion(environment) == "" {
+			return "", fmt.Errorf("environment %q selects apache but does not define a php or php-zts version", environment.Name)
+		}
 	case config.ServerTypeFrankenPHP:
 		if strings.TrimSpace(environment.FrankenPHPVersion) == "" {
 			return "", fmt.Errorf("environment %q selects frankenphp but does not define a frankenphp version", environment.Name)
 		}
 	default:
-		return "", fmt.Errorf("unsupported server type %q: use php, nginx, or frankenphp", serverType)
+		return "", fmt.Errorf("unsupported server type %q: use php, nginx, apache, or frankenphp", serverType)
 	}
 
 	return serverType, nil
@@ -624,6 +633,191 @@ func startNginxServeInBackgroundAt(store backend.Store, environment backend.Envi
 	_ = nginxCommand.Process.Release()
 
 	return state, nil
+}
+
+func runApacheServe(stdout, stderr io.Writer, store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout) (int, error) {
+	if backend.PrimaryPHPVersion(environment) == "" {
+		return 0, fmt.Errorf("environment %q defines apache but does not define a php version", environment.Name)
+	}
+
+	phpTarget, err := store.ResolveTool("php")
+	if err != nil {
+		return 0, err
+	}
+	phpCGITarget, err := resolvePHPCGITarget(phpTarget)
+	if err != nil {
+		return 0, err
+	}
+	apacheTarget, err := store.ResolveTool(config.ServerTypeApache)
+	if err != nil {
+		return 0, err
+	}
+	apacheRoot := resolveApacheServerRoot(apacheTarget)
+	env, err := resolveRuntimeEnvironment(runtime.GOOS, os.Environ(), store)
+	if err != nil {
+		return 0, err
+	}
+
+	backendAddress, err := reserveServeBackendAddress()
+	if err != nil {
+		return 0, err
+	}
+
+	runtimeDir := service.ToolLogRoot(store.RootDir, config.ServerTypeApache, environment.Name)
+	configPath, phpLogPath, err := prepareApacheServeRuntime(store.CacheDir, runtimeDir, apacheRoot, endpoint, layout, backendAddress)
+	if err != nil {
+		return 0, err
+	}
+
+	phpLogFile, err := os.OpenFile(phpLogPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		return 0, fmt.Errorf("open php serve log: %w", err)
+	}
+	defer phpLogFile.Close()
+
+	phpCommand, err := prepareCommand(phpCGITarget, []string{"-b", backendAddress})
+	if err != nil {
+		return 0, err
+	}
+	phpCommand.Stdout = phpLogFile
+	phpCommand.Stderr = phpLogFile
+	phpCommand.Env = env
+
+	if err := phpCommand.Start(); err != nil {
+		return 0, fmt.Errorf("start php-cgi upstream: %w", err)
+	}
+	defer stopServeProcess(phpCommand.Process)
+
+	if err := waitForServeAddress(backendAddress, serveStartupTimeout); err != nil {
+		return 0, fmt.Errorf("start php-cgi upstream on %s: %w (see %s)", backendAddress, err, phpLogPath)
+	}
+
+	return executeTargetWithEnv(stdout, stderr, env, apacheTarget, apacheServeArgs(apacheRoot, configPath))
+}
+
+func startApacheServeInBackground(store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout) (serveRuntimeState, error) {
+	return startApacheServeInBackgroundAt(store, environment, endpoint, layout, service.ToolLogRoot(store.RootDir, config.ServerTypeApache, environment.Name))
+}
+
+func startApacheServeInBackgroundAt(store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout, runtimeDir string) (serveRuntimeState, error) {
+	if backend.PrimaryPHPVersion(environment) == "" {
+		return serveRuntimeState{}, fmt.Errorf("environment %q defines apache but does not define a php version", environment.Name)
+	}
+
+	phpTarget, err := store.ResolveTool("php")
+	if err != nil {
+		return serveRuntimeState{}, err
+	}
+	phpCGITarget, err := resolvePHPCGITarget(phpTarget)
+	if err != nil {
+		return serveRuntimeState{}, err
+	}
+	apacheTarget, err := store.ResolveTool(config.ServerTypeApache)
+	if err != nil {
+		return serveRuntimeState{}, err
+	}
+	apacheRoot := resolveApacheServerRoot(apacheTarget)
+	env, err := resolveRuntimeEnvironment(runtime.GOOS, os.Environ(), store)
+	if err != nil {
+		return serveRuntimeState{}, err
+	}
+
+	backendAddress, err := reserveServeBackendAddress()
+	if err != nil {
+		return serveRuntimeState{}, err
+	}
+
+	configPath, phpLogPath, err := prepareApacheServeRuntime(store.CacheDir, runtimeDir, apacheRoot, endpoint, layout, backendAddress)
+	if err != nil {
+		return serveRuntimeState{}, err
+	}
+
+	phpLogFile, err := openServeLog(phpLogPath)
+	if err != nil {
+		return serveRuntimeState{}, err
+	}
+	defer phpLogFile.Close()
+
+	phpCommand, err := prepareCommand(phpCGITarget, []string{"-b", backendAddress})
+	if err != nil {
+		return serveRuntimeState{}, err
+	}
+	phpCommand.Stdout = phpLogFile
+	phpCommand.Stderr = phpLogFile
+	phpCommand.Env = env
+
+	if err := phpCommand.Start(); err != nil {
+		return serveRuntimeState{}, fmt.Errorf("start php-cgi upstream: %w", err)
+	}
+	phpPID := phpCommand.Process.Pid
+
+	if err := waitForServeAddress(backendAddress, serveStartupTimeout); err != nil {
+		stopServeProcess(phpCommand.Process)
+		return serveRuntimeState{}, fmt.Errorf("start php-cgi upstream on %s: %w (see %s)", backendAddress, err, phpLogPath)
+	}
+
+	apacheLogPath := filepath.Join(runtimeDir, serveLogFileName)
+	apacheLogFile, err := openServeLog(apacheLogPath)
+	if err != nil {
+		stopServeProcess(phpCommand.Process)
+		return serveRuntimeState{}, err
+	}
+
+	apacheCommand, err := prepareCommand(apacheTarget, apacheServeArgs(apacheRoot, configPath))
+	if err != nil {
+		_ = apacheLogFile.Close()
+		stopServeProcess(phpCommand.Process)
+		return serveRuntimeState{}, err
+	}
+	apacheCommand.Stdout = apacheLogFile
+	apacheCommand.Stderr = apacheLogFile
+	apacheCommand.Env = env
+
+	if err := apacheCommand.Start(); err != nil {
+		_ = apacheLogFile.Close()
+		stopServeProcess(phpCommand.Process)
+		return serveRuntimeState{}, fmt.Errorf("start apache webserver: %w", err)
+	}
+
+	if err := waitForServeAddress(serveProbeAddress(endpoint.Address), serveStartupTimeout); err != nil {
+		stopServeProcess(apacheCommand.Process)
+		stopServeProcess(phpCommand.Process)
+		_ = apacheLogFile.Close()
+		return serveRuntimeState{}, fmt.Errorf("start apache webserver on %s: %w (see %s and %s)", endpoint.Address, err, apacheLogPath, phpLogPath)
+	}
+
+	state := serveRuntimeState{
+		EnvironmentName: environment.Name,
+		ServerKind:      config.ServerTypeApache,
+		ServerScheme:    endpoint.Scheme,
+		ServerAddress:   endpoint.Address,
+		Docroot:         layout.Docroot,
+		RuntimeDir:      runtimeDir,
+		LogPath:         apacheLogPath,
+		BackendLogPath:  phpLogPath,
+		ConfigPath:      configPath,
+		PrimaryPID:      apacheCommand.Process.Pid,
+		SecondaryPID:    phpPID,
+		StartedAt:       serveNowFunc().UTC(),
+	}
+	_ = apacheLogFile.Close()
+	_ = phpCommand.Process.Release()
+	_ = apacheCommand.Process.Release()
+
+	return state, nil
+}
+
+func apacheServeArgs(apacheRoot, configPath string) []string {
+	return []string{"-d", apacheRoot, "-f", configPath, "-DFOREGROUND"}
+}
+
+func resolveApacheServerRoot(apacheTarget string) string {
+	dir := filepath.Dir(strings.TrimSpace(apacheTarget))
+	if strings.EqualFold(filepath.Base(dir), "bin") {
+		return filepath.Dir(dir)
+	}
+
+	return dir
 }
 
 func resolvePHPCGITarget(phpTarget string) (string, error) {
@@ -1125,6 +1319,160 @@ func renderNginxServeConfig(host string, port int, layout serveAppLayout, backen
 	return []byte(builder.String())
 }
 
+func prepareApacheServeRuntime(cacheDir, runtimeDir, apacheRoot string, endpoint serverEndpoint, layout serveAppLayout, backendAddress string) (string, string, error) {
+	logsDir := filepath.Join(runtimeDir, "logs")
+	if err := os.MkdirAll(logsDir, 0o755); err != nil {
+		return "", "", fmt.Errorf("create serve runtime directory: %w", err)
+	}
+
+	host, portText, err := net.SplitHostPort(endpoint.Address)
+	if err != nil {
+		return "", "", fmt.Errorf("parse serve address %q: %w", endpoint.Address, err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		return "", "", fmt.Errorf("parse serve port %q: %w", portText, err)
+	}
+	tlsConfig := serveTLSConfig{}
+	if endpoint.HTTPS {
+		certPath, keyPath, err := ensureGlobalTLSCertificate(cacheDir, host)
+		if err != nil {
+			return "", "", err
+		}
+		tlsConfig = serveTLSConfig{
+			Enabled:            true,
+			CertificatePath:    certPath,
+			CertificateKeyPath: keyPath,
+		}
+	}
+
+	configPath := filepath.Join(runtimeDir, "httpd.conf")
+	phpLogPath := filepath.Join(runtimeDir, "php.log")
+	config := renderApacheServeConfig(apacheRoot, runtimeDir, host, port, layout, backendAddress, tlsConfig)
+	if err := os.WriteFile(configPath, config, 0o644); err != nil {
+		return "", "", fmt.Errorf("write apache config: %w", err)
+	}
+
+	return configPath, phpLogPath, nil
+}
+
+func renderApacheServeConfig(apacheRoot, runtimeDir, host string, port int, layout serveAppLayout, backendAddress string, tlsConfig serveTLSConfig) []byte {
+	listenAddress := renderNginxListenAddress(host, port)
+	serverName := strings.TrimSpace(host)
+	if serverName == "" {
+		serverName = defaultServeHostname
+	}
+	serverName = net.JoinHostPort(serverName, strconv.Itoa(port))
+	modulesDir := filepath.Join(apacheRoot, "modules")
+	logsDir := filepath.Join(runtimeDir, "logs")
+
+	var builder strings.Builder
+	builder.WriteString("ServerRoot ")
+	builder.WriteString(quoteApachePath(apacheRoot))
+	builder.WriteString("\n")
+	builder.WriteString("PidFile ")
+	builder.WriteString(quoteApachePath(filepath.Join(runtimeDir, "httpd.pid")))
+	builder.WriteString("\n")
+	builder.WriteString("ServerName ")
+	builder.WriteString(serverName)
+	builder.WriteString("\n")
+	builder.WriteString("Listen ")
+	builder.WriteString(listenAddress)
+	builder.WriteString("\n")
+	builder.WriteString("LogLevel warn\n")
+	builder.WriteString("LogFormat \"%h %l %u %t \\\"%r\\\" %>s %b\" common\n")
+	builder.WriteString("EnableSendfile Off\n")
+	writeApacheMPMModule(&builder, modulesDir)
+	writeApacheLoadModule(&builder, modulesDir, "authz_core_module", "mod_authz_core.so")
+	writeApacheLoadModule(&builder, modulesDir, "authz_host_module", "mod_authz_host.so")
+	writeApacheLoadModule(&builder, modulesDir, "dir_module", "mod_dir.so")
+	writeApacheLoadModule(&builder, modulesDir, "mime_module", "mod_mime.so")
+	writeApacheLoadModule(&builder, modulesDir, "log_config_module", "mod_log_config.so")
+	writeApacheLoadModule(&builder, modulesDir, "rewrite_module", "mod_rewrite.so")
+	writeApacheLoadModule(&builder, modulesDir, "proxy_module", "mod_proxy.so")
+	writeApacheLoadModule(&builder, modulesDir, "proxy_fcgi_module", "mod_proxy_fcgi.so")
+	if tlsConfig.Enabled {
+		writeApacheLoadModule(&builder, modulesDir, "socache_shmcb_module", "mod_socache_shmcb.so")
+		writeApacheLoadModule(&builder, modulesDir, "ssl_module", "mod_ssl.so")
+	}
+	builder.WriteString("\n")
+	builder.WriteString("AddDefaultCharset Off\n")
+	writeServeApacheMIMETypes(&builder, "")
+	builder.WriteString("\n")
+	builder.WriteString("<VirtualHost *:")
+	builder.WriteString(strconv.Itoa(port))
+	builder.WriteString(">\n")
+	builder.WriteString("    ServerName ")
+	builder.WriteString(serverName)
+	builder.WriteString("\n")
+	builder.WriteString("    DocumentRoot ")
+	builder.WriteString(quoteApachePath(layout.Docroot))
+	builder.WriteString("\n")
+	builder.WriteString("    ErrorLog ")
+	builder.WriteString(quoteApachePath(filepath.Join(logsDir, "error.log")))
+	builder.WriteString("\n")
+	builder.WriteString("    CustomLog ")
+	builder.WriteString(quoteApachePath(filepath.Join(logsDir, "access.log")))
+	builder.WriteString(" common\n")
+	builder.WriteString("    DirectoryIndex ")
+	builder.WriteString(renderApacheDirectoryIndex(layout))
+	builder.WriteString("\n")
+	if tlsConfig.Enabled {
+		builder.WriteString("    SSLEngine on\n")
+		builder.WriteString("    SSLCertificateFile ")
+		builder.WriteString(quoteApachePath(tlsConfig.CertificatePath))
+		builder.WriteString("\n")
+		builder.WriteString("    SSLCertificateKeyFile ")
+		builder.WriteString(quoteApachePath(tlsConfig.CertificateKeyPath))
+		builder.WriteString("\n")
+		builder.WriteString("    SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1\n")
+	}
+	builder.WriteString("    <Directory ")
+	builder.WriteString(quoteApachePath(layout.Docroot))
+	builder.WriteString(">\n")
+	builder.WriteString("        Options FollowSymLinks\n")
+	builder.WriteString("        AllowOverride All\n")
+	builder.WriteString("        Require all granted\n")
+	if layout.FrontControllerRelative != "" {
+		builder.WriteString("        RewriteEngine On\n")
+		builder.WriteString("        RewriteCond %{REQUEST_FILENAME} !-f\n")
+		builder.WriteString("        RewriteCond %{REQUEST_FILENAME} !-d\n")
+		builder.WriteString("        RewriteRule ^ ")
+		builder.WriteString(filepath.ToSlash(layout.FrontControllerRelative))
+		builder.WriteString(" [QSA,L]\n")
+	}
+	builder.WriteString("    </Directory>\n")
+	builder.WriteString("    <FilesMatch \"^\\.ht\">\n")
+	builder.WriteString("        Require all denied\n")
+	builder.WriteString("    </FilesMatch>\n")
+	builder.WriteString("    ProxyFCGIBackendType GENERIC\n")
+	builder.WriteString("    ProxyFCGISetEnvIf \"true\" SCRIPT_FILENAME \"%{reqenv:DOCUMENT_ROOT}%{reqenv:SCRIPT_NAME}\"\n")
+	builder.WriteString("    <FilesMatch \"\\.php$\">\n")
+	builder.WriteString("        SetHandler \"proxy:fcgi://")
+	builder.WriteString(backendAddress)
+	builder.WriteString("/\"\n")
+	builder.WriteString("    </FilesMatch>\n")
+	builder.WriteString("</VirtualHost>\n")
+
+	return []byte(builder.String())
+}
+
+func writeApacheLoadModule(builder *strings.Builder, modulesDir, module, fileName string) {
+	builder.WriteString("LoadModule ")
+	builder.WriteString(module)
+	builder.WriteString(" ")
+	builder.WriteString(quoteApachePath(filepath.Join(modulesDir, fileName)))
+	builder.WriteString("\n")
+}
+
+func writeApacheMPMModule(builder *strings.Builder, modulesDir string) {
+	if runtime.GOOS == "windows" {
+		return
+	}
+
+	writeApacheLoadModule(builder, modulesDir, "mpm_event_module", "mod_mpm_event.so")
+}
+
 func renderNginxListenAddress(host string, port int) string {
 	trimmed := strings.TrimSpace(host)
 	if isLocalOnlyServeHostname(trimmed) {
@@ -1448,6 +1796,19 @@ func writeServeNginxMIMETypes(builder *strings.Builder, indent string) {
 	}
 }
 
+func writeServeApacheMIMETypes(builder *strings.Builder, indent string) {
+	for _, mimeType := range serveStaticMIMETypes {
+		builder.WriteString(indent)
+		builder.WriteString("AddType ")
+		builder.WriteString(mimeType.ContentType)
+		for _, extension := range mimeType.Extensions {
+			builder.WriteString(" .")
+			builder.WriteString(extension)
+		}
+		builder.WriteString("\n")
+	}
+}
+
 func renderNginxIndexNames(layout serveAppLayout) string {
 	indices := []string{}
 	if layout.FrontControllerIndex != "" {
@@ -1474,7 +1835,15 @@ func renderNginxFastCGIIndex(layout serveAppLayout) string {
 	return layout.FrontControllerIndex
 }
 
+func renderApacheDirectoryIndex(layout serveAppLayout) string {
+	return renderNginxIndexNames(layout)
+}
+
 func quoteNginxPath(path string) string {
+	return strconv.Quote(filepath.ToSlash(path))
+}
+
+func quoteApachePath(path string) string {
 	return strconv.Quote(filepath.ToSlash(path))
 }
 

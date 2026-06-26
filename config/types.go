@@ -11,6 +11,7 @@ const (
 	OPcachePresetProduction = "production"
 	ServerTypePHP           = "php"
 	ServerTypeNginx         = "nginx"
+	ServerTypeApache        = "apache"
 	ServerTypeFrankenPHP    = "frankenphp"
 )
 
@@ -24,6 +25,7 @@ type ToolsConfig struct {
 	NodeJSVersion     string `yaml:"nodejs,omitempty"`
 	MagoVersion       string `yaml:"mago,omitempty"`
 	NginxVersion      string `yaml:"nginx,omitempty"`
+	ApacheVersion     string `yaml:"apache,omitempty"`
 	MySQLVersion      string `yaml:"mysql,omitempty"`
 	MariaDBVersion    string `yaml:"mariadb,omitempty"`
 	PostgreSQLVersion string `yaml:"postgresql,omitempty"`
@@ -94,6 +96,7 @@ type Environment struct {
 	NodeJSVersion     string            `yaml:"nodejs,omitempty"`
 	MagoVersion       string            `yaml:"mago,omitempty"`
 	NginxVersion      string            `yaml:"nginx,omitempty"`
+	ApacheVersion     string            `yaml:"apache,omitempty"`
 	MySQLVersion      string            `yaml:"mysql,omitempty"`
 	MariaDBVersion    string            `yaml:"mariadb,omitempty"`
 	PostgreSQLVersion string            `yaml:"postgresql,omitempty"`
@@ -270,6 +273,7 @@ func ToolsConfigFromEnvironment(environment Environment) *ToolsConfig {
 		NodeJSVersion:     environment.NodeJSVersion,
 		MagoVersion:       environment.MagoVersion,
 		NginxVersion:      environment.NginxVersion,
+		ApacheVersion:     environment.ApacheVersion,
 		MySQLVersion:      DatabaseToolVersion(environment, "mysql"),
 		MariaDBVersion:    DatabaseToolVersion(environment, "mariadb"),
 		PostgreSQLVersion: DatabaseToolVersion(environment, "postgresql"),
@@ -376,6 +380,7 @@ func (tools ToolsConfig) IsZero() bool {
 		strings.TrimSpace(tools.NodeJSVersion) == "" &&
 		strings.TrimSpace(tools.MagoVersion) == "" &&
 		strings.TrimSpace(tools.NginxVersion) == "" &&
+		strings.TrimSpace(tools.ApacheVersion) == "" &&
 		strings.TrimSpace(tools.MySQLVersion) == "" &&
 		strings.TrimSpace(tools.MariaDBVersion) == "" &&
 		strings.TrimSpace(tools.PostgreSQLVersion) == "" &&
@@ -413,6 +418,7 @@ func environmentFromFileParts(name string, framework string, tools *ToolsConfig,
 		environment.NodeJSVersion = tools.NodeJSVersion
 		environment.MagoVersion = tools.MagoVersion
 		environment.NginxVersion = tools.NginxVersion
+		environment.ApacheVersion = tools.ApacheVersion
 		environment.MySQLVersion = tools.MySQLVersion
 		environment.MariaDBVersion = tools.MariaDBVersion
 		environment.PostgreSQLVersion = tools.PostgreSQLVersion
@@ -563,6 +569,7 @@ func NormalizeEnvironment(name string, environment Environment) Environment {
 		NodeJSVersion:     strings.TrimSpace(environment.NodeJSVersion),
 		MagoVersion:       strings.TrimSpace(environment.MagoVersion),
 		NginxVersion:      strings.TrimSpace(environment.NginxVersion),
+		ApacheVersion:     strings.TrimSpace(environment.ApacheVersion),
 		MySQLVersion:      strings.TrimSpace(environment.MySQLVersion),
 		MariaDBVersion:    strings.TrimSpace(environment.MariaDBVersion),
 		PostgreSQLVersion: strings.TrimSpace(environment.PostgreSQLVersion),

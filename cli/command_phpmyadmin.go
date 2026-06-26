@@ -13,6 +13,7 @@ var (
 	ensurePHPMyAdminStorageConfiguredFunc = service.EnsurePHPMyAdminStorageConfigured
 	startPHPMyAdminPHPRuntimeServeFunc    = startPHPRuntimeServeInBackgroundAt
 	startPHPMyAdminNginxServeFunc         = startNginxServeInBackgroundAt
+	startPHPMyAdminApacheServeFunc        = startApacheServeInBackgroundAt
 	startPHPMyAdminFrankenPHPServeFunc    = startFrankenPHPServeInBackgroundAt
 )
 
@@ -53,8 +54,10 @@ func startPHPMyAdminServe(store backend.Store, environment backend.Environment, 
 			return startPHPMyAdminFrankenPHPServeFunc(store, environment, endpoint, layout, runtimeDir)
 		case config.ServerTypeNginx:
 			return startPHPMyAdminNginxServeFunc(store, environment, endpoint, layout, runtimeDir)
+		case config.ServerTypeApache:
+			return startPHPMyAdminApacheServeFunc(store, environment, endpoint, layout, runtimeDir)
 		default:
-			return serveRuntimeState{}, fmt.Errorf("https requires nginx or FrankenPHP in the current environment")
+			return serveRuntimeState{}, fmt.Errorf("https requires nginx, Apache, or FrankenPHP in the current environment")
 		}
 	}
 
