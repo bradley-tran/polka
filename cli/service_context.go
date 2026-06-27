@@ -20,7 +20,9 @@ func managedServiceContext(store backend.Store, environment backend.Environment,
 		Environment: environment,
 		Registry:    store.ToolRegistry(),
 		RuntimeEnv:  func() ([]string, error) { return resolveRuntimeEnvironment(runtime.GOOS, os.Environ(), store) },
-		TLSCert:     func(host string) (string, string, error) { return ensureGlobalTLSCertificate(store.CacheDir, host) },
+		TLSCert: func(host string) (string, string, error) {
+			return ensureGlobalTLSCertificateRuntimeKey(store.CacheDir, service.ToolLogRoot(store.RootDir, "mailpit", environment.Name), host)
+		},
 		Warnf: func(format string, args ...any) {
 			if stderr != nil {
 				_, _ = fmt.Fprintf(stderr, "warning: "+format, args...)

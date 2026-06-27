@@ -148,6 +148,9 @@ func newServeCommand(ctx *commandContext) *cobra.Command {
 }
 
 func runStart(stdout, stderr io.Writer, store backend.Store, input serveCommandInput) int {
+	restoreTLSWarning := setTLSCAKeyFallbackWarningWriter(stderr)
+	defer restoreTLSWarning()
+
 	current, err := store.Current()
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
@@ -1089,7 +1092,7 @@ func prepareFrankenPHPServeRuntime(cacheDir, runtimeDir string, endpoint serverE
 	}
 	tlsConfig := serveTLSConfig{}
 	if endpoint.HTTPS {
-		certPath, keyPath, err := ensureGlobalTLSCertificate(cacheDir, host)
+		certPath, keyPath, err := ensureGlobalTLSCertificateRuntimeKey(cacheDir, runtimeDir, host)
 		if err != nil {
 			return "", err
 		}
@@ -1163,7 +1166,7 @@ func prepareNginxServeRuntime(cacheDir, runtimeDir string, environment backend.E
 	}
 	tlsConfig := serveTLSConfig{}
 	if endpoint.HTTPS {
-		certPath, keyPath, err := ensureGlobalTLSCertificate(cacheDir, host)
+		certPath, keyPath, err := ensureGlobalTLSCertificateRuntimeKey(cacheDir, runtimeDir, host)
 		if err != nil {
 			return "", "", err
 		}
@@ -1335,7 +1338,7 @@ func prepareApacheServeRuntime(cacheDir, runtimeDir, apacheRoot string, endpoint
 	}
 	tlsConfig := serveTLSConfig{}
 	if endpoint.HTTPS {
-		certPath, keyPath, err := ensureGlobalTLSCertificate(cacheDir, host)
+		certPath, keyPath, err := ensureGlobalTLSCertificateRuntimeKey(cacheDir, runtimeDir, host)
 		if err != nil {
 			return "", "", err
 		}
@@ -1498,6 +1501,27 @@ func isLocalOnlyServeHostname(host string) bool {
 }
 
 func ensureGlobalTLSCertificate(cacheDir, host string) (string, string, error) {
+	return ensureGlobalTLSCertificateWithOptions(cacheDir, host, defaultTLSCAKeyStorageOptions())
+}
+
+func ensureGlobalTLSCertificateRuntimeKey(cacheDir, runtimeDir, host string) (string, string, error) {
+	return ensureGlobalTLSCertificateRuntimeKeyWithOptions(cacheDir, runtimeDir, host, defaultTLSCAKeyStorageOptions())
+}
+
+func ensureGlobalTLSCertificateRuntimeKeyWithOptions(cacheDir, runtimeDir, host string, storageOptions tlsCAKeyStorageOptions) (string, string, error) {
+	certPath, keyPath, err := ensureGlobalTLSCertificateWithOptions(cacheDir, host, storageOptions)
+	if err != nil {
+		return "", "", err
+	}
+	runtimeKeyPath := filepath.Join(runtimeDir, serveTLSKeyFileName)
+	if err := materializeTLSPrivateKeyFile(keyPath, runtimeKeyPath, storageOptions); err != nil {
+		return "", "", fmt.Errorf("write local tls runtime private key: %w", err)
+	}
+
+	return certPath, runtimeKeyPath, nil
+}
+
+func ensureGlobalTLSCertificateWithOptions(cacheDir, host string, storageOptions tlsCAKeyStorageOptions) (string, string, error) {
 	certPath, keyPath := globalTLSCertificatePaths(cacheDir)
 	caCertPath, caKeyPath := globalTLSCACertificatePaths(cacheDir)
 	hasCA := certificateFileExists(caCertPath) && certificateFileExists(caKeyPath)
@@ -1505,13 +1529,17 @@ func ensureGlobalTLSCertificate(cacheDir, host string) (string, string, error) {
 		return certPath, keyPath, nil
 	}
 	if hasCA {
-		return createGlobalTLSServerCertificate(cacheDir, host)
+		return createGlobalTLSServerCertificateWithOptions(cacheDir, host, storageOptions)
 	}
 
-	return createGlobalTLSCertificate(cacheDir, host)
+	return createGlobalTLSCertificateWithOptions(cacheDir, host, storageOptions)
 }
 
 func regenerateGlobalTLSCertificate(cacheDir string) (string, string, error) {
+	return regenerateGlobalTLSCertificateWithOptions(cacheDir, defaultTLSCAKeyStorageOptions())
+}
+
+func regenerateGlobalTLSCertificateWithOptions(cacheDir string, storageOptions tlsCAKeyStorageOptions) (string, string, error) {
 	certPath, keyPath := globalTLSCertificatePaths(cacheDir)
 	caCertPath, caKeyPath := globalTLSCACertificatePaths(cacheDir)
 	for _, path := range []string{certPath, keyPath, caCertPath, caKeyPath} {
@@ -1520,10 +1548,14 @@ func regenerateGlobalTLSCertificate(cacheDir string) (string, string, error) {
 		}
 	}
 
-	return createGlobalTLSCertificate(cacheDir, "")
+	return createGlobalTLSCertificateWithOptions(cacheDir, "", storageOptions)
 }
 
 func createGlobalTLSCertificate(cacheDir, host string) (string, string, error) {
+	return createGlobalTLSCertificateWithOptions(cacheDir, host, defaultTLSCAKeyStorageOptions())
+}
+
+func createGlobalTLSCertificateWithOptions(cacheDir, host string, storageOptions tlsCAKeyStorageOptions) (string, string, error) {
 	certPath, _ := globalTLSCertificatePaths(cacheDir)
 	caCertPath, caKeyPath := globalTLSCACertificatePaths(cacheDir)
 	certDir := filepath.Dir(certPath)
@@ -1560,23 +1592,27 @@ func createGlobalTLSCertificate(cacheDir, host string) (string, string, error) {
 	if err := writePEMFile(caCertPath, 0o644, "CERTIFICATE", caDER); err != nil {
 		return "", "", fmt.Errorf("write local ca certificate: %w", err)
 	}
-	if err := writePEMFile(caKeyPath, 0o600, "RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(caPrivateKey)); err != nil {
+	if err := writeTLSPrivateKeyFile(caKeyPath, caPrivateKey, storageOptions); err != nil {
 		return "", "", fmt.Errorf("write local ca private key: %w", err)
 	}
 
-	return createGlobalTLSServerCertificateWithCA(cacheDir, host, &caTemplate, caPrivateKey)
+	return createGlobalTLSServerCertificateWithCA(cacheDir, host, &caTemplate, caPrivateKey, storageOptions)
 }
 
 func createGlobalTLSServerCertificate(cacheDir, host string) (string, string, error) {
-	caCertificate, caPrivateKey, err := loadGlobalTLSCA(cacheDir)
+	return createGlobalTLSServerCertificateWithOptions(cacheDir, host, defaultTLSCAKeyStorageOptions())
+}
+
+func createGlobalTLSServerCertificateWithOptions(cacheDir, host string, storageOptions tlsCAKeyStorageOptions) (string, string, error) {
+	caCertificate, caPrivateKey, err := loadGlobalTLSCAWithOptions(cacheDir, storageOptions)
 	if err != nil {
 		return "", "", err
 	}
 
-	return createGlobalTLSServerCertificateWithCA(cacheDir, host, caCertificate, caPrivateKey)
+	return createGlobalTLSServerCertificateWithCA(cacheDir, host, caCertificate, caPrivateKey, storageOptions)
 }
 
-func createGlobalTLSServerCertificateWithCA(cacheDir, host string, caCertificate *x509.Certificate, caPrivateKey *rsa.PrivateKey) (string, string, error) {
+func createGlobalTLSServerCertificateWithCA(cacheDir, host string, caCertificate *x509.Certificate, caPrivateKey *rsa.PrivateKey, storageOptions tlsCAKeyStorageOptions) (string, string, error) {
 	certPath, keyPath := globalTLSCertificatePaths(cacheDir)
 	serverPrivateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -1609,7 +1645,7 @@ func createGlobalTLSServerCertificateWithCA(cacheDir, host string, caCertificate
 	if err := writePEMFile(certPath, 0o644, "CERTIFICATE", serverDER); err != nil {
 		return "", "", fmt.Errorf("write local tls certificate: %w", err)
 	}
-	if err := writePEMFile(keyPath, 0o600, "RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(serverPrivateKey)); err != nil {
+	if err := writeTLSPrivateKeyFile(keyPath, serverPrivateKey, storageOptions); err != nil {
 		return "", "", fmt.Errorf("write local tls private key: %w", err)
 	}
 
@@ -1617,12 +1653,16 @@ func createGlobalTLSServerCertificateWithCA(cacheDir, host string, caCertificate
 }
 
 func loadGlobalTLSCA(cacheDir string) (*x509.Certificate, *rsa.PrivateKey, error) {
+	return loadGlobalTLSCAWithOptions(cacheDir, defaultTLSCAKeyStorageOptions())
+}
+
+func loadGlobalTLSCAWithOptions(cacheDir string, storageOptions tlsCAKeyStorageOptions) (*x509.Certificate, *rsa.PrivateKey, error) {
 	caCertPath, caKeyPath := globalTLSCACertificatePaths(cacheDir)
 	caCertificate, err := readCertificateFile(caCertPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("read local ca certificate: %w", err)
 	}
-	caPrivateKey, err := readRSAPrivateKeyFile(caKeyPath)
+	caPrivateKey, err := readTLSPrivateKeyFile(caKeyPath, storageOptions)
 	if err != nil {
 		return nil, nil, fmt.Errorf("read local ca private key: %w", err)
 	}
@@ -1727,19 +1767,6 @@ func readCertificateFile(path string) (*x509.Certificate, error) {
 	}
 
 	return x509.ParseCertificate(block.Bytes)
-}
-
-func readRSAPrivateKeyFile(path string) (*rsa.PrivateKey, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	block, _ := pem.Decode(data)
-	if block == nil || block.Type != "RSA PRIVATE KEY" {
-		return nil, fmt.Errorf("missing RSA PRIVATE KEY PEM block in %s", path)
-	}
-
-	return x509.ParsePKCS1PrivateKey(block.Bytes)
 }
 
 func globalTLSCertificatePaths(cacheDir string) (string, string) {

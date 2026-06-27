@@ -100,10 +100,12 @@ When FrankenPHP and standalone PHP are both configured, Polka warns that the php
 `
 
 const certInstallUsage = `Usage:
-  polka cert-install
+  polka cert-install [--no-encryption]
 
 Install Polka's generated local HTTPS certificate into the current user's trust store.
 The generated certificate material is global to the Polka cache. This command replaces any existing generated CA/server certificate pair and installs the CA certificate.
+By default, Polka encrypts the generated global-cache private keys with random keys stored in the OS keyring.
+Use --no-encryption to write the private keys in the legacy plaintext PEM format.
 `
 
 const dbUsage = `Usage:

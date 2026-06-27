@@ -16,7 +16,14 @@ import (
 
 var installCertificateToTrustStoreFunc = installCertificateToTrustStore
 
+// certInstallInput carries certificate regeneration options parsed from flags.
+type certInstallInput struct {
+	NoEncryption bool
+}
+
 func newCertInstallCommand(ctx *commandContext) *cobra.Command {
+	var input certInstallInput
+
 	cmd := &cobra.Command{
 		Use:  "cert-install",
 		Args: exactArgsError("cert-install accepts no arguments", 0),
@@ -26,17 +33,24 @@ func newCertInstallCommand(ctx *commandContext) *cobra.Command {
 				return &statusError{code: 1, err: err}
 			}
 
-			ctx.exitCode = runCertInstall(cmd.OutOrStdout(), cmd.ErrOrStderr(), store)
+			ctx.exitCode = runCertInstall(cmd.OutOrStdout(), cmd.ErrOrStderr(), store, input)
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&input.NoEncryption, "no-encryption", false, "write plaintext local HTTPS private keys instead of encrypting them with the OS keyring")
 	configureCommand(cmd, certInstallUsage)
 
 	return cmd
 }
 
-func runCertInstall(stdout, stderr io.Writer, store backend.Store) int {
-	if _, _, err := regenerateGlobalTLSCertificate(store.CacheDir); err != nil {
+func runCertInstall(stdout, stderr io.Writer, store backend.Store, input certInstallInput) int {
+	storageOptions := tlsCAKeyStorageOptions{Policy: tlsCAKeyStorageEncryptedRequired}
+	if input.NoEncryption {
+		storageOptions.Policy = tlsCAKeyStoragePlaintextRequired
+		fmt.Fprintln(stderr, "warning: writing Polka local HTTPS private keys without OS keyring encryption")
+	}
+
+	if _, _, err := regenerateGlobalTLSCertificateWithOptions(store.CacheDir, storageOptions); err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}

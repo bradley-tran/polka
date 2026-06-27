@@ -179,6 +179,8 @@ If the environment defines `mailpit`, `phpmyadmin`, or a managed database, Polka
 
 HTTPS requires nginx, Apache, or FrankenPHP at start time. They use the generated server certificate from the global Polka cache. The certificate covers `localhost`, `*.localhost`, `127.0.0.1`, and `::1`, and is signed by a generated local Polka CA. Hostnames ending in `.localhost`, such as `blog.localhost`, work without editing the hosts file.
 
+When Polka creates new HTTPS certificate material during `serve`, it prefers to encrypt global-cache private keys with random keys stored in the OS keyring. Webserver processes still receive plaintext PEM runtime copies under `.polka/run` because nginx, Apache, FrankenPHP, and Mailpit require key file paths. If the OS keyring is unavailable, `serve` falls back to the legacy plaintext global-cache private-key format with a warning so local HTTPS remains usable. Existing plaintext keys continue to work.
+
 ### `polka stop`
 
 Stops the active environment's background webserver, phpMyAdmin, managed database, and Mailpit when they are running.
@@ -199,9 +201,11 @@ polka logs postgresql --level error
 
 Manifest log paths are resolved under `.polka/run/<tool>/<environment>`. When `--level` is omitted, Polka prints `info`, `error`, and `debug` logs in that order. Missing log files are skipped. If no matching declared log file exists on disk, the command exits with an error. Built-in log declarations cover `nginx`, `apache`, `frankenphp`, `mailpit`, `phpmyadmin`, `mysql`, `mariadb`, and `postgresql`.
 
-### `polka cert-install`
+### `polka cert-install [--no-encryption]`
 
-Clears and regenerates the global Polka CA/server certificate pair, then installs the CA certificate into the current user's trust store on Windows or macOS. On other platforms, Polka prints an error with the certificate path so it can be installed manually.
+Clears and regenerates the global Polka CA/server certificate pair, then installs the CA certificate into the current user's trust store on Windows or macOS. By default, Polka encrypts the regenerated global-cache private keys with random keys stored in the OS keyring, and the command fails if that keyring storage is unavailable. After certificate generation, unsupported trust-store platforms fail with the certificate path so it can be installed manually.
+
+Use `--no-encryption` to regenerate the private keys in the legacy plaintext PEM format.
 
 ## Database Commands
 

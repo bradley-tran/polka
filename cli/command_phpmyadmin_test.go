@@ -1,6 +1,9 @@
 package cli
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"polka/backend"
@@ -116,5 +119,76 @@ func TestStartPHPMyAdminServeUsesSelectedApacheForHTTPS(t *testing.T) {
 	}
 	if state.ServerKind != "apache" || phpCalls != 0 || nginxCalls != 0 || apacheCalls != 1 || frankenPHPCalls != 0 {
 		t.Fatalf("serve result = %#v, calls php:%d nginx:%d apache:%d frankenphp:%d, want only Apache", state, phpCalls, nginxCalls, apacheCalls, frankenPHPCalls)
+	}
+}
+
+func TestStartPHPMyAdminServeUsesRuntimeTLSKeyForEncryptedGlobalKey(t *testing.T) {
+	oldNginx := startPHPMyAdminNginxServeFunc
+	t.Cleanup(func() {
+		startPHPMyAdminNginxServeFunc = oldNginx
+	})
+
+	root := t.TempDir()
+	runtimeDir := filepath.Join(root, "run", "phpmyadmin", "demo")
+	docroot := filepath.Join(root, "envs", "phpmyadmin", "5.2")
+	if err := os.MkdirAll(docroot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(docroot) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(docroot, "index.php"), []byte("<?php\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(index.php) error = %v", err)
+	}
+
+	store := backend.Store{
+		RootDir:  root,
+		CacheDir: filepath.Join(root, "cache"),
+	}
+	environment := backend.Environment{
+		Name:         "demo",
+		PHPVersion:   "8.4",
+		NginxVersion: "1.30",
+		Server:       &backend.ServerConfig{Type: "nginx"},
+	}
+	endpoint := serverEndpoint{Scheme: "https", Address: "127.0.0.1:8082", HTTPS: true}
+	layout, err := resolveServeAppLayout(docroot)
+	if err != nil {
+		t.Fatalf("resolveServeAppLayout() error = %v", err)
+	}
+
+	startPHPMyAdminNginxServeFunc = func(store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout, runtimeDir string) (serveRuntimeState, error) {
+		configPath, _, err := prepareNginxServeRuntime(store.CacheDir, runtimeDir, environment, endpoint, layout, "127.0.0.1:19000")
+		if err != nil {
+			return serveRuntimeState{}, err
+		}
+
+		return serveRuntimeState{
+			ServerKind:    "nginx",
+			ServerScheme:  endpoint.Scheme,
+			ServerAddress: endpoint.Address,
+			Docroot:       layout.Docroot,
+			RuntimeDir:    runtimeDir,
+			ConfigPath:    configPath,
+			PrimaryPID:    6262,
+		}, nil
+	}
+
+	state, err := startPHPMyAdminServe(store, environment, endpoint, layout, runtimeDir)
+	if err != nil {
+		t.Fatalf("startPHPMyAdminServe() error = %v", err)
+	}
+	globalKeyPath := filepath.Join(store.CacheDir, "polka", serveTLSSubdir, serveTLSKeyFileName)
+	runtimeKeyPath := filepath.Join(runtimeDir, serveTLSKeyFileName)
+	assertEncryptedTLSKeyFile(t, globalKeyPath)
+	assertPlaintextTLSKeyFile(t, runtimeKeyPath)
+
+	configData, err := os.ReadFile(state.ConfigPath)
+	if err != nil {
+		t.Fatalf("ReadFile(phpMyAdmin nginx config) error = %v", err)
+	}
+	config := string(configData)
+	if strings.Contains(config, quoteNginxPath(globalKeyPath)) {
+		t.Fatalf("phpMyAdmin nginx config = %q, want no encrypted global key path", config)
+	}
+	if !strings.Contains(config, "ssl_certificate_key "+quoteNginxPath(runtimeKeyPath)+";") {
+		t.Fatalf("phpMyAdmin nginx config = %q, want runtime key path", config)
 	}
 }

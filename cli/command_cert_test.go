@@ -47,11 +47,31 @@ func TestRunCertInstallCreatesAndInstallsGlobalCertificate(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(cacheDir, "polka", serveTLSSubdir, serveTLSCAKeyName)); err != nil {
 		t.Fatalf("Stat(global ca key) error = %v", err)
 	}
+	caKeyData, err := os.ReadFile(filepath.Join(cacheDir, "polka", serveTLSSubdir, serveTLSCAKeyName))
+	if err != nil {
+		t.Fatalf("ReadFile(global ca key) error = %v", err)
+	}
+	if strings.Contains(string(caKeyData), "-----BEGIN RSA PRIVATE KEY-----") {
+		t.Fatalf("global ca key = %q, want encrypted key", string(caKeyData))
+	}
+	if !strings.Contains(string(caKeyData), tlsCAEncryptedKeyPEMType) {
+		t.Fatalf("global ca key = %q, want encrypted key PEM type", string(caKeyData))
+	}
 	if _, err := os.Stat(filepath.Join(cacheDir, "polka", serveTLSSubdir, serveTLSCertFileName)); err != nil {
 		t.Fatalf("Stat(global server cert) error = %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(cacheDir, "polka", serveTLSSubdir, serveTLSKeyFileName)); err != nil {
 		t.Fatalf("Stat(global server key) error = %v", err)
+	}
+	serverKeyData, err := os.ReadFile(filepath.Join(cacheDir, "polka", serveTLSSubdir, serveTLSKeyFileName))
+	if err != nil {
+		t.Fatalf("ReadFile(global server key) error = %v", err)
+	}
+	if strings.Contains(string(serverKeyData), "-----BEGIN RSA PRIVATE KEY-----") {
+		t.Fatalf("global server key = %q, want encrypted key", string(serverKeyData))
+	}
+	if !strings.Contains(string(serverKeyData), tlsEncryptedPrivateKeyPEMType) {
+		t.Fatalf("global server key = %q, want encrypted key PEM type", string(serverKeyData))
 	}
 	output := stdout.String()
 	if !strings.Contains(output, "Installed Polka local HTTPS CA certificate into the test trust store.") {
@@ -111,6 +131,46 @@ func TestRunCertInstallRegeneratesExistingGlobalCertificate(t *testing.T) {
 	}
 }
 
+func TestRunCertInstallNoEncryptionCreatesPlaintextCAKey(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	cacheDir := filepath.Join(projectDir, "global-cache")
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	oldInstall := installCertificateToTrustStoreFunc
+	t.Cleanup(func() {
+		installCertificateToTrustStoreFunc = oldInstall
+	})
+	installCertificateToTrustStoreFunc = func(certificatePath string) (string, error) {
+		return "test", nil
+	}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "cert-install", "--no-encryption"}); code != 0 {
+		t.Fatalf("Run(cert-install --no-encryption) code = %d, stderr = %q", code, stderr.String())
+	}
+	caKeyPath := filepath.Join(cacheDir, "polka", serveTLSSubdir, serveTLSCAKeyName)
+	caKeyData, err := os.ReadFile(caKeyPath)
+	if err != nil {
+		t.Fatalf("ReadFile(global ca key) error = %v", err)
+	}
+	if !strings.Contains(string(caKeyData), "-----BEGIN RSA PRIVATE KEY-----") {
+		t.Fatalf("global ca key = %q, want plaintext RSA PRIVATE KEY", string(caKeyData))
+	}
+	serverKeyPath := filepath.Join(cacheDir, "polka", serveTLSSubdir, serveTLSKeyFileName)
+	serverKeyData, err := os.ReadFile(serverKeyPath)
+	if err != nil {
+		t.Fatalf("ReadFile(global server key) error = %v", err)
+	}
+	if !strings.Contains(string(serverKeyData), "-----BEGIN RSA PRIVATE KEY-----") {
+		t.Fatalf("global server key = %q, want plaintext RSA PRIVATE KEY", string(serverKeyData))
+	}
+	if !strings.Contains(stderr.String(), "warning: writing Polka local HTTPS private keys without OS keyring encryption") {
+		t.Fatalf("Run(cert-install --no-encryption) stderr = %q, want plaintext warning", stderr.String())
+	}
+}
+
 func TestGlobalTLSCertificateCoversLocalhostNames(t *testing.T) {
 	cacheDir := t.TempDir()
 	certificatePath, keyPath, err := ensureGlobalTLSCertificate(cacheDir, "site.localhost")
@@ -123,6 +183,7 @@ func TestGlobalTLSCertificateCoversLocalhostNames(t *testing.T) {
 	if keyPath != filepath.Join(cacheDir, "polka", serveTLSSubdir, serveTLSKeyFileName) {
 		t.Fatalf("key path = %q, want global path", keyPath)
 	}
+	assertEncryptedTLSKeyFile(t, keyPath)
 	caCertificatePath, _ := globalTLSCACertificatePaths(cacheDir)
 
 	data, err := os.ReadFile(certificatePath)
@@ -168,6 +229,44 @@ func TestGlobalTLSCertificateCoversLocalhostNames(t *testing.T) {
 	roots.AddCert(caCertificate)
 	if _, err := certificate.Verify(x509.VerifyOptions{DNSName: "site.localhost", Roots: roots}); err != nil {
 		t.Fatalf("Verify(site.localhost with generated ca) error = %v", err)
+	}
+}
+
+func TestEnsureGlobalTLSCertificateUsesExistingPlaintextCAKey(t *testing.T) {
+	cacheDir := t.TempDir()
+	if _, _, err := regenerateGlobalTLSCertificateWithOptions(cacheDir, tlsCAKeyStorageOptions{Policy: tlsCAKeyStoragePlaintextRequired}); err != nil {
+		t.Fatalf("regenerateGlobalTLSCertificateWithOptions() error = %v", err)
+	}
+	caCertificatePath, caKeyPath := globalTLSCACertificatePaths(cacheDir)
+	caBefore, err := readCertificateFile(caCertificatePath)
+	if err != nil {
+		t.Fatalf("readCertificateFile(ca before) error = %v", err)
+	}
+	caKeyData, err := os.ReadFile(caKeyPath)
+	if err != nil {
+		t.Fatalf("ReadFile(ca key) error = %v", err)
+	}
+	if !strings.Contains(string(caKeyData), "-----BEGIN RSA PRIVATE KEY-----") {
+		t.Fatalf("ca key = %q, want plaintext key fixture", string(caKeyData))
+	}
+
+	certificatePath, _, err := ensureGlobalTLSCertificate(cacheDir, "plain.localhost")
+	if err != nil {
+		t.Fatalf("ensureGlobalTLSCertificate() error = %v", err)
+	}
+	caAfter, err := readCertificateFile(caCertificatePath)
+	if err != nil {
+		t.Fatalf("readCertificateFile(ca after) error = %v", err)
+	}
+	if caBefore.SerialNumber.Cmp(caAfter.SerialNumber) != 0 {
+		t.Fatalf("ca serial changed from %s to %s, want existing plaintext CA reused", caBefore.SerialNumber, caAfter.SerialNumber)
+	}
+	certificate, err := readCertificateFile(certificatePath)
+	if err != nil {
+		t.Fatalf("readCertificateFile(server) error = %v", err)
+	}
+	if err := certificate.VerifyHostname("plain.localhost"); err != nil {
+		t.Fatalf("VerifyHostname(plain.localhost) error = %v", err)
 	}
 }
 

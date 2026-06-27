@@ -562,19 +562,22 @@ func TestPrepareFrankenPHPServeRuntimeUsesPolkaTLS(t *testing.T) {
 		t.Fatalf("ReadFile(Caddyfile) error = %v", err)
 	}
 	caddyfile := string(data)
-	certPath, keyPath := globalTLSCertificatePaths(cacheDir)
+	certPath, globalKeyPath := globalTLSCertificatePaths(cacheDir)
+	runtimeKeyPath := filepath.Join(runtimeDir, serveTLSKeyFileName)
 	for _, want := range []string{
 		"admin off",
 		"auto_https disable_redirects",
 		"https://site.localhost:8443",
 		"root * " + strconv.Quote(filepath.ToSlash(docroot)),
-		"tls " + strconv.Quote(filepath.ToSlash(certPath)) + " " + strconv.Quote(filepath.ToSlash(keyPath)),
+		"tls " + strconv.Quote(filepath.ToSlash(certPath)) + " " + strconv.Quote(filepath.ToSlash(runtimeKeyPath)),
 		"php_server",
 	} {
 		if !strings.Contains(caddyfile, want) {
 			t.Fatalf("Caddyfile = %q, want %q", caddyfile, want)
 		}
 	}
+	assertEncryptedTLSKeyFile(t, globalKeyPath)
+	assertPlaintextTLSKeyFile(t, runtimeKeyPath)
 }
 
 func TestRenderFrankenPHPCaddyfileSupportsHTTP(t *testing.T) {
@@ -836,19 +839,22 @@ func TestPrepareApacheServeRuntimeCreatesHTTPSConfigForLocalhostHostname(t *test
 		t.Fatalf("ReadFile(config) error = %v", err)
 	}
 	config := string(configData)
-	certPath, keyPath := globalTLSCertificatePaths(rootDir)
+	certPath, globalKeyPath := globalTLSCertificatePaths(rootDir)
+	runtimeKeyPath := filepath.Join(runtimeDir, serveTLSKeyFileName)
 	for _, want := range []string{
 		"Listen 127.0.0.1:8443",
 		"ServerName site.localhost:8443",
 		"LoadModule ssl_module",
 		"SSLEngine on",
 		"SSLCertificateFile " + strconv.Quote(filepath.ToSlash(certPath)),
-		"SSLCertificateKeyFile " + strconv.Quote(filepath.ToSlash(keyPath)),
+		"SSLCertificateKeyFile " + strconv.Quote(filepath.ToSlash(runtimeKeyPath)),
 	} {
 		if !strings.Contains(config, want) {
 			t.Fatalf("apache config = %q, want %q", config, want)
 		}
 	}
+	assertEncryptedTLSKeyFile(t, globalKeyPath)
+	assertPlaintextTLSKeyFile(t, runtimeKeyPath)
 }
 
 func TestPrepareNginxServeRuntimeFrameworkFallsBackToGenericConfig(t *testing.T) {
@@ -915,12 +921,17 @@ func TestPrepareNginxServeRuntimeCreatesHTTPSConfigForLocalhostHostname(t *testi
 	if !strings.Contains(config, "ssl_certificate ") || !strings.Contains(config, "ssl_certificate_key ") {
 		t.Fatalf("nginx config = %q, want generated certificate directives", config)
 	}
+	if !strings.Contains(config, "ssl_certificate_key "+quoteNginxPath(filepath.Join(runtimeDir, serveTLSKeyFileName))+";") {
+		t.Fatalf("nginx config = %q, want runtime tls key path", config)
+	}
 	if _, err := os.Stat(filepath.Join(rootDir, "polka", serveTLSSubdir, serveTLSCertFileName)); err != nil {
 		t.Fatalf("Stat(generated cert) error = %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(rootDir, "polka", serveTLSSubdir, serveTLSKeyFileName)); err != nil {
 		t.Fatalf("Stat(generated key) error = %v", err)
 	}
+	assertEncryptedTLSKeyFile(t, filepath.Join(rootDir, "polka", serveTLSSubdir, serveTLSKeyFileName))
+	assertPlaintextTLSKeyFile(t, filepath.Join(runtimeDir, serveTLSKeyFileName))
 	if _, err := os.Stat(filepath.Join(rootDir, "polka", serveTLSSubdir, serveTLSCACertName)); err != nil {
 		t.Fatalf("Stat(generated ca cert) error = %v", err)
 	}
@@ -1106,6 +1117,31 @@ func TestRunServeStartsConfiguredDatabaseBeforePhp(t *testing.T) {
 	}
 }
 
+func assertEncryptedTLSKeyFile(t *testing.T, path string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%s) error = %v", path, err)
+	}
+	if strings.Contains(string(data), "-----BEGIN RSA PRIVATE KEY-----") {
+		t.Fatalf("%s = %q, want encrypted key", path, string(data))
+	}
+	if !strings.Contains(string(data), tlsEncryptedPrivateKeyPEMType) {
+		t.Fatalf("%s = %q, want encrypted key PEM type", path, string(data))
+	}
+}
+
+func assertPlaintextTLSKeyFile(t *testing.T, path string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%s) error = %v", path, err)
+	}
+	if !strings.Contains(string(data), "-----BEGIN RSA PRIVATE KEY-----") {
+		t.Fatalf("%s = %q, want plaintext RSA PRIVATE KEY", path, string(data))
+	}
+}
+
 func TestRunServeStartsConfiguredMailpitBeforeWebserver(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
@@ -1210,6 +1246,8 @@ func TestRunServeStartsConfiguredMailpitBeforeWebserver(t *testing.T) {
 	if startedSpec.TLSCertPath == "" || startedSpec.TLSKeyPath == "" {
 		t.Fatalf("started mailpit spec = %#v, want generated tls paths", startedSpec)
 	}
+	assertEncryptedTLSKeyFile(t, filepath.Join(projectDir, "global-cache", "polka", serveTLSSubdir, serveTLSKeyFileName))
+	assertPlaintextTLSKeyFile(t, startedSpec.TLSKeyPath)
 	state, err := loadMailpitState(mailpitStatePath(root, "demo"))
 	if err != nil {
 		t.Fatalf("loadMailpitState() error = %v", err)
@@ -1324,6 +1362,112 @@ func TestRunServeStartsConfiguredPHPMyAdminBeforeWebserver(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "Started phpMyAdmin for environment \"demo\" at http://127.0.0.1:8082.\n") {
 		t.Fatalf("Run(serve with phpmyadmin) stdout = %q, want phpMyAdmin URL", stdout.String())
+	}
+}
+
+func TestRunServeStartsHTTPSPHPMyAdminWithRuntimeTLSKey(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	cacheDir := filepath.Join(projectDir, "global-cache")
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	docroot := filepath.Join(projectDir, "site", "public")
+	if err := os.MkdirAll(docroot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(docroot) error = %v", err)
+	}
+
+	config := testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {
+				PHP:     "8.4",
+				Nginx:   "1.30",
+				Docroot: filepath.ToSlash(filepath.Join("site", "public")),
+				HTTPS:   true,
+				PHPMyAdmin: &testPHPMyAdminConfig{
+					Version: "5.2",
+					Port:    8082,
+				},
+				Server: &testServerConfig{Type: "nginx", Hostname: "site.localhost", Port: 8443},
+			},
+		},
+	}
+	writeTestConfigFile(t, projectDir, config)
+	writeTestActiveEnvironment(t, root, "demo")
+	phpMyAdminIndex := filepath.Join(root, "envs", "phpmyadmin", "5.2", "index.php")
+	if err := os.MkdirAll(filepath.Dir(phpMyAdminIndex), 0o755); err != nil {
+		t.Fatalf("MkdirAll(phpmyadmin docroot) error = %v", err)
+	}
+	if err := os.WriteFile(phpMyAdminIndex, []byte("<?php\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(phpmyadmin index) error = %v", err)
+	}
+
+	oldEnsurePHPMyAdminStorage := ensurePHPMyAdminStorageConfiguredFunc
+	oldStartPHPMyAdminNginx := startPHPMyAdminNginxServeFunc
+	oldStartNginx := startBackgroundNginxServe
+	oldPingServe := pingServeAddressFunc
+	t.Cleanup(func() {
+		ensurePHPMyAdminStorageConfiguredFunc = oldEnsurePHPMyAdminStorage
+		startPHPMyAdminNginxServeFunc = oldStartPHPMyAdminNginx
+		startBackgroundNginxServe = oldStartNginx
+		pingServeAddressFunc = oldPingServe
+	})
+
+	running := map[string]bool{}
+	ensurePHPMyAdminStorageConfiguredFunc = func(ctx service.Context, environment backend.Environment, hooks service.DatabaseRuntimeHooks) error {
+		return nil
+	}
+	startPHPMyAdminNginxServeFunc = func(store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout, runtimeDir string) (serveRuntimeState, error) {
+		configPath, phpLogPath, err := prepareNginxServeRuntime(store.CacheDir, runtimeDir, environment, endpoint, layout, "127.0.0.1:19000")
+		if err != nil {
+			return serveRuntimeState{}, err
+		}
+		running[endpoint.Address] = true
+
+		return serveRuntimeState{
+			EnvironmentName: environment.Name,
+			ServerKind:      "nginx",
+			ServerScheme:    endpoint.Scheme,
+			ServerAddress:   endpoint.Address,
+			Docroot:         layout.Docroot,
+			RuntimeDir:      runtimeDir,
+			LogPath:         filepath.Join(runtimeDir, serveLogFileName),
+			BackendLogPath:  phpLogPath,
+			ConfigPath:      configPath,
+			PrimaryPID:      6262,
+		}, nil
+	}
+	startBackgroundNginxServe = func(store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout) (serveRuntimeState, error) {
+		running[endpoint.Address] = true
+		return serveRuntimeState{PrimaryPID: 4242}, nil
+	}
+	pingServeAddressFunc = func(address string) bool {
+		return running[address]
+	}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "start"}); code != 0 {
+		t.Fatalf("Run(serve with https phpmyadmin) code = %d, stderr = %q", code, stderr.String())
+	}
+	state, err := loadPHPMyAdminState(phpMyAdminStatePath(root, "demo"))
+	if err != nil {
+		t.Fatalf("loadPHPMyAdminState() error = %v", err)
+	}
+	globalKeyPath := filepath.Join(cacheDir, "polka", serveTLSSubdir, serveTLSKeyFileName)
+	runtimeKeyPath := filepath.Join(state.RuntimeDir, serveTLSKeyFileName)
+	assertEncryptedTLSKeyFile(t, globalKeyPath)
+	assertPlaintextTLSKeyFile(t, runtimeKeyPath)
+	configData, err := os.ReadFile(state.ConfigPath)
+	if err != nil {
+		t.Fatalf("ReadFile(phpMyAdmin nginx config) error = %v", err)
+	}
+	configText := string(configData)
+	if strings.Contains(configText, quoteNginxPath(globalKeyPath)) {
+		t.Fatalf("phpMyAdmin nginx config = %q, want no encrypted global key path", configText)
+	}
+	if !strings.Contains(configText, "ssl_certificate_key "+quoteNginxPath(runtimeKeyPath)+";") {
+		t.Fatalf("phpMyAdmin nginx config = %q, want runtime key path", configText)
 	}
 }
 
