@@ -203,7 +203,7 @@ Manifest log paths are resolved under `.polka/run/<tool>/<environment>`. When `-
 
 ### `polka cert-install [--no-encryption]`
 
-Clears and regenerates the global Polka CA/server certificate pair, then installs the CA certificate into the current user's trust store on Windows or macOS. By default, Polka encrypts the regenerated global-cache private keys with random keys stored in the OS keyring, and the command fails if that keyring storage is unavailable. After certificate generation, unsupported trust-store platforms fail with the certificate path so it can be installed manually.
+On Windows or macOS, removes any existing generated Polka CA certificate from the current user's trust store, clears and regenerates the global Polka CA/server certificate pair, then installs the new CA certificate. By default, Polka encrypts the regenerated global-cache private keys with random keys stored in the OS keyring, and the command fails if that keyring storage is unavailable. After certificate generation, unsupported trust-store platforms fail with the certificate path so it can be installed manually.
 
 Use `--no-encryption` to regenerate the private keys in the legacy plaintext PEM format.
 

@@ -131,6 +131,67 @@ func TestRunCertInstallRegeneratesExistingGlobalCertificate(t *testing.T) {
 	}
 }
 
+func TestRunCertInstallRemovesExistingCAFromTrustStoreBeforeRegeneration(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	cacheDir := filepath.Join(projectDir, "global-cache")
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
+	if _, _, err := regenerateGlobalTLSCertificateWithOptions(cacheDir, tlsCAKeyStorageOptions{Policy: tlsCAKeyStoragePlaintextRequired}); err != nil {
+		t.Fatalf("regenerateGlobalTLSCertificateWithOptions() error = %v", err)
+	}
+	caCertificatePath, _ := globalTLSCACertificatePaths(cacheDir)
+	oldCertificate, err := readCertificateFile(caCertificatePath)
+	if err != nil {
+		t.Fatalf("readCertificateFile(old ca) error = %v", err)
+	}
+	oldThumbprint := certificateSHA1Thumbprint(oldCertificate)
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	oldInstall := installCertificateToTrustStoreFunc
+	oldRemove := removeCertificateFromTrustStoreFunc
+	t.Cleanup(func() {
+		installCertificateToTrustStoreFunc = oldInstall
+		removeCertificateFromTrustStoreFunc = oldRemove
+	})
+
+	events := []string{}
+	removeCertificateFromTrustStoreFunc = func(certificate *x509.Certificate) (string, error) {
+		events = append(events, "remove")
+		if got := certificateSHA1Thumbprint(certificate); got != oldThumbprint {
+			t.Fatalf("removed certificate thumbprint = %q, want old CA %q", got, oldThumbprint)
+		}
+		cachedCertificate, err := readCertificateFile(caCertificatePath)
+		if err != nil {
+			t.Fatalf("readCertificateFile(cached ca during removal) error = %v", err)
+		}
+		if got := certificateSHA1Thumbprint(cachedCertificate); got != oldThumbprint {
+			t.Fatalf("cached certificate thumbprint during removal = %q, want old CA %q", got, oldThumbprint)
+		}
+
+		return "test", nil
+	}
+	installCertificateToTrustStoreFunc = func(certificatePath string) (string, error) {
+		events = append(events, "install")
+		newCertificate, err := readCertificateFile(certificatePath)
+		if err != nil {
+			t.Fatalf("readCertificateFile(new ca) error = %v", err)
+		}
+		if got := certificateSHA1Thumbprint(newCertificate); got == oldThumbprint {
+			t.Fatalf("installed certificate thumbprint = %q, want regenerated CA", got)
+		}
+
+		return "test", nil
+	}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "cert-install"}); code != 0 {
+		t.Fatalf("Run(cert-install) code = %d, stderr = %q", code, stderr.String())
+	}
+	if got := strings.Join(events, ","); got != "remove,install" {
+		t.Fatalf("trust-store events = %q, want remove,install", got)
+	}
+}
+
 func TestRunCertInstallNoEncryptionCreatesPlaintextCAKey(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
