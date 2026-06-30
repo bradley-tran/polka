@@ -17,27 +17,29 @@ const (
 
 // ToolsConfig is the YAML shape for managed tool version labels inside an environment file.
 type ToolsConfig struct {
-	PHPVersion        string `yaml:"php,omitempty"`
-	PHPZTSVersion     string `yaml:"php-zts,omitempty"`
-	FrankenPHPVersion string `yaml:"frankenphp,omitempty"`
-	ComposerVersion   string `yaml:"composer,omitempty"`
-	PIEVersion        string `yaml:"pie,omitempty"`
-	NodeJSVersion     string `yaml:"nodejs,omitempty"`
-	MagoVersion       string `yaml:"mago,omitempty"`
-	NginxVersion      string `yaml:"nginx,omitempty"`
-	ApacheVersion     string `yaml:"apache,omitempty"`
-	MySQLVersion      string `yaml:"mysql,omitempty"`
-	MariaDBVersion    string `yaml:"mariadb,omitempty"`
-	PostgreSQLVersion string `yaml:"postgresql,omitempty"`
-	SQLiteVersion     string `yaml:"sqlite,omitempty"`
-	MailpitVersion    string `yaml:"mailpit,omitempty"`
-	PHPMyAdminVersion string `yaml:"phpmyadmin,omitempty"`
+	PHPVersion         string `yaml:"php,omitempty"`
+	PHPZTSVersion      string `yaml:"php-zts,omitempty"`
+	FrankenPHPVersion  string `yaml:"frankenphp,omitempty"`
+	ComposerVersion    string `yaml:"composer,omitempty"`
+	PIEVersion         string `yaml:"pie,omitempty"`
+	NodeJSVersion      string `yaml:"nodejs,omitempty"`
+	MagoVersion        string `yaml:"mago,omitempty"`
+	NginxVersion       string `yaml:"nginx,omitempty"`
+	ApacheVersion      string `yaml:"apache,omitempty"`
+	MySQLVersion       string `yaml:"mysql,omitempty"`
+	MariaDBVersion     string `yaml:"mariadb,omitempty"`
+	PostgreSQLVersion  string `yaml:"postgresql,omitempty"`
+	SQLiteVersion      string `yaml:"sqlite,omitempty"`
+	MailpitVersion     string `yaml:"mailpit,omitempty"`
+	PHPMyAdminVersion  string `yaml:"phpmyadmin,omitempty"`
+	MeilisearchVersion string `yaml:"meilisearch,omitempty"`
 }
 
 // SettingsConfig is the YAML shape for versionless per-tool settings.
 type SettingsConfig struct {
-	Mailpit    *MailpitSettingsConfig    `yaml:"mailpit,omitempty"`
-	PHPMyAdmin *PHPMyAdminSettingsConfig `yaml:"phpmyadmin,omitempty"`
+	Mailpit     *MailpitSettingsConfig     `yaml:"mailpit,omitempty"`
+	PHPMyAdmin  *PHPMyAdminSettingsConfig  `yaml:"phpmyadmin,omitempty"`
+	Meilisearch *MeilisearchSettingsConfig `yaml:"meilisearch,omitempty"`
 }
 
 // MailpitSettingsConfig is the YAML shape for Mailpit runtime settings.
@@ -49,6 +51,12 @@ type MailpitSettingsConfig struct {
 // PHPMyAdminSettingsConfig is the YAML shape for phpMyAdmin runtime settings.
 type PHPMyAdminSettingsConfig struct {
 	Port int `yaml:"port,omitempty"`
+}
+
+// MeilisearchSettingsConfig is the YAML shape for Meilisearch runtime settings.
+type MeilisearchSettingsConfig struct {
+	Port      int    `yaml:"port,omitempty"`
+	MasterKey string `yaml:"master-key,omitempty"`
 }
 
 // ProjectFile is the YAML shape of polka.yaml, which also defines the default environment.
@@ -86,32 +94,33 @@ type EnvironmentFile struct {
 }
 
 type Environment struct {
-	Name              string            `yaml:"-"`
-	Framework         string            `yaml:"framework,omitempty"`
-	PHPVersion        string            `yaml:"php,omitempty"`
-	PHPZTSVersion     string            `yaml:"php-zts,omitempty"`
-	FrankenPHPVersion string            `yaml:"frankenphp,omitempty"`
-	ComposerVersion   string            `yaml:"composer,omitempty"`
-	PIEVersion        string            `yaml:"pie,omitempty"`
-	NodeJSVersion     string            `yaml:"nodejs,omitempty"`
-	MagoVersion       string            `yaml:"mago,omitempty"`
-	NginxVersion      string            `yaml:"nginx,omitempty"`
-	ApacheVersion     string            `yaml:"apache,omitempty"`
-	MySQLVersion      string            `yaml:"mysql,omitempty"`
-	MariaDBVersion    string            `yaml:"mariadb,omitempty"`
-	PostgreSQLVersion string            `yaml:"postgresql,omitempty"`
-	SQLiteVersion     string            `yaml:"sqlite,omitempty"`
-	Docroot           string            `yaml:"docroot,omitempty"`
-	HTTPS             bool              `yaml:"https,omitempty"`
-	EnvFile           string            `yaml:"env-file,omitempty"`
-	EnvVars           map[string]string `yaml:"env-vars,omitempty"`
-	Database          *DatabaseConfig   `yaml:"database,omitempty"`
-	Mailpit           *MailpitConfig    `yaml:"mailpit,omitempty"`
-	PHPMyAdmin        *PHPMyAdminConfig `yaml:"phpmyadmin,omitempty"`
-	PHPExtensions     map[string]bool   `yaml:"php-extensions,omitempty"`
-	OPcachePreset     string            `yaml:"opcache-preset,omitempty"`
-	OPcacheConfig     map[string]string `yaml:"opcache-config,omitempty"`
-	Server            *ServerConfig     `yaml:"server,omitempty"`
+	Name              string             `yaml:"-"`
+	Framework         string             `yaml:"framework,omitempty"`
+	PHPVersion        string             `yaml:"php,omitempty"`
+	PHPZTSVersion     string             `yaml:"php-zts,omitempty"`
+	FrankenPHPVersion string             `yaml:"frankenphp,omitempty"`
+	ComposerVersion   string             `yaml:"composer,omitempty"`
+	PIEVersion        string             `yaml:"pie,omitempty"`
+	NodeJSVersion     string             `yaml:"nodejs,omitempty"`
+	MagoVersion       string             `yaml:"mago,omitempty"`
+	NginxVersion      string             `yaml:"nginx,omitempty"`
+	ApacheVersion     string             `yaml:"apache,omitempty"`
+	MySQLVersion      string             `yaml:"mysql,omitempty"`
+	MariaDBVersion    string             `yaml:"mariadb,omitempty"`
+	PostgreSQLVersion string             `yaml:"postgresql,omitempty"`
+	SQLiteVersion     string             `yaml:"sqlite,omitempty"`
+	Docroot           string             `yaml:"docroot,omitempty"`
+	HTTPS             bool               `yaml:"https,omitempty"`
+	EnvFile           string             `yaml:"env-file,omitempty"`
+	EnvVars           map[string]string  `yaml:"env-vars,omitempty"`
+	Database          *DatabaseConfig    `yaml:"database,omitempty"`
+	Mailpit           *MailpitConfig     `yaml:"mailpit,omitempty"`
+	PHPMyAdmin        *PHPMyAdminConfig  `yaml:"phpmyadmin,omitempty"`
+	Meilisearch       *MeilisearchConfig `yaml:"meilisearch,omitempty"`
+	PHPExtensions     map[string]bool    `yaml:"php-extensions,omitempty"`
+	OPcachePreset     string             `yaml:"opcache-preset,omitempty"`
+	OPcacheConfig     map[string]string  `yaml:"opcache-config,omitempty"`
+	Server            *ServerConfig      `yaml:"server,omitempty"`
 }
 
 type DatabaseConfig struct {
@@ -131,6 +140,12 @@ type PHPMyAdminConfig struct {
 	Version string `yaml:"version,omitempty"`
 	Port    int    `yaml:"port,omitempty"`
 	HTTPS   bool   `yaml:"https,omitempty"`
+}
+
+type MeilisearchConfig struct {
+	Version   string `yaml:"version,omitempty"`
+	Port      int    `yaml:"port,omitempty"`
+	MasterKey string `yaml:"master-key,omitempty"`
 }
 
 type ServerConfig struct {
@@ -265,21 +280,22 @@ func EnvironmentFileFromEnvironment(environment Environment) EnvironmentFile {
 // ToolsConfigFromEnvironment extracts managed tool settings from an environment.
 func ToolsConfigFromEnvironment(environment Environment) *ToolsConfig {
 	tools := &ToolsConfig{
-		PHPVersion:        environment.PHPVersion,
-		PHPZTSVersion:     environment.PHPZTSVersion,
-		FrankenPHPVersion: environment.FrankenPHPVersion,
-		ComposerVersion:   environment.ComposerVersion,
-		PIEVersion:        environment.PIEVersion,
-		NodeJSVersion:     environment.NodeJSVersion,
-		MagoVersion:       environment.MagoVersion,
-		NginxVersion:      environment.NginxVersion,
-		ApacheVersion:     environment.ApacheVersion,
-		MySQLVersion:      DatabaseToolVersion(environment, "mysql"),
-		MariaDBVersion:    DatabaseToolVersion(environment, "mariadb"),
-		PostgreSQLVersion: DatabaseToolVersion(environment, "postgresql"),
-		SQLiteVersion:     environment.SQLiteVersion,
-		MailpitVersion:    ToolVersionFromMailpitConfig(environment.Mailpit),
-		PHPMyAdminVersion: ToolVersionFromPHPMyAdminConfig(environment.PHPMyAdmin),
+		PHPVersion:         environment.PHPVersion,
+		PHPZTSVersion:      environment.PHPZTSVersion,
+		FrankenPHPVersion:  environment.FrankenPHPVersion,
+		ComposerVersion:    environment.ComposerVersion,
+		PIEVersion:         environment.PIEVersion,
+		NodeJSVersion:      environment.NodeJSVersion,
+		MagoVersion:        environment.MagoVersion,
+		NginxVersion:       environment.NginxVersion,
+		ApacheVersion:      environment.ApacheVersion,
+		MySQLVersion:       DatabaseToolVersion(environment, "mysql"),
+		MariaDBVersion:     DatabaseToolVersion(environment, "mariadb"),
+		PostgreSQLVersion:  DatabaseToolVersion(environment, "postgresql"),
+		SQLiteVersion:      environment.SQLiteVersion,
+		MailpitVersion:     ToolVersionFromMailpitConfig(environment.Mailpit),
+		PHPMyAdminVersion:  ToolVersionFromPHPMyAdminConfig(environment.PHPMyAdmin),
+		MeilisearchVersion: ToolVersionFromMeilisearchConfig(environment.Meilisearch),
 	}
 	if tools.IsZero() {
 		return nil
@@ -291,8 +307,9 @@ func ToolsConfigFromEnvironment(environment Environment) *ToolsConfig {
 // SettingsConfigFromEnvironment extracts versionless tool settings from an environment.
 func SettingsConfigFromEnvironment(environment Environment) *SettingsConfig {
 	settings := &SettingsConfig{
-		Mailpit:    MailpitSettingsConfigFromEnvironment(environment),
-		PHPMyAdmin: PHPMyAdminSettingsConfigFromEnvironment(environment),
+		Mailpit:     MailpitSettingsConfigFromEnvironment(environment),
+		PHPMyAdmin:  PHPMyAdminSettingsConfigFromEnvironment(environment),
+		Meilisearch: MeilisearchSettingsConfigFromEnvironment(environment),
 	}
 	if settings.IsZero() {
 		return nil
@@ -317,6 +334,15 @@ func ToolVersionFromPHPMyAdminConfig(phpMyAdmin *PHPMyAdminConfig) string {
 	}
 
 	return strings.TrimSpace(phpMyAdmin.Version)
+}
+
+// ToolVersionFromMeilisearchConfig extracts Meilisearch's managed tool version label.
+func ToolVersionFromMeilisearchConfig(meilisearch *MeilisearchConfig) string {
+	if meilisearch == nil {
+		return ""
+	}
+
+	return strings.TrimSpace(meilisearch.Version)
 }
 
 // MailpitSettingsConfigFromEnvironment extracts Mailpit settings that belong under settings.
@@ -350,6 +376,23 @@ func PHPMyAdminSettingsConfigFromEnvironment(environment Environment) *PHPMyAdmi
 	}
 
 	return phpMyAdmin
+}
+
+// MeilisearchSettingsConfigFromEnvironment extracts Meilisearch settings that belong under settings.
+func MeilisearchSettingsConfigFromEnvironment(environment Environment) *MeilisearchSettingsConfig {
+	if environment.Meilisearch == nil {
+		return nil
+	}
+
+	meilisearch := &MeilisearchSettingsConfig{
+		Port:      environment.Meilisearch.Port,
+		MasterKey: strings.TrimSpace(environment.Meilisearch.MasterKey),
+	}
+	if meilisearch.Port == 0 && meilisearch.MasterKey == "" {
+		return nil
+	}
+
+	return meilisearch
 }
 
 // ServerConfigFromEnvironment extracts server settings that belong in YAML.
@@ -386,13 +429,15 @@ func (tools ToolsConfig) IsZero() bool {
 		strings.TrimSpace(tools.PostgreSQLVersion) == "" &&
 		strings.TrimSpace(tools.SQLiteVersion) == "" &&
 		strings.TrimSpace(tools.MailpitVersion) == "" &&
-		strings.TrimSpace(tools.PHPMyAdminVersion) == ""
+		strings.TrimSpace(tools.PHPMyAdminVersion) == "" &&
+		strings.TrimSpace(tools.MeilisearchVersion) == ""
 }
 
 // IsZero reports whether no versionless tool settings are configured.
 func (settings SettingsConfig) IsZero() bool {
 	return settings.Mailpit == nil &&
-		settings.PHPMyAdmin == nil
+		settings.PHPMyAdmin == nil &&
+		settings.Meilisearch == nil
 }
 
 func environmentFromFileParts(name string, framework string, tools *ToolsConfig, settings *SettingsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *DatabaseConfig, phpExtensions map[string]bool, opcachePreset string, opcacheConfig map[string]any, server *ServerConfig) Environment {
@@ -431,6 +476,9 @@ func environmentFromFileParts(name string, framework string, tools *ToolsConfig,
 		if strings.TrimSpace(tools.PHPMyAdminVersion) != "" {
 			environment.PHPMyAdmin = &PHPMyAdminConfig{Version: tools.PHPMyAdminVersion}
 		}
+		if strings.TrimSpace(tools.MeilisearchVersion) != "" {
+			environment.Meilisearch = &MeilisearchConfig{Version: tools.MeilisearchVersion}
+		}
 	}
 	environment = applySettingsConfig(environment, settings)
 
@@ -453,6 +501,13 @@ func applySettingsConfig(environment Environment, settings *SettingsConfig) Envi
 			environment.PHPMyAdmin = &PHPMyAdminConfig{}
 		}
 		environment.PHPMyAdmin.Port = settings.PHPMyAdmin.Port
+	}
+	if settings.Meilisearch != nil {
+		if environment.Meilisearch == nil {
+			environment.Meilisearch = &MeilisearchConfig{}
+		}
+		environment.Meilisearch.Port = settings.Meilisearch.Port
+		environment.Meilisearch.MasterKey = settings.Meilisearch.MasterKey
 	}
 
 	return environment
@@ -581,6 +636,7 @@ func NormalizeEnvironment(name string, environment Environment) Environment {
 		Database:          NormalizeDatabaseConfig(environment.Database),
 		Mailpit:           NormalizeMailpitConfig(environment.Mailpit),
 		PHPMyAdmin:        NormalizePHPMyAdminConfig(environment.PHPMyAdmin),
+		Meilisearch:       NormalizeMeilisearchConfig(environment.Meilisearch),
 		PHPExtensions:     NormalizePHPExtensions(environment.PHPExtensions),
 		OPcachePreset:     NormalizeOPcachePreset(environment.OPcachePreset),
 		OPcacheConfig:     NormalizeOPcacheConfig(environment.OPcacheConfig),
@@ -693,6 +749,23 @@ func NormalizePHPMyAdminConfig(phpMyAdmin *PHPMyAdminConfig) *PHPMyAdminConfig {
 		HTTPS:   phpMyAdmin.HTTPS,
 	}
 	if normalized.Version == "" && normalized.Port == 0 && !normalized.HTTPS {
+		return nil
+	}
+
+	return normalized
+}
+
+func NormalizeMeilisearchConfig(meilisearch *MeilisearchConfig) *MeilisearchConfig {
+	if meilisearch == nil {
+		return nil
+	}
+
+	normalized := &MeilisearchConfig{
+		Version:   strings.TrimSpace(meilisearch.Version),
+		Port:      meilisearch.Port,
+		MasterKey: strings.TrimSpace(meilisearch.MasterKey),
+	}
+	if normalized.Version == "" && normalized.Port == 0 && normalized.MasterKey == "" {
 		return nil
 	}
 

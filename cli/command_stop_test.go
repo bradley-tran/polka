@@ -224,6 +224,63 @@ func TestRunStopStopsMailpitWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestRunStopStopsMeilisearchWhenConfigured(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	writeStopTestConfig(t, projectDir, testEnvironmentConfig{
+		PHP:         "8.4",
+		Meilisearch: &testMeilisearchConfig{Version: "1.48", Port: 7701},
+	})
+	if err := writeMeilisearchState(meilisearchStatePath(root, "demo"), meilisearchRuntimeState{
+		EnvironmentName: "demo",
+		Version:         "1.48",
+		Port:            7701,
+		PID:             7676,
+	}); err != nil {
+		t.Fatalf("writeMeilisearchState() error = %v", err)
+	}
+
+	oldStopMeilisearch := stopMeilisearchRuntimeFunc
+	oldPingMeilisearch := pingMeilisearchAddressFunc
+	t.Cleanup(func() {
+		stopMeilisearchRuntimeFunc = oldStopMeilisearch
+		pingMeilisearchAddressFunc = oldPingMeilisearch
+	})
+
+	running := map[string]bool{
+		service.MeilisearchAddress(7701): true,
+	}
+	stopCalls := 0
+	var stoppedState meilisearchRuntimeState
+	stopMeilisearchRuntimeFunc = func(state meilisearchRuntimeState) error {
+		stopCalls++
+		stoppedState = state
+		running[service.MeilisearchAddress(state.Port)] = false
+		return nil
+	}
+	pingMeilisearchAddressFunc = func(address string) bool {
+		return running[address]
+	}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "stop"}); code != 0 {
+		t.Fatalf("Run(stop) code = %d, stderr = %q", code, stderr.String())
+	}
+	if stopCalls != 1 {
+		t.Fatalf("meilisearch stop calls = %d, want 1", stopCalls)
+	}
+	if stoppedState.PID != 7676 || stoppedState.Port != 7701 {
+		t.Fatalf("stopped meilisearch state = %#v, want persisted runtime state", stoppedState)
+	}
+	if !strings.Contains(stdout.String(), "Stopped Meilisearch for environment \"demo\".") {
+		t.Fatalf("Run(stop) stdout = %q, want meilisearch stop summary", stdout.String())
+	}
+	if _, err := os.Stat(meilisearchStatePath(root, "demo")); !os.IsNotExist(err) {
+		t.Fatalf("Stat(meilisearch state) error = %v, want not exists", err)
+	}
+}
+
 func writeStopTestConfig(t *testing.T, projectDir string, environment testEnvironmentConfig) {
 	t.Helper()
 

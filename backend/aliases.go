@@ -11,6 +11,7 @@ type DatabaseConfig = config.DatabaseConfig
 type Environment = config.Environment
 type MailpitConfig = config.MailpitConfig
 type PHPMyAdminConfig = config.PHPMyAdminConfig
+type MeilisearchConfig = config.MeilisearchConfig
 type ServerConfig = config.ServerConfig
 
 type InstallResult = tools.InstallResult
@@ -27,24 +28,25 @@ type PluginRegistry = plugins.Registry
 type HTTPToolDownloader = tools.HTTPDownloader
 
 const (
-	toolPHP        = tools.PHP
-	toolPHPZTS     = tools.PHPZTS
-	toolFrankenPHP = tools.FrankenPHP
-	toolComposer   = tools.Composer
-	toolPIE        = tools.PIE
-	toolNodeJS     = tools.NodeJS
-	toolNode       = tools.Node
-	toolNPM        = tools.NPM
-	toolNPX        = tools.NPX
-	toolMago       = tools.Mago
-	toolNginx      = tools.Nginx
-	toolApache     = tools.Apache
-	toolMailpit    = tools.Mailpit
-	toolPHPMyAdmin = tools.PHPMyAdmin
-	toolMySQL      = tools.MySQL
-	toolMariaDB    = tools.MariaDB
-	toolPostgreSQL = tools.PostgreSQL
-	toolSQLite     = tools.SQLite
+	toolPHP         = tools.PHP
+	toolPHPZTS      = tools.PHPZTS
+	toolFrankenPHP  = tools.FrankenPHP
+	toolComposer    = tools.Composer
+	toolPIE         = tools.PIE
+	toolNodeJS      = tools.NodeJS
+	toolNode        = tools.Node
+	toolNPM         = tools.NPM
+	toolNPX         = tools.NPX
+	toolMago        = tools.Mago
+	toolNginx       = tools.Nginx
+	toolApache      = tools.Apache
+	toolMailpit     = tools.Mailpit
+	toolPHPMyAdmin  = tools.PHPMyAdmin
+	toolMeilisearch = tools.Meilisearch
+	toolMySQL       = tools.MySQL
+	toolMariaDB     = tools.MariaDB
+	toolPostgreSQL  = tools.PostgreSQL
+	toolSQLite      = tools.SQLite
 )
 
 // PrimaryPHPTool returns the configured primary PHP tool and version.

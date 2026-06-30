@@ -15,15 +15,17 @@ type Environment = config.Environment
 type DatabaseConfig = config.DatabaseConfig
 type MailpitConfig = config.MailpitConfig
 type PHPMyAdminConfig = config.PHPMyAdminConfig
+type MeilisearchConfig = config.MeilisearchConfig
 
 const (
-	toolPHP        = tools.PHP
-	toolNginx      = tools.Nginx
-	toolMailpit    = tools.Mailpit
-	toolPHPMyAdmin = tools.PHPMyAdmin
-	toolMySQL      = tools.MySQL
-	toolMariaDB    = tools.MariaDB
-	toolPostgreSQL = tools.PostgreSQL
+	toolPHP         = tools.PHP
+	toolNginx       = tools.Nginx
+	toolMailpit     = tools.Mailpit
+	toolPHPMyAdmin  = tools.PHPMyAdmin
+	toolMeilisearch = tools.Meilisearch
+	toolMySQL       = tools.MySQL
+	toolMariaDB     = tools.MariaDB
+	toolPostgreSQL  = tools.PostgreSQL
 )
 
 // Context carries the project-local paths and adapters needed by managed

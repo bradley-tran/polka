@@ -25,31 +25,32 @@ type testConfigFile struct {
 }
 
 type testEnvironmentConfig struct {
-	Framework     string                `yaml:"framework,omitempty"`
-	PHP           string                `yaml:"php"`
-	PHPZTS        string                `yaml:"php-zts,omitempty"`
-	FrankenPHP    string                `yaml:"frankenphp,omitempty"`
-	Composer      string                `yaml:"composer"`
-	PIE           string                `yaml:"pie,omitempty"`
-	NodeJS        string                `yaml:"nodejs,omitempty"`
-	Mago          string                `yaml:"mago,omitempty"`
-	Nginx         string                `yaml:"nginx,omitempty"`
-	Apache        string                `yaml:"apache,omitempty"`
-	MySQL         string                `yaml:"mysql,omitempty"`
-	MariaDB       string                `yaml:"mariadb,omitempty"`
-	PostgreSQL    string                `yaml:"postgresql,omitempty"`
-	SQLite        string                `yaml:"sqlite,omitempty"`
-	PHPMyAdmin    *testPHPMyAdminConfig `yaml:"phpmyadmin,omitempty"`
-	Docroot       string                `yaml:"docroot,omitempty"`
-	HTTPS         bool                  `yaml:"https,omitempty"`
-	EnvFile       string                `yaml:"env-file,omitempty"`
-	EnvVars       map[string]string     `yaml:"env-vars,omitempty"`
-	Database      *testDatabaseConfig   `yaml:"database,omitempty"`
-	Mailpit       *testMailpitConfig    `yaml:"mailpit,omitempty"`
-	PHPExtensions map[string]bool       `yaml:"php-extensions,omitempty"`
-	OPcachePreset string                `yaml:"opcache-preset,omitempty"`
-	OPcacheConfig map[string]string     `yaml:"opcache-config,omitempty"`
-	Server        *testServerConfig     `yaml:"server,omitempty"`
+	Framework     string                 `yaml:"framework,omitempty"`
+	PHP           string                 `yaml:"php"`
+	PHPZTS        string                 `yaml:"php-zts,omitempty"`
+	FrankenPHP    string                 `yaml:"frankenphp,omitempty"`
+	Composer      string                 `yaml:"composer"`
+	PIE           string                 `yaml:"pie,omitempty"`
+	NodeJS        string                 `yaml:"nodejs,omitempty"`
+	Mago          string                 `yaml:"mago,omitempty"`
+	Nginx         string                 `yaml:"nginx,omitempty"`
+	Apache        string                 `yaml:"apache,omitempty"`
+	MySQL         string                 `yaml:"mysql,omitempty"`
+	MariaDB       string                 `yaml:"mariadb,omitempty"`
+	PostgreSQL    string                 `yaml:"postgresql,omitempty"`
+	SQLite        string                 `yaml:"sqlite,omitempty"`
+	PHPMyAdmin    *testPHPMyAdminConfig  `yaml:"phpmyadmin,omitempty"`
+	Meilisearch   *testMeilisearchConfig `yaml:"meilisearch,omitempty"`
+	Docroot       string                 `yaml:"docroot,omitempty"`
+	HTTPS         bool                   `yaml:"https,omitempty"`
+	EnvFile       string                 `yaml:"env-file,omitempty"`
+	EnvVars       map[string]string      `yaml:"env-vars,omitempty"`
+	Database      *testDatabaseConfig    `yaml:"database,omitempty"`
+	Mailpit       *testMailpitConfig     `yaml:"mailpit,omitempty"`
+	PHPExtensions map[string]bool        `yaml:"php-extensions,omitempty"`
+	OPcachePreset string                 `yaml:"opcache-preset,omitempty"`
+	OPcacheConfig map[string]string      `yaml:"opcache-config,omitempty"`
+	Server        *testServerConfig      `yaml:"server,omitempty"`
 }
 
 func chdirTest(t *testing.T, dir string) {
@@ -117,6 +118,12 @@ type testPHPMyAdminConfig struct {
 	HTTPS   bool   `yaml:"https,omitempty"`
 }
 
+type testMeilisearchConfig struct {
+	Version   string `yaml:"version,omitempty"`
+	Port      int    `yaml:"port,omitempty"`
+	MasterKey string `yaml:"master-key,omitempty"`
+}
+
 type testProjectConfigData struct {
 	Version       int                 `yaml:"version,omitempty"`
 	Root          string              `yaml:"root,omitempty"`
@@ -150,26 +157,28 @@ type testEnvironmentConfigData struct {
 }
 
 type testToolsConfig struct {
-	PHP        string `yaml:"php,omitempty"`
-	PHPZTS     string `yaml:"php-zts,omitempty"`
-	FrankenPHP string `yaml:"frankenphp,omitempty"`
-	Composer   string `yaml:"composer,omitempty"`
-	PIE        string `yaml:"pie,omitempty"`
-	NodeJS     string `yaml:"nodejs,omitempty"`
-	Mago       string `yaml:"mago,omitempty"`
-	Nginx      string `yaml:"nginx,omitempty"`
-	Apache     string `yaml:"apache,omitempty"`
-	MySQL      string `yaml:"mysql,omitempty"`
-	MariaDB    string `yaml:"mariadb,omitempty"`
-	PostgreSQL string `yaml:"postgresql,omitempty"`
-	SQLite     string `yaml:"sqlite,omitempty"`
-	Mailpit    string `yaml:"mailpit,omitempty"`
-	PHPMyAdmin string `yaml:"phpmyadmin,omitempty"`
+	PHP         string `yaml:"php,omitempty"`
+	PHPZTS      string `yaml:"php-zts,omitempty"`
+	FrankenPHP  string `yaml:"frankenphp,omitempty"`
+	Composer    string `yaml:"composer,omitempty"`
+	PIE         string `yaml:"pie,omitempty"`
+	NodeJS      string `yaml:"nodejs,omitempty"`
+	Mago        string `yaml:"mago,omitempty"`
+	Nginx       string `yaml:"nginx,omitempty"`
+	Apache      string `yaml:"apache,omitempty"`
+	MySQL       string `yaml:"mysql,omitempty"`
+	MariaDB     string `yaml:"mariadb,omitempty"`
+	PostgreSQL  string `yaml:"postgresql,omitempty"`
+	SQLite      string `yaml:"sqlite,omitempty"`
+	Mailpit     string `yaml:"mailpit,omitempty"`
+	PHPMyAdmin  string `yaml:"phpmyadmin,omitempty"`
+	Meilisearch string `yaml:"meilisearch,omitempty"`
 }
 
 type testSettingsConfig struct {
-	Mailpit    *testMailpitSettingsConfig    `yaml:"mailpit,omitempty"`
-	PHPMyAdmin *testPHPMyAdminSettingsConfig `yaml:"phpmyadmin,omitempty"`
+	Mailpit     *testMailpitSettingsConfig     `yaml:"mailpit,omitempty"`
+	PHPMyAdmin  *testPHPMyAdminSettingsConfig  `yaml:"phpmyadmin,omitempty"`
+	Meilisearch *testMeilisearchSettingsConfig `yaml:"meilisearch,omitempty"`
 }
 
 type testMailpitSettingsConfig struct {
@@ -179,6 +188,11 @@ type testMailpitSettingsConfig struct {
 
 type testPHPMyAdminSettingsConfig struct {
 	Port int `yaml:"port,omitempty"`
+}
+
+type testMeilisearchSettingsConfig struct {
+	Port      int    `yaml:"port,omitempty"`
+	MasterKey string `yaml:"master-key,omitempty"`
 }
 
 func writeTestConfigFile(t *testing.T, projectDir string, config testConfigFile) {
@@ -373,6 +387,9 @@ func testEnvironmentFromParts(framework string, tools *testToolsConfig, settings
 		if strings.TrimSpace(tools.PHPMyAdmin) != "" {
 			environment.PHPMyAdmin = &testPHPMyAdminConfig{Version: tools.PHPMyAdmin}
 		}
+		if strings.TrimSpace(tools.Meilisearch) != "" {
+			environment.Meilisearch = &testMeilisearchConfig{Version: tools.Meilisearch}
+		}
 	}
 	environment = testApplySettings(environment, settings)
 	if environment.HTTPS {
@@ -406,21 +423,22 @@ func testNormalizeOPcacheConfig(values map[string]string) map[string]string {
 
 func testToolsFromEnvironment(environment testEnvironmentConfig) *testToolsConfig {
 	tools := &testToolsConfig{
-		PHP:        environment.PHP,
-		PHPZTS:     environment.PHPZTS,
-		FrankenPHP: environment.FrankenPHP,
-		Composer:   environment.Composer,
-		PIE:        environment.PIE,
-		NodeJS:     environment.NodeJS,
-		Mago:       environment.Mago,
-		Nginx:      environment.Nginx,
-		Apache:     environment.Apache,
-		MySQL:      testDatabaseToolVersion(environment, "mysql"),
-		MariaDB:    testDatabaseToolVersion(environment, "mariadb"),
-		PostgreSQL: testDatabaseToolVersion(environment, "postgresql"),
-		SQLite:     environment.SQLite,
-		Mailpit:    testMailpitVersion(environment.Mailpit),
-		PHPMyAdmin: testPHPMyAdminVersion(environment.PHPMyAdmin),
+		PHP:         environment.PHP,
+		PHPZTS:      environment.PHPZTS,
+		FrankenPHP:  environment.FrankenPHP,
+		Composer:    environment.Composer,
+		PIE:         environment.PIE,
+		NodeJS:      environment.NodeJS,
+		Mago:        environment.Mago,
+		Nginx:       environment.Nginx,
+		Apache:      environment.Apache,
+		MySQL:       testDatabaseToolVersion(environment, "mysql"),
+		MariaDB:     testDatabaseToolVersion(environment, "mariadb"),
+		PostgreSQL:  testDatabaseToolVersion(environment, "postgresql"),
+		SQLite:      environment.SQLite,
+		Mailpit:     testMailpitVersion(environment.Mailpit),
+		PHPMyAdmin:  testPHPMyAdminVersion(environment.PHPMyAdmin),
+		Meilisearch: testMeilisearchVersion(environment.Meilisearch),
 	}
 	if strings.TrimSpace(tools.PHP) == "" &&
 		strings.TrimSpace(tools.PHPZTS) == "" &&
@@ -436,7 +454,8 @@ func testToolsFromEnvironment(environment testEnvironmentConfig) *testToolsConfi
 		strings.TrimSpace(tools.PostgreSQL) == "" &&
 		strings.TrimSpace(tools.SQLite) == "" &&
 		strings.TrimSpace(tools.Mailpit) == "" &&
-		strings.TrimSpace(tools.PHPMyAdmin) == "" {
+		strings.TrimSpace(tools.PHPMyAdmin) == "" &&
+		strings.TrimSpace(tools.Meilisearch) == "" {
 		return nil
 	}
 
@@ -445,10 +464,11 @@ func testToolsFromEnvironment(environment testEnvironmentConfig) *testToolsConfi
 
 func testSettingsFromEnvironment(environment testEnvironmentConfig) *testSettingsConfig {
 	settings := &testSettingsConfig{
-		Mailpit:    testMailpitSettingsFromEnvironment(environment),
-		PHPMyAdmin: testPHPMyAdminSettingsFromEnvironment(environment),
+		Mailpit:     testMailpitSettingsFromEnvironment(environment),
+		PHPMyAdmin:  testPHPMyAdminSettingsFromEnvironment(environment),
+		Meilisearch: testMeilisearchSettingsFromEnvironment(environment),
 	}
-	if settings.Mailpit == nil && settings.PHPMyAdmin == nil {
+	if settings.Mailpit == nil && settings.PHPMyAdmin == nil && settings.Meilisearch == nil {
 		return nil
 	}
 
@@ -474,6 +494,17 @@ func testPHPMyAdminSettingsFromEnvironment(environment testEnvironmentConfig) *t
 	return &testPHPMyAdminSettingsConfig{Port: environment.PHPMyAdmin.Port}
 }
 
+func testMeilisearchSettingsFromEnvironment(environment testEnvironmentConfig) *testMeilisearchSettingsConfig {
+	if environment.Meilisearch == nil || (environment.Meilisearch.Port == 0 && strings.TrimSpace(environment.Meilisearch.MasterKey) == "") {
+		return nil
+	}
+
+	return &testMeilisearchSettingsConfig{
+		Port:      environment.Meilisearch.Port,
+		MasterKey: strings.TrimSpace(environment.Meilisearch.MasterKey),
+	}
+}
+
 func testApplySettings(environment testEnvironmentConfig, settings *testSettingsConfig) testEnvironmentConfig {
 	if settings == nil {
 		return environment
@@ -490,6 +521,13 @@ func testApplySettings(environment testEnvironmentConfig, settings *testSettings
 			environment.PHPMyAdmin = &testPHPMyAdminConfig{}
 		}
 		environment.PHPMyAdmin.Port = settings.PHPMyAdmin.Port
+	}
+	if settings.Meilisearch != nil {
+		if environment.Meilisearch == nil {
+			environment.Meilisearch = &testMeilisearchConfig{}
+		}
+		environment.Meilisearch.Port = settings.Meilisearch.Port
+		environment.Meilisearch.MasterKey = settings.Meilisearch.MasterKey
 	}
 
 	return environment
@@ -509,6 +547,14 @@ func testPHPMyAdminVersion(phpMyAdmin *testPHPMyAdminConfig) string {
 	}
 
 	return strings.TrimSpace(phpMyAdmin.Version)
+}
+
+func testMeilisearchVersion(meilisearch *testMeilisearchConfig) string {
+	if meilisearch == nil {
+		return ""
+	}
+
+	return strings.TrimSpace(meilisearch.Version)
 }
 
 func testDatabaseToolVersion(environment testEnvironmentConfig, engine string) string {

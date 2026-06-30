@@ -175,6 +175,11 @@ func applyToolConfigValue(environment *Environment, path []string, value string)
 			environment.PHPMyAdmin = &PHPMyAdminConfig{}
 		}
 		environment.PHPMyAdmin.Version = version
+	case toolMeilisearch:
+		if environment.Meilisearch == nil {
+			environment.Meilisearch = &MeilisearchConfig{}
+		}
+		environment.Meilisearch.Version = version
 	default:
 		return unsupportedConfigKey(path)
 	}
@@ -276,6 +281,22 @@ func applySettingsConfigValue(environment *Environment, path []string, value str
 			return err
 		}
 		environment.PHPMyAdmin.Port = port
+	case toolMeilisearch:
+		if environment.Meilisearch == nil {
+			environment.Meilisearch = &MeilisearchConfig{}
+		}
+		switch path[2] {
+		case "port":
+			port, err := parseConfigPortValue(strings.Join(path, "."), value)
+			if err != nil {
+				return err
+			}
+			environment.Meilisearch.Port = port
+		case "master-key":
+			environment.Meilisearch.MasterKey = strings.TrimSpace(value)
+		default:
+			return unsupportedConfigKey(path)
+		}
 	default:
 		return unsupportedConfigKey(path)
 	}

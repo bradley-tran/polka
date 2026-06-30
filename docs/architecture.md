@@ -130,6 +130,7 @@ Runtime services are split between `service` and `cli`:
 - PHP built-in server, nginx, Apache, and FrankenPHP serving remain command/runtime concerns in `cli`.
 - Managed database lifecycle is in `service`.
 - Mailpit startup, shutdown, and status are in `service`, with CLI adapters for command output and test hooks.
+- Meilisearch startup, shutdown, and status are in `service`, with CLI adapters for command output and test hooks.
 - phpMyAdmin startup, shutdown, status, and managed MySQL/MariaDB storage import are in `service`; CLI supplies the PHP/nginx/Apache/FrankenPHP web runtime callbacks.
 - Certificates remain CLI-managed assets and are passed to services through callback adapters.
 - Shell and session commands compose environment variables and `PATH` behavior around the active environment.

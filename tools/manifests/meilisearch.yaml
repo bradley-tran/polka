@@ -1,0 +1,27 @@
+id: meilisearch
+install-candidates:
+  windows-amd64:
+    - meilisearch.exe
+  linux-amd64:
+    - meilisearch
+dispatch-commands:
+  - meilisearch
+logs:
+  info:
+    - meilisearch.log
+download:
+  github:
+    owner: meilisearch
+    repo: meilisearch
+    tag-prefix: v
+  assets:
+    windows-amd64:
+      filename: meilisearch-windows-amd64.exe
+      url: https://github.com/meilisearch/meilisearch/releases/download/{tag}/meilisearch-windows-amd64.exe
+      checksum-algorithm: sha256
+      install-path: meilisearch.exe
+    linux-amd64:
+      filename: meilisearch-linux-amd64
+      url: https://github.com/meilisearch/meilisearch/releases/download/{tag}/meilisearch-linux-amd64
+      checksum-algorithm: sha256
+      install-path: meilisearch

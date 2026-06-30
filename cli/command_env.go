@@ -589,6 +589,19 @@ func labelPHPMyAdmin(phpMyAdmin *backend.PHPMyAdminConfig) string {
 	return fmt.Sprintf("%s ui=%s", phpMyAdmin.Version, phpMyAdminUIURLForConfig(phpMyAdmin))
 }
 
+func labelMeilisearch(meilisearch *backend.MeilisearchConfig) string {
+	if meilisearch == nil {
+		return "unset"
+	}
+
+	auth := "disabled"
+	if strings.TrimSpace(meilisearch.MasterKey) != "" {
+		auth = "enabled"
+	}
+
+	return fmt.Sprintf("%s http=%s auth=%s", meilisearch.Version, meilisearchURLForConfig(meilisearch), auth)
+}
+
 func buildDatabaseInput(engineChanged, versionChanged, portChanged bool, engine, version string, port int) (*backend.DatabaseConfig, error) {
 	if !engineChanged && !versionChanged && !portChanged {
 		return nil, nil

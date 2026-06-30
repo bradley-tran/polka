@@ -1743,6 +1743,51 @@ func TestStoreInstallDownloadsConfiguredMailpit(t *testing.T) {
 	assertPathExists(t, filepath.Join(store.BinDir, toolMailpit+".cmd"))
 }
 
+func TestStoreInstallDownloadsConfiguredMeilisearch(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+	store.Downloader = fakeDownloader(func(cacheDir, tool, version string) error {
+		_ = writeCachedTool(t, cacheDir, tool, version)
+		return nil
+	})
+
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{Meilisearch: &MeilisearchConfig{Version: "1.48"}}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	results, err := store.Install("demo")
+	if err != nil {
+		t.Fatalf("Install(demo) error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("Install(demo) length = %d, want 1", len(results))
+	}
+	result := results[0]
+	if result.Tool != toolMeilisearch || result.Version != "1.48" {
+		t.Fatalf("Install(demo) result = %#v, want meilisearch 1.48", result)
+	}
+	if !result.Downloaded {
+		t.Fatalf("Install(demo) Downloaded = false, want true after cache miss")
+	}
+	assertPathExists(t, result.TargetPath)
+
+	if err := store.Use("demo"); err != nil {
+		t.Fatalf("Use(demo) error = %v", err)
+	}
+	resolvedPath, err := store.ResolveTool(toolMeilisearch)
+	if err != nil {
+		t.Fatalf("ResolveTool(meilisearch) error = %v", err)
+	}
+	if resolvedPath != result.TargetPath {
+		t.Fatalf("ResolveTool(meilisearch) = %q, want %q", resolvedPath, result.TargetPath)
+	}
+	assertPathExists(t, filepath.Join(store.BinDir, toolMeilisearch))
+	assertPathExists(t, filepath.Join(store.BinDir, toolMeilisearch+".cmd"))
+}
+
 func TestStoreInstallDownloadsConfiguredPHPMyAdmin(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
@@ -2232,8 +2277,9 @@ func TestStoreWritesToolSettingsSeparatelyFromVersions(t *testing.T) {
 
 	config := store.defaultConfig()
 	config.Environments["demo"] = Environment{
-		Mailpit:    &MailpitConfig{Version: "1.30", SMTPPort: 1125, UIPort: 8125},
-		PHPMyAdmin: &PHPMyAdminConfig{Version: "5.2", Port: 8082},
+		Mailpit:     &MailpitConfig{Version: "1.30", SMTPPort: 1125, UIPort: 8125},
+		PHPMyAdmin:  &PHPMyAdminConfig{Version: "5.2", Port: 8082},
+		Meilisearch: &MeilisearchConfig{Version: "1.48", Port: 7701, MasterKey: "local-dev-key"},
 	}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
@@ -2244,11 +2290,11 @@ func TestStoreWritesToolSettingsSeparatelyFromVersions(t *testing.T) {
 		t.Fatalf("ReadFile(demo config) error = %v", err)
 	}
 	text := string(data)
-	if !strings.Contains(text, "tools:\n  mailpit: \"1.30\"\n  phpmyadmin: \"5.2\"") {
-		t.Fatalf("config = %q, want mailpit and phpmyadmin version labels under tools", text)
+	if !strings.Contains(text, "tools:\n  mailpit: \"1.30\"\n  phpmyadmin: \"5.2\"\n  meilisearch: \"1.48\"") {
+		t.Fatalf("config = %q, want managed service version labels under tools", text)
 	}
-	if !strings.Contains(text, "settings:\n  mailpit:\n    smtp-port: 1125\n    ui-port: 8125\n  phpmyadmin:\n    port: 8082") {
-		t.Fatalf("config = %q, want mailpit and phpmyadmin ports under settings", text)
+	if !strings.Contains(text, "settings:\n  mailpit:\n    smtp-port: 1125\n    ui-port: 8125\n  phpmyadmin:\n    port: 8082\n  meilisearch:\n    port: 7701\n    master-key: local-dev-key") {
+		t.Fatalf("config = %q, want managed service settings under settings", text)
 	}
 	if strings.Contains(text, "    version:") {
 		t.Fatalf("config = %q, want no nested tool version entries", text)
@@ -2294,12 +2340,16 @@ func TestStoreReadsToolSettingsSeparatedFromVersions(t *testing.T) {
 				"tools:",
 				"  mailpit: \"1.30\"",
 				"  phpmyadmin: \"5.2\"",
+				"  meilisearch: \"1.48\"",
 				"settings:",
 				"  mailpit:",
 				"    smtp-port: 1125",
 				"    ui-port: 8125",
 				"  phpmyadmin:",
 				"    port: 8082",
+				"  meilisearch:",
+				"    port: 7701",
+				"    master-key: local-dev-key",
 				"",
 			}, "\n"))
 			if test.envName != defaultEnvironmentName {
@@ -2307,12 +2357,16 @@ func TestStoreReadsToolSettingsSeparatedFromVersions(t *testing.T) {
 					"tools:",
 					"  mailpit: \"1.30\"",
 					"  phpmyadmin: \"5.2\"",
+					"  meilisearch: \"1.48\"",
 					"settings:",
 					"  mailpit:",
 					"    smtp-port: 1125",
 					"    ui-port: 8125",
 					"  phpmyadmin:",
 					"    port: 8082",
+					"  meilisearch:",
+					"    port: 7701",
+					"    master-key: local-dev-key",
 					"",
 				}, "\n"))
 			}
@@ -2330,6 +2384,9 @@ func TestStoreReadsToolSettingsSeparatedFromVersions(t *testing.T) {
 			}
 			if environment.PHPMyAdmin == nil || environment.PHPMyAdmin.Version != "5.2" || environment.PHPMyAdmin.Port != 8082 {
 				t.Fatalf("environment.PHPMyAdmin = %#v, want version and configured port", environment.PHPMyAdmin)
+			}
+			if environment.Meilisearch == nil || environment.Meilisearch.Version != "1.48" || environment.Meilisearch.Port != 7701 || environment.Meilisearch.MasterKey != "local-dev-key" {
+				t.Fatalf("environment.Meilisearch = %#v, want version and configured settings", environment.Meilisearch)
 			}
 		})
 	}
@@ -2747,6 +2804,17 @@ func TestStoreRejectsNonVersionToolsAndOrphanSettings(t *testing.T) {
 			wantErr: "tools.phpmyadmin must be a scalar version label",
 		},
 		{
+			name: "nested meilisearch",
+			config: strings.Join([]string{
+				"tools:",
+				"  meilisearch:",
+				"    version: \"1.48\"",
+				"    port: 7700",
+				"",
+			}, "\n"),
+			wantErr: "tools.meilisearch must be a scalar version label",
+		},
+		{
 			name: "tools database object",
 			config: strings.Join([]string{
 				"tools:",
@@ -2786,6 +2854,16 @@ func TestStoreRejectsNonVersionToolsAndOrphanSettings(t *testing.T) {
 				"",
 			}, "\n"),
 			wantErr: "settings.phpmyadmin requires tools.phpmyadmin",
+		},
+		{
+			name: "orphan meilisearch settings",
+			config: strings.Join([]string{
+				"settings:",
+				"  meilisearch:",
+				"    port: 7700",
+				"",
+			}, "\n"),
+			wantErr: "settings.meilisearch requires tools.meilisearch",
 		},
 		{
 			name: "invalid opcache preset",

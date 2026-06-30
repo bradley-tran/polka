@@ -1257,6 +1257,110 @@ func TestRunServeStartsConfiguredMailpitBeforeWebserver(t *testing.T) {
 	}
 }
 
+func TestRunServeStartsConfiguredMeilisearchBeforeWebserver(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	docroot := filepath.Join(projectDir, "site", "public")
+	if err := os.MkdirAll(docroot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(docroot) error = %v", err)
+	}
+
+	writeTestConfigFile(t, projectDir, testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {
+				PHP:     "8.4",
+				Docroot: filepath.ToSlash(filepath.Join("site", "public")),
+				Meilisearch: &testMeilisearchConfig{
+					Version:   "1.48",
+					Port:      7701,
+					MasterKey: "local-dev-key",
+				},
+				Server: &testServerConfig{Hostname: "localhost", Port: 8080},
+			},
+		},
+	})
+	writeTestActiveEnvironment(t, root, "demo")
+	for _, path := range []string{
+		projectInstalledPHPPath(root, "8.4"),
+		filepath.Join(root, "envs", "meilisearch", "1.48", "meilisearch"),
+	} {
+		if runtime.GOOS == "windows" && strings.HasSuffix(path, "meilisearch") {
+			path += ".exe"
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("MkdirAll(%s) error = %v", filepath.Dir(path), err)
+		}
+		if err := os.WriteFile(path, []byte("placeholder\n"), 0o755); err != nil {
+			t.Fatalf("WriteFile(%s) error = %v", path, err)
+		}
+	}
+
+	oldStartMeilisearch := startMeilisearchServerFunc
+	oldStopMeilisearch := stopMeilisearchRuntimeFunc
+	oldPingMeilisearch := pingMeilisearchAddressFunc
+	oldMeilisearchNow := meilisearchNowFunc
+	oldStartPHP := startBackgroundPHPRuntimeServe
+	oldPingServe := pingServeAddressFunc
+	t.Cleanup(func() {
+		startMeilisearchServerFunc = oldStartMeilisearch
+		stopMeilisearchRuntimeFunc = oldStopMeilisearch
+		pingMeilisearchAddressFunc = oldPingMeilisearch
+		meilisearchNowFunc = oldMeilisearchNow
+		startBackgroundPHPRuntimeServe = oldStartPHP
+		pingServeAddressFunc = oldPingServe
+	})
+
+	order := []string{}
+	meilisearchRunning := map[string]bool{}
+	serveRunning := map[string]bool{}
+	var startedSpec meilisearchServerSpec
+	startMeilisearchServerFunc = func(spec meilisearchServerSpec) (meilisearchStartResult, error) {
+		order = append(order, "meilisearch")
+		startedSpec = spec
+		meilisearchRunning[service.MeilisearchAddress(spec.Port)] = true
+		return meilisearchStartResult{PID: 7676}, nil
+	}
+	stopMeilisearchRuntimeFunc = func(state meilisearchRuntimeState) error {
+		meilisearchRunning[service.MeilisearchAddress(state.Port)] = false
+		return nil
+	}
+	pingMeilisearchAddressFunc = func(address string) bool {
+		return meilisearchRunning[address]
+	}
+	meilisearchNowFunc = func() time.Time {
+		return time.Date(2026, time.May, 29, 12, 0, 0, 0, time.UTC)
+	}
+	startBackgroundPHPRuntimeServe = func(store backend.Store, environment backend.Environment, serverAddress string, layout serveAppLayout) (serveRuntimeState, error) {
+		order = append(order, "web")
+		serveRunning[serverAddress] = true
+		return serveRuntimeState{PrimaryPID: 4242}, nil
+	}
+	pingServeAddressFunc = func(address string) bool {
+		return serveRunning[address]
+	}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "start"}); code != 0 {
+		t.Fatalf("Run(serve with meilisearch) code = %d, stderr = %q", code, stderr.String())
+	}
+	if strings.Join(order, ",") != "meilisearch,web" {
+		t.Fatalf("start order = %v, want meilisearch before webserver", order)
+	}
+	if startedSpec.Port != 7701 || startedSpec.MasterKey != "local-dev-key" {
+		t.Fatalf("started meilisearch spec = %#v, want configured port and master key", startedSpec)
+	}
+	state, err := loadMeilisearchState(meilisearchStatePath(root, "demo"))
+	if err != nil {
+		t.Fatalf("loadMeilisearchState() error = %v", err)
+	}
+	if state.PID != 7676 || state.Port != 7701 || !state.AuthEnabled || state.MasterKeyHash != service.MeilisearchMasterKeyHash("local-dev-key") {
+		t.Fatalf("meilisearch state = %#v, want pid 7676, auth, and configured port", state)
+	}
+}
+
 func TestRunServeStartsConfiguredPHPMyAdminBeforeWebserver(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")

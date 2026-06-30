@@ -470,8 +470,8 @@ func (s Store) writeEnvironment(name, phpVersion, composerVersion, nodeJSVersion
 		environment.Database = mergeDatabaseConfig(environment.Database, database)
 		environment = setDatabaseToolVersion(environment, database)
 	}
-	if environment.PHPVersion == "" && environment.PHPZTSVersion == "" && environment.FrankenPHPVersion == "" && environment.ComposerVersion == "" && environment.PIEVersion == "" && environment.NodeJSVersion == "" && environment.MagoVersion == "" && environment.NginxVersion == "" && environment.ApacheVersion == "" && environment.MySQLVersion == "" && environment.MariaDBVersion == "" && environment.PostgreSQLVersion == "" && environment.SQLiteVersion == "" && environment.PHPMyAdmin == nil && environment.Database == nil && environment.Mailpit == nil {
-		return Environment{}, fmt.Errorf("environment requires at least one of php, php-zts, frankenphp, composer, nodejs, mago, nginx, apache, mysql, mariadb, postgresql, sqlite, phpmyadmin, database, or mailpit")
+	if environment.PHPVersion == "" && environment.PHPZTSVersion == "" && environment.FrankenPHPVersion == "" && environment.ComposerVersion == "" && environment.PIEVersion == "" && environment.NodeJSVersion == "" && environment.MagoVersion == "" && environment.NginxVersion == "" && environment.ApacheVersion == "" && environment.MySQLVersion == "" && environment.MariaDBVersion == "" && environment.PostgreSQLVersion == "" && environment.SQLiteVersion == "" && environment.PHPMyAdmin == nil && environment.Database == nil && environment.Mailpit == nil && environment.Meilisearch == nil {
+		return Environment{}, fmt.Errorf("environment requires at least one of php, php-zts, frankenphp, composer, nodejs, mago, nginx, apache, mysql, mariadb, postgresql, sqlite, phpmyadmin, database, mailpit, or meilisearch")
 	}
 	if err := s.toolRegistry().ValidateEnvironment(environment); err != nil {
 		return Environment{}, err
@@ -845,6 +845,11 @@ func environmentWithInstallRequest(environment Environment, request tools.Instal
 			environment.PHPMyAdmin = &PHPMyAdminConfig{}
 		}
 		environment.PHPMyAdmin.Version = request.Version
+	case toolMeilisearch:
+		if environment.Meilisearch == nil {
+			environment.Meilisearch = &MeilisearchConfig{}
+		}
+		environment.Meilisearch.Version = request.Version
 	}
 
 	return environment
@@ -1484,6 +1489,13 @@ func validateSettingsSchema(settings, tools map[string]any) error {
 			if err := validateSettingKeys("settings.phpmyadmin", settingMap, map[string]struct{}{"port": {}}); err != nil {
 				return err
 			}
+		case "meilisearch":
+			if !hasConfiguredToolVersion(tools, "meilisearch") {
+				return fmt.Errorf("settings.meilisearch requires tools.meilisearch")
+			}
+			if err := validateSettingKeys("settings.meilisearch", settingMap, map[string]struct{}{"port": {}, "master-key": {}}); err != nil {
+				return err
+			}
 		default:
 			return fmt.Errorf("unsupported settings.%s key", key)
 		}
@@ -1581,7 +1593,7 @@ func asYAMLStringMap(value any) (map[string]any, bool) {
 
 func knownToolVersionKey(key string) bool {
 	switch key {
-	case toolPHP, toolPHPZTS, toolFrankenPHP, toolComposer, toolPIE, toolNodeJS, toolMago, toolNginx, toolApache, toolMySQL, toolMariaDB, toolPostgreSQL, toolSQLite, toolMailpit, toolPHPMyAdmin:
+	case toolPHP, toolPHPZTS, toolFrankenPHP, toolComposer, toolPIE, toolNodeJS, toolMago, toolNginx, toolApache, toolMySQL, toolMariaDB, toolPostgreSQL, toolSQLite, toolMailpit, toolPHPMyAdmin, toolMeilisearch:
 		return true
 	default:
 		return false

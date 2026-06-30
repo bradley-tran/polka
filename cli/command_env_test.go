@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"polka/service"
 )
 
 func TestRunInitUsesDotPolkaByDefault(t *testing.T) {
@@ -517,6 +519,9 @@ func TestRunConfigPersistsSchemaDotKeys(t *testing.T) {
 	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.mailpit", "1.30")
 	runTestConfigValue(t, stdout, stderr, root, "demo", "settings.mailpit.smtp-port", "1125")
 	runTestConfigValue(t, stdout, stderr, root, "demo", "settings.mailpit.ui-port", "8125")
+	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.meilisearch", "1.48")
+	runTestConfigValue(t, stdout, stderr, root, "demo", "settings.meilisearch.port", "7701")
+	runTestConfigValue(t, stdout, stderr, root, "demo", "settings.meilisearch.master-key", "local-dev-key")
 	runTestConfigValue(t, stdout, stderr, root, "demo", "env-vars.APP_ENV", "local")
 	runTestConfigValue(t, stdout, stderr, root, "demo", "php-extensions.xdebug", "false")
 	runTestConfigValue(t, stdout, stderr, root, "demo", "opcache-config.opcache.enable_cli", "1")
@@ -524,6 +529,9 @@ func TestRunConfigPersistsSchemaDotKeys(t *testing.T) {
 	environment := readTestEnvironmentConfig(t, projectDir, "demo")
 	if environment.Mailpit == nil || environment.Mailpit.Version != "1.30" || environment.Mailpit.SMTPPort != 1125 || environment.Mailpit.UIPort != 8125 {
 		t.Fatalf("mailpit = %#v, want version and configured ports", environment.Mailpit)
+	}
+	if environment.Meilisearch == nil || environment.Meilisearch.Version != "1.48" || environment.Meilisearch.Port != 7701 || environment.Meilisearch.MasterKey != "local-dev-key" {
+		t.Fatalf("meilisearch = %#v, want version and configured settings", environment.Meilisearch)
 	}
 	if environment.EnvVars["APP_ENV"] != "local" {
 		t.Fatalf("env-vars = %#v, want APP_ENV", environment.EnvVars)
@@ -560,6 +568,8 @@ func TestRunConfigRejectsInvalidKeysAndValuesWithoutWriting(t *testing.T) {
 		{name: "whole object", args: []string{"--env", "demo", "tools", "php"}, wantErr: "unsupported config key"},
 		{name: "invalid port", args: []string{"--env", "demo", "database.port", "nope"}, wantErr: "database.port requires an integer value"},
 		{name: "orphan setting", args: []string{"--env", "demo", "settings.mailpit.smtp-port", "1025"}, wantErr: "mailpit configuration requires version"},
+		{name: "orphan meilisearch setting", args: []string{"--env", "demo", "settings.meilisearch.port", "7700"}, wantErr: "meilisearch configuration requires version"},
+		{name: "invalid meilisearch port", args: []string{"--env", "demo", "settings.meilisearch.port", "nope"}, wantErr: "settings.meilisearch.port requires an integer value"},
 	}
 
 	for _, testCase := range testCases {
@@ -902,17 +912,18 @@ func TestRunStatusShowsToolsEachOnOwnLine(t *testing.T) {
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
-				PHP:        "8.4",
-				Composer:   "2.8",
-				PIE:        "1.4",
-				NodeJS:     "24",
-				Mago:       "1.27",
-				Nginx:      "1.30",
-				FrankenPHP: "1.12",
-				HTTPS:      true,
-				PHPMyAdmin: &testPHPMyAdminConfig{Version: "5.2", Port: 8082},
-				Database:   &testDatabaseConfig{Engine: "mysql", Version: "8.0", Port: 3306},
-				Server:     &testServerConfig{Hostname: "localhost", Port: 8080},
+				PHP:         "8.4",
+				Composer:    "2.8",
+				PIE:         "1.4",
+				NodeJS:      "24",
+				Mago:        "1.27",
+				Nginx:       "1.30",
+				FrankenPHP:  "1.12",
+				HTTPS:       true,
+				PHPMyAdmin:  &testPHPMyAdminConfig{Version: "5.2", Port: 8082},
+				Meilisearch: &testMeilisearchConfig{Version: "1.48", Port: 7701, MasterKey: "local-dev-key"},
+				Database:    &testDatabaseConfig{Engine: "mysql", Version: "8.0", Port: 3306},
+				Server:      &testServerConfig{Hostname: "localhost", Port: 8080},
 			},
 		},
 	}
@@ -933,18 +944,23 @@ func TestRunStatusShowsToolsEachOnOwnLine(t *testing.T) {
 		"mago 1.27\n",
 		"nginx 1.30\n",
 		"frankenphp 1.12\n",
+		"meilisearch 1.48 http=http://127.0.0.1:7701 auth=enabled\n",
 		"phpmyadmin 5.2 ui=https://127.0.0.1:8082\n",
 		"database mysql:8.0@3306\n",
 		"mailpit unset\n",
 		"server https://localhost:8080\n",
 		"webserver stopped\n",
 		"phpmyadmin-server stopped\n",
+		"meilisearch-server stopped\n",
 		"database-server stopped\n",
 		"mailpit-server unset\n",
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("Run(status) stdout = %q, want %q", output, expected)
 		}
+	}
+	if strings.Contains(output, "local-dev-key") {
+		t.Fatalf("Run(status) stdout = %q, want master key hidden", output)
 	}
 }
 
@@ -1012,11 +1028,17 @@ func TestRunStatusUsesDefaultServerAddress(t *testing.T) {
 	if !strings.Contains(output, "phpmyadmin unset\n") {
 		t.Fatalf("Run(status) stdout = %q, want phpmyadmin unset line", output)
 	}
+	if !strings.Contains(output, "meilisearch unset\n") {
+		t.Fatalf("Run(status) stdout = %q, want meilisearch unset line", output)
+	}
 	if !strings.Contains(output, "webserver stopped\n") {
 		t.Fatalf("Run(status) stdout = %q, want webserver stopped line", output)
 	}
 	if !strings.Contains(output, "phpmyadmin-server unset\n") {
 		t.Fatalf("Run(status) stdout = %q, want phpmyadmin server unset line", output)
+	}
+	if !strings.Contains(output, "meilisearch-server unset\n") {
+		t.Fatalf("Run(status) stdout = %q, want meilisearch server unset line", output)
 	}
 	if !strings.Contains(output, "database-server unset\n") {
 		t.Fatalf("Run(status) stdout = %q, want database unset line", output)
@@ -1137,6 +1159,57 @@ func TestRunStatusShowsMailpitUIURL(t *testing.T) {
 	}
 	if !strings.Contains(output, "mailpit-server running smtp=1125 ui=https://127.0.0.1:8125\n") {
 		t.Fatalf("Run(status) stdout = %q, want running mailpit UI URL", output)
+	}
+}
+
+func TestRunStatusShowsMeilisearchURL(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	writeTestConfigFile(t, projectDir, testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {
+				Meilisearch: &testMeilisearchConfig{Version: "1.48", Port: 7701, MasterKey: "local-dev-key"},
+			},
+		},
+	})
+	writeTestActiveEnvironment(t, root, "demo")
+	if err := writeMeilisearchState(meilisearchStatePath(root, "demo"), meilisearchRuntimeState{
+		EnvironmentName: "demo",
+		Version:         "1.48",
+		Port:            7701,
+		PID:             1234,
+		AuthEnabled:     true,
+		MasterKeyHash:   service.MeilisearchMasterKeyHash("local-dev-key"),
+	}); err != nil {
+		t.Fatalf("writeMeilisearchState() error = %v", err)
+	}
+
+	oldPingMeilisearch := pingMeilisearchAddressFunc
+	t.Cleanup(func() {
+		pingMeilisearchAddressFunc = oldPingMeilisearch
+	})
+	pingMeilisearchAddressFunc = func(address string) bool {
+		return address == service.MeilisearchAddress(7701)
+	}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "status"}); code != 0 {
+		t.Fatalf("Run(status) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "meilisearch 1.48 http=http://127.0.0.1:7701 auth=enabled\n") {
+		t.Fatalf("Run(status) stdout = %q, want configured meilisearch URL", output)
+	}
+	if !strings.Contains(output, "meilisearch-server running http://127.0.0.1:7701\n") {
+		t.Fatalf("Run(status) stdout = %q, want running meilisearch URL", output)
+	}
+	if strings.Contains(output, "local-dev-key") {
+		t.Fatalf("Run(status) stdout = %q, want master key hidden", output)
 	}
 }
 

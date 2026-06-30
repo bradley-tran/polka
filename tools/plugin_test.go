@@ -22,6 +22,7 @@ func TestDefaultRegistryInstallRequestsUseConfiguredToolOrder(t *testing.T) {
 		ApacheVersion:     "2.4",
 		PHPMyAdmin:        &config.PHPMyAdminConfig{Version: "5.2", Port: 8081, HTTPS: true},
 		Mailpit:           &config.MailpitConfig{Version: "1.30"},
+		Meilisearch:       &config.MeilisearchConfig{Version: "1.48", Port: 7701, MasterKey: "dev-key"},
 		MySQLVersion:      "8.4",
 		MariaDBVersion:    "11.8",
 		PostgreSQLVersion: "17",
@@ -45,6 +46,7 @@ func TestDefaultRegistryInstallRequestsUseConfiguredToolOrder(t *testing.T) {
 		"nginx:1.30",
 		"apache:2.4",
 		"mailpit:1.30",
+		"meilisearch:1.48",
 		"phpmyadmin:5.2",
 		"mysql:8.4",
 		"mariadb:11.8",
@@ -148,6 +150,23 @@ func TestDefaultRegistryValidatesPHPMyAdminConfig(t *testing.T) {
 	}
 	if err := registry.ValidateEnvironment(config.Environment{PHPMyAdmin: &config.PHPMyAdminConfig{Port: 8081}}); err == nil {
 		t.Fatal("ValidateEnvironment(phpmyadmin without version) error = nil, want version validation error")
+	}
+}
+
+func TestDefaultRegistryValidatesMeilisearchConfig(t *testing.T) {
+	registry := NewDefaultRegistry()
+
+	if err := registry.ValidateEnvironment(config.Environment{Meilisearch: &config.MeilisearchConfig{Version: "1.48", Port: 70000}}); err == nil {
+		t.Fatal("ValidateEnvironment(meilisearch invalid port) error = nil, want port validation error")
+	}
+	if err := registry.ValidateEnvironment(config.Environment{Meilisearch: &config.MeilisearchConfig{Port: 7700}}); err == nil {
+		t.Fatal("ValidateEnvironment(meilisearch without version) error = nil, want version validation error")
+	}
+
+	environment := config.Environment{Meilisearch: &config.MeilisearchConfig{Version: "1.48"}}
+	active := registry.ActiveCommandNames(&environment)
+	if !reflect.DeepEqual(active, []string{Meilisearch}) {
+		t.Fatalf("ActiveCommandNames(meilisearch env) = %#v, want meilisearch", active)
 	}
 }
 

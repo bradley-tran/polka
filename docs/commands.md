@@ -63,9 +63,11 @@ polka config --env blog database.engine mysql
 polka config --env reporting tools.postgresql 17
 polka config --env reporting database.engine postgresql
 polka config --env blog settings.mailpit.smtp-port 1025
+polka config --env blog tools.meilisearch 1.48
+polka config --env blog settings.meilisearch.port 7700
 ```
 
-Use `--env name` to select a named environment. When `--env` is omitted, Polka updates the current environment, falling back to `default` when no local override is selected. Supported keys are schema-aware dot paths such as `tools.php`, `tools.php-zts`, `tools.frankenphp`, `tools.apache`, `tools.pie`, `database.port`, `server.type`, `server.hostname`, `env-vars.APP_ENV`, `php-extensions.xdebug`, and `opcache-config.opcache.enable_cli`. `tools.php` and `tools.php-zts` are mutually exclusive; setting one switches the primary runtime and both expose the standard `php` command. `server.type` accepts `php`, `nginx`, `apache`, or `frankenphp`.
+Use `--env name` to select a named environment. When `--env` is omitted, Polka updates the current environment, falling back to `default` when no local override is selected. Supported keys are schema-aware dot paths such as `tools.php`, `tools.php-zts`, `tools.frankenphp`, `tools.apache`, `tools.pie`, `tools.meilisearch`, `settings.meilisearch.port`, `settings.meilisearch.master-key`, `database.port`, `server.type`, `server.hostname`, `env-vars.APP_ENV`, `php-extensions.xdebug`, and `opcache-config.opcache.enable_cli`. `tools.php` and `tools.php-zts` are mutually exclusive; setting one switches the primary runtime and both expose the standard `php` command. `server.type` accepts `php`, `nginx`, `apache`, or `frankenphp`.
 
 ### `polka install [tool:version] [--env name]`
 
@@ -96,7 +98,7 @@ Selects one environment as the local override. Use `default` to clear the overri
 
 Alias: `polka info`
 
-Shows the active environment, prints each configured tool on its own line, includes the resolved web server URL, and reports whether the webserver, phpMyAdmin, managed database, and Mailpit are running.
+Shows the active environment, prints each configured tool on its own line, includes the resolved web server URL, and reports whether the webserver, phpMyAdmin, Meilisearch, managed database, and Mailpit are running.
 
 ### `polka remove <name>`
 
@@ -175,7 +177,7 @@ By default, Polka starts the webserver in the background, waits for it to begin 
 
 Set `server.type` to `php`, `nginx`, `apache`, or `frankenphp` to select the webserver explicitly. When it is omitted, Polka preserves the existing behavior of selecting nginx when configured and PHP otherwise; Apache is selected only by `server.type: apache`. Nginx and Apache start `php-cgi` on an internal loopback port with generated FastCGI configs. Apache enables project `.htaccess` files by default. FrankenPHP runs through a generated Caddyfile. PHP's built-in webserver uses a generated router that serves existing static files and forwards missing requests into the app router or front controller.
 
-If the environment defines `mailpit`, `phpmyadmin`, or a managed database, Polka starts those local services before the webserver. `polka status` prints the full Mailpit and phpMyAdmin UI URLs.
+If the environment defines `mailpit`, `meilisearch`, `phpmyadmin`, or a managed database, Polka starts those local services before the webserver. `polka status` prints the full Mailpit, Meilisearch, and phpMyAdmin URLs.
 
 HTTPS requires nginx, Apache, or FrankenPHP at start time. They use the generated server certificate from the global Polka cache. The certificate covers `localhost`, `*.localhost`, `127.0.0.1`, and `::1`, and is signed by a generated local Polka CA. Hostnames ending in `.localhost`, such as `blog.localhost`, work without editing the hosts file.
 
@@ -183,7 +185,7 @@ When Polka creates new HTTPS certificate material during `serve`, it prefers to 
 
 ### `polka stop`
 
-Stops the active environment's background webserver, phpMyAdmin, managed database, and Mailpit when they are running.
+Stops the active environment's background webserver, phpMyAdmin, Meilisearch, managed database, and Mailpit when they are running.
 
 ### `polka logs <tool> [--level info|error|debug]`
 
@@ -195,11 +197,12 @@ polka logs nginx --level error
 polka logs apache
 polka logs frankenphp
 polka logs mailpit
+polka logs meilisearch
 polka logs mariadb --level error
 polka logs postgresql --level error
 ```
 
-Manifest log paths are resolved under `.polka/run/<tool>/<environment>`. When `--level` is omitted, Polka prints `info`, `error`, and `debug` logs in that order. Missing log files are skipped. If no matching declared log file exists on disk, the command exits with an error. Built-in log declarations cover `nginx`, `apache`, `frankenphp`, `mailpit`, `phpmyadmin`, `mysql`, `mariadb`, and `postgresql`.
+Manifest log paths are resolved under `.polka/run/<tool>/<environment>`. When `--level` is omitted, Polka prints `info`, `error`, and `debug` logs in that order. Missing log files are skipped. If no matching declared log file exists on disk, the command exits with an error. Built-in log declarations cover `nginx`, `apache`, `frankenphp`, `mailpit`, `meilisearch`, `phpmyadmin`, `mysql`, `mariadb`, and `postgresql`.
 
 ### `polka cert-install [--no-encryption]`
 
@@ -259,6 +262,8 @@ The `postgresql` tool key installs PostgreSQL, creates a `psql` command shim, an
 The `phpmyadmin` tool key installs the phpMyAdmin web app archive under `.polka/envs/phpmyadmin/<version>`, writes a generated `config.inc.php` with a fresh `blowfish_secret`, and uses managed MySQL/MariaDB credentials to skip the phpMyAdmin login screen when one of those managed databases is configured. With PostgreSQL, Polka warns because phpMyAdmin only supports MySQL/MariaDB, then starts phpMyAdmin without managed PostgreSQL login or storage integration. Its UI `port` setting lives under `settings.phpmyadmin`. It inherits HTTPS and the selected nginx or FrankenPHP HTTPS provider from the environment. It does not create a command shim.
 
 The `mailpit` tool key installs Mailpit and creates a `mailpit` command shim. Its SMTP and UI port settings live under `settings.mailpit`.
+
+The `meilisearch` tool key installs Meilisearch and creates a `meilisearch` command shim. Its HTTP port and optional local master key live under `settings.meilisearch`; Polka stores only a runtime fingerprint of the master key and does not print it in status output.
 
 When an environment defines `php-extensions`, configures a tool with PHP dependencies, selects `opcache-preset` or `opcache-config`, or uses a framework with generated PHP defaults, `polka install` writes a generated `php.ini` next to each configured PHP, PHP-ZTS, and FrankenPHP runtime. Extensions are merged in this order: framework requirements, every configured tool's requirements, then user-defined `php-extensions`. Explicit `false` values therefore disable framework or tool defaults. MySQL and MariaDB enable `mysqli` and `pdo_mysql`; PostgreSQL enables `pgsql` and `pdo_pgsql`; SQLite enables `pdo_sqlite` and `sqlite3`; Composer enables `openssl` and `zip`. Before writing `php.ini`, Polka checks `php -nm` and skips extensions that are already built into that PHP binary. If the effective extension config enables `curl` or `openssl`, Polka also configures `curl.cainfo` and `openssl.cafile` with a CA bundle.
 

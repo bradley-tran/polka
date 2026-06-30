@@ -76,6 +76,7 @@ func defaultCLIHookRegistry() cliHookRegistry {
 		startServices: []startServiceHook{
 			{id: "database", run: startDatabaseServiceHook},
 			{id: "mailpit", run: startMailpitServiceHook},
+			{id: "meilisearch", run: startMeilisearchServiceHook},
 			{id: "phpmyadmin", run: startPHPMyAdminServiceHook},
 		},
 		webservers: []webserverStartHook{
@@ -87,6 +88,7 @@ func defaultCLIHookRegistry() cliHookRegistry {
 		stopHooks: []stopHook{
 			{id: "webserver", run: stopWebserverHook},
 			{id: "phpmyadmin", run: stopPHPMyAdminServiceHook},
+			{id: "meilisearch", run: stopMeilisearchServiceHook},
 			{id: "database", run: stopDatabaseServiceHook},
 			{id: "mailpit", run: stopMailpitServiceHook},
 		},
@@ -100,6 +102,7 @@ func defaultCLIHookRegistry() cliHookRegistry {
 			{id: "apache", run: statusApacheConfigHook},
 			{id: "frankenphp", run: statusFrankenPHPConfigHook},
 			{id: "sqlite", run: statusSQLiteConfigHook},
+			{id: "meilisearch", run: statusMeilisearchConfigHook},
 			{id: "phpmyadmin", run: statusPHPMyAdminConfigHook},
 			{id: "database", run: statusDatabaseConfigHook},
 			{id: "mailpit", run: statusMailpitConfigHook},
@@ -107,6 +110,7 @@ func defaultCLIHookRegistry() cliHookRegistry {
 		runtimeStatusHooks: []statusHook{
 			{id: "webserver", run: statusWebserverRuntimeHook},
 			{id: "phpmyadmin", run: statusPHPMyAdminRuntimeHook},
+			{id: "meilisearch", run: statusMeilisearchRuntimeHook},
 			{id: "database", run: statusDatabaseRuntimeHook},
 			{id: "mailpit", run: statusMailpitRuntimeHook},
 		},
@@ -117,6 +121,7 @@ func (r cliHookRegistry) StartServices(ctx startHookContext) error {
 	result, err := service.DefaultManager().Start(managedServiceContext(ctx.Store, ctx.Environment, ctx.Stderr), service.RuntimeHooks{
 		Database:                dbRuntimeHooks(),
 		Mailpit:                 mailpitRuntimeHooks(),
+		Meilisearch:             meilisearchRuntimeHooks(),
 		PHPMyAdmin:              phpMyAdminRuntimeHooks(ctx.Store),
 		EnsurePHPMyAdminStorage: ensurePHPMyAdminStorageConfiguredFunc,
 	})
@@ -156,9 +161,10 @@ func (r cliHookRegistry) Stop(ctx stopHookContext) error {
 	}
 
 	result, err := service.DefaultManager().Stop(managedServiceContext(ctx.Store, ctx.Environment, ctx.Stderr), service.RuntimeHooks{
-		Database:   dbRuntimeHooks(),
-		Mailpit:    mailpitRuntimeHooks(),
-		PHPMyAdmin: phpMyAdminRuntimeHooks(ctx.Store),
+		Database:    dbRuntimeHooks(),
+		Mailpit:     mailpitRuntimeHooks(),
+		Meilisearch: meilisearchRuntimeHooks(),
+		PHPMyAdmin:  phpMyAdminRuntimeHooks(ctx.Store),
 	})
 	if err != nil {
 		return err
@@ -200,6 +206,16 @@ func writeManagedServiceStopSummary(ctx stopHookContext, result service.StopResu
 		}
 	}
 
+	if result.Meilisearch != nil {
+		if result.Meilisearch.AlreadyStopped {
+			if ctx.Environment.Meilisearch != nil && strings.TrimSpace(ctx.Environment.Meilisearch.Version) != "" {
+				fmt.Fprintf(ctx.Stdout, "Meilisearch for environment %q is already stopped.\n", ctx.Environment.Name)
+			}
+		} else {
+			fmt.Fprintf(ctx.Stdout, "Stopped Meilisearch for environment %q.\n", ctx.Environment.Name)
+		}
+	}
+
 	if result.Database != nil {
 		if result.Database.AlreadyStopped {
 			if ctx.Environment.Database != nil && strings.TrimSpace(ctx.Environment.Database.Engine) != "" {
@@ -237,6 +253,15 @@ func startMailpitServiceHook(ctx startHookContext) error {
 	}
 
 	_, _, err := ensureManagedMailpitStarted(ctx.Store, ctx.Environment)
+	return err
+}
+
+func startMeilisearchServiceHook(ctx startHookContext) error {
+	if ctx.Environment.Meilisearch == nil || strings.TrimSpace(ctx.Environment.Meilisearch.Version) == "" {
+		return nil
+	}
+
+	_, _, err := ensureManagedMeilisearchStarted(ctx.Store, ctx.Environment)
 	return err
 }
 
@@ -421,6 +446,24 @@ func stopMailpitServiceHook(ctx stopHookContext) error {
 	return nil
 }
 
+func stopMeilisearchServiceHook(ctx stopHookContext) error {
+	if ctx.Environment.Meilisearch == nil || strings.TrimSpace(ctx.Environment.Meilisearch.Version) == "" {
+		return nil
+	}
+
+	_, meilisearchAlreadyStopped, err := stopManagedMeilisearch(ctx.Store, ctx.Environment.Name)
+	if err != nil {
+		return err
+	}
+	if meilisearchAlreadyStopped {
+		fmt.Fprintf(ctx.Stdout, "Meilisearch for environment %q is already stopped.\n", ctx.Environment.Name)
+		return nil
+	}
+
+	fmt.Fprintf(ctx.Stdout, "Stopped Meilisearch for environment %q.\n", ctx.Environment.Name)
+	return nil
+}
+
 func stopPHPMyAdminServiceHook(ctx stopHookContext) error {
 	if ctx.Environment.PHPMyAdmin == nil || strings.TrimSpace(ctx.Environment.PHPMyAdmin.Version) == "" {
 		return nil
@@ -492,6 +535,11 @@ func statusSQLiteConfigHook(ctx statusHookContext) error {
 	return nil
 }
 
+func statusMeilisearchConfigHook(ctx statusHookContext) error {
+	_, _ = fmt.Fprintf(ctx.Stdout, "meilisearch %s\n", labelMeilisearch(ctx.Environment.Meilisearch))
+	return nil
+}
+
 func statusPHPMyAdminConfigHook(ctx statusHookContext) error {
 	_, _ = fmt.Fprintf(ctx.Stdout, "phpmyadmin %s\n", labelPHPMyAdmin(ctx.Environment.PHPMyAdmin))
 	return nil
@@ -556,6 +604,25 @@ func statusPHPMyAdminRuntimeHook(ctx statusHookContext) error {
 	}
 
 	_, _ = fmt.Fprintf(ctx.Stdout, "phpmyadmin-server running %s\n", serveStateURL(*livePHPMyAdminState))
+	return nil
+}
+
+func statusMeilisearchRuntimeHook(ctx statusHookContext) error {
+	if ctx.Environment.Meilisearch == nil || strings.TrimSpace(ctx.Environment.Meilisearch.Version) == "" {
+		_, _ = fmt.Fprintln(ctx.Stdout, "meilisearch-server unset")
+		return nil
+	}
+
+	liveMeilisearchState, err := loadLiveMeilisearchState(ctx.Store.RootDir, ctx.Environment.Name)
+	if err != nil {
+		return err
+	}
+	if liveMeilisearchState == nil {
+		_, _ = fmt.Fprintln(ctx.Stdout, "meilisearch-server stopped")
+		return nil
+	}
+
+	_, _ = fmt.Fprintf(ctx.Stdout, "meilisearch-server running %s\n", meilisearchURL(*liveMeilisearchState))
 	return nil
 }
 

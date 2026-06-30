@@ -507,6 +507,55 @@ func TestResolveMailpitDownloadAssetSupportsSeriesLabels(t *testing.T) {
 	}
 }
 
+func TestResolveMeilisearchDownloadAssetSupportsDirectBinaries(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[
+			{
+				"tag_name":"v1.48.3",
+				"assets":[
+					{"name":"meilisearch-windows-amd64.exe","digest":"sha256:` + strings.Repeat("a", 64) + `"},
+					{"name":"meilisearch-linux-amd64","digest":"sha256:` + strings.Repeat("b", 64) + `"}
+				]
+			}
+		]`))
+	}))
+	defer server.Close()
+
+	withTemporaryString(t, &githubAPIBaseURL, server.URL)
+
+	tests := []struct {
+		name        string
+		goos        string
+		goarch      string
+		wantFile    string
+		wantInstall string
+	}{
+		{name: "windows", goos: "windows", goarch: "amd64", wantFile: "meilisearch-windows-amd64.exe", wantInstall: "meilisearch.exe"},
+		{name: "linux", goos: "linux", goarch: "amd64", wantFile: "meilisearch-linux-amd64", wantInstall: "meilisearch"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resolvedVersion, asset, err := resolveMeilisearchDownloadAsset(server.Client(), "1.48", test.goos, test.goarch)
+			if err != nil {
+				t.Fatalf("resolveMeilisearchDownloadAsset() error = %v", err)
+			}
+			if resolvedVersion != "1.48.3" {
+				t.Fatalf("resolved version = %q, want 1.48.3", resolvedVersion)
+			}
+			if asset.FileName != test.wantFile || asset.InstallPath != test.wantInstall {
+				t.Fatalf("asset = %#v, want file %q install %q", asset, test.wantFile, test.wantInstall)
+			}
+			if asset.ArchiveFormat != "" {
+				t.Fatalf("archive format = %q, want direct file", asset.ArchiveFormat)
+			}
+			if asset.ChecksumAlgorithm != checksumAlgorithmSHA256 || asset.Checksum == "" {
+				t.Fatalf("checksum = (%q, %q), want github sha256 digest", asset.ChecksumAlgorithm, asset.Checksum)
+			}
+		})
+	}
+}
+
 func TestResolveMagoDownloadAssetSupportsSeriesLabels(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`[

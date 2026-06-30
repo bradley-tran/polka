@@ -11,12 +11,19 @@ func DefaultManager() Manager {
 type RuntimeHooks struct {
 	Database                DatabaseRuntimeHooks
 	Mailpit                 MailpitRuntimeHooks
+	Meilisearch             MeilisearchRuntimeHooks
 	PHPMyAdmin              PHPMyAdminRuntimeHooks
 	EnsurePHPMyAdminStorage func(Context, Environment, DatabaseRuntimeHooks) error
 }
 
 type StartResult struct {
-	PHPMyAdmin *PHPMyAdminStartResult
+	Meilisearch *MeilisearchStartSummary
+	PHPMyAdmin  *PHPMyAdminStartResult
+}
+
+type MeilisearchStartSummary struct {
+	State          MeilisearchRuntimeState
+	AlreadyStarted bool
 }
 
 type PHPMyAdminStartResult struct {
@@ -25,9 +32,10 @@ type PHPMyAdminStartResult struct {
 }
 
 type StopResult struct {
-	PHPMyAdmin *StopServeResult
-	Database   *StopDatabaseResult
-	Mailpit    *StopMailpitResult
+	PHPMyAdmin  *StopServeResult
+	Meilisearch *StopMeilisearchResult
+	Database    *StopDatabaseResult
+	Mailpit     *StopMailpitResult
 }
 
 type StopServeResult struct {
@@ -42,6 +50,11 @@ type StopDatabaseResult struct {
 
 type StopMailpitResult struct {
 	State          MailpitRuntimeState
+	AlreadyStopped bool
+}
+
+type StopMeilisearchResult struct {
+	State          MeilisearchRuntimeState
 	AlreadyStopped bool
 }
 
@@ -64,6 +77,16 @@ func (m Manager) Start(ctx Context, hooks RuntimeHooks) (StartResult, error) {
 	}
 
 	result := StartResult{}
+	if ctx.Environment.Meilisearch != nil && strings.TrimSpace(ctx.Environment.Meilisearch.Version) != "" {
+		if !ctx.skipMissingTool("meilisearch", toolMeilisearch) {
+			state, alreadyStarted, err := EnsureManagedMeilisearchStarted(ctx, hooks.Meilisearch)
+			if err != nil {
+				return StartResult{}, err
+			}
+			result.Meilisearch = &MeilisearchStartSummary{State: state, AlreadyStarted: alreadyStarted}
+		}
+	}
+
 	if ctx.Environment.PHPMyAdmin != nil && strings.TrimSpace(ctx.Environment.PHPMyAdmin.Version) != "" {
 		if ctx.skipMissingTool("phpmyadmin", toolPHPMyAdmin) {
 			return result, nil
@@ -96,6 +119,12 @@ func (m Manager) Stop(ctx Context, hooks RuntimeHooks) (StopResult, error) {
 	}
 	result.PHPMyAdmin = &StopServeResult{State: phpMyAdminState, AlreadyStopped: phpMyAdminAlreadyStopped}
 
+	meilisearchState, meilisearchAlreadyStopped, err := StopManagedMeilisearch(ctx, hooks.Meilisearch)
+	if err != nil {
+		return StopResult{}, err
+	}
+	result.Meilisearch = &StopMeilisearchResult{State: meilisearchState, AlreadyStopped: meilisearchAlreadyStopped}
+
 	databaseState, databaseAlreadyStopped, err := StopManagedDatabaseForEnvironment(ctx, hooks.Database)
 	if err != nil {
 		return StopResult{}, err
@@ -121,5 +150,8 @@ func (m Manager) WarnMissingRuntimeTools(ctx Context) {
 	}
 	if ctx.Environment.Mailpit != nil && strings.TrimSpace(ctx.Environment.Mailpit.Version) != "" {
 		_ = ctx.skipMissingTool("mailpit", toolMailpit)
+	}
+	if ctx.Environment.Meilisearch != nil && strings.TrimSpace(ctx.Environment.Meilisearch.Version) != "" {
+		_ = ctx.skipMissingTool("meilisearch", toolMeilisearch)
 	}
 }

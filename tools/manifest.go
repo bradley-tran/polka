@@ -338,6 +338,11 @@ func manifestVersionFunc(m pluginManifest) func(config.Environment) string {
 				return ""
 			}
 			return environment.PHPMyAdmin.Version
+		case Meilisearch:
+			if environment.Meilisearch == nil {
+				return ""
+			}
+			return environment.Meilisearch.Version
 		case MySQL, MariaDB, PostgreSQL:
 			return config.DatabaseToolVersion(environment, id)
 		default:
