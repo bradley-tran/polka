@@ -71,6 +71,7 @@ type ProjectFile struct {
 	EnvFile       string            `yaml:"env-file,omitempty"`
 	EnvVars       map[string]string `yaml:"env-vars,omitempty"`
 	Database      *DatabaseConfig   `yaml:"database,omitempty"`
+	MemoryLimit   any               `yaml:"memory-limit,omitempty"`
 	PHPExtensions map[string]bool   `yaml:"php-extensions,omitempty"`
 	OPcachePreset string            `yaml:"opcache-preset,omitempty"`
 	OPcacheConfig map[string]any    `yaml:"opcache-config,omitempty"`
@@ -87,6 +88,7 @@ type EnvironmentFile struct {
 	EnvFile       string            `yaml:"env-file,omitempty"`
 	EnvVars       map[string]string `yaml:"env-vars,omitempty"`
 	Database      *DatabaseConfig   `yaml:"database,omitempty"`
+	MemoryLimit   any               `yaml:"memory-limit,omitempty"`
 	PHPExtensions map[string]bool   `yaml:"php-extensions,omitempty"`
 	OPcachePreset string            `yaml:"opcache-preset,omitempty"`
 	OPcacheConfig map[string]any    `yaml:"opcache-config,omitempty"`
@@ -117,6 +119,7 @@ type Environment struct {
 	Mailpit           *MailpitConfig     `yaml:"mailpit,omitempty"`
 	PHPMyAdmin        *PHPMyAdminConfig  `yaml:"phpmyadmin,omitempty"`
 	Meilisearch       *MeilisearchConfig `yaml:"meilisearch,omitempty"`
+	MemoryLimit       string             `yaml:"memory-limit,omitempty"`
 	PHPExtensions     map[string]bool    `yaml:"php-extensions,omitempty"`
 	OPcachePreset     string             `yaml:"opcache-preset,omitempty"`
 	OPcacheConfig     map[string]string  `yaml:"opcache-config,omitempty"`
@@ -211,6 +214,7 @@ func ProjectFileToEnvironment(name string, file ProjectFile) Environment {
 		file.EnvFile,
 		file.EnvVars,
 		file.Database,
+		file.MemoryLimit,
 		file.PHPExtensions,
 		file.OPcachePreset,
 		file.OPcacheConfig,
@@ -231,6 +235,7 @@ func ProjectFileFromEnvironment(version int, root string, environment Environmen
 		EnvFile:       environment.EnvFile,
 		EnvVars:       environment.EnvVars,
 		Database:      DatabaseRuntimeConfigFromEnvironment(environment),
+		MemoryLimit:   phpMemoryLimitFileValue(environment.MemoryLimit),
 		PHPExtensions: environment.PHPExtensions,
 		OPcachePreset: NormalizeOPcachePreset(environment.OPcachePreset),
 		OPcacheConfig: OPcacheFileConfigFromEnvironment(environment),
@@ -252,6 +257,7 @@ func EnvironmentFileToEnvironment(name string, file EnvironmentFile) Environment
 		file.EnvFile,
 		file.EnvVars,
 		file.Database,
+		file.MemoryLimit,
 		file.PHPExtensions,
 		file.OPcachePreset,
 		file.OPcacheConfig,
@@ -270,6 +276,7 @@ func EnvironmentFileFromEnvironment(environment Environment) EnvironmentFile {
 		EnvFile:       environment.EnvFile,
 		EnvVars:       environment.EnvVars,
 		Database:      DatabaseRuntimeConfigFromEnvironment(environment),
+		MemoryLimit:   phpMemoryLimitFileValue(environment.MemoryLimit),
 		PHPExtensions: environment.PHPExtensions,
 		OPcachePreset: NormalizeOPcachePreset(environment.OPcachePreset),
 		OPcacheConfig: OPcacheFileConfigFromEnvironment(environment),
@@ -440,7 +447,7 @@ func (settings SettingsConfig) IsZero() bool {
 		settings.Meilisearch == nil
 }
 
-func environmentFromFileParts(name string, framework string, tools *ToolsConfig, settings *SettingsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *DatabaseConfig, phpExtensions map[string]bool, opcachePreset string, opcacheConfig map[string]any, server *ServerConfig) Environment {
+func environmentFromFileParts(name string, framework string, tools *ToolsConfig, settings *SettingsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *DatabaseConfig, memoryLimit any, phpExtensions map[string]bool, opcachePreset string, opcacheConfig map[string]any, server *ServerConfig) Environment {
 	environment := Environment{
 		Name:          name,
 		Framework:     strings.ToLower(strings.TrimSpace(framework)),
@@ -449,6 +456,7 @@ func environmentFromFileParts(name string, framework string, tools *ToolsConfig,
 		EnvFile:       envFile,
 		EnvVars:       envVars,
 		Database:      database,
+		MemoryLimit:   NormalizePHPMemoryLimit(phpMemoryLimitValueString(memoryLimit)),
 		PHPExtensions: phpExtensions,
 		OPcachePreset: opcachePreset,
 		OPcacheConfig: NormalizeOPcacheConfigFromYAML(opcacheConfig),
@@ -637,6 +645,7 @@ func NormalizeEnvironment(name string, environment Environment) Environment {
 		Mailpit:           NormalizeMailpitConfig(environment.Mailpit),
 		PHPMyAdmin:        NormalizePHPMyAdminConfig(environment.PHPMyAdmin),
 		Meilisearch:       NormalizeMeilisearchConfig(environment.Meilisearch),
+		MemoryLimit:       NormalizePHPMemoryLimit(environment.MemoryLimit),
 		PHPExtensions:     NormalizePHPExtensions(environment.PHPExtensions),
 		OPcachePreset:     NormalizeOPcachePreset(environment.OPcachePreset),
 		OPcacheConfig:     NormalizeOPcacheConfig(environment.OPcacheConfig),
@@ -803,6 +812,47 @@ func NormalizePHPExtensions(extensions map[string]bool) map[string]bool {
 	return normalized
 }
 
+// NormalizePHPMemoryLimit trims a PHP memory_limit value and canonicalizes its unit suffix.
+func NormalizePHPMemoryLimit(value string) string {
+	normalized := strings.TrimSpace(value)
+	if len(normalized) < 2 {
+		return normalized
+	}
+
+	unit := normalized[len(normalized)-1]
+	switch unit {
+	case 'k', 'm', 'g':
+		return normalized[:len(normalized)-1] + strings.ToUpper(string(unit))
+	default:
+		return normalized
+	}
+}
+
+// ValidatePHPMemoryLimit checks the supported php.ini memory_limit value shape.
+func ValidatePHPMemoryLimit(value string) error {
+	normalized := NormalizePHPMemoryLimit(value)
+	if normalized == "" || normalized == "-1" {
+		return nil
+	}
+
+	digits := normalized
+	unit := normalized[len(normalized)-1]
+	switch unit {
+	case 'K', 'M', 'G':
+		digits = normalized[:len(normalized)-1]
+	}
+	if digits == "" {
+		return fmt.Errorf("invalid memory-limit %q: use -1, bytes, or PHP shorthand such as 512M", value)
+	}
+	for _, char := range digits {
+		if char < '0' || char > '9' {
+			return fmt.Errorf("invalid memory-limit %q: use -1, bytes, or PHP shorthand such as 512M", value)
+		}
+	}
+
+	return nil
+}
+
 // NormalizeOPcachePreset canonicalizes the configured OPcache preset label.
 func NormalizeOPcachePreset(preset string) string {
 	normalized := strings.ToLower(strings.TrimSpace(preset))
@@ -883,4 +933,21 @@ func opcacheConfigValueString(value any) string {
 	}
 
 	return strings.TrimSpace(fmt.Sprint(value))
+}
+
+func phpMemoryLimitValueString(value any) string {
+	if value == nil {
+		return ""
+	}
+
+	return strings.TrimSpace(fmt.Sprint(value))
+}
+
+func phpMemoryLimitFileValue(value string) any {
+	normalized := NormalizePHPMemoryLimit(value)
+	if normalized == "" {
+		return nil
+	}
+
+	return normalized
 }

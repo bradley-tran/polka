@@ -59,6 +59,39 @@ func TestFrankenPHPAndServerTypeConfigRoundTrip(t *testing.T) {
 	}
 }
 
+func TestPHPMemoryLimitConfigRoundTrip(t *testing.T) {
+	environment := ProjectFileToEnvironment("default", ProjectFile{
+		Tools:       &ToolsConfig{PHPVersion: "8.4"},
+		MemoryLimit: " 512m ",
+	})
+	if environment.MemoryLimit != "512M" {
+		t.Fatalf("ProjectFileToEnvironment() memory-limit = %q, want 512M", environment.MemoryLimit)
+	}
+
+	file := ProjectFileFromEnvironment(1, ".polka", environment)
+	if file.MemoryLimit != "512M" {
+		t.Fatalf("ProjectFileFromEnvironment() memory-limit = %#v, want 512M", file.MemoryLimit)
+	}
+
+	environmentFile := EnvironmentFileFromEnvironment(Environment{Name: "demo", PHPVersion: "8.4", MemoryLimit: " -1 "})
+	if environmentFile.MemoryLimit != "-1" {
+		t.Fatalf("EnvironmentFileFromEnvironment() memory-limit = %#v, want -1", environmentFile.MemoryLimit)
+	}
+}
+
+func TestValidatePHPMemoryLimit(t *testing.T) {
+	for _, value := range []string{"", "-1", "0", "128M", "512m", "1024K", "1G", "134217728"} {
+		if err := ValidatePHPMemoryLimit(value); err != nil {
+			t.Fatalf("ValidatePHPMemoryLimit(%q) error = %v", value, err)
+		}
+	}
+	for _, value := range []string{"-2", "1.5G", "128MB", "many"} {
+		if err := ValidatePHPMemoryLimit(value); err == nil {
+			t.Fatalf("ValidatePHPMemoryLimit(%q) error = nil, want validation error", value)
+		}
+	}
+}
+
 func TestApacheAndServerTypeConfigRoundTrip(t *testing.T) {
 	environment := ProjectFileToEnvironment("default", ProjectFile{
 		Tools:  &ToolsConfig{ApacheVersion: " 2.4 "},

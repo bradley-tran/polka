@@ -74,6 +74,9 @@ func phpRuntimePlugin(tool string, threadSafe bool) Plugin {
 					return err
 				}
 			}
+			if err := config.ValidatePHPMemoryLimit(environment.MemoryLimit); err != nil {
+				return err
+			}
 
 			return nil
 		},

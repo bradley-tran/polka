@@ -117,6 +117,8 @@ func applyTopLevelConfigValue(environment *Environment, key, value string) error
 		environment.HTTPS = parsed
 	case "env-file":
 		environment.EnvFile = strings.TrimSpace(value)
+	case "memory-limit":
+		environment.MemoryLimit = strings.TrimSpace(value)
 	case "opcache-preset":
 		environment.OPcachePreset = strings.TrimSpace(value)
 	default:

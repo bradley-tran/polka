@@ -523,6 +523,7 @@ func TestRunConfigPersistsSchemaDotKeys(t *testing.T) {
 	runTestConfigValue(t, stdout, stderr, root, "demo", "settings.meilisearch.port", "7701")
 	runTestConfigValue(t, stdout, stderr, root, "demo", "settings.meilisearch.master-key", "local-dev-key")
 	runTestConfigValue(t, stdout, stderr, root, "demo", "env-vars.APP_ENV", "local")
+	runTestConfigValue(t, stdout, stderr, root, "demo", "memory-limit", "512m")
 	runTestConfigValue(t, stdout, stderr, root, "demo", "php-extensions.xdebug", "false")
 	runTestConfigValue(t, stdout, stderr, root, "demo", "opcache-config.opcache.enable_cli", "1")
 
@@ -535,6 +536,9 @@ func TestRunConfigPersistsSchemaDotKeys(t *testing.T) {
 	}
 	if environment.EnvVars["APP_ENV"] != "local" {
 		t.Fatalf("env-vars = %#v, want APP_ENV", environment.EnvVars)
+	}
+	if environment.MemoryLimit != "512M" {
+		t.Fatalf("memory-limit = %q, want 512M", environment.MemoryLimit)
 	}
 	if environment.PHPExtensions["xdebug"] {
 		t.Fatalf("php-extensions = %#v, want xdebug disabled", environment.PHPExtensions)
@@ -570,6 +574,7 @@ func TestRunConfigRejectsInvalidKeysAndValuesWithoutWriting(t *testing.T) {
 		{name: "orphan setting", args: []string{"--env", "demo", "settings.mailpit.smtp-port", "1025"}, wantErr: "mailpit configuration requires version"},
 		{name: "orphan meilisearch setting", args: []string{"--env", "demo", "settings.meilisearch.port", "7700"}, wantErr: "meilisearch configuration requires version"},
 		{name: "invalid meilisearch port", args: []string{"--env", "demo", "settings.meilisearch.port", "nope"}, wantErr: "settings.meilisearch.port requires an integer value"},
+		{name: "invalid memory limit", args: []string{"--env", "demo", "memory-limit", "1.5G"}, wantErr: "invalid memory-limit"},
 	}
 
 	for _, testCase := range testCases {

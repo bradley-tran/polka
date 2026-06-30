@@ -606,6 +606,9 @@ func validateInstallEnvironment(name string, environment Environment, requests [
 	if len(environment.PHPExtensions) > 0 && !hasPHPCLI && !includesPHP {
 		return fmt.Errorf("environment %q defines php-extensions but does not define a PHP CLI provider", name)
 	}
+	if config.NormalizePHPMemoryLimit(environment.MemoryLimit) != "" && !hasPHPCLI && !includesPHP {
+		return fmt.Errorf("environment %q defines memory-limit but does not define a PHP CLI provider", name)
+	}
 	if environmentHasOPcacheConfig(environment) && !hasPHPCLI && !includesPHP {
 		return fmt.Errorf("environment %q defines OPcache config but does not define a PHP CLI provider", name)
 	}
@@ -1438,6 +1441,11 @@ func validateEnvironmentFileSchema(data []byte) error {
 			return err
 		}
 	}
+	if value, ok := raw["memory-limit"]; ok {
+		if err := validatePHPMemoryLimitSchema(value); err != nil {
+			return err
+		}
+	}
 
 	opcacheConfig, hasOPcacheConfig, err := rawMapForKey(raw, "opcache-config")
 	if err != nil {
@@ -1529,6 +1537,19 @@ func validateOPcachePresetSchema(value any) error {
 	default:
 		return fmt.Errorf("unsupported opcache-preset %q: use none, dev, or production", preset)
 	}
+}
+
+func validatePHPMemoryLimitSchema(value any) error {
+	switch value.(type) {
+	case string, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+	default:
+		return fmt.Errorf("memory-limit must be a scalar string or integer value")
+	}
+	if err := config.ValidatePHPMemoryLimit(fmt.Sprint(value)); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func validateOPcacheConfigSchema(settings map[string]any) error {

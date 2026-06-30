@@ -366,6 +366,7 @@ func TestStoreReadsAndWritesOPcacheConfig(t *testing.T) {
 	config := store.defaultConfig()
 	config.Environments[defaultEnvironmentName] = Environment{
 		PHPVersion:      "8.4",
+		MemoryLimit:     " 512m ",
 		OPcachePreset:   "Production",
 		OPcacheConfig:   map[string]string{" OPcache.Revalidate_Freq ": " 2 "},
 		PHPExtensions:   map[string]bool{"opcache": true},
@@ -373,6 +374,7 @@ func TestStoreReadsAndWritesOPcacheConfig(t *testing.T) {
 	}
 	config.Environments["app"] = Environment{
 		PHPVersion:    "8.3",
+		MemoryLimit:   " -1 ",
 		OPcachePreset: "Dev",
 		OPcacheConfig: map[string]string{" OPcache.Enable_Cli ": " true "},
 	}
@@ -387,12 +389,18 @@ func TestStoreReadsAndWritesOPcacheConfig(t *testing.T) {
 	if !strings.Contains(string(projectConfig), "opcache-preset: production") || strings.Contains(string(projectConfig), "Production") {
 		t.Fatalf("project config = %q, want normalized production OPcache preset", string(projectConfig))
 	}
+	if !strings.Contains(string(projectConfig), "memory-limit: 512M") {
+		t.Fatalf("project config = %q, want normalized memory-limit", string(projectConfig))
+	}
 	appConfig, err := os.ReadFile(store.environmentConfigFile("app"))
 	if err != nil {
 		t.Fatalf("ReadFile(app config) error = %v", err)
 	}
 	if !strings.Contains(string(appConfig), "opcache-preset: dev") || strings.Contains(string(appConfig), "OPcache.Enable_Cli") {
 		t.Fatalf("app config = %q, want normalized dev OPcache config", string(appConfig))
+	}
+	if !strings.Contains(string(appConfig), "memory-limit: \"-1\"") {
+		t.Fatalf("app config = %q, want normalized memory-limit", string(appConfig))
 	}
 
 	loaded, err := store.readConfig()
@@ -402,11 +410,17 @@ func TestStoreReadsAndWritesOPcacheConfig(t *testing.T) {
 	if loaded.Environments[defaultEnvironmentName].OPcachePreset != "production" {
 		t.Fatalf("default opcache-preset = %q, want production", loaded.Environments[defaultEnvironmentName].OPcachePreset)
 	}
+	if loaded.Environments[defaultEnvironmentName].MemoryLimit != "512M" {
+		t.Fatalf("default memory-limit = %q, want 512M", loaded.Environments[defaultEnvironmentName].MemoryLimit)
+	}
 	if loaded.Environments[defaultEnvironmentName].OPcacheConfig["opcache.revalidate_freq"] != "2" {
 		t.Fatalf("default opcache-config = %#v, want normalized revalidate_freq", loaded.Environments[defaultEnvironmentName].OPcacheConfig)
 	}
 	if loaded.Environments["app"].OPcachePreset != "dev" || loaded.Environments["app"].OPcacheConfig["opcache.enable_cli"] != "true" {
 		t.Fatalf("app OPcache config = %q %#v, want normalized dev config", loaded.Environments["app"].OPcachePreset, loaded.Environments["app"].OPcacheConfig)
+	}
+	if loaded.Environments["app"].MemoryLimit != "-1" {
+		t.Fatalf("app memory-limit = %q, want -1", loaded.Environments["app"].MemoryLimit)
 	}
 }
 
@@ -688,6 +702,7 @@ func TestStoreInstallToolAppliesEnvironmentPostInstallSettings(t *testing.T) {
 
 	config := store.defaultConfig()
 	config.Environments["demo"] = Environment{
+		MemoryLimit:   "512m",
 		PHPExtensions: map[string]bool{"openssl": true, "xdebug": false},
 	}
 	if err := store.writeConfig(config); err != nil {
@@ -705,6 +720,9 @@ func TestStoreInstallToolAppliesEnvironmentPostInstallSettings(t *testing.T) {
 	phpIni := string(phpIniData)
 	if !strings.Contains(phpIni, "extension=openssl") {
 		t.Fatalf("php.ini = %q, want enabled openssl extension", phpIni)
+	}
+	if !strings.Contains(phpIni, "memory_limit=512M") {
+		t.Fatalf("php.ini = %q, want memory_limit directive", phpIni)
 	}
 	if !strings.Contains(phpIni, "curl.cainfo=") || !strings.Contains(phpIni, "openssl.cafile=") {
 		t.Fatalf("php.ini = %q, want TLS CA bundle directives", phpIni)
@@ -2144,6 +2162,27 @@ func TestStoreInstallRejectsOPcacheConfigWithoutPHP(t *testing.T) {
 	}
 }
 
+func TestStoreInstallRejectsMemoryLimitWithoutPHP(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{
+		ComposerVersion: "2.8",
+		MemoryLimit:     "512M",
+	}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	if _, err := store.Install("demo"); err == nil {
+		t.Fatal("Install(demo) error = nil, want memory-limit validation error")
+	} else if !strings.Contains(err.Error(), "memory-limit") {
+		t.Fatalf("Install(demo) error = %v, want memory-limit validation error", err)
+	}
+}
+
 func TestStoreCurrentNormalizesServerConfig(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
@@ -2880,6 +2919,23 @@ func TestStoreRejectsNonVersionToolsAndOrphanSettings(t *testing.T) {
 				"",
 			}, "\n"),
 			wantErr: "opcache-preset must be one of none, dev, or production",
+		},
+		{
+			name: "invalid memory limit",
+			config: strings.Join([]string{
+				"memory-limit: 1.5G",
+				"",
+			}, "\n"),
+			wantErr: "invalid memory-limit",
+		},
+		{
+			name: "nested memory limit",
+			config: strings.Join([]string{
+				"memory-limit:",
+				"  value: 512M",
+				"",
+			}, "\n"),
+			wantErr: "memory-limit must be a scalar",
 		},
 		{
 			name: "scalar opcache config",

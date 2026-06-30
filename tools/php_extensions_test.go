@@ -16,6 +16,7 @@ func TestRenderPHPConfigCombinesExtensionsAndOPcache(t *testing.T) {
 			"OPcache.Validate_Timestamps": "1",
 			"opcache.enable":              "1",
 		},
+		MemoryLimit:  "512m",
 		CABundlePath: "/opt/polka/cacert.pem",
 	})
 	if err != nil {
@@ -25,6 +26,7 @@ func TestRenderPHPConfigCombinesExtensionsAndOPcache(t *testing.T) {
 	phpIni := string(configData)
 	for _, want := range []string{
 		"extension_dir=\"../ext\"",
+		"memory_limit=512M",
 		"curl.cainfo=\"/opt/polka/cacert.pem\"",
 		"openssl.cafile=\"/opt/polka/cacert.pem\"",
 		";extension=openssl",
@@ -98,6 +100,23 @@ func TestRenderPHPConfigSupportsOPcacheOnly(t *testing.T) {
 	}
 	if !strings.Contains(phpIni, "[opcache]\nopcache.enable=1\n") {
 		t.Fatalf("php.ini = %q, want OPcache section", phpIni)
+	}
+}
+
+func TestRenderPHPConfigSupportsMemoryLimitOnly(t *testing.T) {
+	configData, err := renderPHPConfig("../ext", PHPInstallConfig{
+		MemoryLimit: "-1",
+	})
+	if err != nil {
+		t.Fatalf("renderPHPConfig() error = %v", err)
+	}
+
+	phpIni := string(configData)
+	if strings.Contains(phpIni, "extension_dir") || strings.Contains(phpIni, "[opcache]") {
+		t.Fatalf("php.ini = %q, want memory-limit only config", phpIni)
+	}
+	if !strings.Contains(phpIni, "[PHP]\nmemory_limit=-1\n") {
+		t.Fatalf("php.ini = %q, want memory_limit directive", phpIni)
 	}
 }
 

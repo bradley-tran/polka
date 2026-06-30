@@ -47,6 +47,7 @@ type testEnvironmentConfig struct {
 	EnvVars       map[string]string      `yaml:"env-vars,omitempty"`
 	Database      *testDatabaseConfig    `yaml:"database,omitempty"`
 	Mailpit       *testMailpitConfig     `yaml:"mailpit,omitempty"`
+	MemoryLimit   string                 `yaml:"memory-limit,omitempty"`
 	PHPExtensions map[string]bool        `yaml:"php-extensions,omitempty"`
 	OPcachePreset string                 `yaml:"opcache-preset,omitempty"`
 	OPcacheConfig map[string]string      `yaml:"opcache-config,omitempty"`
@@ -135,6 +136,7 @@ type testProjectConfigData struct {
 	EnvFile       string              `yaml:"env-file,omitempty"`
 	EnvVars       map[string]string   `yaml:"env-vars,omitempty"`
 	Database      *testDatabaseConfig `yaml:"database,omitempty"`
+	MemoryLimit   string              `yaml:"memory-limit,omitempty"`
 	PHPExtensions map[string]bool     `yaml:"php-extensions,omitempty"`
 	OPcachePreset string              `yaml:"opcache-preset,omitempty"`
 	OPcacheConfig map[string]string   `yaml:"opcache-config,omitempty"`
@@ -150,6 +152,7 @@ type testEnvironmentConfigData struct {
 	EnvFile       string              `yaml:"env-file,omitempty"`
 	EnvVars       map[string]string   `yaml:"env-vars,omitempty"`
 	Database      *testDatabaseConfig `yaml:"database,omitempty"`
+	MemoryLimit   string              `yaml:"memory-limit,omitempty"`
 	PHPExtensions map[string]bool     `yaml:"php-extensions,omitempty"`
 	OPcachePreset string              `yaml:"opcache-preset,omitempty"`
 	OPcacheConfig map[string]string   `yaml:"opcache-config,omitempty"`
@@ -217,6 +220,7 @@ func writeTestConfigFile(t *testing.T, projectDir string, config testConfigFile)
 		projectConfig.EnvFile = defaultEnvironment.EnvFile
 		projectConfig.EnvVars = defaultEnvironment.EnvVars
 		projectConfig.Database = testDatabaseRuntimeFromEnvironment(defaultEnvironment)
+		projectConfig.MemoryLimit = defaultEnvironment.MemoryLimit
 		projectConfig.PHPExtensions = defaultEnvironment.PHPExtensions
 		projectConfig.OPcachePreset = defaultEnvironment.OPcachePreset
 		projectConfig.OPcacheConfig = defaultEnvironment.OPcacheConfig
@@ -291,6 +295,7 @@ func writeTestEnvironmentConfig(t *testing.T, projectDir, name string, environme
 		projectConfig.EnvFile = environment.EnvFile
 		projectConfig.EnvVars = environment.EnvVars
 		projectConfig.Database = testDatabaseRuntimeFromEnvironment(environment)
+		projectConfig.MemoryLimit = environment.MemoryLimit
 		projectConfig.PHPExtensions = environment.PHPExtensions
 		projectConfig.OPcachePreset = environment.OPcachePreset
 		projectConfig.OPcacheConfig = environment.OPcacheConfig
@@ -308,6 +313,7 @@ func writeTestEnvironmentConfig(t *testing.T, projectDir, name string, environme
 		EnvFile:       environment.EnvFile,
 		EnvVars:       environment.EnvVars,
 		Database:      testDatabaseRuntimeFromEnvironment(environment),
+		MemoryLimit:   environment.MemoryLimit,
 		PHPExtensions: environment.PHPExtensions,
 		OPcachePreset: environment.OPcachePreset,
 		OPcacheConfig: environment.OPcacheConfig,
@@ -341,14 +347,14 @@ func writeTestYAML(t *testing.T, path string, value any) {
 }
 
 func testEnvironmentFromProjectConfig(projectConfig testProjectConfigData) testEnvironmentConfig {
-	return testEnvironmentFromParts(projectConfig.Framework, projectConfig.Tools, projectConfig.Settings, projectConfig.Docroot, projectConfig.HTTPS, projectConfig.EnvFile, projectConfig.EnvVars, projectConfig.Database, projectConfig.PHPExtensions, projectConfig.OPcachePreset, projectConfig.OPcacheConfig, projectConfig.Server)
+	return testEnvironmentFromParts(projectConfig.Framework, projectConfig.Tools, projectConfig.Settings, projectConfig.Docroot, projectConfig.HTTPS, projectConfig.EnvFile, projectConfig.EnvVars, projectConfig.Database, projectConfig.MemoryLimit, projectConfig.PHPExtensions, projectConfig.OPcachePreset, projectConfig.OPcacheConfig, projectConfig.Server)
 }
 
 func testEnvironmentFromEnvironmentConfig(environmentConfig testEnvironmentConfigData) testEnvironmentConfig {
-	return testEnvironmentFromParts(environmentConfig.Framework, environmentConfig.Tools, environmentConfig.Settings, environmentConfig.Docroot, environmentConfig.HTTPS, environmentConfig.EnvFile, environmentConfig.EnvVars, environmentConfig.Database, environmentConfig.PHPExtensions, environmentConfig.OPcachePreset, environmentConfig.OPcacheConfig, environmentConfig.Server)
+	return testEnvironmentFromParts(environmentConfig.Framework, environmentConfig.Tools, environmentConfig.Settings, environmentConfig.Docroot, environmentConfig.HTTPS, environmentConfig.EnvFile, environmentConfig.EnvVars, environmentConfig.Database, environmentConfig.MemoryLimit, environmentConfig.PHPExtensions, environmentConfig.OPcachePreset, environmentConfig.OPcacheConfig, environmentConfig.Server)
 }
 
-func testEnvironmentFromParts(framework string, tools *testToolsConfig, settings *testSettingsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *testDatabaseConfig, phpExtensions map[string]bool, opcachePreset string, opcacheConfig map[string]string, server *testServerConfig) testEnvironmentConfig {
+func testEnvironmentFromParts(framework string, tools *testToolsConfig, settings *testSettingsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *testDatabaseConfig, memoryLimit string, phpExtensions map[string]bool, opcachePreset string, opcacheConfig map[string]string, server *testServerConfig) testEnvironmentConfig {
 	normalizedOPcachePreset := strings.ToLower(strings.TrimSpace(opcachePreset))
 	if normalizedOPcachePreset == "none" {
 		normalizedOPcachePreset = ""
@@ -360,6 +366,7 @@ func testEnvironmentFromParts(framework string, tools *testToolsConfig, settings
 		EnvFile:       envFile,
 		EnvVars:       envVars,
 		Database:      database,
+		MemoryLimit:   testNormalizePHPMemoryLimit(memoryLimit),
 		PHPExtensions: phpExtensions,
 		OPcachePreset: normalizedOPcachePreset,
 		OPcacheConfig: testNormalizeOPcacheConfig(opcacheConfig),
@@ -419,6 +426,19 @@ func testNormalizeOPcacheConfig(values map[string]string) map[string]string {
 	}
 
 	return normalized
+}
+
+func testNormalizePHPMemoryLimit(value string) string {
+	normalized := strings.TrimSpace(value)
+	if len(normalized) < 2 {
+		return normalized
+	}
+	switch normalized[len(normalized)-1] {
+	case 'k', 'm', 'g':
+		return normalized[:len(normalized)-1] + strings.ToUpper(normalized[len(normalized)-1:])
+	default:
+		return normalized
+	}
 }
 
 func testToolsFromEnvironment(environment testEnvironmentConfig) *testToolsConfig {

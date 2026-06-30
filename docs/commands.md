@@ -58,6 +58,7 @@ polka config tools.frankenphp 1.12
 polka config tools.apache 2.4
 polka config server.type apache
 polka config server.type frankenphp
+polka config memory-limit 512M
 polka config --env blog tools.mysql 8.0
 polka config --env blog database.engine mysql
 polka config --env reporting tools.postgresql 17
@@ -67,7 +68,7 @@ polka config --env blog tools.meilisearch 1.48
 polka config --env blog settings.meilisearch.port 7700
 ```
 
-Use `--env name` to select a named environment. When `--env` is omitted, Polka updates the current environment, falling back to `default` when no local override is selected. Supported keys are schema-aware dot paths such as `tools.php`, `tools.php-zts`, `tools.frankenphp`, `tools.apache`, `tools.pie`, `tools.meilisearch`, `settings.meilisearch.port`, `settings.meilisearch.master-key`, `database.port`, `server.type`, `server.hostname`, `env-vars.APP_ENV`, `php-extensions.xdebug`, and `opcache-config.opcache.enable_cli`. `tools.php` and `tools.php-zts` are mutually exclusive; setting one switches the primary runtime and both expose the standard `php` command. `server.type` accepts `php`, `nginx`, `apache`, or `frankenphp`.
+Use `--env name` to select a named environment. When `--env` is omitted, Polka updates the current environment, falling back to `default` when no local override is selected. Supported keys are schema-aware dot paths such as `tools.php`, `tools.php-zts`, `tools.frankenphp`, `tools.apache`, `tools.pie`, `tools.meilisearch`, `settings.meilisearch.port`, `settings.meilisearch.master-key`, `database.port`, `server.type`, `server.hostname`, `env-vars.APP_ENV`, `memory-limit`, `php-extensions.xdebug`, and `opcache-config.opcache.enable_cli`. `tools.php` and `tools.php-zts` are mutually exclusive; setting one switches the primary runtime and both expose the standard `php` command. `server.type` accepts `php`, `nginx`, `apache`, or `frankenphp`.
 
 ### `polka install [tool:version] [--env name]`
 
@@ -265,9 +266,9 @@ The `mailpit` tool key installs Mailpit and creates a `mailpit` command shim. It
 
 The `meilisearch` tool key installs Meilisearch and creates a `meilisearch` command shim. Its HTTP port and optional local master key live under `settings.meilisearch`; Polka stores only a runtime fingerprint of the master key and does not print it in status output.
 
-When an environment defines `php-extensions`, configures a tool with PHP dependencies, selects `opcache-preset` or `opcache-config`, or uses a framework with generated PHP defaults, `polka install` writes a generated `php.ini` next to each configured PHP, PHP-ZTS, and FrankenPHP runtime. Extensions are merged in this order: framework requirements, every configured tool's requirements, then user-defined `php-extensions`. Explicit `false` values therefore disable framework or tool defaults. MySQL and MariaDB enable `mysqli` and `pdo_mysql`; PostgreSQL enables `pgsql` and `pdo_pgsql`; SQLite enables `pdo_sqlite` and `sqlite3`; Composer enables `openssl` and `zip`. Before writing `php.ini`, Polka checks `php -nm` and skips extensions that are already built into that PHP binary. If the effective extension config enables `curl` or `openssl`, Polka also configures `curl.cainfo` and `openssl.cafile` with a CA bundle.
+When an environment defines `memory-limit`, `php-extensions`, configures a tool with PHP dependencies, selects `opcache-preset` or `opcache-config`, or uses a framework with generated PHP defaults, `polka install` writes a generated `php.ini` next to each configured PHP, PHP-ZTS, and FrankenPHP runtime. `memory-limit` sets PHP's `memory_limit` directive and accepts values such as `512M`, `1G`, raw bytes, or `-1` for unlimited memory. Extensions are merged in this order: framework requirements, every configured tool's requirements, then user-defined `php-extensions`. Explicit `false` values therefore disable framework or tool defaults. MySQL and MariaDB enable `mysqli` and `pdo_mysql`; PostgreSQL enables `pgsql` and `pdo_pgsql`; SQLite enables `pdo_sqlite` and `sqlite3`; Composer enables `openssl` and `zip`. Before writing `php.ini`, Polka checks `php -nm` and skips extensions that are already built into that PHP binary. If the effective extension config enables `curl` or `openssl`, Polka also configures `curl.cainfo` and `openssl.cafile` with a CA bundle.
 
-`opcache-preset` may be omitted, `none`, `dev`, or `production`. `dev` enables OPcache with timestamp validation and immediate revalidation. `production` enables OPcache with timestamp validation disabled. `opcache-config` accepts `opcache.*` directives and is applied over the preset; framework-provided directives, such as Drupal's `opcache.save_comments = 1`, sit between the preset and user config. Re-run `polka install` after changing PHP extension or OPcache settings.
+`opcache-preset` may be omitted, `none`, `dev`, or `production`. `dev` enables OPcache with timestamp validation and immediate revalidation. `production` enables OPcache with timestamp validation disabled. `opcache-config` accepts `opcache.*` directives and is applied over the preset; framework-provided directives, such as Drupal's `opcache.save_comments = 1`, sit between the preset and user config. Re-run `polka install` after changing PHP extension, memory limit, or OPcache settings.
 
 Polka composes runtime environment variables for the active environment from five sources in this precedence order, lowest to highest:
 

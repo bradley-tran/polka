@@ -79,6 +79,7 @@ env-vars:
 server:
   hostname: blog.localhost
   port: 8443
+memory-limit: 512M
 php-extensions:
   openssl: true
   xdebug: false
@@ -145,7 +146,7 @@ server:
 
 Polka resolves those versions against the local install layout under `.polka/envs`:
 
-Framework presets and configured tools apply their required PHP extensions during install. Tool requirements include database drivers and Composer's `openssl` and `zip` extensions. User-defined `php-extensions` entries override those defaults, including `false` values that disable an extension. `opcache-preset` accepts `none`, `dev`, or `production`; `opcache-config` accepts `opcache.*` directives applied over the preset and any framework defaults. Re-run `polka install` after changing PHP extension or OPcache settings so Polka can regenerate `php.ini`.
+Framework presets and configured tools apply their required PHP extensions during install. Tool requirements include database drivers and Composer's `openssl` and `zip` extensions. User-defined `php-extensions` entries override those defaults, including `false` values that disable an extension. `memory-limit` sets PHP's `memory_limit` directive and accepts values such as `512M`, `1G`, raw bytes, or `-1` for unlimited memory. `opcache-preset` accepts `none`, `dev`, or `production`; `opcache-config` accepts `opcache.*` directives applied over the preset and any framework defaults. Re-run `polka install` after changing PHP extension, memory limit, or OPcache settings so Polka can regenerate `php.ini`.
 
 ```text
 .polka/
