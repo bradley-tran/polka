@@ -404,6 +404,7 @@ func TestRunDBLifecycleSubcommandsManageState(t *testing.T) {
 	running := map[string]bool{}
 	initialized := 0
 	started := 0
+	databasePID := os.Getpid()
 	stopped := 0
 	var startedSpec dbServerSpec
 	var stoppedState dbRuntimeState
@@ -419,7 +420,7 @@ func TestRunDBLifecycleSubcommandsManageState(t *testing.T) {
 		started++
 		startedSpec = spec
 		running[databaseAddress(spec.Port)] = true
-		return dbStartResult{PID: 4242}, nil
+		return dbStartResult{PID: databasePID}, nil
 	}
 	stopDatabaseServerFunc = func(state dbRuntimeState) error {
 		stopped++
@@ -456,8 +457,8 @@ func TestRunDBLifecycleSubcommandsManageState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadDatabaseState() error = %v", err)
 	}
-	if state.PID != 4242 || state.Port != 3307 || state.Engine != "mysql" {
-		t.Fatalf("database state = %#v, want mysql pid 4242 on port 3307", state)
+	if state.PID != databasePID || state.Port != 3307 || state.Engine != "mysql" {
+		t.Fatalf("database state = %#v, want mysql pid %d on port 3307", state, databasePID)
 	}
 	if state.AdminTarget == "" || state.DefaultsFile == "" {
 		t.Fatalf("database state = %#v, want native shutdown fields", state)
@@ -578,6 +579,7 @@ func TestLoadLiveDatabaseStateForResolvedRejectsMismatchedLiveState(t *testing.T
 		Engine:          "mysql",
 		Version:         "8.4",
 		Port:            3306,
+		PID:             os.Getpid(),
 	}); err != nil {
 		t.Fatalf("writeDatabaseState() error = %v", err)
 	}

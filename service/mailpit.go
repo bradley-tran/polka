@@ -169,11 +169,17 @@ func StartMailpitServer(spec MailpitServerSpec) (MailpitStartResult, error) {
 	if err != nil {
 		return MailpitStartResult{}, err
 	}
+	defer logFile.Close()
+
+	for _, address := range []string{MailpitAddress(spec.SMTPPort), MailpitAddress(spec.UIPort)} {
+		if PingMailpitAddress(address) {
+			return MailpitStartResult{}, fmt.Errorf("mailpit cannot start because %s is already in use", address)
+		}
+	}
 
 	args := MailpitServerArgs(spec)
 	command, err := prepareServiceCommand(spec.Target, args)
 	if err != nil {
-		_ = logFile.Close()
 		return MailpitStartResult{}, err
 	}
 	command.Stdout = logFile
@@ -181,18 +187,15 @@ func StartMailpitServer(spec MailpitServerSpec) (MailpitStartResult, error) {
 	command.Env = spec.Env
 
 	if err := command.Start(); err != nil {
-		_ = logFile.Close()
 		return MailpitStartResult{}, fmt.Errorf("start mailpit: %w", err)
 	}
 
 	if err := WaitForMailpitAddresses(spec.SMTPPort, spec.UIPort, managedMailpitStartupTimeout, PingMailpitAddress); err != nil {
 		stopServiceProcess(command.Process)
-		_ = logFile.Close()
 		return MailpitStartResult{}, fmt.Errorf("start mailpit on smtp %s and ui %s: %w (see %s)", MailpitAddress(spec.SMTPPort), MailpitAddress(spec.UIPort), err, spec.LogPath)
 	}
 
 	pid := command.Process.Pid
-	_ = logFile.Close()
 	_ = command.Process.Release()
 
 	return MailpitStartResult{PID: pid}, nil
@@ -361,7 +364,7 @@ func MailpitStateHTTPS(state MailpitRuntimeState) bool {
 }
 
 func MailpitStateIsLive(state MailpitRuntimeState, ping func(string) bool) bool {
-	return MailpitPortsAreLive(state.SMTPPort, state.UIPort, ping)
+	return servicePIDIsLive(state.PID) && MailpitPortsAreLive(state.SMTPPort, state.UIPort, ping)
 }
 
 func MailpitPortsAreLive(smtpPort, uiPort int, ping func(string) bool) bool {

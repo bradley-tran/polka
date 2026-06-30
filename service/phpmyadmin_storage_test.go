@@ -49,7 +49,7 @@ func TestEnsurePHPMyAdminStorageConfiguredImportsCreateTablesSQL(t *testing.T) {
 		Engine:          toolMySQL,
 		Version:         "8.4",
 		Port:            3307,
-		PID:             1234,
+		PID:             os.Getpid(),
 	}
 	if err := WriteManagedDatabaseState(DatabaseStatePath(rootDir, environment.Name), state); err != nil {
 		t.Fatalf("WriteManagedDatabaseState() error = %v", err)

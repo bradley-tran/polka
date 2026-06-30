@@ -28,7 +28,7 @@ func TestRunStopStopsManagedDatabaseWhenWebserverAlreadyStopped(t *testing.T) {
 		Engine:          "mysql",
 		Version:         "8.4",
 		Port:            3307,
-		PID:             7878,
+		PID:             os.Getpid(),
 		AdminTarget:     "mysqladmin",
 		DefaultsFile:    "defaults.cnf",
 	}); err != nil {
@@ -102,7 +102,7 @@ func TestRunStopStopsWebserverAndDatabase(t *testing.T) {
 		Engine:          "mysql",
 		Version:         "8.4",
 		Port:            3307,
-		PID:             7878,
+		PID:             os.Getpid(),
 		AdminTarget:     "mysqladmin",
 		DefaultsFile:    "defaults.cnf",
 	}); err != nil {
@@ -178,10 +178,11 @@ func TestRunStopStopsMailpitWhenConfigured(t *testing.T) {
 		Version:         "1.30",
 		SMTPPort:        1125,
 		UIPort:          8125,
-		PID:             5656,
+		PID:             os.Getpid(),
 	}); err != nil {
 		t.Fatalf("writeMailpitState() error = %v", err)
 	}
+	mailpitPID := os.Getpid()
 
 	oldStopMailpit := stopMailpitRuntimeFunc
 	oldPingMailpit := pingMailpitAddressFunc
@@ -213,7 +214,7 @@ func TestRunStopStopsMailpitWhenConfigured(t *testing.T) {
 	if stopCalls != 1 {
 		t.Fatalf("mailpit stop calls = %d, want 1", stopCalls)
 	}
-	if stoppedState.PID != 5656 || stoppedState.SMTPPort != 1125 || stoppedState.UIPort != 8125 {
+	if stoppedState.PID != mailpitPID || stoppedState.SMTPPort != 1125 || stoppedState.UIPort != 8125 {
 		t.Fatalf("stopped mailpit state = %#v, want persisted runtime state", stoppedState)
 	}
 	if !strings.Contains(stdout.String(), "Stopped mailpit for environment \"demo\".") {

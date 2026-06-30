@@ -354,23 +354,26 @@ func StartDatabaseServer(spec ManagedDatabaseServerSpec) (ManagedDatabaseStartRe
 	if err != nil {
 		return ManagedDatabaseStartResult{}, err
 	}
+	defer logFile.Close()
+
+	address := DatabaseAddress(spec.Port)
+	if PingDatabaseAddress(address) {
+		return ManagedDatabaseStartResult{}, fmt.Errorf("%s server cannot start because %s is already in use", spec.Engine, address)
+	}
 
 	command, err := prepareDatabaseCommand(spec.Target, DatabaseStartArgs(spec))
 	if err != nil {
-		_ = logFile.Close()
 		return ManagedDatabaseStartResult{}, err
 	}
 	command.Stdout = logFile
 	command.Stderr = logFile
 
 	if err := command.Start(); err != nil {
-		_ = logFile.Close()
 		return ManagedDatabaseStartResult{}, fmt.Errorf("start %s server: %w", spec.Engine, err)
 	}
 
 	pid := command.Process.Pid
 	deadline := time.Now().Add(managedDatabaseStartupTimeout)
-	address := DatabaseAddress(spec.Port)
 	for time.Now().Before(deadline) {
 		if PingDatabaseAddress(address) {
 			if spec.Engine == toolPostgreSQL {
@@ -379,11 +382,9 @@ func StartDatabaseServer(spec ManagedDatabaseServerSpec) (ManagedDatabaseStartRe
 						_ = command.Process.Kill()
 						_ = command.Process.Release()
 					}
-					_ = logFile.Close()
 					return ManagedDatabaseStartResult{}, err
 				}
 			}
-			_ = logFile.Close()
 			_ = command.Process.Release()
 			return ManagedDatabaseStartResult{PID: pid}, nil
 		}
@@ -395,7 +396,6 @@ func StartDatabaseServer(spec ManagedDatabaseServerSpec) (ManagedDatabaseStartRe
 		_ = command.Process.Kill()
 		_ = command.Process.Release()
 	}
-	_ = logFile.Close()
 
 	return ManagedDatabaseStartResult{}, fmt.Errorf("%s server did not start listening on %s within %s (see %s)", spec.Engine, address, managedDatabaseStartupTimeout, spec.LogPath)
 }
@@ -676,7 +676,7 @@ func LoadLiveManagedDatabaseState(rootDir, environmentName string, ping func(str
 	if err != nil {
 		return nil, err
 	}
-	if databasePingFunc(ping)(DatabaseAddress(state.Port)) {
+	if ManagedDatabaseStateIsLive(*state, ping) {
 		return state, nil
 	}
 	if err := os.Remove(statePath); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -732,6 +732,10 @@ func LoadManagedDatabaseCredentials(path string) (ManagedDatabaseCredentials, er
 	}
 
 	return credentials, nil
+}
+
+func ManagedDatabaseStateIsLive(state ManagedDatabaseRuntimeState, ping func(string) bool) bool {
+	return servicePIDIsLive(state.PID) && databasePingFunc(ping)(DatabaseAddress(state.Port))
 }
 
 func WriteManagedDatabaseState(path string, state ManagedDatabaseRuntimeState) error {

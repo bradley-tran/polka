@@ -1082,7 +1082,7 @@ func TestRunStatusShowsRunningWebserverAndDatabase(t *testing.T) {
 		Engine:          "mysql",
 		Version:         "8.0",
 		Port:            3307,
-		PID:             2020,
+		PID:             os.Getpid(),
 	}); err != nil {
 		t.Fatalf("writeDatabaseState() error = %v", err)
 	}
@@ -1137,7 +1137,7 @@ func TestRunStatusShowsMailpitUIURL(t *testing.T) {
 		SMTPPort:        1125,
 		UIPort:          8125,
 		UIScheme:        "https",
-		PID:             5656,
+		PID:             os.Getpid(),
 	}); err != nil {
 		t.Fatalf("writeMailpitState() error = %v", err)
 	}

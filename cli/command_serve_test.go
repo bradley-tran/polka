@@ -1068,6 +1068,7 @@ func TestRunServeStartsConfiguredDatabaseBeforePhp(t *testing.T) {
 	running := map[string]bool{}
 	initialized := 0
 	started := 0
+	databasePID := os.Getpid()
 	var startedSpec dbServerSpec
 	initializeDatabaseServerFunc = func(spec dbServerSpec) error {
 		initialized++
@@ -1080,7 +1081,7 @@ func TestRunServeStartsConfiguredDatabaseBeforePhp(t *testing.T) {
 		started++
 		startedSpec = spec
 		running[databaseAddress(spec.Port)] = true
-		return dbStartResult{PID: 7878}, nil
+		return dbStartResult{PID: databasePID}, nil
 	}
 	pingDatabaseAddressFunc = func(address string) bool {
 		return running[address]
@@ -1112,8 +1113,8 @@ func TestRunServeStartsConfiguredDatabaseBeforePhp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadDatabaseState() error = %v", err)
 	}
-	if state.PID != 7878 || state.Port != 3307 {
-		t.Fatalf("database state = %#v, want pid 7878 on port 3307", state)
+	if state.PID != databasePID || state.Port != 3307 {
+		t.Fatalf("database state = %#v, want pid %d on port 3307", state, databasePID)
 	}
 }
 

@@ -100,7 +100,7 @@ func TestManagerStopCleansExistingStateWithoutMatchingTool(t *testing.T) {
 		Version:         "1.30",
 		SMTPPort:        1125,
 		UIPort:          8125,
-		PID:             4242,
+		PID:             os.Getpid(),
 		StartedAt:       time.Now().UTC(),
 	}
 	if err := WriteMailpitState(MailpitStatePath(ctx.RootDir, "demo"), state); err != nil {
