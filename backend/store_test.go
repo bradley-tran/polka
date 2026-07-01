@@ -484,6 +484,7 @@ func TestStoreInstallCopiesToolIntoVersionedLayout(t *testing.T) {
 	if !strings.Contains(result.TargetPath, filepath.Join("envs", "php", "8.4")) {
 		t.Fatalf("Install(demo) target = %q, want versioned env path", result.TargetPath)
 	}
+	assertPathExists(t, filepath.Join(store.EnvsDir, toolPHP, "8.4", filepath.FromSlash("extras/ssl/openssl.cnf")))
 }
 
 func TestStoreInstallToolCopiesExplicitVersionIntoLayout(t *testing.T) {
@@ -555,6 +556,7 @@ func TestStoreInstallsAndConfiguresFrankenPHP(t *testing.T) {
 	}
 	assertPathExists(t, filepath.Join(store.BinDir, "php"))
 	assertPathExists(t, filepath.Join(store.BinDir, "php.cmd"))
+	assertPathExists(t, filepath.Join(store.EnvsDir, toolFrankenPHP, "1.12", filepath.FromSlash("extras/ssl/openssl.cnf")))
 
 	environment, err := store.ConfigureValue("demo", "server.type", " FrankenPHP ")
 	if err != nil {
@@ -632,6 +634,7 @@ func TestStoreInstallToolSwitchesToPHPZTSAndResolvesPHP(t *testing.T) {
 	}
 	assertPathExists(t, filepath.Join(store.BinDir, "php"))
 	assertPathExists(t, filepath.Join(store.BinDir, "php.cmd"))
+	assertPathExists(t, filepath.Join(store.EnvsDir, toolPHPZTS, "8.4", filepath.FromSlash("extras/ssl/openssl.cnf")))
 }
 
 func TestStoreInstallToolConfiguresPHPZTSInItsOwnLayout(t *testing.T) {

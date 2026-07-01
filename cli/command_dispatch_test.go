@@ -16,7 +16,7 @@ func TestRunConfigSetsVersionLabelsAndDispatchesPhp(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	fakePHP := writeCachedPHP(t, cacheDir, "8.4", fakePHPScript())
+	fakePHP := writeCachedPHP(t, cacheDir, "8.4", fakePHPScriptWithEnv("OPENSSL_CONF"))
 	writeCachedComposer(t, cacheDir, "2.8", []byte("composer\n"))
 
 	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.php", "8.4")
@@ -77,6 +77,10 @@ func TestRunConfigSetsVersionLabelsAndDispatchesPhp(t *testing.T) {
 	output := stdout.String()
 	if !strings.Contains(output, "fake-php -v --ini") {
 		t.Fatalf("Run(dispatch) output = %q, want forwarded arguments", output)
+	}
+	wantOpenSSLConfig := filepath.Join(root, "envs", "php", "8.4", filepath.FromSlash("extras/ssl/openssl.cnf"))
+	if !strings.Contains(output, wantOpenSSLConfig) {
+		t.Fatalf("Run(dispatch) output = %q, want OPENSSL_CONF %q", output, wantOpenSSLConfig)
 	}
 }
 

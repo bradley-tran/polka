@@ -620,8 +620,15 @@ func TestApplyManagedPHPRuntimeConfigSetsManagedPHPRC(t *testing.T) {
 	if err := os.WriteFile(phpIniPath, []byte("extension=openssl\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(php.ini) error = %v", err)
 	}
+	opensslConfigPath := filepath.Join(installDir, filepath.FromSlash(managedOpenSSLConfig))
+	if err := os.MkdirAll(filepath.Dir(opensslConfigPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(openssl config dir) error = %v", err)
+	}
+	if err := os.WriteFile(opensslConfigPath, []byte("HOME = .\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(openssl.cnf) error = %v", err)
+	}
 
-	env, err := applyManagedPHPRuntimeConfig("windows", []string{"APP_ENV=test", "PHPRC=system.ini"}, target)
+	env, err := applyManagedPHPRuntimeConfig("windows", []string{"APP_ENV=test", "PHPRC=system.ini", "OPENSSL_CONF=system.cnf"}, target)
 	if err != nil {
 		t.Fatalf("applyManagedPHPRuntimeConfig() error = %v", err)
 	}
@@ -629,11 +636,57 @@ func TestApplyManagedPHPRuntimeConfigSetsManagedPHPRC(t *testing.T) {
 	if !containsEnvironmentEntryFold(env, want) {
 		t.Fatalf("environment = %#v, want %q", env, want)
 	}
+	want = "OPENSSL_CONF=" + opensslConfigPath
+	if !containsEnvironmentEntryFold(env, want) {
+		t.Fatalf("environment = %#v, want %q", env, want)
+	}
+}
+
+func TestApplyManagedPHPRuntimeConfigSetsOpenSSLConfWithoutPHPIni(t *testing.T) {
+	installDir := t.TempDir()
+	binDir := filepath.Join(installDir, "bin")
+	target := filepath.Join(binDir, "php.exe")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(bin) error = %v", err)
+	}
+	if err := os.WriteFile(target, []byte("binary"), 0o755); err != nil {
+		t.Fatalf("WriteFile(php) error = %v", err)
+	}
+	opensslConfigPath := filepath.Join(installDir, filepath.FromSlash(managedOpenSSLConfig))
+	if err := os.MkdirAll(filepath.Dir(opensslConfigPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(openssl config dir) error = %v", err)
+	}
+	if err := os.WriteFile(opensslConfigPath, []byte("HOME = .\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(openssl.cnf) error = %v", err)
+	}
+
+	env, err := applyManagedPHPRuntimeConfig("windows", []string{"APP_ENV=test"}, target)
+	if err != nil {
+		t.Fatalf("applyManagedPHPRuntimeConfig() error = %v", err)
+	}
+	want := "OPENSSL_CONF=" + opensslConfigPath
+	if !containsEnvironmentEntryFold(env, want) {
+		t.Fatalf("environment = %#v, want %q", env, want)
+	}
+	if containsEnvironmentKeyFold(env, "PHPRC") {
+		t.Fatalf("environment = %#v, want no PHPRC without managed php.ini", env)
+	}
 }
 
 func containsEnvironmentEntryFold(env []string, want string) bool {
 	for _, entry := range env {
 		if strings.EqualFold(entry, want) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func containsEnvironmentKeyFold(env []string, want string) bool {
+	for _, entry := range env {
+		key, _, ok := strings.Cut(entry, "=")
+		if ok && strings.EqualFold(key, want) {
 			return true
 		}
 	}

@@ -43,6 +43,7 @@ const (
 	serveTLSCAKeyName       = "polka-local-ca.key"
 	serveTLSCertFileName    = "polka-local.crt"
 	serveTLSKeyFileName     = "polka-local.key"
+	managedOpenSSLConfig    = "extras/ssl/openssl.cnf"
 	phpServeRouterName      = "php-router.php"
 	frankenPHPCaddyfileName = "Caddyfile"
 	serveProxyHost          = "127.0.0.1"
@@ -452,18 +453,54 @@ func resolveFrankenPHPRuntimeEnvironment(store backend.Store, frankenPHPTarget s
 	return applyManagedPHPRuntimeConfig(runtime.GOOS, env, frankenPHPTarget)
 }
 
-// applyManagedPHPRuntimeConfig overlays a generated sibling ini when present.
+// applyManagedPHPRuntimeConfig overlays generated PHP runtime files when present.
 func applyManagedPHPRuntimeConfig(goos string, env []string, phpTarget string) ([]string, error) {
+	updated := env
+
 	phpIniPath := filepath.Join(filepath.Dir(phpTarget), "php.ini")
 	exists, err := regularFileExists(phpIniPath)
 	if err != nil {
 		return nil, fmt.Errorf("stat managed php.ini %s: %w", phpIniPath, err)
 	}
-	if !exists {
-		return env, nil
+	if exists {
+		updated = replaceEnvValue(goos, updated, "PHPRC", phpIniPath)
 	}
 
-	return replaceEnvValue(goos, env, "PHPRC", phpIniPath), nil
+	opensslConfigPath, exists, err := managedPHPOpenSSLConfigPath(phpTarget)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		updated = replaceEnvValue(goos, updated, "OPENSSL_CONF", opensslConfigPath)
+	}
+
+	return updated, nil
+}
+
+func managedPHPOpenSSLConfigPath(phpTarget string) (string, bool, error) {
+	phpDir := filepath.Dir(phpTarget)
+	candidates := []string{
+		filepath.Join(phpDir, filepath.FromSlash(managedOpenSSLConfig)),
+		filepath.Join(filepath.Dir(phpDir), filepath.FromSlash(managedOpenSSLConfig)),
+	}
+	seen := map[string]bool{}
+	for _, candidate := range candidates {
+		cleanCandidate := filepath.Clean(candidate)
+		if seen[cleanCandidate] {
+			continue
+		}
+		seen[cleanCandidate] = true
+
+		exists, err := regularFileExists(cleanCandidate)
+		if err != nil {
+			return "", false, fmt.Errorf("stat managed openssl config %s: %w", cleanCandidate, err)
+		}
+		if exists {
+			return cleanCandidate, true, nil
+		}
+	}
+
+	return "", false, nil
 }
 
 func runNginxServe(stdout, stderr io.Writer, store backend.Store, environment backend.Environment, endpoint serverEndpoint, layout serveAppLayout) (int, error) {
@@ -484,6 +521,10 @@ func runNginxServe(stdout, stderr io.Writer, store backend.Store, environment ba
 		return 0, err
 	}
 	env, err := resolveRuntimeEnvironment(runtime.GOOS, os.Environ(), store)
+	if err != nil {
+		return 0, err
+	}
+	env, err = applyManagedPHPRuntimeConfig(runtime.GOOS, env, phpTarget)
 	if err != nil {
 		return 0, err
 	}
@@ -548,6 +589,10 @@ func startNginxServeInBackgroundAt(store backend.Store, environment backend.Envi
 		return serveRuntimeState{}, err
 	}
 	env, err := resolveRuntimeEnvironment(runtime.GOOS, os.Environ(), store)
+	if err != nil {
+		return serveRuntimeState{}, err
+	}
+	env, err = applyManagedPHPRuntimeConfig(runtime.GOOS, env, phpTarget)
 	if err != nil {
 		return serveRuntimeState{}, err
 	}
@@ -660,6 +705,10 @@ func runApacheServe(stdout, stderr io.Writer, store backend.Store, environment b
 	if err != nil {
 		return 0, err
 	}
+	env, err = applyManagedPHPRuntimeConfig(runtime.GOOS, env, phpTarget)
+	if err != nil {
+		return 0, err
+	}
 
 	backendAddress, err := reserveServeBackendAddress()
 	if err != nil {
@@ -721,6 +770,10 @@ func startApacheServeInBackgroundAt(store backend.Store, environment backend.Env
 	}
 	apacheRoot := resolveApacheServerRoot(apacheTarget)
 	env, err := resolveRuntimeEnvironment(runtime.GOOS, os.Environ(), store)
+	if err != nil {
+		return serveRuntimeState{}, err
+	}
+	env, err = applyManagedPHPRuntimeConfig(runtime.GOOS, env, phpTarget)
 	if err != nil {
 		return serveRuntimeState{}, err
 	}

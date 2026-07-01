@@ -53,6 +53,11 @@ func writeFrankenPHPPHPCLIWrapper(installDir string) error {
 
 // configureInstalledFrankenPHP applies PHP settings to the bundled CLI and server runtime.
 func configureInstalledFrankenPHP(ctx InstallContext) error {
+	installDir := filepath.Dir(ctx.Result.TargetPath)
+	if _, err := ensureInstalledPHPOpenSSLConfigAt(installDir); err != nil {
+		return err
+	}
+
 	phpConfig := EffectivePHPConfigForInstall(ctx.Environment)
 	if phpConfigNeedsCABundle(phpConfig) {
 		caBundlePath, err := ensureInstalledPHPCABundle(ctx.EnvsDir, ctx.Result.Tool, ctx.Result.Version)
@@ -65,7 +70,6 @@ func configureInstalledFrankenPHP(ctx InstallContext) error {
 		return nil
 	}
 
-	installDir := filepath.Dir(ctx.Result.TargetPath)
 	phpPath, err := resolveFrankenPHPPHPExecutable(installDir)
 	if err != nil {
 		return err
