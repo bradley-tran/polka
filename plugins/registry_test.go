@@ -312,7 +312,7 @@ func TestSymfonyRuntimeEnvUsesDatabaseURL(t *testing.T) {
 			Password:     "secret",
 		},
 	})
-	if got, want := values["DATABASE_URL"], "mysql://polka:secret@127.0.0.1:3307/demo_app?charset=utf8mb4&serverVersion=mariadb-11.8"; got != want {
+	if got, want := values["DATABASE_URL"], "mysql://polka:secret@127.0.0.1:3307/demo_app?charset=utf8mb4&serverVersion=mariadb-11.8.0"; got != want {
 		t.Fatalf("RuntimeEnv()[DATABASE_URL] = %q, want %q", got, want)
 	}
 }

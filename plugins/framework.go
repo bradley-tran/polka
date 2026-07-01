@@ -286,7 +286,7 @@ func symfonyDatabaseServerVersion(environment config.Environment) string {
 		if version == "" {
 			version = defaultMariaDBVersion
 		}
-		return "mariadb-" + version
+		return "mariadb-" + symfonyMySQLCompatibleServerVersion(version)
 	case tools.MySQL:
 		if version == "" {
 			version = strings.TrimSpace(environment.MySQLVersion)
@@ -303,6 +303,19 @@ func symfonyDatabaseServerVersion(environment config.Environment) string {
 	default:
 		return ""
 	}
+}
+
+// symfonyMySQLCompatibleServerVersion pads two-part MariaDB versions for Doctrine's parser.
+func symfonyMySQLCompatibleServerVersion(version string) string {
+	trimmed := strings.TrimSpace(version)
+	if strings.HasPrefix(strings.ToLower(trimmed), "mariadb-") {
+		trimmed = strings.TrimSpace(trimmed[len("mariadb-"):])
+	}
+	if strings.Count(trimmed, ".") == 1 {
+		return trimmed + ".0"
+	}
+
+	return trimmed
 }
 
 func frameworkDefaultDatabasePort(engine string) int {

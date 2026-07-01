@@ -1099,6 +1099,10 @@ func fakeToolScript(name string) []byte {
 }
 
 func fakeCakePHPCreateProjectComposerScript() []byte {
+	return fakeCakePHPCreateProjectComposerScriptWithExit(0)
+}
+
+func fakeCakePHPCreateProjectComposerScriptWithExit(exitCode int) []byte {
 	appLocal := strings.Join([]string{
 		"<?php",
 		"declare(strict_types=1);",
@@ -1131,11 +1135,12 @@ func fakeCakePHPCreateProjectComposerScript() []byte {
 			">> \"%dir%\\config\\app_local.php\" echo     ],",
 			">> \"%dir%\\config\\app_local.php\" echo ];",
 			"echo fake-composer %*",
+			"exit /b " + strconv.Itoa(exitCode),
 			"",
 		}, "\r\n"))
 	}
 
-	return []byte("#!/usr/bin/env sh\nset -eu\ndir=${POLKA_TEST_CREATE_PROJECT_DIR:?}\nmkdir -p \"$dir/config\" \"$dir/webroot\"\ncat > \"$dir/config/app_local.php\" <<'EOF'\n" + appLocal + "EOF\nprintf 'fake-composer %s\n' \"$*\"\n")
+	return []byte("#!/usr/bin/env sh\nset -eu\ndir=${POLKA_TEST_CREATE_PROJECT_DIR:?}\nmkdir -p \"$dir/config\" \"$dir/webroot\"\ncat > \"$dir/config/app_local.php\" <<'EOF'\n" + appLocal + "EOF\nprintf 'fake-composer %s\n' \"$*\"\nexit " + strconv.Itoa(exitCode) + "\n")
 }
 
 func assertCakePHPAppLocalUsesManagedDatabase(t *testing.T, path, port string) {

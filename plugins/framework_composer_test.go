@@ -377,7 +377,7 @@ func TestSymfonyPostComposerWritesDatabaseURLToEnvLocal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile(.env.local) error = %v", err)
 	}
-	expected := `DATABASE_URL="mysql://polka:secret@127.0.0.1:3307/demo_app?charset=utf8mb4&serverVersion=mariadb-11.8"`
+	expected := `DATABASE_URL="mysql://polka:secret@127.0.0.1:3307/demo_app?charset=utf8mb4&serverVersion=mariadb-11.8.0"`
 	if !strings.Contains(string(envLocal), expected) {
 		t.Fatalf(".env.local = %q, want %q", string(envLocal), expected)
 	}

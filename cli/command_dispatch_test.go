@@ -268,6 +268,75 @@ func TestRunDispatchRunsPostComposerHookForCakePHPCreateProject(t *testing.T) {
 	assertCakePHPAppLocalUsesManagedDatabase(t, filepath.Join(appRoot, "config", "app_local.php"), "3307")
 }
 
+func TestRunDispatchRunsPostComposerHookExceptComposerExitTwo(t *testing.T) {
+	tests := []struct {
+		name     string
+		exitCode int
+		wantHook bool
+	}{
+		{name: "generic failure", exitCode: 1, wantHook: true},
+		{name: "dependency solver failure", exitCode: 2, wantHook: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			projectDir := t.TempDir()
+			root := filepath.Join(projectDir, ".polka")
+			cacheDir := filepath.Join(projectDir, "global-cache")
+			appRoot := filepath.Join(projectDir, "cake")
+			t.Setenv("POLKA_CACHE_DIR", cacheDir)
+			t.Setenv("POLKA_TEST_CREATE_PROJECT_DIR", appRoot)
+			chdirTest(t, projectDir)
+			stdout := &bytes.Buffer{}
+			stderr := &bytes.Buffer{}
+
+			writeCachedComposerExecutable(t, cacheDir, "2.8", fakeCakePHPCreateProjectComposerScriptWithExit(test.exitCode))
+			config := testConfigFile{
+				Version: 1,
+				Root:    ".polka",
+				Environments: map[string]testEnvironmentConfig{
+					defaultEnvironmentName: {
+						Framework: "cakephp",
+						Composer:  "2.8",
+						MariaDB:   "11.8",
+						Docroot:   "cake/webroot",
+						Database:  &testDatabaseConfig{Engine: "mariadb", Version: "11.8", Port: 3307},
+					},
+				},
+			}
+			writeTestConfigFile(t, projectDir, config)
+
+			if code := Run(stdout, stderr, []string{"--root", root, "install", "composer:2.8"}); code != 0 {
+				t.Fatalf("Run(install composer) code = %d, stderr = %q", code, stderr.String())
+			}
+			stdout.Reset()
+			stderr.Reset()
+
+			if code := Run(stdout, stderr, []string{"--root", root, "dispatch", "composer", "create-project", "cakephp/app", "cake"}); code != test.exitCode {
+				t.Fatalf("Run(dispatch composer create-project) code = %d, want %d, stderr = %q", code, test.exitCode, stderr.String())
+			}
+
+			appLocalPath := filepath.Join(appRoot, "config", "app_local.php")
+			if test.wantHook {
+				assertCakePHPAppLocalUsesManagedDatabase(t, appLocalPath, "3307")
+				return
+			}
+
+			data, err := os.ReadFile(appLocalPath)
+			if err != nil {
+				t.Fatalf("ReadFile(app_local.php) error = %v", err)
+			}
+			text := string(data)
+			if !strings.Contains(text, "'driver' => 'Cake\\Database\\Driver\\Sqlite'") {
+				t.Fatalf("app_local.php = %q, want original SQLite config", text)
+			}
+			if strings.Contains(text, "'driver' => 'Cake\\\\Database\\\\Driver\\\\Mysql'") {
+				t.Fatalf("app_local.php = %q, want post-composer hook skipped", text)
+			}
+		})
+	}
+}
+
 func TestRunDispatchRunsPIEPHARThroughManagedPHP(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")

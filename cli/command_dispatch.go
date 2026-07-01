@@ -86,7 +86,7 @@ func runDispatch(stdout, stderr io.Writer, args []string, store backend.Store) i
 		return 1
 	}
 
-	if exitCode == 0 {
+	if shouldRunPostComposerHook(exitCode) {
 		if err := runPostComposerHook(store, tool, composerArgs, workingDir); err != nil {
 			fmt.Fprintf(stderr, "error: %v\n", err)
 			return 1

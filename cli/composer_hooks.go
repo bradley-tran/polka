@@ -50,6 +50,11 @@ func runPostExecComposerHook(store backend.Store, command string, args []string,
 	return runPostComposerHook(store, "composer", args, workingDir)
 }
 
+// shouldRunPostComposerHook skips only Composer's dependency solver failure.
+func shouldRunPostComposerHook(exitCode int) bool {
+	return exitCode != 2
+}
+
 func isPostComposerCommand(args []string) bool {
 	switch composerCommand(args) {
 	case "install", "update", "create-project":

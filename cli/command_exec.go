@@ -70,7 +70,7 @@ func runExec(stdout, stderr io.Writer, store backend.Store, args []string) int {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
-	if exitCode == 0 {
+	if shouldRunPostComposerHook(exitCode) {
 		if err := runPostExecComposerHook(store, args[0], args[1:], workingDir, target); err != nil {
 			fmt.Fprintf(stderr, "error: %v\n", err)
 			return 1

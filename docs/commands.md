@@ -280,7 +280,7 @@ Polka composes runtime environment variables for the active environment from fiv
 
 The `.env` file is loaded automatically from the directory containing `polka.yaml` when present. `env-file` paths are resolved relative to that same directory unless absolute, and `env-vars` always win when keys overlap. This runtime environment applies to `polka sh`, `polka exec`, `polka serve`, generated `.polka/bin` dispatch shims, and database client/import/export commands.
 
-After a successful dispatched `composer install`, `composer update`, or `composer create-project`, the active framework plugin may create or update framework-local secret files from Polka-managed database credentials. The built-in CakePHP hook updates `config/app_local.php`, CodeIgniter updates the app `.env` database settings, Drupal writes `settings.polka.php` and includes it from `settings.php`, WordPress updates `wp-config.php` DB constants, Laravel updates the app `.env` DB settings, and Symfony writes `DATABASE_URL` to `.env.local`.
+After dispatched `composer install`, `composer update`, or `composer create-project` exits with any code except Composer's dependency solver failure code 2, the active framework plugin may create or update framework-local secret files from Polka-managed database credentials. The built-in CakePHP hook updates `config/app_local.php`, CodeIgniter updates the app `.env` database settings, Drupal writes `settings.polka.php` and includes it from `settings.php`, WordPress updates `wp-config.php` DB constants, Laravel updates the app `.env` DB settings, and Symfony writes `DATABASE_URL` to `.env.local`.
 
 ## Platform Notes
 

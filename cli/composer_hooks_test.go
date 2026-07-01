@@ -23,3 +23,23 @@ func TestIsPostComposerCommandDetectsComposerLifecycleCommands(t *testing.T) {
 		})
 	}
 }
+
+func TestShouldRunPostComposerHookSkipsOnlyComposerSolverFailures(t *testing.T) {
+	tests := []struct {
+		name     string
+		exitCode int
+		want     bool
+	}{
+		{name: "success", exitCode: 0, want: true},
+		{name: "generic failure", exitCode: 1, want: true},
+		{name: "dependency solver failure", exitCode: 2, want: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := shouldRunPostComposerHook(test.exitCode); got != test.want {
+				t.Fatalf("shouldRunPostComposerHook(%d) = %v, want %v", test.exitCode, got, test.want)
+			}
+		})
+	}
+}
