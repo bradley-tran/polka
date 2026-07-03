@@ -1311,7 +1311,7 @@ func TestStoreInstallWithProgressReportsStages(t *testing.T) {
 	}
 
 	progressEvents := make([]string, 0, 6)
-	if _, err := store.InstallWithProgress("demo", func(progress InstallProgress) {
+	if _, err := store.InstallWithProgress("demo", InstallOptions{}, func(progress InstallProgress) {
 		progressEvents = append(progressEvents, fmt.Sprintf("%d/%d %s %s %s", progress.Index, progress.Total, progress.Tool, progress.Version, progress.Stage))
 	}); err != nil {
 		t.Fatalf("InstallWithProgress(demo) error = %v", err)

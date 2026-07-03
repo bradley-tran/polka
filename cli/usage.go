@@ -91,11 +91,12 @@ server.type accepts php, nginx, apache, or frankenphp. When omitted, Polka prese
 `
 
 const installUsage = `Usage:
-  polka install [tool:version] [--env NAME]
+  polka install [tool:version] [--env NAME] [--force]
 
 Install one explicit tool version, such as php:8.4, php-zts:8.4, or frankenphp:1.12, or install every configured tool version for an environment when no tool argument is provided.
 Use --env NAME to select a named environment. When --env is omitted, Polka uses the current environment, falling back to default when no local override is selected.
 Polka installs tools from validated global cache payloads when available, otherwise downloads them into the cache first.
+Tools already installed at the requested version are skipped and reported as unchanged; pass --force to reinstall them. Installing an explicit tool:version always reinstalls that tool, and its version is only written to the config file after the install succeeds.
 When FrankenPHP and standalone PHP are both configured, Polka warns that the php CLI and FrankenPHP server runtimes may differ.
 `
 

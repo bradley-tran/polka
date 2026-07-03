@@ -93,18 +93,21 @@ The current plugin system is internal and compile-time only. Built-in tool metad
 
 ## Tool Install Flow
 
-`polka install [tool:version] [--env <environment>]` follows this flow:
+`polka install [tool:version] [--env <environment>] [--force]` follows this flow:
 
 1. `cli` resolves the requested environment name from `--env`, the active environment, or `default`.
 2. For an explicit `tool:version`, `cli` calls `backend.Store.InstallToolWithProgress`; otherwise it calls `backend.Store.InstallWithProgress`.
 3. `backend.Store` loads and normalizes `polka.yaml` for the default environment or `polka.<name>.yaml` for named environments, then validates the install request(s). It builds the effective PHP extension set from framework-common requirements, every configured tool's manifest requirements, and explicit environment overrides in that order.
-4. For each requested tool, `backend.Store` checks the global cache metadata and cached payload checksum.
-5. If the cache is missing or invalid, `tools.HTTPDownloader` invokes the matching plugin download hook.
-6. `backend.Store` installs from the cached payload into `.polka/envs/<tool>/<version>`; archive payloads are extracted on demand, while single-file payloads such as PHARs are placed at their expected install path.
-7. The tool plugin may run a post-install hook using `tools.InstallContext`.
-8. `backend.Store` returns install results to the CLI.
+4. For each requested tool, `backend.Store` first consults the project-local install state in `.polka/envs/installed.json`. Without `--force`, a tool recorded there whose installed executable still resolves on disk skips download and extraction and is reported as unchanged; its post-install hook still runs so configuration changes (PHP extensions, memory limit, OPcache) are applied. Explicit `tool:version` installs always reinstall.
+5. Otherwise, `backend.Store` checks the global cache metadata and cached payload checksum.
+6. If the cache is missing or invalid, `tools.HTTPDownloader` invokes the matching plugin download hook.
+7. `backend.Store` installs from the cached payload into `.polka/envs/<tool>/<version>`; archive payloads are extracted on demand, while single-file payloads such as PHARs are placed at their expected install path.
+8. The tool plugin may run a post-install hook using `tools.InstallContext`.
+9. `backend.Store` records each fully installed tool version in `.polka/envs/installed.json` (including tools that succeeded before another tool's failure aborted the run) and returns install results to the CLI.
 
-The global cache and project-local install layouts are intentionally separate. The cache stores reusable downloaded payloads under per-tool metadata; `.polka/envs` stores project-local installs selected by the active environment config. For user-facing managed tool behavior, command shims, PHP runtime generation, and platform support, see [tools.md](tools.md).
+For an explicit `tool:version`, the new version is written to the environment config only after the install succeeds, so a failed resolve, download, or install leaves the previous configuration untouched.
+
+The global cache and project-local install layouts are intentionally separate. The cache stores reusable downloaded payloads under per-tool metadata; `.polka/envs` stores project-local installs selected by the active environment config, alongside the `installed.json` install state (deleting `.polka/envs` resets both together). For user-facing managed tool behavior, command shims, PHP runtime generation, and platform support, see [tools.md](tools.md).
 
 ## Dispatch Flow
 

@@ -52,6 +52,7 @@ const (
 	InstallProgressInstalling  InstallProgressStage = "installing"
 	InstallProgressConfiguring InstallProgressStage = "configuring"
 	InstallProgressInstalled   InstallProgressStage = "installed"
+	InstallProgressSkipped     InstallProgressStage = "unchanged"
 )
 
 type InstallProgress struct {
@@ -66,6 +67,13 @@ type InstallProgress struct {
 type InstallRequest struct {
 	Tool    string
 	Version string
+}
+
+// InstallOptions adjusts how an environment install behaves.
+type InstallOptions struct {
+	// Force reinstalls every requested tool even when the recorded install
+	// state says it is already installed at the requested version.
+	Force bool
 }
 
 type Store struct {
@@ -492,17 +500,22 @@ func (s Store) writeEnvironment(name, phpVersion, composerVersion, nodeJSVersion
 }
 
 func (s Store) Install(name string) ([]InstallResult, error) {
-	return s.install(name, nil)
+	return s.install(name, InstallOptions{}, nil)
 }
 
-func (s Store) InstallWithProgress(name string, report func(InstallProgress)) ([]InstallResult, error) {
-	return s.install(name, report)
+func (s Store) InstallWithProgress(name string, options InstallOptions, report func(InstallProgress)) ([]InstallResult, error) {
+	return s.install(name, options, report)
 }
 
 func (s Store) InstallTool(name, tool, version string) (InstallResult, error) {
 	return s.InstallToolWithProgress(name, tool, version, nil)
 }
 
+// InstallToolWithProgress installs a single explicitly requested tool version
+// and, on success, persists the new version to the environment config. The
+// install runs before any config write so a failed download or install leaves
+// the previous configuration untouched. Explicit installs always reinstall,
+// bypassing the recorded install state.
 func (s Store) InstallToolWithProgress(name, tool, version string, report func(InstallProgress)) (InstallResult, error) {
 	environment, registry, err := s.installEnvironment(name)
 	if err != nil {
@@ -516,6 +529,15 @@ func (s Store) InstallToolWithProgress(name, tool, version string, report func(I
 	if err := validateInstallEnvironment(name, environment, []tools.InstallRequest{request}, registry); err != nil {
 		return InstallResult{}, err
 	}
+
+	results, err := s.installRequests(environment, []tools.InstallRequest{request}, true, report)
+	if err != nil {
+		return InstallResult{}, err
+	}
+	if len(results) == 0 {
+		return InstallResult{}, fmt.Errorf("no install result produced for %s %s", request.Tool, request.Version)
+	}
+
 	if err := s.writeEnvironmentConfig(name, environment); err != nil {
 		return InstallResult{}, fmt.Errorf("write config file: %w", err)
 	}
@@ -525,14 +547,6 @@ func (s Store) InstallToolWithProgress(name, tool, version string, report func(I
 	}
 	if err := s.syncManagedBinaries(config); err != nil {
 		return InstallResult{}, fmt.Errorf("sync managed binaries: %w", err)
-	}
-
-	results, err := s.installRequests(environment, []tools.InstallRequest{request}, report)
-	if err != nil {
-		return InstallResult{}, err
-	}
-	if len(results) == 0 {
-		return InstallResult{}, fmt.Errorf("no install result produced for %s %s", request.Tool, request.Version)
 	}
 
 	return results[0], nil
@@ -562,7 +576,7 @@ func (s Store) InstallRequests(name string) ([]InstallRequest, error) {
 	return result, nil
 }
 
-func (s Store) install(name string, report func(InstallProgress)) ([]InstallResult, error) {
+func (s Store) install(name string, options InstallOptions, report func(InstallProgress)) ([]InstallResult, error) {
 	environment, registry, err := s.installEnvironment(name)
 	if err != nil {
 		return nil, err
@@ -576,7 +590,7 @@ func (s Store) install(name string, report func(InstallProgress)) ([]InstallResu
 		return nil, err
 	}
 
-	return s.installRequests(environment, requests, report)
+	return s.installRequests(environment, requests, options.Force, report)
 }
 
 func (s Store) installEnvironment(name string) (Environment, *ToolRegistry, error) {
@@ -633,10 +647,11 @@ func installRequestsIncludeTool(requests []tools.InstallRequest, tool string) bo
 	return false
 }
 
-func (s Store) installRequests(environment Environment, requests []tools.InstallRequest, report func(InstallProgress)) ([]InstallResult, error) {
+func (s Store) installRequests(environment Environment, requests []tools.InstallRequest, force bool, report func(InstallProgress)) ([]InstallResult, error) {
 	installEnvironment := s.withFrameworkPHPConfig(environment)
 	installPHPConfig := tools.EffectivePHPConfigForInstall(installEnvironment)
 	registry := s.toolRegistry()
+	state := s.readInstallState()
 
 	results := make([]InstallResult, len(requests))
 	var wg sync.WaitGroup
@@ -670,29 +685,48 @@ func (s Store) installRequests(environment Environment, requests []tools.Install
 				Version: req.Version,
 			}
 
-			cachedPayloadPath, downloaded, err := s.ensureCachedTool(req.Tool, req.Version, func(stage InstallProgressStage) {
-				baseProgress.Stage = stage
+			// Skip the payload extraction when the tool version is recorded as
+			// installed and its executable still resolves on disk. Post-install
+			// hooks still run below so configuration changes (PHP extensions,
+			// memory limit, OPcache) are applied to the existing install.
+			skipped := false
+			if !force && state.has(req.Tool, req.Version) {
+				if targetPath, err := s.resolveInstalledTool(req.Tool, req.Version); err == nil {
+					skipped = true
+					results[i] = InstallResult{
+						Tool:       req.Tool,
+						Version:    req.Version,
+						TargetPath: targetPath,
+						Skipped:    true,
+					}
+				}
+			}
+
+			if !skipped {
+				cachedPayloadPath, downloaded, err := s.ensureCachedTool(req.Tool, req.Version, func(stage InstallProgressStage) {
+					baseProgress.Stage = stage
+					safeReport(baseProgress)
+				})
+				if err != nil {
+					errs[i] = err
+					return
+				}
+
+				baseProgress.Stage = InstallProgressInstalling
 				safeReport(baseProgress)
-			})
-			if err != nil {
-				errs[i] = err
-				return
-			}
+				targetPath, err := s.installToolFromCache(req.Tool, req.Version)
+				if err != nil {
+					errs[i] = err
+					return
+				}
 
-			baseProgress.Stage = InstallProgressInstalling
-			safeReport(baseProgress)
-			targetPath, err := s.installToolFromCache(req.Tool, req.Version)
-			if err != nil {
-				errs[i] = err
-				return
-			}
-
-			results[i] = InstallResult{
-				Tool:       req.Tool,
-				Version:    req.Version,
-				CachePath:  cachedPayloadPath,
-				TargetPath: targetPath,
-				Downloaded: downloaded,
+				results[i] = InstallResult{
+					Tool:       req.Tool,
+					Version:    req.Version,
+					CachePath:  cachedPayloadPath,
+					TargetPath: targetPath,
+					Downloaded: downloaded,
+				}
 			}
 
 			if req.Tool == toolPHP || req.Tool == toolPHPZTS || req.Tool == toolFrankenPHP {
@@ -714,17 +748,43 @@ func (s Store) installRequests(environment Environment, requests []tools.Install
 				return
 			}
 
-			baseProgress.Stage = InstallProgressInstalled
+			if skipped {
+				baseProgress.Stage = InstallProgressSkipped
+			} else {
+				baseProgress.Stage = InstallProgressInstalled
+			}
 			safeReport(baseProgress)
 		}()
 	}
 
 	wg.Wait()
 
+	// Record every fully installed tool before inspecting errors so partial
+	// successes are remembered and skipped on the next install run.
+	stateChanged := false
+	for i, err := range errs {
+		if err != nil || results[i].Skipped || results[i].Tool == "" {
+			continue
+		}
+		if !state.has(results[i].Tool, results[i].Version) {
+			state.record(results[i].Tool, results[i].Version)
+			stateChanged = true
+		}
+	}
+	var stateErr error
+	if stateChanged {
+		if err := s.writeInstallState(state); err != nil {
+			stateErr = fmt.Errorf("write install state: %w", err)
+		}
+	}
+
 	for _, err := range errs {
 		if err != nil {
-			return nil, err
+			return nil, errors.Join(err, stateErr)
 		}
+	}
+	if stateErr != nil {
+		return nil, stateErr
 	}
 
 	return results, nil
