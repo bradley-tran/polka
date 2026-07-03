@@ -32,7 +32,7 @@ For an interactive shell with `.polka/bin` and `vendor/bin` first on `PATH`, use
 polka sh
 ```
 
-For the full command reference, see [docs/commands.md](docs/commands.md). For the package layout and architecture, see [docs/architecture.md](docs/architecture.md).
+For the full command reference, see [docs/commands.md](docs/commands.md). For managed tool behavior, see [docs/tools.md](docs/tools.md). For the package layout and architecture, see [docs/architecture.md](docs/architecture.md).
 
 ## Configuration
 
@@ -88,103 +88,7 @@ opcache-config:
   opcache.enable_cli: "1"
 ```
 
-PostgreSQL is available as a managed alternative on Windows and Linux amd64. Its version label may be a major release such as `17`; Polka resolves that label to the newest available minor release while keeping the configured label stable.
-
-```yaml
-tools:
-  postgresql: "17"
-database:
-  engine: postgresql
-  port: 5432
-```
-
-PostgreSQL exposes the `psql` shim and is supported by the CakePHP, CodeIgniter, Drupal, Laravel, and Symfony integrations. WordPress is MySQL-family only, so Polka rejects WordPress with PostgreSQL. phpMyAdmin can still be configured, but Polka warns that it only supports MySQL/MariaDB and starts it without managed PostgreSQL login or storage integration.
-
-```yaml
-# polka.legacy.yaml
-tools:
-  php: 8.2
-  composer: 2.6
-```
-
-Use `php-zts` instead of `php` when the environment requires a Thread Safe PHP build:
-
-```yaml
-tools:
-  php-zts: 8.4
-  composer: 2.8
-```
-
-`php` and `php-zts` are mutually exclusive standalone runtimes. Both provide the standard `php` command and are used by Composer, PIE, serving, phpMyAdmin, extensions, and OPcache configuration. Setting or explicitly installing one runtime clears the other. Automatic PHP downloads remain Windows-only; `php` selects only NTS archives and `php-zts` selects only TS archives.
-
-To serve with FrankenPHP, configure its release version and select it explicitly:
-
-```yaml
-tools:
-  php: 8.4
-  composer: 2.8
-  frankenphp: "1.12"
-server:
-  type: frankenphp
-  hostname: blog.localhost
-  port: 8443
-```
-
-To serve with Apache, configure its release version and select it explicitly:
-
-```yaml
-tools:
-  php: 8.4
-  apache: "2.4"
-server:
-  type: apache
-  hostname: blog.localhost
-  port: 8443
-```
-
-`server.type` accepts `php`, `nginx`, `apache`, or `frankenphp`. When omitted, existing behavior is preserved: nginx is selected when configured, otherwise PHP's built-in server is used. Apache is selected only when `server.type: apache` is set. FrankenPHP exposes both `frankenphp` and `php`: its bundled CLI supplies `php` when neither `php` nor `php-zts` is configured, while either standalone tool takes precedence when present. Composer, PIE, the PHP webserver, phpMyAdmin, extension settings, and OPcache settings use the same selected CLI provider. nginx and Apache require standalone `php`/`php-zts` because they need `php-cgi`. When both FrankenPHP and a standalone PHP tool are configured, install and shim-refreshing commands warn that the CLI and FrankenPHP server runtimes may differ. Polka mirrors the effective framework, extension, and OPcache settings into the bundled FrankenPHP runtime and supplies its generated `php.ini` through `PHPRC`. nginx, Apache, and FrankenPHP reuse Polka's generated HTTPS certificate.
-
-Polka resolves those versions against the local install layout under `.polka/envs`:
-
-Framework presets and configured tools apply their required PHP extensions during install. Tool requirements include database drivers and Composer's `openssl` and `zip` extensions. User-defined `php-extensions` entries override those defaults, including `false` values that disable an extension. `memory-limit` sets PHP's `memory_limit` directive and accepts values such as `512M`, `1G`, raw bytes, or `-1` for unlimited memory. `opcache-preset` accepts `none`, `dev`, or `production`; `opcache-config` accepts `opcache.*` directives applied over the preset and any framework defaults. Re-run `polka install` after changing PHP extension, memory limit, or OPcache settings so Polka can regenerate `php.ini`. Install also ensures each managed PHP runtime has a local `extras/ssl/openssl.cnf`; managed PHP commands set `OPENSSL_CONF` to that file for OpenSSL key and CSR generation.
-
-```text
-.polka/
-|-- envs/
-|   |-- apache/
-|   |   `-- 2.4/
-|   |       `-- bin/httpd[.exe]
-|   |-- composer/
-|   |   `-- 2.8/
-|   |       `-- bin/composer[.cmd|.bat|.exe|.phar]
-|   |-- frankenphp/
-|   |   `-- 1.12/
-|   |       |-- frankenphp[.exe]
-|   |       `-- php[.exe|.cmd]
-|   |-- nodejs/
-|   |   `-- 24/
-|   |       `-- node[.exe]
-|   |-- phpmyadmin/
-|   |   `-- 5.2/
-|   |       `-- index.php
-|   |-- php/
-|   |   `-- 8.4/
-|   |       `-- bin/php[.exe|.cmd|.bat]
-|   |-- php-zts/
-|   |   `-- 8.4/
-|   |       `-- bin/php[.exe|.cmd|.bat]
-|   `-- sqlite/
-|       `-- 3.53/
-|           `-- sqlite3[.exe]
-`-- bin/
-  |-- apache[.cmd]
-  |-- frankenphp[.cmd]
-  |-- httpd[.cmd]
-  |-- node[.cmd]
-  |-- npm[.cmd]
-  |-- npx[.cmd]
-  `-- sqlite3[.cmd]
-```
+For per-tool behavior, command shims, Node.js/Yarn support, PostgreSQL notes, PHP-ZTS and FrankenPHP runtime selection, generated `php.ini` behavior, and the `.polka/envs` install layout, see [docs/tools.md](docs/tools.md).
 
 During development you can override the state directory while keeping the config file next to it:
 
