@@ -104,7 +104,7 @@ The current plugin system is internal and compile-time only. Built-in tool metad
 7. The tool plugin may run a post-install hook using `tools.InstallContext`.
 8. `backend.Store` returns install results to the CLI.
 
-The global cache and project-local install layouts are intentionally separate. The cache stores reusable downloaded payloads under per-tool metadata; `.polka/envs` stores project-local installs selected by the active environment config.
+The global cache and project-local install layouts are intentionally separate. The cache stores reusable downloaded payloads under per-tool metadata; `.polka/envs` stores project-local installs selected by the active environment config. For user-facing managed tool behavior, command shims, PHP runtime generation, and platform support, see [tools.md](tools.md).
 
 ## Dispatch Flow
 
@@ -117,11 +117,7 @@ Managed command shims in `.polka/bin` call back into Polka:
      `-- tools.Registry.ResolveDispatchRequestForEnvironment("php", environment)
 ```
 
-Dispatch resolution uses the active environment recorded in `.polka/run/current`, or `default` from `polka.yaml` when no local override is selected. It maps command names to the configured provider, reads that environment's definition from `polka.yaml` or `polka.<name>.yaml`, and locates the installed executable under `.polka/envs`. The mutually exclusive `php` and `php-zts` tools both provide the standard `php` command; environment-aware dispatch selects the configured NTS or ZTS provider. PHAR tools such as Composer and PIE are launched through that managed PHP executable. After dispatched `composer install`, `composer update`, or `composer create-project` exits with any code except Composer's dependency solver failure code 2, Polka runs the active framework's post-Composer hook so the framework can create or update local secret files from Polka-managed database credentials.
-
-Node.js is config-only as `nodejs`, but it exposes `node`, `npm`, `npx`, and `yarn` dispatch commands. The `nodejs` command itself is not generated as an active shim. PostgreSQL is configured as `postgresql` and exposes `psql`. PIE and Mago are configured with `pie` and `mago`, and expose matching dispatch commands. phpMyAdmin does not generate a command shim either; Polka installs its web app archive, writes its generated `config.inc.php`, reads managed MySQL/MariaDB credentials from Polka's runtime secrets, and uses its UI port plus the environment's root-level HTTPS setting when the CLI starts the managed phpMyAdmin service. PostgreSQL/phpMyAdmin configurations are allowed with a warning, and phpMyAdmin's managed login/storage integration is skipped for PostgreSQL.
-
-FrankenPHP exposes `frankenphp` and acts as the fallback provider for the shared `php` shim. A configured `php` or `php-zts` plugin wins provider selection; otherwise Windows dispatches the bundled `php.exe` and Linux uses a generated wrapper around `frankenphp php-cli`. `server.type: frankenphp` selects its generated Caddyfile runtime for `polka serve`; omitting `server.type` preserves the legacy nginx-when-configured, PHP-otherwise selection. Apache is configured as `apache`, exposes `apache` and `httpd`, and is selected only by `server.type: apache`; its runtime uses generated Apache config plus a managed `php-cgi` FastCGI backend. Mixed standalone and FrankenPHP configs are allowed and produce a CLI warning because their PHP runtimes may differ. FrankenPHP installs receive the effective generated `php.ini`, selected at runtime through `PHPRC`; built-in modules are omitted from extension-loading directives.
+Dispatch resolution uses the active environment recorded in `.polka/run/current`, or `default` from `polka.yaml` when no local override is selected. It maps command names to the configured provider, reads that environment's definition from `polka.yaml` or `polka.<name>.yaml`, and locates the installed executable under `.polka/envs`. Tool-specific command mappings are declared by manifests and exposed through `tools.Registry`.
 
 ## Runtime Services
 
@@ -136,8 +132,6 @@ Runtime services are split between `service` and `cli`:
 - Shell and session commands compose environment variables and `PATH` behavior around the active environment.
 
 The database tool plugins install and dispatch database clients, while database server lifecycle logic lives in `service`. PostgreSQL uses `initdb`, `postgres`, `createdb`, `pg_ctl`, `psql`, and `pg_dump`, with client authentication supplied through a project-local `.pgpass` file.
-
-PostgreSQL release labels are resolved from PostgreSQL's structured version index. Windows payloads use EnterpriseDB portable archives. Linux amd64 payloads unwrap the portable PostgreSQL tarball from the Zonky embedded-postgres Maven artifact because EnterpriseDB no longer publishes Linux binary archives for supported PostgreSQL versions.
 
 ## Dependency Rules
 

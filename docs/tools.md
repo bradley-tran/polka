@@ -1,0 +1,134 @@
+# Polka Managed Tools
+
+This page describes Polka's managed tool model, command shims, per-tool behavior, PHP runtime generation, and platform download support. For command syntax, see [commands.md](commands.md).
+
+## Tool Config And Shims
+
+Managed tool version labels live under `tools` in `polka.yaml` or `polka.<name>.yaml`. Versionless options, such as Mailpit ports and the phpMyAdmin UI port, live under `settings`.
+
+`polka install [tool:version] [--env name]` installs one explicit tool version, or every configured tool version for an environment when no `tool:version` argument is provided. Polka first checks the global cache metadata and payload checksum, downloads missing or invalid versions into that cache, and materializes the cached payload into the project-local `.polka/envs` layout.
+
+The `.polka/bin` shims mirror the active environment's configured tools. If the current environment does not define a managed tool, Polka removes that local shim instead of leaving a dispatcher that would fail at runtime.
+
+Some configured tool keys expose different command names:
+
+| Tool key | Command shims |
+| --- | --- |
+| `php` | `php` |
+| `php-zts` | `php` |
+| `frankenphp` | `frankenphp`, and `php` when no standalone PHP is configured |
+| `composer` | `composer` |
+| `pie` | `pie` |
+| `nodejs` | `node`, `npm`, `npx`, `yarn` |
+| `mago` | `mago` |
+| `nginx` | `nginx` |
+| `apache` | `apache`, `httpd` |
+| `mysql` | `mysql` |
+| `mariadb` | `mariadb` |
+| `postgresql` | `psql` |
+| `sqlite` | `sqlite3` |
+| `mailpit` | `mailpit` |
+| `meilisearch` | `meilisearch` |
+| `phpmyadmin` | none |
+
+`nodejs` itself remains config-only. Polka generates `yarn` from Corepack during Node.js install when the Node payload does not already include a Yarn command.
+
+## Install Layout
+
+Polka resolves configured versions against the local install layout under `.polka/envs`:
+
+```text
+.polka/
+|-- envs/
+|   |-- apache/
+|   |   `-- 2.4/
+|   |       `-- bin/httpd[.exe]
+|   |-- composer/
+|   |   `-- 2.8/
+|   |       `-- bin/composer[.cmd|.bat|.exe|.phar]
+|   |-- frankenphp/
+|   |   `-- 1.12/
+|   |       |-- frankenphp[.exe]
+|   |       `-- php[.exe|.cmd]
+|   |-- nodejs/
+|   |   `-- 24/
+|   |       |-- node[.exe]
+|   |       `-- yarn[.cmd]
+|   |-- phpmyadmin/
+|   |   `-- 5.2/
+|   |       `-- index.php
+|   |-- php/
+|   |   `-- 8.4/
+|   |       `-- bin/php[.exe|.cmd|.bat]
+|   |-- php-zts/
+|   |   `-- 8.4/
+|   |       `-- bin/php[.exe|.cmd|.bat]
+|   `-- sqlite/
+|       `-- 3.53/
+|           `-- sqlite3[.exe]
+`-- bin/
+  |-- apache[.cmd]
+  |-- frankenphp[.cmd]
+  |-- httpd[.cmd]
+  |-- node[.cmd]
+  |-- npm[.cmd]
+  |-- npx[.cmd]
+  |-- yarn[.cmd]
+  `-- sqlite3[.cmd]
+```
+
+## Tool Notes
+
+The `mago` tool key installs the Mago binary and creates a `mago` command shim.
+
+The `frankenphp` tool key installs an official FrankenPHP release and creates `frankenphp` and `php` command shims. FrankenPHP supplies the `php` CLI only when neither `php` nor `php-zts` is configured; a standalone PHP tool always takes precedence. Configuring both is supported, but install, config, and environment-selection commands warn that the CLI and FrankenPHP server runtimes may differ. FrankenPHP is selected as the webserver only by `server.type: frankenphp`. On Linux, the managed `php` command invokes `frankenphp php-cli`. `polka install` writes a generated `php.ini` for FrankenPHP using the environment's effective framework extensions, user extension overrides, and OPcache settings; Polka supplies it through `PHPRC` for serving and dispatched PHP or FrankenPHP commands.
+
+The `pie` tool key installs PIE's stable `pie.phar` release and creates a `pie` command shim. Dispatching `pie` runs the PHAR through the environment's managed PHP executable.
+
+The `sqlite` tool key installs SQLite's command-line tools, creates a `sqlite3` command shim, and enables `pdo_sqlite` and `sqlite3` for configured PHP runtimes.
+
+The `postgresql` tool key installs PostgreSQL, creates a `psql` command shim, and enables `pgsql` and `pdo_pgsql` for configured PHP runtimes. Windows uses EnterpriseDB's portable binaries; Linux amd64 uses the corresponding portable embedded PostgreSQL archive published through Maven Central because current EnterpriseDB releases no longer provide Linux binary archives.
+
+The `phpmyadmin` tool key installs the phpMyAdmin web app archive under `.polka/envs/phpmyadmin/<version>`, writes a generated `config.inc.php` with a fresh `blowfish_secret`, and uses managed MySQL/MariaDB credentials to skip the phpMyAdmin login screen when one of those managed databases is configured. With PostgreSQL, Polka warns because phpMyAdmin only supports MySQL/MariaDB, then starts phpMyAdmin without managed PostgreSQL login or storage integration. Its UI `port` setting lives under `settings.phpmyadmin`. It inherits HTTPS and the selected nginx or FrankenPHP HTTPS provider from the environment. It does not create a command shim.
+
+The `mailpit` tool key installs Mailpit and creates a `mailpit` command shim. Its SMTP and UI port settings live under `settings.mailpit`.
+
+The `meilisearch` tool key installs Meilisearch and creates a `meilisearch` command shim. Its HTTP port and optional local master key live under `settings.meilisearch`; Polka stores only a runtime fingerprint of the master key and does not print it in status output.
+
+## PHP Runtime Generation
+
+When an environment defines `memory-limit`, `php-extensions`, configures a tool with PHP dependencies, selects `opcache-preset` or `opcache-config`, or uses a framework with generated PHP defaults, `polka install` writes a generated `php.ini` next to each configured PHP, PHP-ZTS, and FrankenPHP runtime.
+
+`memory-limit` sets PHP's `memory_limit` directive and accepts values such as `512M`, `1G`, raw bytes, or `-1` for unlimited memory. Extensions are merged in this order: framework requirements, every configured tool's requirements, then user-defined `php-extensions`. Explicit `false` values therefore disable framework or tool defaults. MySQL and MariaDB enable `mysqli` and `pdo_mysql`; PostgreSQL enables `pgsql` and `pdo_pgsql`; SQLite enables `pdo_sqlite` and `sqlite3`; Composer enables `openssl` and `zip`.
+
+Before writing `php.ini`, Polka checks `php -nm` and skips extensions that are already built into that PHP binary. If the effective extension config enables `curl` or `openssl`, Polka also configures `curl.cainfo` and `openssl.cafile` with a CA bundle. Install also ensures each managed PHP runtime has a local `extras/ssl/openssl.cnf`; managed PHP commands set `OPENSSL_CONF` to that file for OpenSSL key and CSR generation.
+
+`opcache-preset` may be omitted, `none`, `dev`, or `production`. `dev` enables OPcache with timestamp validation and immediate revalidation. `production` enables OPcache with timestamp validation disabled. `opcache-config` accepts `opcache.*` directives and is applied over the preset; framework-provided directives, such as Drupal's `opcache.save_comments = 1`, sit between the preset and user config. Re-run `polka install` after changing PHP extension, memory limit, or OPcache settings.
+
+## Runtime Environment
+
+Polka composes runtime environment variables for the active environment from five sources in this precedence order, lowest to highest:
+
+1. inherited process environment
+2. project `.env`
+3. current environment file's `env-file`
+4. framework-provided database variables when generated managed database credentials exist
+5. current environment file's `env-vars`
+
+The `.env` file is loaded automatically from the directory containing `polka.yaml` when present. `env-file` paths are resolved relative to that same directory unless absolute, and `env-vars` always win when keys overlap. This runtime environment applies to `polka sh`, `polka exec`, `polka serve`, generated `.polka/bin` dispatch shims, and database client/import/export commands.
+
+## Composer Hooks
+
+After dispatched `composer install`, `composer update`, or `composer create-project` exits with any code except Composer's dependency solver failure code 2, the active framework plugin may create or update framework-local secret files from Polka-managed database credentials. The built-in CakePHP hook updates `config/app_local.php`, CodeIgniter updates the app `.env` database settings, Drupal writes `settings.polka.php` and includes it from `settings.php`, WordPress updates `wp-config.php` DB constants, Laravel updates the app `.env` DB settings, and Symfony writes `DATABASE_URL` to `.env.local`.
+
+## Platform Notes
+
+Automatic nginx downloads are currently implemented on Windows amd64.
+
+Automatic Apache downloads use Apache Lounge builds and are currently implemented on Windows amd64.
+
+Automatic Mailpit downloads are currently implemented for Windows amd64 and Linux amd64.
+
+Automatic FrankenPHP downloads are currently implemented for Windows amd64 and Linux amd64.
+
+Automatic phpMyAdmin downloads use the official cross-platform zip archive.
