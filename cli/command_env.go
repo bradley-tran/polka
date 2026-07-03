@@ -152,6 +152,7 @@ func newInstallCommand(ctx *commandContext) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&input.Name, "env", "", "environment name")
+	cmd.Flags().BoolVar(&input.Force, "force", false, "reinstall tools even if already installed")
 	configureCommand(cmd, installUsage)
 
 	return cmd
@@ -297,7 +298,7 @@ func runInstall(stdout, stderr io.Writer, store backend.Store, input installComm
 			results = []backend.InstallResult{result}
 		}
 	} else {
-		results, err = store.InstallWithProgress(input.Name, func(progress backend.InstallProgress) {
+		results, err = store.InstallWithProgress(input.Name, backend.InstallOptions{Force: input.Force}, func(progress backend.InstallProgress) {
 			spinner.Update(progress.Tool, progress.Version, progress.Stage)
 		})
 	}
@@ -324,9 +325,12 @@ func runInstall(stdout, stderr io.Writer, store backend.Store, input installComm
 		_, _ = fmt.Fprintf(stdout, "Installed '%s' environment\n", input.Name)
 	}
 	for _, result := range results {
-		if result.Downloaded {
+		switch {
+		case result.Skipped:
+			_, _ = fmt.Fprintf(stdout, "%s %s\t(unchanged)\n", result.Tool, result.Version)
+		case result.Downloaded:
 			_, _ = fmt.Fprintf(stdout, "%s %s\n", result.Tool, result.Version)
-		} else {
+		default:
 			_, _ = fmt.Fprintf(stdout, "%s %s\t(cached)\n", result.Tool, result.Version)
 		}
 	}
@@ -540,6 +544,7 @@ type installCommandInput struct {
 	Name    string
 	Tool    string
 	Version string
+	Force   bool
 }
 
 func parseInstallToolVersion(value string) (string, string, error) {

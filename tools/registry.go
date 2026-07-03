@@ -30,12 +30,17 @@ type InstallRequest struct {
 	Version string
 }
 
+// InstallResult describes the outcome of installing (or skipping) one tool.
+// Skipped is true when the tool was already installed at the requested version
+// and the payload extraction was bypassed; CachePath is empty and Downloaded is
+// false in that case.
 type InstallResult struct {
 	Tool       string
 	Version    string
 	CachePath  string
 	TargetPath string
 	Downloaded bool
+	Skipped    bool
 }
 
 const (
