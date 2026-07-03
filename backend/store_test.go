@@ -47,6 +47,8 @@ func TestStoreInitInstallsDispatcherShimsWithoutToolShims(t *testing.T) {
 	assertPathMissing(t, filepath.Join(store.BinDir, toolNPM+".cmd"))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolNPX))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolNPX+".cmd"))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolYarn))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolYarn+".cmd"))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolNodeJS))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolNodeJS+".cmd"))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolMago))
@@ -216,6 +218,8 @@ func TestStoreUseSyncsManagedBinariesForCurrentEnvironment(t *testing.T) {
 	assertPathMissing(t, filepath.Join(store.BinDir, toolNPM+".cmd"))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolNPX))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolNPX+".cmd"))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolYarn))
+	assertPathMissing(t, filepath.Join(store.BinDir, toolYarn+".cmd"))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolMago))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolMago+".cmd"))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolMySQL))
@@ -1888,7 +1892,7 @@ func TestStoreInstallCopiesConfiguredNodeJSIntoVersionedLayout(t *testing.T) {
 		t.Fatalf("Install(demo) target = %q, want versioned nodejs env path", result.TargetPath)
 	}
 
-	for _, tool := range []string{toolNode, toolNPM, toolNPX} {
+	for _, tool := range []string{toolNode, toolNPM, toolNPX, toolYarn} {
 		resolvedPath, err := store.ResolveTool(tool)
 		if err != nil {
 			t.Fatalf("ResolveTool(%s) error = %v", tool, err)
@@ -1896,6 +1900,15 @@ func TestStoreInstallCopiesConfiguredNodeJSIntoVersionedLayout(t *testing.T) {
 		assertPathExists(t, resolvedPath)
 		if !strings.Contains(resolvedPath, filepath.Join("envs", toolNodeJS, "24")) {
 			t.Fatalf("ResolveTool(%s) = %q, want versioned nodejs env path", tool, resolvedPath)
+		}
+		if tool == toolYarn {
+			data, err := os.ReadFile(resolvedPath)
+			if err != nil {
+				t.Fatalf("ReadFile(%s) error = %v", resolvedPath, err)
+			}
+			if !strings.Contains(strings.ToLower(string(data)), "corepack") {
+				t.Fatalf("generated yarn shim = %q, want Corepack-backed shim", string(data))
+			}
 		}
 	}
 	if _, err := store.ResolveTool(toolNodeJS); err == nil {
@@ -1908,6 +1921,8 @@ func TestStoreInstallCopiesConfiguredNodeJSIntoVersionedLayout(t *testing.T) {
 	assertPathExists(t, filepath.Join(store.BinDir, toolNPM+".cmd"))
 	assertPathExists(t, filepath.Join(store.BinDir, toolNPX))
 	assertPathExists(t, filepath.Join(store.BinDir, toolNPX+".cmd"))
+	assertPathExists(t, filepath.Join(store.BinDir, toolYarn))
+	assertPathExists(t, filepath.Join(store.BinDir, toolYarn+".cmd"))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolNodeJS))
 	assertPathMissing(t, filepath.Join(store.BinDir, toolNodeJS+".cmd"))
 }
@@ -3336,6 +3351,7 @@ func writeCachedTool(t *testing.T, cacheDir, tool, version string) string {
 				break
 			}
 		}
+		files[cachedToolRelativePath(t, cacheDir, toolNodeJS, version, cachedNodeJSCorepackPath(cacheDir, version))] = []byte("corepack\n")
 	}
 
 	return writeCachedArchivePayload(t, cacheDir, tool, version, files)
@@ -3438,6 +3454,14 @@ func writeCachedNodeJSCommand(t *testing.T, cacheDir, version, command string) s
 	}
 
 	return filepath.Join(cacheDir, toolNodeJS, version, command)
+}
+
+func cachedNodeJSCorepackPath(root, version string) string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(root, toolNodeJS, version, "corepack.cmd")
+	}
+
+	return filepath.Join(root, toolNodeJS, version, "bin", "corepack")
 }
 
 type testCacheMetadata struct {

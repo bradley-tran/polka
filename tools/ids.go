@@ -16,6 +16,7 @@ const (
 	Node        = "node"
 	NPM         = "npm"
 	NPX         = "npx"
+	Yarn        = "yarn"
 	Mago        = "mago"
 	Nginx       = "nginx"
 	Apache      = "apache"

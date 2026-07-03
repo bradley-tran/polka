@@ -10,15 +10,18 @@ dispatch-commands:
   - node
   - npm
   - npx
+  - yarn
 cleanup-commands:
   - node
   - npm
   - npx
+  - yarn
   - nodejs
 active-commands:
   - node
   - npm
   - npx
+  - yarn
 dispatch-candidates:
   node:
     windows-amd64:
@@ -47,6 +50,15 @@ dispatch-candidates:
     linux-amd64:
       - bin/npx
       - npx
+  yarn:
+    windows-amd64:
+      - yarn.cmd
+      - yarn
+      - bin/yarn.cmd
+      - bin/yarn
+    linux-amd64:
+      - bin/yarn
+      - yarn
 download:
   assets:
     windows-amd64:

@@ -85,7 +85,7 @@ polka install --env blog
 
 Use `--env name` to select a named environment. When `--env` is omitted, Polka installs against the current environment and prints which one it selected. If no current environment is selected, Polka uses `default` from `polka.yaml`. Polka first checks the global cache metadata and payload checksum, downloads missing or invalid versions into that cache, and materializes the cached payload into the project-local `.polka/envs` layout.
 
-The `.polka/bin` shims mirror the active environment's configured tools. A configured `nodejs` version produces `node`, `npm`, and `npx` shims, while `nodejs` itself remains config-only. If the current environment does not define a managed tool, Polka removes that local shim instead of leaving a dispatcher that would fail at runtime.
+The `.polka/bin` shims mirror the active environment's configured tools. A configured `nodejs` version produces `node`, `npm`, `npx`, and `yarn` shims, while `nodejs` itself remains config-only. If the current environment does not define a managed tool, Polka removes that local shim instead of leaving a dispatcher that would fail at runtime.
 
 ### `polka list`
 

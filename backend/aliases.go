@@ -37,6 +37,7 @@ const (
 	toolNode        = tools.Node
 	toolNPM         = tools.NPM
 	toolNPX         = tools.NPX
+	toolYarn        = tools.Yarn
 	toolMago        = tools.Mago
 	toolNginx       = tools.Nginx
 	toolApache      = tools.Apache

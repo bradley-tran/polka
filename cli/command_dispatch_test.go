@@ -395,7 +395,7 @@ func TestRunDispatchUsesNodeAliasesAndRejectsNodeJSKey(t *testing.T) {
 		t.Fatalf("Run(use) code = %d, stderr = %q", code, stderr.String())
 	}
 
-	for _, command := range []string{"node", "npm", "npx"} {
+	for _, command := range []string{"node", "npm", "npx", "yarn"} {
 		path := projectInstalledNodeJSCommandPath(root, "24", command)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatalf("MkdirAll(%s) error = %v", filepath.Dir(path), err)
@@ -405,7 +405,7 @@ func TestRunDispatchUsesNodeAliasesAndRejectsNodeJSKey(t *testing.T) {
 		}
 	}
 
-	for _, command := range []string{"node", "npm", "npx"} {
+	for _, command := range []string{"node", "npm", "npx", "yarn"} {
 		stdout.Reset()
 		stderr.Reset()
 		if code := Run(stdout, stderr, []string{"--root", root, "dispatch", command, "--version"}); code != 0 {

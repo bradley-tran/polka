@@ -75,6 +75,13 @@ func TestDefaultRegistryKeepsNodeJSConfigOnly(t *testing.T) {
 	if request.ConfigTool != NodeJS || request.Executable != Node {
 		t.Fatalf("ResolveDispatchRequest(node) = %#v, want nodejs/node", request)
 	}
+	request, err = registry.ResolveDispatchRequest(Yarn)
+	if err != nil {
+		t.Fatalf("ResolveDispatchRequest(yarn) error = %v", err)
+	}
+	if request.ConfigTool != NodeJS || request.Executable != Yarn {
+		t.Fatalf("ResolveDispatchRequest(yarn) = %#v, want nodejs/yarn", request)
+	}
 
 	if _, err := registry.ResolveDispatchRequest(NodeJS); err == nil {
 		t.Fatal("ResolveDispatchRequest(nodejs) error = nil, want unsupported tool error")
@@ -82,8 +89,8 @@ func TestDefaultRegistryKeepsNodeJSConfigOnly(t *testing.T) {
 
 	environment := config.Environment{NodeJSVersion: "24"}
 	active := registry.ActiveCommandNames(&environment)
-	if !reflect.DeepEqual(active, []string{Node, NPM, NPX}) {
-		t.Fatalf("ActiveCommandNames(nodejs env) = %#v, want node/npm/npx", active)
+	if !reflect.DeepEqual(active, []string{Node, NPM, NPX, Yarn}) {
+		t.Fatalf("ActiveCommandNames(nodejs env) = %#v, want node/npm/npx/yarn", active)
 	}
 
 	cleanup := registry.CleanupCommandNames()
