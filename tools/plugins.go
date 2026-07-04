@@ -14,6 +14,7 @@ func DefaultPlugins() []ToolPlugin {
 		mailpitPlugin(),
 		meilisearchPlugin(),
 		traefikPlugin(),
+		roadRunnerPlugin(),
 		phpMyAdminPlugin(),
 		mysqlPlugin(),
 		mariaDBPlugin(),

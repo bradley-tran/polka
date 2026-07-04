@@ -46,6 +46,7 @@ const (
 	toolPHPMyAdmin  = tools.PHPMyAdmin
 	toolMeilisearch = tools.Meilisearch
 	toolTraefik     = tools.Traefik
+	toolRoadRunner  = tools.RoadRunner
 	toolMySQL       = tools.MySQL
 	toolMariaDB     = tools.MariaDB
 	toolPostgreSQL  = tools.PostgreSQL

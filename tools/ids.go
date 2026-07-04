@@ -24,6 +24,7 @@ const (
 	PHPMyAdmin  = "phpmyadmin"
 	Meilisearch = "meilisearch"
 	Traefik     = "traefik"
+	RoadRunner  = "roadrunner"
 	MySQL       = "mysql"
 	MariaDB     = "mariadb"
 	PostgreSQL  = "postgresql"

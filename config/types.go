@@ -21,6 +21,7 @@ type ToolsConfig struct {
 	PHPVersion         string `yaml:"php,omitempty"`
 	PHPZTSVersion      string `yaml:"php-zts,omitempty"`
 	FrankenPHPVersion  string `yaml:"frankenphp,omitempty"`
+	RoadRunnerVersion  string `yaml:"roadrunner,omitempty"`
 	ComposerVersion    string `yaml:"composer,omitempty"`
 	PIEVersion         string `yaml:"pie,omitempty"`
 	NodeJSVersion      string `yaml:"nodejs,omitempty"`
@@ -109,6 +110,7 @@ type Environment struct {
 	PHPVersion        string             `yaml:"php,omitempty"`
 	PHPZTSVersion     string             `yaml:"php-zts,omitempty"`
 	FrankenPHPVersion string             `yaml:"frankenphp,omitempty"`
+	RoadRunnerVersion string             `yaml:"roadrunner,omitempty"`
 	ComposerVersion   string             `yaml:"composer,omitempty"`
 	PIEVersion        string             `yaml:"pie,omitempty"`
 	NodeJSVersion     string             `yaml:"nodejs,omitempty"`
@@ -305,6 +307,7 @@ func ToolsConfigFromEnvironment(environment Environment) *ToolsConfig {
 		PHPVersion:         environment.PHPVersion,
 		PHPZTSVersion:      environment.PHPZTSVersion,
 		FrankenPHPVersion:  environment.FrankenPHPVersion,
+		RoadRunnerVersion:  environment.RoadRunnerVersion,
 		ComposerVersion:    environment.ComposerVersion,
 		PIEVersion:         environment.PIEVersion,
 		NodeJSVersion:      environment.NodeJSVersion,
@@ -467,6 +470,7 @@ func (tools ToolsConfig) IsZero() bool {
 	return strings.TrimSpace(tools.PHPVersion) == "" &&
 		strings.TrimSpace(tools.PHPZTSVersion) == "" &&
 		strings.TrimSpace(tools.FrankenPHPVersion) == "" &&
+		strings.TrimSpace(tools.RoadRunnerVersion) == "" &&
 		strings.TrimSpace(tools.ComposerVersion) == "" &&
 		strings.TrimSpace(tools.PIEVersion) == "" &&
 		strings.TrimSpace(tools.NodeJSVersion) == "" &&
@@ -512,6 +516,7 @@ func environmentFromFileParts(name string, framework string, tools *ToolsConfig,
 		environment.PHPVersion = tools.PHPVersion
 		environment.PHPZTSVersion = tools.PHPZTSVersion
 		environment.FrankenPHPVersion = tools.FrankenPHPVersion
+		environment.RoadRunnerVersion = tools.RoadRunnerVersion
 		environment.ComposerVersion = tools.ComposerVersion
 		environment.PIEVersion = tools.PIEVersion
 		environment.NodeJSVersion = tools.NodeJSVersion
@@ -682,6 +687,7 @@ func NormalizeEnvironment(name string, environment Environment) Environment {
 		PHPVersion:        strings.TrimSpace(environment.PHPVersion),
 		PHPZTSVersion:     strings.TrimSpace(environment.PHPZTSVersion),
 		FrankenPHPVersion: strings.TrimSpace(environment.FrankenPHPVersion),
+		RoadRunnerVersion: strings.TrimSpace(environment.RoadRunnerVersion),
 		ComposerVersion:   strings.TrimSpace(environment.ComposerVersion),
 		PIEVersion:        strings.TrimSpace(environment.PIEVersion),
 		NodeJSVersion:     strings.TrimSpace(environment.NodeJSVersion),

@@ -17,6 +17,7 @@ Some configured tool keys expose different command names:
 | `php` | `php` |
 | `php-zts` | `php` |
 | `frankenphp` | `frankenphp`, and `php` when no standalone PHP is configured |
+| `roadrunner` | `rr` |
 | `composer` | `composer` |
 | `nodejs` | `node`, `npm`, `npx`, `yarn` |
 | `mago` | `mago` |
@@ -83,6 +84,8 @@ The `mago` tool key installs the Mago binary and creates a `mago` command shim.
 
 The `frankenphp` tool key installs an official FrankenPHP release and creates `frankenphp` and `php` command shims. FrankenPHP supplies the `php` CLI only when neither `php` nor `php-zts` is configured; a standalone PHP tool always takes precedence. Configuring both is supported, but install, config, and environment-selection commands warn that the CLI and FrankenPHP server runtimes may differ. FrankenPHP is selected as the webserver only by `server.type: frankenphp`. On Linux, the managed `php` command invokes `frankenphp php-cli`. `polka install` writes a generated `php.ini` for FrankenPHP using the environment's effective framework extensions, user extension overrides, and OPcache settings; Polka supplies it through `PHPRC` for serving and dispatched PHP or FrankenPHP commands.
 
+The `roadrunner` tool key installs an official [RoadRunner](https://roadrunner.dev/) release and creates an `rr` command shim. Unlike FrankenPHP, RoadRunner does not bundle a PHP runtime and Polka does not generate its configuration: it is an installable, dispatchable tool only, not a selectable `server.type`. Supply your own `.rr.yaml` and PSR worker script (for example via `spiral/roadrunner-http`) and run it through the shim, such as `polka rr serve`. RoadRunner's HTTP plugin serves an application-provided worker rather than a generic front controller, so it has no auto-generated serve runtime.
+
 PIE is an internal-only tool: it cannot be configured under `tools`, has no command shim, and is provisioned into the global internal tools directory on demand. `polka ext install|remove` and the `polka install` extension provisioning drive PIE against the environment's standalone PHP runtime. See the Internal Tools section below.
 
 The `sqlite` tool key installs SQLite's command-line tools, creates a `sqlite3` command shim, and enables `pdo_sqlite` and `sqlite3` for configured PHP runtimes.
@@ -144,5 +147,7 @@ Automatic Apache downloads use Apache Lounge builds and are currently implemente
 Automatic Mailpit downloads are currently implemented for Windows amd64 and Linux amd64.
 
 Automatic FrankenPHP downloads are currently implemented for Windows amd64 and Linux amd64.
+
+Automatic RoadRunner downloads are currently implemented for Windows amd64 and Linux amd64.
 
 Automatic phpMyAdmin downloads use the official cross-platform zip archive.
