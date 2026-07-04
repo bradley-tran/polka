@@ -1,0 +1,29 @@
+id: traefik
+install-candidates:
+  windows-amd64:
+    - traefik.exe
+  linux-amd64:
+    - traefik
+dispatch-commands:
+  - traefik
+logs:
+  info:
+    - traefik.log
+download:
+  github:
+    owner: traefik
+    repo: traefik
+    tag-prefix: v
+  assets:
+    windows-amd64:
+      filename: traefik-{version}-windows-amd64.zip
+      source-filename: traefik_{tag}_windows_amd64.zip
+      url: https://github.com/traefik/traefik/releases/download/{tag}/traefik_{tag}_windows_amd64.zip
+      checksum-algorithm: sha256
+      archive-format: zip
+    linux-amd64:
+      filename: traefik-{version}-linux-amd64.tar.gz
+      source-filename: traefik_{tag}_linux_amd64.tar.gz
+      url: https://github.com/traefik/traefik/releases/download/{tag}/traefik_{tag}_linux_amd64.tar.gz
+      checksum-algorithm: sha256
+      archive-format: tar.gz

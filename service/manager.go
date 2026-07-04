@@ -12,17 +12,24 @@ type RuntimeHooks struct {
 	Database                DatabaseRuntimeHooks
 	Mailpit                 MailpitRuntimeHooks
 	Meilisearch             MeilisearchRuntimeHooks
+	Traefik                 TraefikRuntimeHooks
 	PHPMyAdmin              PHPMyAdminRuntimeHooks
 	EnsurePHPMyAdminStorage func(Context, Environment, DatabaseRuntimeHooks) error
 }
 
 type StartResult struct {
 	Meilisearch *MeilisearchStartSummary
+	Traefik     *TraefikStartSummary
 	PHPMyAdmin  *PHPMyAdminStartResult
 }
 
 type MeilisearchStartSummary struct {
 	State          MeilisearchRuntimeState
+	AlreadyStarted bool
+}
+
+type TraefikStartSummary struct {
+	State          TraefikRuntimeState
 	AlreadyStarted bool
 }
 
@@ -34,6 +41,7 @@ type PHPMyAdminStartResult struct {
 type StopResult struct {
 	PHPMyAdmin  *StopServeResult
 	Meilisearch *StopMeilisearchResult
+	Traefik     *StopTraefikResult
 	Database    *StopDatabaseResult
 	Mailpit     *StopMailpitResult
 }
@@ -55,6 +63,11 @@ type StopMailpitResult struct {
 
 type StopMeilisearchResult struct {
 	State          MeilisearchRuntimeState
+	AlreadyStopped bool
+}
+
+type StopTraefikResult struct {
+	State          TraefikRuntimeState
 	AlreadyStopped bool
 }
 
@@ -84,6 +97,16 @@ func (m Manager) Start(ctx Context, hooks RuntimeHooks) (StartResult, error) {
 				return StartResult{}, err
 			}
 			result.Meilisearch = &MeilisearchStartSummary{State: state, AlreadyStarted: alreadyStarted}
+		}
+	}
+
+	if ctx.Environment.Traefik != nil && strings.TrimSpace(ctx.Environment.Traefik.Version) != "" {
+		if !ctx.skipMissingTool("traefik", toolTraefik) {
+			state, alreadyStarted, err := EnsureManagedTraefikStarted(ctx, hooks.Traefik)
+			if err != nil {
+				return StartResult{}, err
+			}
+			result.Traefik = &TraefikStartSummary{State: state, AlreadyStarted: alreadyStarted}
 		}
 	}
 
@@ -125,6 +148,12 @@ func (m Manager) Stop(ctx Context, hooks RuntimeHooks) (StopResult, error) {
 	}
 	result.Meilisearch = &StopMeilisearchResult{State: meilisearchState, AlreadyStopped: meilisearchAlreadyStopped}
 
+	traefikState, traefikAlreadyStopped, err := StopManagedTraefik(ctx, hooks.Traefik)
+	if err != nil {
+		return StopResult{}, err
+	}
+	result.Traefik = &StopTraefikResult{State: traefikState, AlreadyStopped: traefikAlreadyStopped}
+
 	databaseState, databaseAlreadyStopped, err := StopManagedDatabaseForEnvironment(ctx, hooks.Database)
 	if err != nil {
 		return StopResult{}, err
@@ -153,5 +182,8 @@ func (m Manager) WarnMissingRuntimeTools(ctx Context) {
 	}
 	if ctx.Environment.Meilisearch != nil && strings.TrimSpace(ctx.Environment.Meilisearch.Version) != "" {
 		_ = ctx.skipMissingTool("meilisearch", toolMeilisearch)
+	}
+	if ctx.Environment.Traefik != nil && strings.TrimSpace(ctx.Environment.Traefik.Version) != "" {
+		_ = ctx.skipMissingTool("traefik", toolTraefik)
 	}
 }

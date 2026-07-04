@@ -629,6 +629,14 @@ func labelMeilisearch(meilisearch *backend.MeilisearchConfig) string {
 	return fmt.Sprintf("%s http=%s auth=%s", meilisearch.Version, meilisearchURLForConfig(meilisearch), auth)
 }
 
+func labelTraefik(traefik *backend.TraefikConfig) string {
+	if traefik == nil {
+		return "unset"
+	}
+
+	return fmt.Sprintf("%s http=%s", traefik.Version, traefikURLForConfig(traefik))
+}
+
 func buildDatabaseInput(engineChanged, versionChanged, portChanged bool, engine, version string, port int) (*backend.DatabaseConfig, error) {
 	if !engineChanged && !versionChanged && !portChanged {
 		return nil, nil

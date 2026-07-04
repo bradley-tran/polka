@@ -192,6 +192,11 @@ func applyToolConfigValue(environment *Environment, path []string, value string)
 			environment.Meilisearch = &MeilisearchConfig{}
 		}
 		environment.Meilisearch.Version = version
+	case toolTraefik:
+		if environment.Traefik == nil {
+			environment.Traefik = &TraefikConfig{}
+		}
+		environment.Traefik.Version = version
 	default:
 		return unsupportedConfigKey(path)
 	}
@@ -309,6 +314,18 @@ func applySettingsConfigValue(environment *Environment, path []string, value str
 		default:
 			return unsupportedConfigKey(path)
 		}
+	case toolTraefik:
+		if environment.Traefik == nil {
+			environment.Traefik = &TraefikConfig{}
+		}
+		if path[2] != "port" {
+			return unsupportedConfigKey(path)
+		}
+		port, err := parseConfigPortValue(strings.Join(path, "."), value)
+		if err != nil {
+			return err
+		}
+		environment.Traefik.Port = port
 	default:
 		return unsupportedConfigKey(path)
 	}

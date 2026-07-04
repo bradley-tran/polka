@@ -23,6 +23,7 @@ const (
 	Mailpit     = "mailpit"
 	PHPMyAdmin  = "phpmyadmin"
 	Meilisearch = "meilisearch"
+	Traefik     = "traefik"
 	MySQL       = "mysql"
 	MariaDB     = "mariadb"
 	PostgreSQL  = "postgresql"

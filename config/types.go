@@ -34,6 +34,7 @@ type ToolsConfig struct {
 	MailpitVersion     string `yaml:"mailpit,omitempty"`
 	PHPMyAdminVersion  string `yaml:"phpmyadmin,omitempty"`
 	MeilisearchVersion string `yaml:"meilisearch,omitempty"`
+	TraefikVersion     string `yaml:"traefik,omitempty"`
 }
 
 // SettingsConfig is the YAML shape for versionless per-tool settings.
@@ -41,6 +42,7 @@ type SettingsConfig struct {
 	Mailpit     *MailpitSettingsConfig     `yaml:"mailpit,omitempty"`
 	PHPMyAdmin  *PHPMyAdminSettingsConfig  `yaml:"phpmyadmin,omitempty"`
 	Meilisearch *MeilisearchSettingsConfig `yaml:"meilisearch,omitempty"`
+	Traefik     *TraefikSettingsConfig     `yaml:"traefik,omitempty"`
 }
 
 // MailpitSettingsConfig is the YAML shape for Mailpit runtime settings.
@@ -58,6 +60,11 @@ type PHPMyAdminSettingsConfig struct {
 type MeilisearchSettingsConfig struct {
 	Port      int    `yaml:"port,omitempty"`
 	MasterKey string `yaml:"master-key,omitempty"`
+}
+
+// TraefikSettingsConfig is the YAML shape for Traefik runtime settings.
+type TraefikSettingsConfig struct {
+	Port int `yaml:"port,omitempty"`
 }
 
 // ProjectFile is the YAML shape of polka.yaml, which also defines the default environment.
@@ -120,6 +127,7 @@ type Environment struct {
 	Mailpit           *MailpitConfig     `yaml:"mailpit,omitempty"`
 	PHPMyAdmin        *PHPMyAdminConfig  `yaml:"phpmyadmin,omitempty"`
 	Meilisearch       *MeilisearchConfig `yaml:"meilisearch,omitempty"`
+	Traefik           *TraefikConfig     `yaml:"traefik,omitempty"`
 	MemoryLimit       string             `yaml:"memory-limit,omitempty"`
 	PHPExtensions     map[string]bool    `yaml:"php-extensions,omitempty"`
 	PIEExtensions     map[string]string  `yaml:"-"`
@@ -151,6 +159,11 @@ type MeilisearchConfig struct {
 	Version   string `yaml:"version,omitempty"`
 	Port      int    `yaml:"port,omitempty"`
 	MasterKey string `yaml:"master-key,omitempty"`
+}
+
+type TraefikConfig struct {
+	Version string `yaml:"version,omitempty"`
+	Port    int    `yaml:"port,omitempty"`
 }
 
 type ServerConfig struct {
@@ -305,6 +318,7 @@ func ToolsConfigFromEnvironment(environment Environment) *ToolsConfig {
 		MailpitVersion:     ToolVersionFromMailpitConfig(environment.Mailpit),
 		PHPMyAdminVersion:  ToolVersionFromPHPMyAdminConfig(environment.PHPMyAdmin),
 		MeilisearchVersion: ToolVersionFromMeilisearchConfig(environment.Meilisearch),
+		TraefikVersion:     ToolVersionFromTraefikConfig(environment.Traefik),
 	}
 	if tools.IsZero() {
 		return nil
@@ -319,6 +333,7 @@ func SettingsConfigFromEnvironment(environment Environment) *SettingsConfig {
 		Mailpit:     MailpitSettingsConfigFromEnvironment(environment),
 		PHPMyAdmin:  PHPMyAdminSettingsConfigFromEnvironment(environment),
 		Meilisearch: MeilisearchSettingsConfigFromEnvironment(environment),
+		Traefik:     TraefikSettingsConfigFromEnvironment(environment),
 	}
 	if settings.IsZero() {
 		return nil
@@ -352,6 +367,15 @@ func ToolVersionFromMeilisearchConfig(meilisearch *MeilisearchConfig) string {
 	}
 
 	return strings.TrimSpace(meilisearch.Version)
+}
+
+// ToolVersionFromTraefikConfig extracts Traefik's managed tool version label.
+func ToolVersionFromTraefikConfig(traefik *TraefikConfig) string {
+	if traefik == nil {
+		return ""
+	}
+
+	return strings.TrimSpace(traefik.Version)
 }
 
 // MailpitSettingsConfigFromEnvironment extracts Mailpit settings that belong under settings.
@@ -404,6 +428,22 @@ func MeilisearchSettingsConfigFromEnvironment(environment Environment) *Meilisea
 	return meilisearch
 }
 
+// TraefikSettingsConfigFromEnvironment extracts Traefik settings that belong under settings.
+func TraefikSettingsConfigFromEnvironment(environment Environment) *TraefikSettingsConfig {
+	if environment.Traefik == nil {
+		return nil
+	}
+
+	traefik := &TraefikSettingsConfig{
+		Port: environment.Traefik.Port,
+	}
+	if traefik.Port == 0 {
+		return nil
+	}
+
+	return traefik
+}
+
 // ServerConfigFromEnvironment extracts server settings that belong in YAML.
 func ServerConfigFromEnvironment(environment Environment) *ServerConfig {
 	if environment.Server == nil {
@@ -439,14 +479,16 @@ func (tools ToolsConfig) IsZero() bool {
 		strings.TrimSpace(tools.SQLiteVersion) == "" &&
 		strings.TrimSpace(tools.MailpitVersion) == "" &&
 		strings.TrimSpace(tools.PHPMyAdminVersion) == "" &&
-		strings.TrimSpace(tools.MeilisearchVersion) == ""
+		strings.TrimSpace(tools.MeilisearchVersion) == "" &&
+		strings.TrimSpace(tools.TraefikVersion) == ""
 }
 
 // IsZero reports whether no versionless tool settings are configured.
 func (settings SettingsConfig) IsZero() bool {
 	return settings.Mailpit == nil &&
 		settings.PHPMyAdmin == nil &&
-		settings.Meilisearch == nil
+		settings.Meilisearch == nil &&
+		settings.Traefik == nil
 }
 
 func environmentFromFileParts(name string, framework string, tools *ToolsConfig, settings *SettingsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *DatabaseConfig, memoryLimit any, phpExtensions map[string]any, opcachePreset string, opcacheConfig map[string]any, server *ServerConfig) Environment {
@@ -491,6 +533,9 @@ func environmentFromFileParts(name string, framework string, tools *ToolsConfig,
 		if strings.TrimSpace(tools.MeilisearchVersion) != "" {
 			environment.Meilisearch = &MeilisearchConfig{Version: tools.MeilisearchVersion}
 		}
+		if strings.TrimSpace(tools.TraefikVersion) != "" {
+			environment.Traefik = &TraefikConfig{Version: tools.TraefikVersion}
+		}
 	}
 	environment = applySettingsConfig(environment, settings)
 
@@ -520,6 +565,12 @@ func applySettingsConfig(environment Environment, settings *SettingsConfig) Envi
 		}
 		environment.Meilisearch.Port = settings.Meilisearch.Port
 		environment.Meilisearch.MasterKey = settings.Meilisearch.MasterKey
+	}
+	if settings.Traefik != nil {
+		if environment.Traefik == nil {
+			environment.Traefik = &TraefikConfig{}
+		}
+		environment.Traefik.Port = settings.Traefik.Port
 	}
 
 	return environment
@@ -649,6 +700,7 @@ func NormalizeEnvironment(name string, environment Environment) Environment {
 		Mailpit:           NormalizeMailpitConfig(environment.Mailpit),
 		PHPMyAdmin:        NormalizePHPMyAdminConfig(environment.PHPMyAdmin),
 		Meilisearch:       NormalizeMeilisearchConfig(environment.Meilisearch),
+		Traefik:           NormalizeTraefikConfig(environment.Traefik),
 		MemoryLimit:       NormalizePHPMemoryLimit(environment.MemoryLimit),
 		PHPExtensions:     NormalizePHPExtensions(environment.PHPExtensions),
 		PIEExtensions:     NormalizePIEExtensions(environment.PIEExtensions),
@@ -780,6 +832,22 @@ func NormalizeMeilisearchConfig(meilisearch *MeilisearchConfig) *MeilisearchConf
 		MasterKey: strings.TrimSpace(meilisearch.MasterKey),
 	}
 	if normalized.Version == "" && normalized.Port == 0 && normalized.MasterKey == "" {
+		return nil
+	}
+
+	return normalized
+}
+
+func NormalizeTraefikConfig(traefik *TraefikConfig) *TraefikConfig {
+	if traefik == nil {
+		return nil
+	}
+
+	normalized := &TraefikConfig{
+		Version: strings.TrimSpace(traefik.Version),
+		Port:    traefik.Port,
+	}
+	if normalized.Version == "" && normalized.Port == 0 {
 		return nil
 	}
 

@@ -38,7 +38,7 @@ For the full command reference, see [docs/commands.md](docs/commands.md). For ma
 
 Polka config files store portable version labels under `tools` and non-version tool options under `settings`. The default environment lives in `polka.yaml`; named environments live in `polka.<name>.yaml`.
 
-Use `polka config <key> <value>` to update the current environment, or `polka config --env blog <key> <value>` to update a named environment. Keys are dot-separated config paths such as `tools.php`, `tools.php-zts`, `tools.frankenphp`, `tools.apache`, `tools.meilisearch`, `server.type`, `database.engine`, `settings.mailpit.smtp-port`, and `settings.meilisearch.port`.
+Use `polka config <key> <value>` to update the current environment, or `polka config --env blog <key> <value>` to update a named environment. Keys are dot-separated config paths such as `tools.php`, `tools.php-zts`, `tools.frankenphp`, `tools.apache`, `tools.meilisearch`, `server.type`, `database.engine`, `settings.mailpit.smtp-port`, `settings.meilisearch.port`, and `settings.traefik.port`.
 
 ```yaml
 # polka.yaml
@@ -59,6 +59,7 @@ tools:
   phpmyadmin: 5.2
   mailpit: "1.30"
   meilisearch: "1.48"
+  traefik: "3.3"
 settings:
   phpmyadmin:
     port: 8082
@@ -68,6 +69,8 @@ settings:
   meilisearch:
     port: 7700
     master-key: local-dev-key
+  traefik:
+    port: 8080
 docroot: public
 database:
   engine: mariadb

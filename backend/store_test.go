@@ -1786,6 +1786,51 @@ func TestStoreInstallDownloadsConfiguredMeilisearch(t *testing.T) {
 	assertPathExists(t, filepath.Join(store.BinDir, toolMeilisearch+".cmd"))
 }
 
+func TestStoreInstallDownloadsConfiguredTraefik(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+	store.Downloader = fakeDownloader(func(cacheDir, tool, version string) error {
+		_ = writeCachedTool(t, cacheDir, tool, version)
+		return nil
+	})
+
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{Traefik: &TraefikConfig{Version: "3.3"}}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	results, err := store.Install("demo")
+	if err != nil {
+		t.Fatalf("Install(demo) error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("Install(demo) length = %d, want 1", len(results))
+	}
+	result := results[0]
+	if result.Tool != toolTraefik || result.Version != "3.3" {
+		t.Fatalf("Install(demo) result = %#v, want traefik 3.3", result)
+	}
+	if !result.Downloaded {
+		t.Fatalf("Install(demo) Downloaded = false, want true after cache miss")
+	}
+	assertPathExists(t, result.TargetPath)
+
+	if err := store.Use("demo"); err != nil {
+		t.Fatalf("Use(demo) error = %v", err)
+	}
+	resolvedPath, err := store.ResolveTool(toolTraefik)
+	if err != nil {
+		t.Fatalf("ResolveTool(traefik) error = %v", err)
+	}
+	if resolvedPath != result.TargetPath {
+		t.Fatalf("ResolveTool(traefik) = %q, want %q", resolvedPath, result.TargetPath)
+	}
+	assertPathExists(t, filepath.Join(store.BinDir, toolTraefik))
+	assertPathExists(t, filepath.Join(store.BinDir, toolTraefik+".cmd"))
+}
+
 func TestStoreInstallDownloadsConfiguredPHPMyAdmin(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)

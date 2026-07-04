@@ -178,7 +178,7 @@ Pass --watch to keep the webserver attached to the current terminal with the pre
 const stopUsage = `Usage:
   polka stop
 
-Stop the active environment's local web server, phpMyAdmin, Meilisearch, managed database, and mailpit when they are running.
+Stop the active environment's local web server, phpMyAdmin, Meilisearch, Traefik, managed database, and mailpit when they are running.
 `
 
 const execUsage = `Usage:
@@ -260,7 +260,7 @@ const statusUsage = `Usage:
 
 Show the active environment, including one line per configured tool and the resolved server URL.
 The active environment name is stored in .polka/run/current when a local override is selected; otherwise Polka uses default.
-Also shows whether the active environment's webserver, phpMyAdmin, Meilisearch, managed database, and mailpit are currently running.
+Also shows whether the active environment's webserver, phpMyAdmin, Meilisearch, Traefik, managed database, and mailpit are currently running.
 `
 
 const removeUsage = `Usage:

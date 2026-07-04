@@ -13,6 +13,7 @@ func DefaultPlugins() []ToolPlugin {
 		apachePlugin(),
 		mailpitPlugin(),
 		meilisearchPlugin(),
+		traefikPlugin(),
 		phpMyAdminPlugin(),
 		mysqlPlugin(),
 		mariaDBPlugin(),
