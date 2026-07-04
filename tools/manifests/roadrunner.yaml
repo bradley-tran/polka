@@ -1,0 +1,33 @@
+id: roadrunner
+install-candidates:
+  windows-amd64:
+    - rr.exe
+  linux-amd64:
+    - rr
+dispatch-commands:
+  - rr
+dispatch-candidates:
+  rr:
+    windows-amd64:
+      - rr.exe
+    linux-amd64:
+      - rr
+logs:
+  debug:
+    - serve.log
+download:
+  github:
+    owner: roadrunner-server
+    repo: roadrunner
+    tag-prefix: v
+  assets:
+    windows-amd64:
+      filename: roadrunner-{version}-windows-amd64.zip
+      url: https://github.com/roadrunner-server/roadrunner/releases/download/{tag}/roadrunner-{version}-windows-amd64.zip
+      checksum-algorithm: sha256
+      archive-format: zip
+    linux-amd64:
+      filename: roadrunner-{version}-linux-amd64.tar.gz
+      url: https://github.com/roadrunner-server/roadrunner/releases/download/{tag}/roadrunner-{version}-linux-amd64.tar.gz
+      checksum-algorithm: sha256
+      archive-format: tar.gz

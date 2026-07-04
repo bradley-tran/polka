@@ -26,7 +26,7 @@ func TestDefaultCLIHookRegistryConfigStatusOrder(t *testing.T) {
 	registry := defaultCLIHookRegistry()
 
 	got := statusHookIDs(registry.configStatusHooks)
-	want := []string{"php", "composer", "pie", "nodejs", "mago", "nginx", "apache", "frankenphp", "sqlite", "meilisearch", "traefik", "phpmyadmin", "database", "mailpit"}
+	want := []string{"php", "composer", "pie", "nodejs", "mago", "nginx", "apache", "frankenphp", "roadrunner", "sqlite", "meilisearch", "traefik", "phpmyadmin", "database", "mailpit"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("config status hooks = %#v, want %#v", got, want)
 	}

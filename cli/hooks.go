@@ -103,6 +103,7 @@ func defaultCLIHookRegistry() cliHookRegistry {
 			{id: "nginx", run: statusNginxConfigHook},
 			{id: "apache", run: statusApacheConfigHook},
 			{id: "frankenphp", run: statusFrankenPHPConfigHook},
+			{id: "roadrunner", run: statusRoadRunnerConfigHook},
 			{id: "sqlite", run: statusSQLiteConfigHook},
 			{id: "meilisearch", run: statusMeilisearchConfigHook},
 			{id: "traefik", run: statusTraefikConfigHook},
@@ -570,6 +571,11 @@ func statusApacheConfigHook(ctx statusHookContext) error {
 
 func statusFrankenPHPConfigHook(ctx statusHookContext) error {
 	_, _ = fmt.Fprintf(ctx.Stdout, "frankenphp %s\n", labelOrUnset(ctx.Environment.FrankenPHPVersion))
+	return nil
+}
+
+func statusRoadRunnerConfigHook(ctx statusHookContext) error {
+	_, _ = fmt.Fprintf(ctx.Stdout, "roadrunner %s\n", labelOrUnset(ctx.Environment.RoadRunnerVersion))
 	return nil
 }
 

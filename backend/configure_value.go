@@ -157,6 +157,8 @@ func applyToolConfigValue(environment *Environment, path []string, value string)
 		}
 	case toolFrankenPHP:
 		environment.FrankenPHPVersion = version
+	case toolRoadRunner:
+		environment.RoadRunnerVersion = version
 	case toolComposer:
 		environment.ComposerVersion = version
 	case toolPIE:
