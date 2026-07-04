@@ -212,6 +212,15 @@ func runStart(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 		return 1
 	}
 
+	traefikProxy, err := prepareTraefikServeProxy(store, *current, endpoint)
+	if err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
+	if traefikProxy.Active && input.Watch {
+		fmt.Fprintf(stdout, "Reverse proxying through Traefik at %s.\n", traefikProxy.URL)
+	}
+
 	exitCode, err := hooks.StartWebserver(webserverStartHookContext{
 		Stdout:      stdout,
 		Stderr:      stderr,
@@ -226,8 +235,65 @@ func runStart(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
+	if traefikProxy.Active && !input.Watch {
+		fmt.Fprintf(stdout, "Reverse proxying through Traefik at %s.\n", traefikProxy.URL)
+	}
 
 	return exitCode
+}
+
+// traefikServeProxy captures whether a managed Traefik front proxy is active for
+// the current serve and the URL it is reachable at.
+type traefikServeProxy struct {
+	Active bool
+	URL    string
+}
+
+// prepareTraefikServeProxy points a running managed Traefik at the environment
+// webserver. It is a no-op when the environment does not configure Traefik or
+// when Traefik is not installed and running, so serving still works without it.
+func prepareTraefikServeProxy(store backend.Store, environment backend.Environment, endpoint serverEndpoint) (traefikServeProxy, error) {
+	if environment.Traefik == nil || strings.TrimSpace(environment.Traefik.Version) == "" {
+		return traefikServeProxy{}, nil
+	}
+
+	liveState, err := loadLiveTraefikState(store.RootDir, environment.Name)
+	if err != nil {
+		return traefikServeProxy{}, err
+	}
+	if liveState == nil {
+		// Traefik is configured but not installed or not running; serve directly.
+		return traefikServeProxy{}, nil
+	}
+
+	host, _, err := net.SplitHostPort(endpoint.Address)
+	if err != nil || strings.TrimSpace(host) == "" {
+		host = defaultServeHostname
+	}
+
+	// When the project serves HTTPS, terminate TLS at the Traefik entrypoint with
+	// Polka's local certificate so the proxy URL is https and trusted by the
+	// local CA, matching the webserver it fronts.
+	scheme := "http"
+	var tlsConfig *service.TraefikTLSConfig
+	if endpoint.HTTPS {
+		certPath, keyPath, err := ensureGlobalTLSCertificateRuntimeKey(store.CacheDir, service.TraefikRuntimeDir(store.RootDir, environment.Name), host)
+		if err != nil {
+			return traefikServeProxy{}, err
+		}
+		tlsConfig = &service.TraefikTLSConfig{CertificatePath: certPath, KeyPath: keyPath}
+		scheme = "https"
+	}
+
+	upstreamURL := serverEndpointURL(endpoint)
+	if err := service.WriteTraefikDynamicConfig(store.RootDir, environment.Name, upstreamURL, endpoint.HTTPS, tlsConfig); err != nil {
+		return traefikServeProxy{}, err
+	}
+
+	return traefikServeProxy{
+		Active: true,
+		URL:    scheme + "://" + net.JoinHostPort(host, strconv.Itoa(liveState.Port)),
+	}, nil
 }
 
 // resolveEnvironmentServerType returns the configured webserver provider.

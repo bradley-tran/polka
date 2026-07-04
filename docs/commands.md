@@ -206,7 +206,7 @@ By default, Polka starts the webserver in the background, waits for it to begin 
 
 Set `server.type` to `php`, `nginx`, `apache`, or `frankenphp` to select the webserver explicitly. When it is omitted, Polka preserves the existing behavior of selecting nginx when configured and PHP otherwise; Apache is selected only by `server.type: apache`. Nginx and Apache start `php-cgi` on an internal loopback port with generated FastCGI configs. Apache enables project `.htaccess` files by default. FrankenPHP runs through a generated Caddyfile. PHP's built-in webserver uses a generated router that serves existing static files and forwards missing requests into the app router or front controller.
 
-If the environment defines `mailpit`, `meilisearch`, `traefik`, `phpmyadmin`, or a managed database, Polka starts those local services before the webserver. `polka status` prints the full Mailpit, Meilisearch, Traefik, and phpMyAdmin URLs.
+If the environment defines `mailpit`, `meilisearch`, `traefik`, `phpmyadmin`, or a managed database, Polka starts those local services before the webserver. When `traefik` is installed, Polka points it at the webserver and reports the proxy URL (`Reverse proxying through Traefik at ...`). `polka status` prints the full Mailpit, Meilisearch, Traefik, and phpMyAdmin URLs.
 
 HTTPS requires nginx, Apache, or FrankenPHP at start time. They use the generated server certificate from the global Polka cache. The certificate covers `localhost`, `*.localhost`, `127.0.0.1`, and `::1`, and is signed by a generated local Polka CA. Hostnames ending in `.localhost`, such as `blog.localhost`, work without editing the hosts file.
 

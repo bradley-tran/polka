@@ -5,13 +5,14 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
 	"polka/config"
 )
 
-func TestTraefikServerArgsIncludeEntrypointDashboardAndConfigDir(t *testing.T) {
+func TestTraefikServerArgsIncludeWebEntrypointAndConfigDir(t *testing.T) {
 	spec := TraefikServerSpec{
 		ConfigDir: filepath.Join("root", "run", "traefik", "demo", "dynamic"),
 		Port:      8090,
@@ -19,10 +20,7 @@ func TestTraefikServerArgsIncludeEntrypointDashboardAndConfigDir(t *testing.T) {
 
 	got := TraefikServerArgs(spec)
 	want := []string{
-		"--entrypoints.traefik.address=127.0.0.1:8090",
-		"--api.dashboard=true",
-		"--api.insecure=true",
-		"--ping=true",
+		"--entrypoints.web.address=127.0.0.1:8090",
 		"--providers.file.directory=" + spec.ConfigDir,
 		"--providers.file.watch=true",
 	}
@@ -32,14 +30,74 @@ func TestTraefikServerArgsIncludeEntrypointDashboardAndConfigDir(t *testing.T) {
 
 	spec.ConfigDir = ""
 	got = TraefikServerArgs(spec)
-	want = []string{
-		"--entrypoints.traefik.address=127.0.0.1:8090",
-		"--api.dashboard=true",
-		"--api.insecure=true",
-		"--ping=true",
-	}
+	want = []string{"--entrypoints.web.address=127.0.0.1:8090"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("TraefikServerArgs(no config dir) = %#v, want %#v", got, want)
+	}
+}
+
+func TestRenderTraefikDynamicConfigRoutesToUpstream(t *testing.T) {
+	// A plain HTTP upstream needs no insecure transport and no TLS termination.
+	got := string(RenderTraefikDynamicConfig("polka-demo", "http://localhost:8000", false, nil))
+	for _, want := range []string{
+		"http://localhost:8000",
+		"entryPoints:\n        - web",
+		"service: polka-demo",
+		"PathPrefix(`/`)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("RenderTraefikDynamicConfig() = %q, want to contain %q", got, want)
+		}
+	}
+	if strings.Contains(got, "insecureSkipVerify") || strings.Contains(got, "tls:") {
+		t.Fatalf("RenderTraefikDynamicConfig(http) = %q, want no insecure transport or tls", got)
+	}
+
+	// A TLS upstream (Polka's self-signed cert) skips verification.
+	backendTLS := string(RenderTraefikDynamicConfig("polka-demo", "https://localhost:8000", true, nil))
+	if !strings.Contains(backendTLS, "insecureSkipVerify: true") || !strings.Contains(backendTLS, "serversTransport: polka-demo") {
+		t.Fatalf("RenderTraefikDynamicConfig(https backend) = %q, want insecure transport", backendTLS)
+	}
+}
+
+func TestRenderTraefikDynamicConfigTerminatesTLS(t *testing.T) {
+	got := string(RenderTraefikDynamicConfig("polka-demo", "https://localhost:8000", true, &TraefikTLSConfig{
+		CertificatePath: filepath.Join("root", "cert.crt"),
+		KeyPath:         filepath.Join("root", "cert.key"),
+	}))
+	for _, want := range []string{
+		"      tls: {}",
+		"tls:\n  certificates:",
+		"certFile: \"root/cert.crt\"",
+		"keyFile: \"root/cert.key\"",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("RenderTraefikDynamicConfig(tls) = %q, want to contain %q", got, want)
+		}
+	}
+}
+
+func TestWriteTraefikDynamicConfigWritesManagedFile(t *testing.T) {
+	rootDir := t.TempDir()
+	if err := WriteTraefikDynamicConfig(rootDir, "demo", "http://localhost:8000", false, nil); err != nil {
+		t.Fatalf("WriteTraefikDynamicConfig() error = %v", err)
+	}
+	path := TraefikDynamicConfigPath(rootDir, "demo")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(dynamic config) error = %v", err)
+	}
+	if !strings.Contains(string(data), "http://localhost:8000") {
+		t.Fatalf("dynamic config = %q, want upstream URL", string(data))
+	}
+}
+
+func TestTraefikRouterNameSanitizesEnvironment(t *testing.T) {
+	if got := TraefikRouterName("blog/staging"); got != "polka-blog-staging" {
+		t.Fatalf("TraefikRouterName(blog/staging) = %q, want polka-blog-staging", got)
+	}
+	if got := TraefikRouterName(""); got != "polka-default" {
+		t.Fatalf("TraefikRouterName(empty) = %q, want polka-default", got)
 	}
 }
 
