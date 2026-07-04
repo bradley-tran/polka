@@ -22,6 +22,27 @@ func TestPostgreSQLToolAndDatabaseRoundTrip(t *testing.T) {
 	}
 }
 
+func TestTraefikToolAndSettingsRoundTrip(t *testing.T) {
+	environment := NormalizeEnvironment("demo", Environment{
+		Name:    "demo",
+		Traefik: &TraefikConfig{Version: "3.3", Port: 8090},
+	})
+
+	// The version belongs under tools; the port belongs under settings.
+	file := EnvironmentFileFromEnvironment(environment)
+	if file.Tools == nil || file.Tools.TraefikVersion != "3.3" {
+		t.Fatalf("EnvironmentFileFromEnvironment().Tools = %#v, want traefik 3.3", file.Tools)
+	}
+	if file.Settings == nil || file.Settings.Traefik == nil || file.Settings.Traefik.Port != 8090 {
+		t.Fatalf("EnvironmentFileFromEnvironment().Settings = %#v, want traefik port 8090", file.Settings)
+	}
+
+	roundTrip := EnvironmentFileToEnvironment("demo", file)
+	if roundTrip.Traefik == nil || roundTrip.Traefik.Version != "3.3" || roundTrip.Traefik.Port != 8090 {
+		t.Fatalf("EnvironmentFileToEnvironment().Traefik = %#v, want restored version and port", roundTrip.Traefik)
+	}
+}
+
 func TestPHPZTSConfigRoundTrip(t *testing.T) {
 	environment := ProjectFileToEnvironment("default", ProjectFile{
 		Tools: &ToolsConfig{PHPZTSVersion: "8.4"},

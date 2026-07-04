@@ -381,6 +381,11 @@ func manifestVersionFunc(m pluginManifest) func(config.Environment) string {
 				return ""
 			}
 			return environment.Meilisearch.Version
+		case Traefik:
+			if environment.Traefik == nil {
+				return ""
+			}
+			return environment.Traefik.Version
 		case MySQL, MariaDB, PostgreSQL:
 			return config.DatabaseToolVersion(environment, id)
 		default:

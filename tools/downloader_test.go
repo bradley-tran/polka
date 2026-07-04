@@ -507,6 +507,74 @@ func TestResolveMailpitDownloadAssetSupportsSeriesLabels(t *testing.T) {
 	}
 }
 
+func TestResolveTraefikDownloadAssetSupportsSeriesLabels(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[
+			{
+				"tag_name":"v3.3.1",
+				"assets":[
+					{"name":"traefik_v3.3.1_windows_amd64.zip","digest":"sha256:` + strings.Repeat("e", 64) + `"},
+					{"name":"traefik_v3.3.1_linux_amd64.tar.gz","digest":"sha256:` + strings.Repeat("f", 64) + `"}
+				]
+			},
+			{"tag_name":"v3.3.0","assets":[]}
+		]`))
+	}))
+	defer server.Close()
+
+	withTemporaryString(t, &githubAPIBaseURL, server.URL)
+
+	tests := []struct {
+		name                string
+		version             string
+		goos                string
+		goarch              string
+		wantResolvedVersion string
+		wantFileName        string
+		wantFormat          archiveFormat
+	}{
+		{
+			name:                "windows",
+			version:             "3.3",
+			goos:                "windows",
+			goarch:              "amd64",
+			wantResolvedVersion: "3.3.1",
+			wantFileName:        "traefik-3.3.1-windows-amd64.zip",
+			wantFormat:          archiveFormatZip,
+		},
+		{
+			name:                "linux",
+			version:             "3.3",
+			goos:                "linux",
+			goarch:              "amd64",
+			wantResolvedVersion: "3.3.1",
+			wantFileName:        "traefik-3.3.1-linux-amd64.tar.gz",
+			wantFormat:          archiveFormatTarGz,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resolvedVersion, asset, err := resolveTraefikDownloadAsset(server.Client(), test.version, test.goos, test.goarch)
+			if err != nil {
+				t.Fatalf("resolveTraefikDownloadAsset(%s) error = %v", test.version, err)
+			}
+			if resolvedVersion != test.wantResolvedVersion {
+				t.Fatalf("resolveTraefikDownloadAsset(%s) resolved version = %q, want %q", test.version, resolvedVersion, test.wantResolvedVersion)
+			}
+			if asset.FileName != test.wantFileName {
+				t.Fatalf("resolveTraefikDownloadAsset(%s) file = %q, want %q", test.version, asset.FileName, test.wantFileName)
+			}
+			if asset.ArchiveFormat != test.wantFormat {
+				t.Fatalf("resolveTraefikDownloadAsset(%s) archive format = %q, want %q", test.version, asset.ArchiveFormat, test.wantFormat)
+			}
+			if asset.ChecksumAlgorithm != checksumAlgorithmSHA256 || asset.Checksum == "" {
+				t.Fatalf("resolveTraefikDownloadAsset(%s) checksum = (%q, %q), want github sha256 digest", test.version, asset.ChecksumAlgorithm, asset.Checksum)
+			}
+		})
+	}
+}
+
 func TestResolveMeilisearchDownloadAssetSupportsDirectBinaries(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`[

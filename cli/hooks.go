@@ -77,6 +77,7 @@ func defaultCLIHookRegistry() cliHookRegistry {
 			{id: "database", run: startDatabaseServiceHook},
 			{id: "mailpit", run: startMailpitServiceHook},
 			{id: "meilisearch", run: startMeilisearchServiceHook},
+			{id: "traefik", run: startTraefikServiceHook},
 			{id: "phpmyadmin", run: startPHPMyAdminServiceHook},
 		},
 		webservers: []webserverStartHook{
@@ -88,6 +89,7 @@ func defaultCLIHookRegistry() cliHookRegistry {
 		stopHooks: []stopHook{
 			{id: "webserver", run: stopWebserverHook},
 			{id: "phpmyadmin", run: stopPHPMyAdminServiceHook},
+			{id: "traefik", run: stopTraefikServiceHook},
 			{id: "meilisearch", run: stopMeilisearchServiceHook},
 			{id: "database", run: stopDatabaseServiceHook},
 			{id: "mailpit", run: stopMailpitServiceHook},
@@ -103,6 +105,7 @@ func defaultCLIHookRegistry() cliHookRegistry {
 			{id: "frankenphp", run: statusFrankenPHPConfigHook},
 			{id: "sqlite", run: statusSQLiteConfigHook},
 			{id: "meilisearch", run: statusMeilisearchConfigHook},
+			{id: "traefik", run: statusTraefikConfigHook},
 			{id: "phpmyadmin", run: statusPHPMyAdminConfigHook},
 			{id: "database", run: statusDatabaseConfigHook},
 			{id: "mailpit", run: statusMailpitConfigHook},
@@ -111,6 +114,7 @@ func defaultCLIHookRegistry() cliHookRegistry {
 			{id: "webserver", run: statusWebserverRuntimeHook},
 			{id: "phpmyadmin", run: statusPHPMyAdminRuntimeHook},
 			{id: "meilisearch", run: statusMeilisearchRuntimeHook},
+			{id: "traefik", run: statusTraefikRuntimeHook},
 			{id: "database", run: statusDatabaseRuntimeHook},
 			{id: "mailpit", run: statusMailpitRuntimeHook},
 		},
@@ -122,6 +126,7 @@ func (r cliHookRegistry) StartServices(ctx startHookContext) error {
 		Database:                dbRuntimeHooks(),
 		Mailpit:                 mailpitRuntimeHooks(),
 		Meilisearch:             meilisearchRuntimeHooks(),
+		Traefik:                 traefikRuntimeHooks(),
 		PHPMyAdmin:              phpMyAdminRuntimeHooks(ctx.Store),
 		EnsurePHPMyAdminStorage: ensurePHPMyAdminStorageConfiguredFunc,
 	})
@@ -164,6 +169,7 @@ func (r cliHookRegistry) Stop(ctx stopHookContext) error {
 		Database:    dbRuntimeHooks(),
 		Mailpit:     mailpitRuntimeHooks(),
 		Meilisearch: meilisearchRuntimeHooks(),
+		Traefik:     traefikRuntimeHooks(),
 		PHPMyAdmin:  phpMyAdminRuntimeHooks(ctx.Store),
 	})
 	if err != nil {
@@ -216,6 +222,16 @@ func writeManagedServiceStopSummary(ctx stopHookContext, result service.StopResu
 		}
 	}
 
+	if result.Traefik != nil {
+		if result.Traefik.AlreadyStopped {
+			if ctx.Environment.Traefik != nil && strings.TrimSpace(ctx.Environment.Traefik.Version) != "" {
+				fmt.Fprintf(ctx.Stdout, "Traefik for environment %q is already stopped.\n", ctx.Environment.Name)
+			}
+		} else {
+			fmt.Fprintf(ctx.Stdout, "Stopped Traefik for environment %q.\n", ctx.Environment.Name)
+		}
+	}
+
 	if result.Database != nil {
 		if result.Database.AlreadyStopped {
 			if ctx.Environment.Database != nil && strings.TrimSpace(ctx.Environment.Database.Engine) != "" {
@@ -262,6 +278,15 @@ func startMeilisearchServiceHook(ctx startHookContext) error {
 	}
 
 	_, _, err := ensureManagedMeilisearchStarted(ctx.Store, ctx.Environment)
+	return err
+}
+
+func startTraefikServiceHook(ctx startHookContext) error {
+	if ctx.Environment.Traefik == nil || strings.TrimSpace(ctx.Environment.Traefik.Version) == "" {
+		return nil
+	}
+
+	_, _, err := ensureManagedTraefikStarted(ctx.Store, ctx.Environment)
 	return err
 }
 
@@ -464,6 +489,24 @@ func stopMeilisearchServiceHook(ctx stopHookContext) error {
 	return nil
 }
 
+func stopTraefikServiceHook(ctx stopHookContext) error {
+	if ctx.Environment.Traefik == nil || strings.TrimSpace(ctx.Environment.Traefik.Version) == "" {
+		return nil
+	}
+
+	_, traefikAlreadyStopped, err := stopManagedTraefik(ctx.Store, ctx.Environment.Name)
+	if err != nil {
+		return err
+	}
+	if traefikAlreadyStopped {
+		fmt.Fprintf(ctx.Stdout, "Traefik for environment %q is already stopped.\n", ctx.Environment.Name)
+		return nil
+	}
+
+	fmt.Fprintf(ctx.Stdout, "Stopped Traefik for environment %q.\n", ctx.Environment.Name)
+	return nil
+}
+
 func stopPHPMyAdminServiceHook(ctx stopHookContext) error {
 	if ctx.Environment.PHPMyAdmin == nil || strings.TrimSpace(ctx.Environment.PHPMyAdmin.Version) == "" {
 		return nil
@@ -537,6 +580,11 @@ func statusSQLiteConfigHook(ctx statusHookContext) error {
 
 func statusMeilisearchConfigHook(ctx statusHookContext) error {
 	_, _ = fmt.Fprintf(ctx.Stdout, "meilisearch %s\n", labelMeilisearch(ctx.Environment.Meilisearch))
+	return nil
+}
+
+func statusTraefikConfigHook(ctx statusHookContext) error {
+	_, _ = fmt.Fprintf(ctx.Stdout, "traefik %s\n", labelTraefik(ctx.Environment.Traefik))
 	return nil
 }
 
@@ -623,6 +671,25 @@ func statusMeilisearchRuntimeHook(ctx statusHookContext) error {
 	}
 
 	_, _ = fmt.Fprintf(ctx.Stdout, "meilisearch-server running %s\n", meilisearchURL(*liveMeilisearchState))
+	return nil
+}
+
+func statusTraefikRuntimeHook(ctx statusHookContext) error {
+	if ctx.Environment.Traefik == nil || strings.TrimSpace(ctx.Environment.Traefik.Version) == "" {
+		_, _ = fmt.Fprintln(ctx.Stdout, "traefik-server unset")
+		return nil
+	}
+
+	liveTraefikState, err := loadLiveTraefikState(ctx.Store.RootDir, ctx.Environment.Name)
+	if err != nil {
+		return err
+	}
+	if liveTraefikState == nil {
+		_, _ = fmt.Fprintln(ctx.Stdout, "traefik-server stopped")
+		return nil
+	}
+
+	_, _ = fmt.Fprintf(ctx.Stdout, "traefik-server running %s\n", traefikURL(*liveTraefikState))
 	return nil
 }
 

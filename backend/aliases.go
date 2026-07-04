@@ -12,6 +12,7 @@ type Environment = config.Environment
 type MailpitConfig = config.MailpitConfig
 type PHPMyAdminConfig = config.PHPMyAdminConfig
 type MeilisearchConfig = config.MeilisearchConfig
+type TraefikConfig = config.TraefikConfig
 type ServerConfig = config.ServerConfig
 
 type InstallResult = tools.InstallResult
@@ -44,6 +45,7 @@ const (
 	toolMailpit     = tools.Mailpit
 	toolPHPMyAdmin  = tools.PHPMyAdmin
 	toolMeilisearch = tools.Meilisearch
+	toolTraefik     = tools.Traefik
 	toolMySQL       = tools.MySQL
 	toolMariaDB     = tools.MariaDB
 	toolPostgreSQL  = tools.PostgreSQL

@@ -28,6 +28,7 @@ Some configured tool keys expose different command names:
 | `sqlite` | `sqlite3` |
 | `mailpit` | `mailpit` |
 | `meilisearch` | `meilisearch` |
+| `traefik` | `traefik` |
 | `phpmyadmin` | none |
 
 `nodejs` itself remains config-only. Polka generates `yarn` from Corepack during Node.js install when the Node payload does not already include a Yarn command.
@@ -93,6 +94,8 @@ The `phpmyadmin` tool key installs the phpMyAdmin web app archive under `.polka/
 The `mailpit` tool key installs Mailpit and creates a `mailpit` command shim. Its SMTP and UI port settings live under `settings.mailpit`.
 
 The `meilisearch` tool key installs Meilisearch and creates a `meilisearch` command shim. Its HTTP port and optional local master key live under `settings.meilisearch`; Polka stores only a runtime fingerprint of the master key and does not print it in status output.
+
+The `traefik` tool key installs the [Traefik](https://traefik.io/) reverse proxy and creates a `traefik` command shim. Polka runs it as a managed background service, launched entirely from command-line flags: a single API/dashboard entrypoint on `settings.traefik.port` (default `8080`) plus a file provider that watches `.polka/run/traefik/<environment>/dynamic` so you can add your own routing rules. The dashboard is reachable at `http://127.0.0.1:<port>`.
 
 ## Internal Tools
 
