@@ -14,7 +14,7 @@ Use `--root PATH` to override the local state directory. The default is `.polka`
 
 ### `polka init [framework] [--docroot PATH]`
 
-Creates the local `.polka` directory, bootstraps `polka.yaml` when it does not exist, writes stable shell-session helper scripts, and syncs the active environment's dispatch shims into `.polka/bin`. The bootstrapped default environment enables HTTPS and sets `server.hostname` to `<directory>.localhost`.
+Creates the local `.polka` directory, bootstraps `polka.yaml` when it does not exist, and syncs the active environment's dispatch shims into `.polka/bin`. The bootstrapped default environment enables HTTPS and sets `server.hostname` to `<directory>.localhost`.
 
 ```bash
 polka init
@@ -157,32 +157,6 @@ Runs one command with the same resolution order and runtime environment as `polk
 polka exec php -v
 polka exec frankenphp version
 polka exec drush status
-```
-
-### `polka session start`
-
-Generates an activation script for the current shell. Prefer the stable project-local wrappers created by `polka init`:
-
-```powershell
-. .\.polka\session-start.ps1
-```
-
-```bash
-. ./.polka/session-start
-```
-
-The session uses the same command resolution order as `polka sh`: `.polka/bin`, then `vendor/bin`, then the inherited system `PATH`. On Windows, the session flow reuses the same temporary vendor `.cmd` wrappers as `polka sh`.
-
-### `polka session stop`
-
-Generates a deactivation script that restores the exact pre-session values for every variable Polka changed, including `PATH`. Prefer the stable project-local wrappers:
-
-```powershell
-. .\.polka\session-stop.ps1
-```
-
-```bash
-. ./.polka/session-stop
 ```
 
 ## Web And Service Commands

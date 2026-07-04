@@ -33,9 +33,6 @@ const (
 	configVersion            = 1
 	dispatcherBinaryName     = "polka"
 	dispatcherBatchFileName  = "polka.cmd"
-	sessionStartFileName     = "session-start"
-	sessionStopFileName      = "session-stop"
-	powerShellExtension      = ".ps1"
 )
 
 // Default managed tool versions. These are the versions `polka new` writes
@@ -1984,9 +1981,6 @@ func (s Store) installBinaries() error {
 	if err := s.installDispatcherBinaries(); err != nil {
 		return err
 	}
-	if err := s.installSessionScripts(); err != nil {
-		return err
-	}
 	config, err := s.loadConfig()
 	if err != nil {
 		return err
@@ -2036,94 +2030,11 @@ func (s Store) installDispatcherBinaries() error {
 	return nil
 }
 
-func (s Store) installSessionScripts() error {
-	absRootDir, err := filepath.Abs(s.RootDir)
-	if err != nil {
-		return fmt.Errorf("resolve Polka root for session scripts: %w", err)
-	}
-
-	for _, script := range sessionScripts(absRootDir) {
-		targetPath := filepath.Join(absRootDir, script.Name)
-		if err := os.WriteFile(targetPath, []byte(script.Contents), script.Mode); err != nil {
-			return fmt.Errorf("write session helper %q: %w", script.Name, err)
-		}
-	}
-
-	return nil
-}
-
 func dispatcherBinaries(selfPath string) []installedBinary {
 	return []installedBinary{
 		shellDispatcherBinary(selfPath),
 		windowsDispatcherBinary(selfPath),
 	}
-}
-
-func sessionScripts(rootDir string) []installedBinary {
-	return []installedBinary{
-		shellSessionScript(rootDir, sessionStartFileName),
-		shellSessionScript(rootDir, sessionStopFileName),
-		powerShellSessionScript(rootDir, sessionStartFileName),
-		powerShellSessionScript(rootDir, sessionStopFileName),
-	}
-}
-
-func shellSessionScript(rootDir, name string) installedBinary {
-	dispatcherPath := filepath.ToSlash(filepath.Join(rootDir, binDirectoryName, dispatcherBinaryName))
-	return installedBinary{
-		Name: name,
-		Mode: 0o755,
-		Contents: "#!/usr/bin/env sh\n" +
-			"POLKA_SESSION_ROOT=" + shellLiteral(filepath.ToSlash(rootDir)) + "\n" +
-			"POLKA_SESSION_DISPATCHER=" + shellLiteral(dispatcherPath) + "\n" +
-			"if [ ! -f \"$POLKA_SESSION_DISPATCHER\" ]; then\n" +
-			"  printf '%s\\n' 'Polka dispatcher shim not found in .polka/bin. Re-run \"polka init\".' >&2\n" +
-			"  return 1 2>/dev/null || exit 1\n" +
-			"fi\n" +
-			"POLKA_SESSION_SCRIPT=$(\"$POLKA_SESSION_DISPATCHER\" --root \"$POLKA_SESSION_ROOT\" session " + sessionVerbForFile(name) + ") || {\n" +
-			"  unset POLKA_SESSION_ROOT POLKA_SESSION_DISPATCHER POLKA_SESSION_SCRIPT\n" +
-			"  return 1 2>/dev/null || exit 1\n" +
-			"}\n" +
-			"if [ -z \"$POLKA_SESSION_SCRIPT\" ]; then\n" +
-			"  printf '%s\\n' 'Polka session command did not return a script path.' >&2\n" +
-			"  unset POLKA_SESSION_ROOT POLKA_SESSION_DISPATCHER POLKA_SESSION_SCRIPT\n" +
-			"  return 1 2>/dev/null || exit 1\n" +
-			"fi\n" +
-			". \"$POLKA_SESSION_SCRIPT\"\n" +
-			"unset POLKA_SESSION_ROOT POLKA_SESSION_DISPATCHER POLKA_SESSION_SCRIPT\n",
-	}
-}
-
-func powerShellSessionScript(rootDir, name string) installedBinary {
-	dispatcherPath := filepath.Join(rootDir, binDirectoryName, dispatcherBatchFileName)
-	return installedBinary{
-		Name: name + powerShellExtension,
-		Mode: 0o755,
-		Contents: "$PolkaSessionRoot = " + powerShellLiteral(rootDir) + "\r\n" +
-			"$PolkaSessionDispatcher = " + powerShellLiteral(dispatcherPath) + "\r\n" +
-			"if (-not (Test-Path -LiteralPath $PolkaSessionDispatcher)) {\r\n" +
-			"  Write-Error 'Polka dispatcher shim not found in .polka\\bin. Re-run polka init.'\r\n" +
-			"  return\r\n" +
-			"}\r\n" +
-			"$PolkaSessionScript = & $PolkaSessionDispatcher --root $PolkaSessionRoot session " + sessionVerbForFile(name) + "\r\n" +
-			"if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($PolkaSessionScript)) {\r\n" +
-			"  if ([string]::IsNullOrWhiteSpace($PolkaSessionScript)) {\r\n" +
-			"    Write-Error 'Polka session command did not return a script path.'\r\n" +
-			"  }\r\n" +
-			"  Remove-Variable PolkaSessionRoot, PolkaSessionDispatcher, PolkaSessionScript -ErrorAction SilentlyContinue\r\n" +
-			"  return\r\n" +
-			"}\r\n" +
-			". ($PolkaSessionScript | Select-Object -First 1).Trim()\r\n" +
-			"Remove-Variable PolkaSessionRoot, PolkaSessionDispatcher, PolkaSessionScript -ErrorAction SilentlyContinue\r\n",
-	}
-}
-
-func sessionVerbForFile(name string) string {
-	if name == sessionStopFileName {
-		return "stop"
-	}
-
-	return "start"
 }
 
 func shellDispatcherBinary(selfPath string) installedBinary {
@@ -2248,10 +2159,6 @@ func windowsDispatchBinary(tool string) installedBinary {
 
 func shellLiteral(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
-}
-
-func powerShellLiteral(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
 
 func escapeWindowsBatchValue(value string) string {
