@@ -95,7 +95,9 @@ The `mailpit` tool key installs Mailpit and creates a `mailpit` command shim. It
 
 The `meilisearch` tool key installs Meilisearch and creates a `meilisearch` command shim. Its HTTP port and optional local master key live under `settings.meilisearch`; Polka stores only a runtime fingerprint of the master key and does not print it in status output.
 
-The `traefik` tool key installs the [Traefik](https://traefik.io/) reverse proxy and creates a `traefik` command shim. Polka runs it as a managed background service, launched entirely from command-line flags: a single API/dashboard entrypoint on `settings.traefik.port` (default `8080`) plus a file provider that watches `.polka/run/traefik/<environment>/dynamic` so you can add your own routing rules. The dashboard is reachable at `http://127.0.0.1:<port>`.
+The `traefik` tool key installs the [Traefik](https://traefik.io/) reverse proxy and creates a `traefik` command shim. Polka runs it as a managed background service that **fronts the environment webserver**: when `tools.traefik` is installed, `polka serve` starts Traefik on a `web` entrypoint at `settings.traefik.port` (default `8080`) and points it at whatever webserver the environment serves (php, nginx, apache, or frankenphp). Traefik uses a file provider that watches `.polka/run/traefik/<environment>/dynamic`; once the webserver address is known, Polka writes the routing rules there (`polka.yml`) and Traefik hot-reloads them, so the site is reachable through Traefik at `<scheme>://<hostname>:<port>` in addition to the webserver's own address.
+
+When the environment enables `https`, Traefik terminates TLS at its entrypoint with Polka's local certificate (the same local CA used by the other webservers), so the proxy URL is `https://<hostname>:<port>` and is trusted once the CA is installed; the private key is materialized under `.polka/run/traefik/<environment>/`, and the upstream connection to the webserver skips certificate verification for the local self-signed certificate. If `tools.traefik` is configured but not installed, `polka serve` proceeds without the proxy.
 
 ## Internal Tools
 

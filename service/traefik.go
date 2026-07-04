@@ -20,6 +20,8 @@ const (
 	managedTraefikStateDirectory    = "run"
 	managedTraefikStateSubdirectory = "traefik"
 	managedTraefikConfigSubdirName  = "dynamic"
+	managedTraefikDynamicFileName   = "polka.yml"
+	traefikWebEntrypoint            = "web"
 	managedTraefikLogFileName       = "traefik.log"
 	managedTraefikPollInterval      = 100 * time.Millisecond
 	managedTraefikStartupTimeout    = 10 * time.Second
@@ -188,14 +190,13 @@ func StartTraefikServer(spec TraefikServerSpec) (TraefikStartResult, error) {
 }
 
 // TraefikServerArgs builds the CLI flags that configure Traefik entirely from
-// the command line: a single API/dashboard entrypoint on the managed port plus
-// a file provider watching the project-local dynamic config directory.
+// the command line: a single `web` entrypoint on the managed port that fronts
+// the environment webserver, plus a file provider watching the project-local
+// dynamic config directory. Polka writes the routing rules into that directory
+// once the webserver address is known, and Traefik hot-reloads them.
 func TraefikServerArgs(spec TraefikServerSpec) []string {
 	args := []string{
-		"--entrypoints.traefik.address=" + TraefikAddress(spec.Port),
-		"--api.dashboard=true",
-		"--api.insecure=true",
-		"--ping=true",
+		"--entrypoints." + traefikWebEntrypoint + ".address=" + TraefikAddress(spec.Port),
 	}
 	if strings.TrimSpace(spec.ConfigDir) != "" {
 		args = append(args,
@@ -205,6 +206,94 @@ func TraefikServerArgs(spec TraefikServerSpec) []string {
 	}
 
 	return args
+}
+
+// TraefikTLSConfig points Traefik at a certificate/key pair so its web
+// entrypoint can terminate TLS. Both paths must be readable PEM files.
+type TraefikTLSConfig struct {
+	CertificatePath string
+	KeyPath         string
+}
+
+// WriteTraefikDynamicConfig writes the managed dynamic config that routes the
+// Traefik web entrypoint to the environment webserver at upstreamURL. When the
+// upstream terminates TLS with Polka's local certificate, insecureBackend skips
+// verification so the self-signed certificate is accepted. When tls is non-nil,
+// the web entrypoint terminates TLS with the supplied certificate.
+func WriteTraefikDynamicConfig(rootDir, environmentName, upstreamURL string, insecureBackend bool, tls *TraefikTLSConfig) error {
+	dir := TraefikConfigDir(rootDir, environmentName)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create traefik config directory: %w", err)
+	}
+	path := filepath.Join(dir, managedTraefikDynamicFileName)
+	data := RenderTraefikDynamicConfig(TraefikRouterName(environmentName), upstreamURL, insecureBackend, tls)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("write traefik dynamic config %s: %w", path, err)
+	}
+
+	return nil
+}
+
+// RenderTraefikDynamicConfig renders a Traefik file-provider document that routes
+// every request on the web entrypoint to a single upstream webserver, optionally
+// terminating TLS with the supplied certificate.
+func RenderTraefikDynamicConfig(routerName, upstreamURL string, insecureBackend bool, tls *TraefikTLSConfig) []byte {
+	var b strings.Builder
+	b.WriteString("# Managed by Polka. Routes the Traefik web entrypoint to the environment webserver.\n")
+	b.WriteString("http:\n")
+	b.WriteString("  routers:\n")
+	b.WriteString("    " + routerName + ":\n")
+	b.WriteString("      rule: \"PathPrefix(`/`)\"\n")
+	b.WriteString("      entryPoints:\n")
+	b.WriteString("        - " + traefikWebEntrypoint + "\n")
+	b.WriteString("      service: " + routerName + "\n")
+	if tls != nil {
+		b.WriteString("      tls: {}\n")
+	}
+	b.WriteString("  services:\n")
+	b.WriteString("    " + routerName + ":\n")
+	b.WriteString("      loadBalancer:\n")
+	b.WriteString("        servers:\n")
+	b.WriteString("          - url: \"" + upstreamURL + "\"\n")
+	if insecureBackend {
+		b.WriteString("        serversTransport: " + routerName + "\n")
+		b.WriteString("  serversTransports:\n")
+		b.WriteString("    " + routerName + ":\n")
+		b.WriteString("      insecureSkipVerify: true\n")
+	}
+	if tls != nil {
+		b.WriteString("tls:\n")
+		b.WriteString("  certificates:\n")
+		b.WriteString("    - certFile: \"" + filepath.ToSlash(tls.CertificatePath) + "\"\n")
+		b.WriteString("      keyFile: \"" + filepath.ToSlash(tls.KeyPath) + "\"\n")
+	}
+
+	return []byte(b.String())
+}
+
+// TraefikDynamicConfigPath returns the managed dynamic config file path.
+func TraefikDynamicConfigPath(rootDir, environmentName string) string {
+	return filepath.Join(TraefikConfigDir(rootDir, environmentName), managedTraefikDynamicFileName)
+}
+
+// TraefikRouterName derives a Traefik-safe router/service name for an environment.
+func TraefikRouterName(environmentName string) string {
+	name := strings.TrimSpace(environmentName)
+	if name == "" {
+		name = "default"
+	}
+	var b strings.Builder
+	b.WriteString("polka-")
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('-')
+		}
+	}
+
+	return b.String()
 }
 
 func StopTraefikRuntime(state TraefikRuntimeState) error {
@@ -322,8 +411,15 @@ func TraefikStatePath(rootDir, environmentName string) string {
 	return filepath.Join(rootDir, managedTraefikStateDirectory, managedTraefikStateSubdirectory, environmentName+".json")
 }
 
+// TraefikRuntimeDir is the per-environment runtime directory that holds Traefik's
+// dynamic config directory and materialized TLS key. It is not itself watched by
+// the file provider, so non-config assets such as the private key live here.
+func TraefikRuntimeDir(rootDir, environmentName string) string {
+	return filepath.Join(rootDir, managedTraefikStateDirectory, managedTraefikStateSubdirectory, environmentName)
+}
+
 func TraefikConfigDir(rootDir, environmentName string) string {
-	return filepath.Join(rootDir, managedTraefikStateDirectory, managedTraefikStateSubdirectory, environmentName, managedTraefikConfigSubdirName)
+	return filepath.Join(TraefikRuntimeDir(rootDir, environmentName), managedTraefikConfigSubdirName)
 }
 
 func TraefikLogPath(rootDir, environmentName string) string {
