@@ -341,6 +341,20 @@ func skipBuiltInPHPExtensions(extensions map[string]bool, builtInExtensions map[
 	return filtered
 }
 
+// zendPHPExtensions lists module names that are Zend extensions and must be
+// loaded with a zend_extension directive: PHP refuses to load them through a
+// plain extension line (and vice versa for regular extensions). Extend this
+// set when supporting more PIE-installable Zend extensions.
+var zendPHPExtensions = map[string]bool{
+	"opcache": true,
+	"xdebug":  true,
+}
+
+// isZendPHPExtension reports whether the module loads via zend_extension.
+func isZendPHPExtension(name string) bool {
+	return zendPHPExtensions[strings.ToLower(strings.TrimSpace(name))]
+}
+
 func renderPHPConfig(extensionDir string, phpConfig PHPInstallConfig) ([]byte, error) {
 	names := make([]string, 0, len(phpConfig.Extensions))
 	for name := range phpConfig.Extensions {
@@ -396,7 +410,7 @@ func renderPHPConfig(extensionDir string, phpConfig PHPInstallConfig) ([]byte, e
 		builder.WriteString("\"\n")
 	}
 	for _, name := range names {
-		if strings.EqualFold(name, "opcache") {
+		if isZendPHPExtension(name) {
 			if phpConfig.Extensions[name] {
 				builder.WriteString("zend_extension=")
 			} else {

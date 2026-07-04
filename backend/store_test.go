@@ -664,7 +664,7 @@ func TestStoreInstallToolConfiguresPHPZTSInItsOwnLayout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile(%s) error = %v", phpIniPath, err)
 	}
-	if !strings.Contains(string(phpIni), ";extension=xdebug") {
+	if !strings.Contains(string(phpIni), ";zend_extension=xdebug") {
 		t.Fatalf("php.ini = %q, want ZTS extension configuration", phpIni)
 	}
 	if !strings.Contains(phpIniPath, filepath.Join("php-zts", "8.4")) {
@@ -734,8 +734,8 @@ func TestStoreInstallToolAppliesEnvironmentPostInstallSettings(t *testing.T) {
 	if !strings.Contains(phpIni, "curl.cainfo=") || !strings.Contains(phpIni, "openssl.cafile=") {
 		t.Fatalf("php.ini = %q, want TLS CA bundle directives", phpIni)
 	}
-	if !strings.Contains(phpIni, ";extension=xdebug") {
-		t.Fatalf("php.ini = %q, want disabled xdebug extension", phpIni)
+	if !strings.Contains(phpIni, ";zend_extension=xdebug") {
+		t.Fatalf("php.ini = %q, want disabled xdebug zend_extension", phpIni)
 	}
 	loadedConfig, err := store.readConfig()
 	if err != nil {
@@ -783,7 +783,7 @@ func TestStoreInstallToolSkipsBuiltInPHPExtensions(t *testing.T) {
 			t.Fatalf("php.ini = %q, want built-in %s skipped", phpIni, skipped)
 		}
 	}
-	if !strings.Contains(phpIni, ";extension=xdebug") {
+	if !strings.Contains(phpIni, ";zend_extension=xdebug") {
 		t.Fatalf("php.ini = %q, want non-built-in disabled extension kept", phpIni)
 	}
 }
@@ -912,7 +912,7 @@ func TestStoreInstallFrameworkPHPExtensionsHonorUserOverrides(t *testing.T) {
 		t.Fatalf("ReadFile(installed php.ini) error = %v", err)
 	}
 	phpIni := string(phpIniData)
-	for _, want := range []string{";extension=gd", "extension=mbstring", "extension=xdebug"} {
+	for _, want := range []string{";extension=gd", "extension=mbstring", "zend_extension=xdebug"} {
 		if !strings.Contains(phpIni, want) {
 			t.Fatalf("php.ini = %q, want merged extension entry %s", phpIni, want)
 		}
@@ -2023,10 +2023,10 @@ func TestStoreInstallWritesPHPExtensionConfig(t *testing.T) {
 	if !strings.Contains(phpIni, "extension=openssl") {
 		t.Fatalf("php.ini = %q, want enabled openssl extension", phpIni)
 	}
-	if !strings.Contains(phpIni, ";extension=xdebug") {
-		t.Fatalf("php.ini = %q, want disabled xdebug extension", phpIni)
+	if !strings.Contains(phpIni, ";zend_extension=xdebug") {
+		t.Fatalf("php.ini = %q, want disabled xdebug zend_extension", phpIni)
 	}
-	if strings.Index(phpIni, "extension=openssl") > strings.Index(phpIni, ";extension=xdebug") {
+	if strings.Index(phpIni, "extension=openssl") > strings.Index(phpIni, ";zend_extension=xdebug") {
 		t.Fatalf("php.ini = %q, want sorted extension entries", phpIni)
 	}
 	if strings.Contains(phpIni, " OpenSSL ") {

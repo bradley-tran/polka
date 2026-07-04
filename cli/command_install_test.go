@@ -104,13 +104,14 @@ func TestRunInstallProvisionsPIEExtensions(t *testing.T) {
 		t.Fatalf("php invocations = %q, want exactly one PIE install, got %d", invocations, count)
 	}
 
-	// The generated php.ini loads the PIE-managed module.
+	// The generated php.ini loads the PIE-managed module; xdebug is a Zend
+	// extension and must load via zend_extension.
 	phpIni, err := os.ReadFile(projectInstalledPHPConfigPath(root, "8.4"))
 	if err != nil {
 		t.Fatalf("ReadFile(php.ini) error = %v", err)
 	}
-	if !strings.Contains(string(phpIni), "extension=xdebug") {
-		t.Fatalf("php.ini = %q, want extension=xdebug", string(phpIni))
+	if !strings.Contains(string(phpIni), "zend_extension=xdebug") {
+		t.Fatalf("php.ini = %q, want zend_extension=xdebug", string(phpIni))
 	}
 }
 

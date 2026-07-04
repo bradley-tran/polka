@@ -1254,8 +1254,8 @@ func TestRunInstallAppliesPHPExtensionsFromConfigFile(t *testing.T) {
 	if !strings.Contains(phpIni, "curl.cainfo=") || !strings.Contains(phpIni, "openssl.cafile=") {
 		t.Fatalf("php.ini = %q, want TLS CA bundle directives", phpIni)
 	}
-	if !strings.Contains(phpIni, ";extension=xdebug") {
-		t.Fatalf("php.ini = %q, want disabled xdebug extension", phpIni)
+	if !strings.Contains(phpIni, ";zend_extension=xdebug") {
+		t.Fatalf("php.ini = %q, want disabled xdebug zend_extension", phpIni)
 	}
 	if !strings.Contains(stdout.String(), "Installed 'demo' environment") {
 		t.Fatalf("Run(install) stdout = %q, want install summary", stdout.String())
