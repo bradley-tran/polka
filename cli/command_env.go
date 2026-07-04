@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -13,9 +14,9 @@ import (
 
 const (
 	defaultEnvironmentName    = "default"
-	defaultNewPHPVersion      = "8.4"
-	defaultNewComposerVersion = "2.8"
-	defaultNewNodeJSVersion   = "24"
+	defaultNewPHPVersion      = backend.DefaultPHPVersion
+	defaultNewComposerVersion = backend.DefaultComposerVersion
+	defaultNewNodeJSVersion   = backend.DefaultNodeJSVersion
 )
 
 func newInitCommand(ctx *commandContext) *cobra.Command {
@@ -285,6 +286,15 @@ func runInstall(stdout, stderr io.Writer, store backend.Store, input installComm
 	for _, req := range requests {
 		spinner.Register(req.Tool, req.Version)
 	}
+	if input.Tool == "" {
+		// Pre-register PIE-managed extension entries so their provisioning
+		// progress renders; a lookup failure surfaces from the install below.
+		if environment, envErr := environmentByName(store, input.Name); envErr == nil {
+			for _, pkg := range sortedPIEExtensionPackages(environment) {
+				spinner.Register(pkg, environment.PIEExtensions[pkg])
+			}
+		}
+	}
 	spinner.printInitialLines()
 	spinner.Start()
 
@@ -435,6 +445,18 @@ func runUse(stdout, stderr io.Writer, store backend.Store, name string) error {
 }
 
 // environmentByName returns a normalized environment after a command mutates it.
+// sortedPIEExtensionPackages returns the environment's PIE-managed extension
+// packages in stable order for progress display registration.
+func sortedPIEExtensionPackages(environment backend.Environment) []string {
+	packages := make([]string, 0, len(environment.PIEExtensions))
+	for pkg := range environment.PIEExtensions {
+		packages = append(packages, pkg)
+	}
+	sort.Strings(packages)
+
+	return packages
+}
+
 func environmentByName(store backend.Store, name string) (backend.Environment, error) {
 	environments, err := store.List()
 	if err != nil {

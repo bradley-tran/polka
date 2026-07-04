@@ -1,10 +1,9 @@
 id: pie
+internal-only: true
 install-candidates:
   all:
     - bin/pie.phar
     - pie.phar
-dispatch-commands:
-  - pie
 download:
   github:
     owner: php

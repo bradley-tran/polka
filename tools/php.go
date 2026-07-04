@@ -89,6 +89,14 @@ func phpRuntimePlugin(tool string, threadSafe bool) Plugin {
 			if err := config.ValidatePHPMemoryLimit(environment.MemoryLimit); err != nil {
 				return err
 			}
+			for pkg, version := range environment.PIEExtensions {
+				if err := config.ValidatePIEExtensionPackage(pkg); err != nil {
+					return err
+				}
+				if err := config.ValidatePIEExtensionVersion(pkg, version); err != nil {
+					return err
+				}
+			}
 
 			return nil
 		},
@@ -96,25 +104,45 @@ func phpRuntimePlugin(tool string, threadSafe bool) Plugin {
 			return downloadPHP(ctx.Client, ctx.CacheDir, tool, ctx.Version, threadSafe)
 		},
 		postInstall: func(ctx InstallContext) error {
-			if _, err := ensureInstalledPHPOpenSSLConfig(ctx.EnvsDir, ctx.Result.Tool, ctx.Result.Version); err != nil {
-				return err
-			}
-
-			phpConfig := EffectivePHPConfigForInstall(ctx.Environment)
-			if phpConfigNeedsCABundle(phpConfig) {
-				caBundlePath, err := ensureInstalledPHPCABundle(ctx.EnvsDir, ctx.Result.Tool, ctx.Result.Version)
-				if err != nil {
-					return err
-				}
-				phpConfig.CABundlePath = caBundlePath
-			}
-			if phpConfig.IsZero() {
-				return nil
-			}
-
-			return configureInstalledPHPConfigForTool(ctx.EnvsDir, ctx.Result.Tool, ctx.Result.Version, phpConfig)
+			return SyncInstalledPHPRuntimeConfig(ctx.EnvsDir, ctx.Result.Tool, ctx.Result.Version, ctx.Environment)
 		},
 	})
+}
+
+// SyncInstalledPHPRuntimeConfig regenerates the php.ini and supporting
+// OpenSSL/CA-bundle assets for an installed PHP runtime from the effective
+// environment config. An empty effective config skips the write: fresh
+// installs stay ini-less. Use ResyncInstalledPHPRuntimeConfig after config
+// changes that may shrink to empty.
+func SyncInstalledPHPRuntimeConfig(envsDir, tool, version string, environment config.Environment) error {
+	return syncInstalledPHPRuntimeConfig(envsDir, tool, version, environment, false)
+}
+
+// ResyncInstalledPHPRuntimeConfig rewrites the generated php.ini even when
+// the effective config is empty so removed extensions and directives
+// disappear from a previously generated file.
+func ResyncInstalledPHPRuntimeConfig(envsDir, tool, version string, environment config.Environment) error {
+	return syncInstalledPHPRuntimeConfig(envsDir, tool, version, environment, true)
+}
+
+func syncInstalledPHPRuntimeConfig(envsDir, tool, version string, environment config.Environment, force bool) error {
+	if _, err := ensureInstalledPHPOpenSSLConfig(envsDir, tool, version); err != nil {
+		return err
+	}
+
+	phpConfig := EffectivePHPConfigForInstall(environment)
+	if phpConfigNeedsCABundle(phpConfig) {
+		caBundlePath, err := ensureInstalledPHPCABundle(envsDir, tool, version)
+		if err != nil {
+			return err
+		}
+		phpConfig.CABundlePath = caBundlePath
+	}
+	if phpConfig.IsZero() && !force {
+		return nil
+	}
+
+	return writeInstalledPHPConfigForTool(envsDir, tool, version, phpConfig)
 }
 
 func pluginPHPVersion(tool string, environment config.Environment) string {

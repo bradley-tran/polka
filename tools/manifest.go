@@ -24,6 +24,7 @@ type pluginHooks struct {
 
 type pluginManifest struct {
 	ID                 string                           `yaml:"id"`
+	InternalOnly       bool                             `yaml:"internal-only"`
 	PHPExtensions      []string                         `yaml:"php-extensions"`
 	InstallCandidates  manifestPlatformPaths            `yaml:"install-candidates"`
 	DispatchCommands   []string                         `yaml:"dispatch-commands"`
@@ -120,6 +121,13 @@ func (m pluginManifest) validate() error {
 	}
 	if len(m.InstallCandidates) == 0 {
 		return fmt.Errorf("tool manifest %q requires install-candidates", id)
+	}
+	if m.InternalOnly {
+		// Internal-only tools are never exposed through shims or dispatch, so
+		// command declarations would silently do nothing; reject them early.
+		if len(m.DispatchCommands) > 0 || len(m.ActiveCommands) > 0 || len(m.CleanupCommands) > 0 || len(m.DispatchCandidates) > 0 {
+			return fmt.Errorf("tool manifest %q is internal-only and cannot define dispatch, active, or cleanup commands", id)
+		}
 	}
 	if err := validateManifestPlatformPaths(id, "install-candidates", m.InstallCandidates); err != nil {
 		return err
@@ -287,11 +295,26 @@ func (m pluginManifest) toPlugin(hooks pluginHooks) (Plugin, error) {
 		}
 	}
 
+	// rawVersion resolves the tool version from an environment's tools config;
+	// internal installs use it against the reserved _internal environment even
+	// when the public Version func below is neutralized for internal-only tools.
+	rawVersion := manifestVersionFunc(m)
+	version := rawVersion
+	validate := hooks.validate
+	if m.InternalOnly {
+		// Internal-only tools must never appear in project installs, shims, or
+		// PHP extension unions, so their configured version reads as empty.
+		version = func(config.Environment) string { return "" }
+		validate = internalOnlyValidateFunc(manifestID, rawVersion, hooks.validate)
+	}
+
 	return builtinPlugin{
 		id:                 manifestID,
-		version:            manifestVersionFunc(m),
+		version:            version,
+		internalOnly:       m.InternalOnly,
+		internalVersion:    rawVersion,
 		phpExtensions:      manifestPHPExtensionMap(m.PHPExtensions),
-		validate:           hooks.validate,
+		validate:           validate,
 		installCandidates:  manifestInstallCandidatesFunc(m),
 		dispatchCommands:   normalizeCommands(m.DispatchCommands),
 		cleanupCommands:    normalizeCommands(m.CleanupCommands),
@@ -301,6 +324,21 @@ func (m pluginManifest) toPlugin(hooks pluginHooks) (Plugin, error) {
 		download:           download,
 		postInstall:        hooks.postInstall,
 	}, nil
+}
+
+// internalOnlyValidateFunc rejects project configs that pin a version for an
+// internal-only tool, pointing users at the polka-managed alternative.
+func internalOnlyValidateFunc(id string, rawVersion func(config.Environment) string, next func(config.Environment) error) func(config.Environment) error {
+	return func(environment config.Environment) error {
+		if strings.TrimSpace(rawVersion(environment)) != "" {
+			return fmt.Errorf("%s is managed internally by polka and cannot be configured in a project environment", id)
+		}
+		if next != nil {
+			return next(environment)
+		}
+
+		return nil
+	}
 }
 
 func manifestVersionFunc(m pluginManifest) func(config.Environment) string {

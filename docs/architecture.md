@@ -109,6 +109,18 @@ For an explicit `tool:version`, the new version is written to the environment co
 
 The global cache and project-local install layouts are intentionally separate. The cache stores reusable downloaded payloads under per-tool metadata; `.polka/envs` stores project-local installs selected by the active environment config, alongside the `installed.json` install state (deleting `.polka/envs` resets both together). For user-facing managed tool behavior, command shims, PHP runtime generation, and platform support, see [tools.md](tools.md).
 
+After the tool installs, `backend.Store` provisions any PIE-managed `vendor/name` entries under `php-extensions` that the environment's installed PHP does not yet load, by running the internal PIE against the project PHP (`--with-php-path`, `--skip-enable-extension`). The generated `php.ini` loads those modules, so fresh checkouts reproduce PIE-managed extensions.
+
+## Internal Tools
+
+Internal tools are consumed by Polka commands rather than exposed to projects. `backend/internal_tools.go` installs them through the same cache pipeline into a machine-global tools directory (`POLKA_TOOLS_DIR`, else `<POLKA_CACHE_DIR>/internal-tools`, else `<user cache dir>/polka/tools`), which acts as the `EnvsDir` of the reserved `_internal` environment:
+
+- `<tools dir>/polka._internal.yaml` records internal tool versions (seeded from the shared default tool versions, user-overridable).
+- `<tools dir>/installed.json` reuses the standard install state; `Store.EnsureInternalTool` skips work when the recorded install still resolves on disk, and serializes concurrent cross-project installs with a per-tool lock file.
+- Internal PHP installs run the php post-install hook with a synthetic environment enabling `curl`, `mbstring`, `openssl`, and `zip` so composer and PIE can reach registries over HTTPS.
+
+Manifests may declare `internal-only: true` (PIE in v1): such tools report no version for project environments, expose no dispatch or shim commands, and reject `tools.<id>` project config with a "managed internally" validation error. `polka create-project` uses internal PHP + composer to scaffold apps before any project config exists; `polka ext` and the install pipeline use internal PHP + PIE (`backend/pie.go`) to manage PHP extensions for project runtimes.
+
 ## Dispatch Flow
 
 Managed command shims in `.polka/bin` call back into Polka:
@@ -159,7 +171,7 @@ Avoid these dependencies:
 
 Plugin hooks receive `tools.InstallContext`, which contains layout paths and install results rather than a `backend.Store`. This keeps the tool package independent from backend orchestration.
 
-## Adding An Internal Tool
+## Adding A Managed Tool
 
 To add a new managed tool:
 

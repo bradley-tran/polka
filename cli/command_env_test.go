@@ -540,7 +540,7 @@ func TestRunConfigPersistsSchemaDotKeys(t *testing.T) {
 	if environment.MemoryLimit != "512M" {
 		t.Fatalf("memory-limit = %q, want 512M", environment.MemoryLimit)
 	}
-	if environment.PHPExtensions["xdebug"] {
+	if enabled, ok := environment.PHPExtensions["xdebug"].(bool); !ok || enabled {
 		t.Fatalf("php-extensions = %#v, want xdebug disabled", environment.PHPExtensions)
 	}
 	if environment.OPcacheConfig["opcache.enable_cli"] != "1" {
@@ -889,20 +889,19 @@ func TestRunConfigPersistsNodeJSSetting(t *testing.T) {
 	}
 }
 
-func TestRunConfigPersistsPIESetting(t *testing.T) {
+// TestRunConfigRejectsPIESetting verifies tools.pie cannot be configured:
+// PIE is internal-only and driven through polka ext.
+func TestRunConfigRejectsPIESetting(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.pie", "1.4")
-
-	environment := readTestEnvironmentConfig(t, projectDir, "demo")
-	if environment.PIE != "1.4" {
-		t.Fatalf("environment = %#v, want pie configured for demo", environment)
+	if code := Run(stdout, stderr, []string{"--root", root, "config", "--env", "demo", "tools.pie", "1.4"}); code == 0 {
+		t.Fatalf("Run(config tools.pie) code = 0, want failure")
 	}
-	if !strings.Contains(stdout.String(), "tools.pie=1.4") {
-		t.Fatalf("Run(config) stdout = %q, want pie summary", stdout.String())
+	if !strings.Contains(stderr.String(), "managed internally") {
+		t.Fatalf("Run(config tools.pie) stderr = %q, want managed-internally message", stderr.String())
 	}
 }
 
@@ -1234,7 +1233,7 @@ func TestRunInstallAppliesPHPExtensionsFromConfigFile(t *testing.T) {
 	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.php", "8.4")
 
 	environment := readTestEnvironmentConfig(t, projectDir, "demo")
-	environment.PHPExtensions = map[string]bool{"openssl": true, "xdebug": false}
+	environment.PHPExtensions = map[string]any{"openssl": true, "xdebug": false}
 	writeTestEnvironmentConfig(t, projectDir, "demo", environment)
 
 	stdout.Reset()

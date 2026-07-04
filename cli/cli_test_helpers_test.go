@@ -48,7 +48,7 @@ type testEnvironmentConfig struct {
 	Database      *testDatabaseConfig    `yaml:"database,omitempty"`
 	Mailpit       *testMailpitConfig     `yaml:"mailpit,omitempty"`
 	MemoryLimit   string                 `yaml:"memory-limit,omitempty"`
-	PHPExtensions map[string]bool        `yaml:"php-extensions,omitempty"`
+	PHPExtensions map[string]any         `yaml:"php-extensions,omitempty"`
 	OPcachePreset string                 `yaml:"opcache-preset,omitempty"`
 	OPcacheConfig map[string]string      `yaml:"opcache-config,omitempty"`
 	Server        *testServerConfig      `yaml:"server,omitempty"`
@@ -137,7 +137,7 @@ type testProjectConfigData struct {
 	EnvVars       map[string]string   `yaml:"env-vars,omitempty"`
 	Database      *testDatabaseConfig `yaml:"database,omitempty"`
 	MemoryLimit   string              `yaml:"memory-limit,omitempty"`
-	PHPExtensions map[string]bool     `yaml:"php-extensions,omitempty"`
+	PHPExtensions map[string]any      `yaml:"php-extensions,omitempty"`
 	OPcachePreset string              `yaml:"opcache-preset,omitempty"`
 	OPcacheConfig map[string]string   `yaml:"opcache-config,omitempty"`
 	Server        *testServerConfig   `yaml:"server,omitempty"`
@@ -153,7 +153,7 @@ type testEnvironmentConfigData struct {
 	EnvVars       map[string]string   `yaml:"env-vars,omitempty"`
 	Database      *testDatabaseConfig `yaml:"database,omitempty"`
 	MemoryLimit   string              `yaml:"memory-limit,omitempty"`
-	PHPExtensions map[string]bool     `yaml:"php-extensions,omitempty"`
+	PHPExtensions map[string]any      `yaml:"php-extensions,omitempty"`
 	OPcachePreset string              `yaml:"opcache-preset,omitempty"`
 	OPcacheConfig map[string]string   `yaml:"opcache-config,omitempty"`
 	Server        *testServerConfig   `yaml:"server,omitempty"`
@@ -354,7 +354,7 @@ func testEnvironmentFromEnvironmentConfig(environmentConfig testEnvironmentConfi
 	return testEnvironmentFromParts(environmentConfig.Framework, environmentConfig.Tools, environmentConfig.Settings, environmentConfig.Docroot, environmentConfig.HTTPS, environmentConfig.EnvFile, environmentConfig.EnvVars, environmentConfig.Database, environmentConfig.MemoryLimit, environmentConfig.PHPExtensions, environmentConfig.OPcachePreset, environmentConfig.OPcacheConfig, environmentConfig.Server)
 }
 
-func testEnvironmentFromParts(framework string, tools *testToolsConfig, settings *testSettingsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *testDatabaseConfig, memoryLimit string, phpExtensions map[string]bool, opcachePreset string, opcacheConfig map[string]string, server *testServerConfig) testEnvironmentConfig {
+func testEnvironmentFromParts(framework string, tools *testToolsConfig, settings *testSettingsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *testDatabaseConfig, memoryLimit string, phpExtensions map[string]any, opcachePreset string, opcacheConfig map[string]string, server *testServerConfig) testEnvironmentConfig {
 	normalizedOPcachePreset := strings.ToLower(strings.TrimSpace(opcachePreset))
 	if normalizedOPcachePreset == "none" {
 		normalizedOPcachePreset = ""

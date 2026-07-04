@@ -36,7 +36,40 @@ func EffectivePHPConfigForInstall(environment config.Environment) PHPInstallConf
 }
 
 func EffectivePHPExtensionsForInstall(environment config.Environment) map[string]bool {
-	return config.NormalizePHPExtensions(environment.PHPExtensions)
+	extensions := config.NormalizePHPExtensions(environment.PHPExtensions)
+	if len(environment.PIEExtensions) == 0 {
+		return extensions
+	}
+
+	// Fold PIE-managed packages into the extension toggles so the generated
+	// php.ini loads their modules. An explicit bundled toggle for the same
+	// module wins, letting users disable a PIE-installed extension.
+	if extensions == nil {
+		extensions = map[string]bool{}
+	}
+	for pkg := range config.NormalizePIEExtensions(environment.PIEExtensions) {
+		module := PIEExtensionModuleName(pkg)
+		if module == "" {
+			continue
+		}
+		if _, exists := extensions[module]; !exists {
+			extensions[module] = true
+		}
+	}
+
+	return extensions
+}
+
+// PIEExtensionModuleName derives the loadable PHP module name from a
+// Composer-style vendor/name package: the name after the slash. Packages
+// whose module name differs from the package name are not supported yet.
+func PIEExtensionModuleName(pkg string) string {
+	name := strings.ToLower(strings.TrimSpace(pkg))
+	if index := strings.LastIndex(name, "/"); index >= 0 {
+		name = name[index+1:]
+	}
+
+	return name
 }
 
 func normalizeManifestPHPExtensions(extensions []string) []string {
@@ -94,6 +127,13 @@ func configureInstalledPHPConfigForTool(envsDir, tool, version string, phpConfig
 		return nil
 	}
 
+	return writeInstalledPHPConfigForTool(envsDir, tool, version, phpConfig)
+}
+
+// writeInstalledPHPConfigForTool renders and writes the generated php.ini
+// unconditionally, even for an empty effective config, so shrinking the
+// config clears previously generated directives.
+func writeInstalledPHPConfigForTool(envsDir, tool, version string, phpConfig PHPInstallConfig) error {
 	phpPath, err := resolveInstalledTool(NewDefaultRegistry(), envsDir, tool, version)
 	if err != nil {
 		return err
@@ -142,9 +182,33 @@ func renderPHPExtensionConfig(extensionDir string, extensions map[string]bool) (
 
 // installedPHPBuiltInExtensions asks PHP for modules available without php.ini.
 func installedPHPBuiltInExtensions(phpPath string) (map[string]bool, error) {
-	command, err := preparePHPCommand(phpPath, []string{"-nm"})
+	return listPHPModules(phpPath, []string{"-nm"}, nil, "list built-in PHP extensions")
+}
+
+// InstalledPHPModules asks PHP which modules it currently loads, applying the
+// generated php.ini beside the binary so PIE-provisioned extensions are
+// detected on every platform (Linux PHP does not search the executable's
+// directory for php.ini).
+func InstalledPHPModules(phpPath string) (map[string]bool, error) {
+	var env []string
+	iniPath := filepath.Join(filepath.Dir(phpPath), "php.ini")
+	if info, err := os.Stat(iniPath); err == nil && !info.IsDir() {
+		env = append(os.Environ(), "PHPRC="+iniPath)
+	}
+
+	return listPHPModules(phpPath, []string{"-m"}, env, "list installed PHP modules")
+}
+
+// listPHPModules runs php with the given module-listing arguments and parses
+// the output. Startup warnings about missing extension binaries land on
+// stderr and do not fail the listing.
+func listPHPModules(phpPath string, args, env []string, label string) (map[string]bool, error) {
+	command, err := preparePHPCommand(phpPath, args)
 	if err != nil {
 		return nil, err
+	}
+	if env != nil {
+		command.Env = env
 	}
 
 	var stderr bytes.Buffer
@@ -153,9 +217,9 @@ func installedPHPBuiltInExtensions(phpPath string) (map[string]bool, error) {
 	if err != nil {
 		detail := strings.TrimSpace(stderr.String())
 		if detail != "" {
-			return nil, fmt.Errorf("list built-in PHP extensions: %w: %s", err, detail)
+			return nil, fmt.Errorf("%s: %w: %s", label, err, detail)
 		}
-		return nil, fmt.Errorf("list built-in PHP extensions: %w", err)
+		return nil, fmt.Errorf("%s: %w", label, err)
 	}
 
 	return parsePHPModuleList(output), nil

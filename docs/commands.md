@@ -47,6 +47,18 @@ polka new reporting --db-engine postgresql --db-version 17 --db-port 5432
 
 When tool flags are omitted, Polka currently defaults to `php=8.4`, `composer=2.8`, and `nodejs=24`. Database settings require `--db-engine` and `--db-version` together. `--db-port` is optional.
 
+### `polka create-project <package> [directory] [composer-args...]`
+
+Scaffolds a new application with Polka's internal composer, then initializes Polka in the created directory.
+
+```bash
+polka create-project laravel/laravel demo
+polka create-project cakephp/app
+polka create-project symfony/skeleton api --stability=beta
+```
+
+Polka provisions an internal PHP runtime and composer into the global tools directory on first use; they are implementation details and never appear in project config. Remaining arguments pass through to `composer create-project` unchanged. After scaffolding, Polka detects the framework from the package name or scaffolded marker files, writes the matching `polka.yaml` preset (or a plain default config when nothing is detected), and runs the same post-Composer framework hooks as a dispatched `composer create-project`. Run `polka install` inside the new directory to provision its tools.
+
 ### `polka config [--env name] <key> <value>`
 
 Creates or updates one environment config value. The default environment is stored in `polka.yaml`; named environments are stored in `polka.<name>.yaml`.
@@ -68,7 +80,7 @@ polka config --env blog tools.meilisearch 1.48
 polka config --env blog settings.meilisearch.port 7700
 ```
 
-Use `--env name` to select a named environment. When `--env` is omitted, Polka updates the current environment, falling back to `default` when no local override is selected. Supported keys are schema-aware dot paths such as `tools.php`, `tools.php-zts`, `tools.frankenphp`, `tools.apache`, `tools.pie`, `tools.meilisearch`, `settings.meilisearch.port`, `settings.meilisearch.master-key`, `database.port`, `server.type`, `server.hostname`, `env-vars.APP_ENV`, `memory-limit`, `php-extensions.xdebug`, and `opcache-config.opcache.enable_cli`. `tools.php` and `tools.php-zts` are mutually exclusive; setting one switches the primary runtime and both expose the standard `php` command. `server.type` accepts `php`, `nginx`, `apache`, or `frankenphp`.
+Use `--env name` to select a named environment. When `--env` is omitted, Polka updates the current environment, falling back to `default` when no local override is selected. Supported keys are schema-aware dot paths such as `tools.php`, `tools.php-zts`, `tools.frankenphp`, `tools.apache`, `tools.meilisearch`, `settings.meilisearch.port`, `settings.meilisearch.master-key`, `database.port`, `server.type`, `server.hostname`, `env-vars.APP_ENV`, `memory-limit`, `php-extensions.xdebug`, and `opcache-config.opcache.enable_cli`. `tools.php` and `tools.php-zts` are mutually exclusive; setting one switches the primary runtime and both expose the standard `php` command. `server.type` accepts `php`, `nginx`, `apache`, or `frankenphp`. `tools.pie` is rejected: PIE is managed internally by Polka and driven through `polka ext`. `php-extensions.<vendor>/<name>` keys hold PIE version constraints instead of booleans.
 
 ### `polka install [tool:version] [--env name]`
 
@@ -86,6 +98,20 @@ polka install --env blog
 Use `--env name` to select a named environment. When `--env` is omitted, Polka installs against the current environment and prints which one it selected. If no current environment is selected, Polka uses `default` from `polka.yaml`.
 
 For managed tool installation, command shims, PHP runtime generation, and platform support details, see [tools.md](tools.md).
+
+When the environment's `php-extensions` config contains PIE-managed `vendor/name` entries, `polka install` also provisions any of those extensions that the environment's installed PHP does not yet load, using Polka's internal PIE. Fresh checkouts therefore reproduce PIE-managed extensions.
+
+### `polka ext <install|remove> <vendor/name[:version]> [--env name]`
+
+Manages PHP extensions provided by PIE (the PHP Installer for Extensions) for an environment's installed PHP runtime.
+
+```bash
+polka ext install xdebug/xdebug
+polka ext install xdebug/xdebug:3.4.1
+polka ext remove xdebug/xdebug
+```
+
+`install` downloads or builds the extension against the environment's standalone `php`/`php-zts` install using Polka's internal PIE, records it under the `php-extensions` config key as `vendor/name: version`, and regenerates the runtime `php.ini`. When no version is given, Polka records the version PIE resolved, falling back to `*` (latest). `remove` uninstalls the extension and deletes its config entry. PIE requires a standalone PHP runtime; it cannot target FrankenPHP's embedded PHP.
 
 ### `polka list`
 
