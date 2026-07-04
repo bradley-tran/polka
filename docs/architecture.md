@@ -17,7 +17,7 @@ Polka is a Go CLI for managing project-local PHP development environments. The p
 
 ### `cli`
 
-The `cli` package owns command parsing, user-facing command output, and command-specific workflows. It uses Cobra to expose commands such as `init`, `new`, `install`, `serve`, `stop`, `exec`, `sh`, `session`, `db`, and `status`.
+The `cli` package owns command parsing, user-facing command output, and command-specific workflows. It uses Cobra to expose commands such as `init`, `new`, `install`, `serve`, `stop`, `exec`, `sh`, `db`, and `status`.
 
 The CLI should stay thin. It resolves flags and arguments, asks `backend.Store` for stateful operations, and handles process execution or runtime command flows where those are command-specific.
 
@@ -32,7 +32,6 @@ The `backend` package owns Polka project state and orchestration:
 - syncing dispatch shims for the active environment
 - resolving active tool executable paths
 - exposing project paths and active registry data used by command/runtime layers
-- managing shell/session state
 
 `backend.Store` is the main entry point for persistent project operations. It delegates tool-specific behavior to `tools.Registry` and `tools.Downloader`, and exposes the active tool registry for service runtime orchestration.
 
@@ -145,7 +144,7 @@ Runtime services are split between `service` and `cli`:
 - Traefik startup, shutdown, and status are in `service`, with CLI adapters for command output and test hooks.
 - phpMyAdmin startup, shutdown, status, and managed MySQL/MariaDB storage import are in `service`; CLI supplies the PHP/nginx/Apache/FrankenPHP web runtime callbacks.
 - Certificates remain CLI-managed assets and are passed to services through callback adapters.
-- Shell and session commands compose environment variables and `PATH` behavior around the active environment.
+- The shell command composes environment variables and `PATH` behavior around the active environment.
 
 The database tool plugins install and dispatch database clients, while database server lifecycle logic lives in `service`. PostgreSQL uses `initdb`, `postgres`, `createdb`, `pg_ctl`, `psql`, and `pg_dump`, with client authentication supplied through a project-local `.pgpass` file.
 

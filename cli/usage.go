@@ -23,7 +23,6 @@ Commands:
   stop                 stop the active environment's local web server and managed services
   exec <command>       run one command with the local shell environment
   sh, shell            open an interactive shell with local binaries first
-  session [start|stop] generate shell scripts that activate or deactivate local binaries
   logs <tool>          print active environment logs for one managed tool
   list                 list environments
   use <name>           select the active environment
@@ -58,7 +57,6 @@ Examples:
   polka serve
   polka exec php -v
   polka sh
-  polka session start
   polka logs nginx
   polka logs nginx --level error
   polka list
@@ -203,32 +201,6 @@ Open an interactive shell with command resolution in this order:
 On Windows, Polka launches PowerShell.
 When vendor/bin contains extensionless Composer PHP proxies or shell launchers with a matching .php source, Polka generates temporary .cmd wrappers for those commands on Windows and runs the PHP target under the local php CLI.
 On POSIX systems, Polka launches $SHELL when it is set, otherwise /bin/sh.
-`
-
-const sessionUsage = `Usage:
-  polka session start
-  polka session stop
-
-Generate scripts that activate or deactivate Polka's local binaries in the current shell.
-
-Preferred project-local wrappers:
-  PowerShell: . .\.polka\session-start.ps1
-  POSIX:      . ./.polka/session-start
-
-To deactivate the current shell session:
-  PowerShell: . .\.polka\session-stop.ps1
-  POSIX:      . ./.polka/session-stop
-
-Direct command form is still available:
-  PowerShell: . (polka session start)
-  POSIX:      . "$(polka session start)"
-
-session start uses the same command resolution order as polka sh:
-1. <root>/bin
-2. vendor/bin
-3. system PATH
-
-On Windows, session start also generates the same temporary vendor/bin .cmd wrappers as polka sh for extensionless Composer PHP proxies and shell launchers with a matching .php source.
 `
 
 const logsUsage = `Usage:
