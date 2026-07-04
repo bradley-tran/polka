@@ -117,7 +117,7 @@ Internal tools are consumed by Polka commands rather than exposed to projects. `
 
 - `<tools dir>/polka._internal.yaml` records internal tool versions (seeded from the shared default tool versions, user-overridable).
 - `<tools dir>/installed.json` reuses the standard install state; `Store.EnsureInternalTool` skips work when the recorded install still resolves on disk, and serializes concurrent cross-project installs with a per-tool lock file.
-- Internal PHP installs run the php post-install hook with a synthetic environment enabling `curl`, `mbstring`, `openssl`, and `zip` so composer and PIE can reach registries over HTTPS.
+- Internal PHP installs run the php post-install hook with a synthetic environment enabling a curated broad set of extensions (`tools.InternalPHPExtensions`) — filtered to those whose module file exists in the install's `ext/` directory, always including the TLS baseline (`curl`, `openssl`, `mbstring`, `zip`) — so composer create-project scaffolders and PIE cover most use cases and can reach registries over HTTPS.
 
 Manifests may declare `internal-only: true` (PIE in v1): such tools report no version for project environments, expose no dispatch or shim commands, and reject `tools.<id>` project config with a "managed internally" validation error. `polka create-project` uses internal PHP + composer to scaffold apps before any project config exists; `polka ext` and the install pipeline use internal PHP + PIE (`backend/pie.go`) to manage PHP extensions for project runtimes.
 

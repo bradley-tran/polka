@@ -60,6 +60,61 @@ func EffectivePHPExtensionsForInstall(environment config.Environment) map[string
 	return extensions
 }
 
+// broadInternalPHPExtensions is the curated set of extensions Polka enables on
+// the internally provisioned PHP runtime so composer create-project scaffolders
+// and PIE cover most use cases. It is availability-filtered against the install
+// before use, so listing an extension a given PHP build lacks is harmless. It
+// deliberately omits extensions that need external runtime libraries (oci8,
+// pdo_oci, pdo_firebird, snmp, imap, enchant), which would emit load warnings.
+var broadInternalPHPExtensions = []string{
+	// TLS + archives (baseline, also forced on below).
+	"curl", "openssl", "mbstring", "zip", "bz2",
+	// Common web/framework extensions.
+	"intl", "gd", "exif", "fileinfo", "ftp", "gettext",
+	"gmp", "bcmath", "iconv", "calendar", "soap", "sockets",
+	"sodium", "tidy", "xsl", "ldap",
+	// Database drivers.
+	"sqlite3", "pdo_sqlite", "mysqli", "pdo_mysql", "pgsql", "pdo_pgsql",
+}
+
+// internalPHPTLSBaseline are always enabled on the internal PHP so HTTPS works
+// and the CA-bundle configuration (phpConfigNeedsCABundle) still triggers, even
+// if a curated extension's module file is not found.
+var internalPHPTLSBaseline = []string{"curl", "openssl", "mbstring", "zip"}
+
+// InternalPHPExtensions returns the curated broad extension set for an
+// internally provisioned PHP runtime, filtered to those whose module file is
+// present in the install's extension directory. The TLS baseline is always
+// enabled. installDir is the tool install root (its ext/ holds the modules).
+func InternalPHPExtensions(installDir string) map[string]bool {
+	extensionDir := filepath.Join(installDir, "ext")
+	extensions := map[string]bool{}
+	for _, name := range broadInternalPHPExtensions {
+		if sharedPHPExtensionExists(extensionDir, name) {
+			extensions[name] = true
+		}
+	}
+	for _, name := range internalPHPTLSBaseline {
+		extensions[name] = true
+	}
+
+	return extensions
+}
+
+// sharedPHPExtensionExists reports whether a shared extension module file for
+// name exists in the extension directory. Windows uses php_<name>.dll; other
+// platforms use <name>.so. Built-in extensions have no such file and are
+// dropped here harmlessly, since renderPHPConfig omits them from output anyway.
+func sharedPHPExtensionExists(extensionDir, name string) bool {
+	fileName := name + ".so"
+	if runtime.GOOS == "windows" {
+		fileName = "php_" + name + ".dll"
+	}
+	info, err := os.Stat(filepath.Join(extensionDir, fileName))
+
+	return err == nil && !info.IsDir()
+}
+
 // PIEExtensionModuleName derives the loadable PHP module name from a
 // Composer-style vendor/name package: the name after the slash. Packages
 // whose module name differs from the package name are not supported yet.

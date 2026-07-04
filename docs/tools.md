@@ -100,7 +100,7 @@ Some tools are implementation details of Polka itself rather than project depend
 
 The reserved `_internal` environment tracks internal tool versions in `<tools dir>/polka._internal.yaml` (standard environment-file shape). Polka seeds it from the same default tool versions `polka new` uses on first use and users may edit the file to override internal tool versions. The name `_internal` starts with an underscore, which project environment names reject, so it can never collide.
 
-Any tool can be installed internally when a Polka command needs it: `polka create-project` provisions an internal PHP runtime and composer, and `polka ext` provisions internal PHP plus PIE. Tools whose manifest declares `internal-only: true` (only PIE in v1) additionally cannot be configured in project environments; `tools.pie` fails validation with a message pointing to `polka ext`.
+Any tool can be installed internally when a Polka command needs it: `polka create-project` provisions an internal PHP runtime and composer, and `polka ext` provisions internal PHP plus PIE. The internal PHP enables a curated broad set of common extensions (TLS, intl, gd, sodium, fileinfo, the PDO drivers, and more), filtered to those actually bundled with the installed PHP build, so composer scaffolders and PIE cover most use cases out of the box. Tools whose manifest declares `internal-only: true` (only PIE in v1) additionally cannot be configured in project environments; `tools.pie` fails validation with a message pointing to `polka ext`.
 
 ## PHP Runtime Generation
 
