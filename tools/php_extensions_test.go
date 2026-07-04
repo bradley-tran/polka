@@ -84,6 +84,33 @@ func TestRenderPHPConfigDisablesOPcacheAsZendExtension(t *testing.T) {
 	}
 }
 
+// TestRenderPHPConfigLoadsZendExtensionsWithZendDirective verifies known Zend
+// extensions such as xdebug render as zend_extension lines (PIE-installed
+// xdebug would fail to load through a plain extension line), while regular
+// extensions keep the extension directive.
+func TestRenderPHPConfigLoadsZendExtensionsWithZendDirective(t *testing.T) {
+	configData, err := renderPHPConfig("../ext", PHPInstallConfig{
+		Extensions: map[string]bool{
+			"xdebug": true,
+			"apcu":   true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("renderPHPConfig() error = %v", err)
+	}
+
+	phpIni := string(configData)
+	if !phpIniHasLine(phpIni, "zend_extension=xdebug") {
+		t.Fatalf("php.ini = %q, want xdebug loaded as zend_extension", phpIni)
+	}
+	if phpIniHasLine(phpIni, "extension=xdebug") {
+		t.Fatalf("php.ini = %q, want no normal xdebug extension entry", phpIni)
+	}
+	if !phpIniHasLine(phpIni, "extension=apcu") {
+		t.Fatalf("php.ini = %q, want apcu loaded as a regular extension", phpIni)
+	}
+}
+
 func TestRenderPHPConfigSupportsOPcacheOnly(t *testing.T) {
 	configData, err := renderPHPConfig("../ext", PHPInstallConfig{
 		OPcacheConfig: map[string]string{
