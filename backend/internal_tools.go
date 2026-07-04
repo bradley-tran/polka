@@ -109,17 +109,14 @@ func environmentWithInternalToolVersion(environment Environment, tool, version s
 }
 
 // internalPHPEnvironment is the synthetic environment used to configure an
-// internally installed PHP: it enables the TLS-capable extensions composer
-// and PIE need to reach package registries over HTTPS.
-func internalPHPEnvironment(tool, version string) Environment {
+// internally installed PHP. It enables a curated broad set of extensions
+// (filtered to those available in installDir/ext) so composer create-project
+// scaffolders and PIE cover most use cases, always including the TLS
+// extensions needed to reach package registries over HTTPS.
+func internalPHPEnvironment(tool, version, installDir string) Environment {
 	environment := Environment{
-		Name: internalEnvironmentName,
-		PHPExtensions: map[string]bool{
-			"curl":     true,
-			"mbstring": true,
-			"openssl":  true,
-			"zip":      true,
-		},
+		Name:          internalEnvironmentName,
+		PHPExtensions: tools.InternalPHPExtensions(installDir),
 	}
 	if tool == toolPHPZTS {
 		environment.PHPZTSVersion = version
@@ -212,7 +209,7 @@ func (s Store) EnsureInternalTool(tool, version string, report func(InstallProgr
 			RootDir:     internal.EnvsDir,
 			EnvsDir:     internal.EnvsDir,
 			CacheDir:    internal.CacheDir,
-			Environment: internalPHPEnvironment(normalizedTool, requested),
+			Environment: internalPHPEnvironment(normalizedTool, requested, filepath.Join(internal.EnvsDir, normalizedTool, requested)),
 			Result: InstallResult{
 				Tool:       normalizedTool,
 				Version:    requested,

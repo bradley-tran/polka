@@ -1,11 +1,66 @@
 package tools
 
 import (
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"polka/config"
 )
+
+// writeFakeExtensionModule creates a platform-named fake extension module file
+// in the install's ext directory so InternalPHPExtensions treats it as present.
+func writeFakeExtensionModule(t *testing.T, installDir, name string) {
+	t.Helper()
+
+	extensionDir := filepath.Join(installDir, "ext")
+	if err := os.MkdirAll(extensionDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", extensionDir, err)
+	}
+	fileName := name + ".so"
+	if runtime.GOOS == "windows" {
+		fileName = "php_" + name + ".dll"
+	}
+	if err := os.WriteFile(filepath.Join(extensionDir, fileName), []byte("module\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", fileName, err)
+	}
+}
+
+// TestInternalPHPExtensionsFiltersByAvailability verifies the curated broad set
+// is filtered to modules present in the install's ext directory, while the TLS
+// baseline is always enabled.
+func TestInternalPHPExtensionsFiltersByAvailability(t *testing.T) {
+	installDir := t.TempDir()
+	// Present curated extensions (intl/gd from the broad list) plus a name that
+	// is not in the curated list at all.
+	for _, name := range []string{"intl", "gd", "notcurated"} {
+		writeFakeExtensionModule(t, installDir, name)
+	}
+
+	extensions := InternalPHPExtensions(installDir)
+
+	for _, name := range []string{"intl", "gd"} {
+		if !extensions[name] {
+			t.Fatalf("InternalPHPExtensions() = %#v, want %q enabled (module present)", extensions, name)
+		}
+	}
+	// A curated extension whose module file is absent must not be enabled.
+	if extensions["soap"] {
+		t.Fatalf("InternalPHPExtensions() = %#v, want soap omitted (no module file)", extensions)
+	}
+	// A present module outside the curated list is not enabled.
+	if extensions["notcurated"] {
+		t.Fatalf("InternalPHPExtensions() = %#v, want uncurated module omitted", extensions)
+	}
+	// The TLS baseline is always enabled even without module files present.
+	for _, name := range []string{"curl", "openssl", "mbstring", "zip"} {
+		if !extensions[name] {
+			t.Fatalf("InternalPHPExtensions() = %#v, want TLS baseline %q always enabled", extensions, name)
+		}
+	}
+}
 
 // TestPIEManifestIsInternalOnly verifies the pie manifest neutralizes every
 // user-facing surface: no dispatch commands, no reported version, and a

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -73,6 +74,73 @@ func TestEnsureInternalToolInstallsAndRecords(t *testing.T) {
 	}
 	if secondPath != targetPath {
 		t.Fatalf("EnsureInternalTool(pie) second call = %q, want %q", secondPath, targetPath)
+	}
+}
+
+// writeCachedInternalPHP seeds a fake internal PHP payload whose extension
+// directory contains the named module files, so the internal PHP post-install
+// enables the matching curated extensions.
+func writeCachedInternalPHP(t *testing.T, cacheDir, version string, modules ...string) {
+	t.Helper()
+
+	phpPath := cachedFakePHPPath(cacheDir, toolPHP, version)
+	relativePath := cachedToolRelativePath(t, cacheDir, toolPHP, version, phpPath)
+	files := map[string][]byte{
+		relativePath:            fakePHPModuleListScript(nil),
+		"extras/ssl/cacert.pem": []byte("-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"),
+	}
+	for _, name := range modules {
+		fileName := name + ".so"
+		if runtime.GOOS == "windows" {
+			fileName = "php_" + name + ".dll"
+		}
+		files["ext/"+fileName] = []byte("module\n")
+	}
+	writeCachedArchivePayload(t, cacheDir, toolPHP, version, files)
+}
+
+// TestEnsureInternalToolConfiguresBroadPHPExtensions verifies the internal PHP
+// post-install enables the curated broad extensions that are available in the
+// install's ext directory (plus the TLS baseline), and omits curated
+// extensions whose module file is absent.
+func TestEnsureInternalToolConfiguresBroadPHPExtensions(t *testing.T) {
+	projectDir := t.TempDir()
+	toolsDir := filepath.Join(projectDir, "internal-tools")
+	cacheDir := filepath.Join(projectDir, "global-cache")
+	t.Setenv("POLKA_TOOLS_DIR", toolsDir)
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
+
+	store := NewProjectStore(projectDir)
+	store.CacheDir = cacheDir
+	// Provide module files for two curated extensions; soap is curated but has
+	// no module file, so it must not be enabled.
+	writeCachedInternalPHP(t, cacheDir, DefaultPHPVersion, "intl", "gd")
+
+	if _, err := store.EnsureInternalTool(toolPHP, "", nil); err != nil {
+		t.Fatalf("EnsureInternalTool(php) error = %v", err)
+	}
+
+	phpIniPath := filepath.Join(toolsDir, toolPHP, DefaultPHPVersion, "bin", "php.ini")
+	data, err := os.ReadFile(phpIniPath)
+	if err != nil {
+		t.Fatalf("ReadFile(internal php.ini) error = %v", err)
+	}
+	phpIni := string(data)
+
+	for _, name := range []string{"intl", "gd"} {
+		if !strings.Contains(phpIni, "extension="+name) {
+			t.Fatalf("internal php.ini = %q, want available curated extension %q enabled", phpIni, name)
+		}
+	}
+	if strings.Contains(phpIni, "extension=soap") {
+		t.Fatalf("internal php.ini = %q, want unavailable curated extension soap omitted", phpIni)
+	}
+	// TLS baseline is forced on and configures the CA bundle.
+	if !strings.Contains(phpIni, "extension=openssl") || !strings.Contains(phpIni, "extension=curl") {
+		t.Fatalf("internal php.ini = %q, want TLS baseline extensions", phpIni)
+	}
+	if !strings.Contains(phpIni, "curl.cainfo=") || !strings.Contains(phpIni, "openssl.cafile=") {
+		t.Fatalf("internal php.ini = %q, want CA bundle directives", phpIni)
 	}
 }
 
