@@ -38,6 +38,34 @@ const (
 	powerShellExtension      = ".ps1"
 )
 
+// Default managed tool versions. These are the versions `polka new` writes
+// and that on-demand internal tool provisioning uses when neither an explicit
+// version nor the reserved _internal environment pins one.
+const (
+	DefaultPHPVersion      = "8.4"
+	DefaultComposerVersion = "2.8"
+	DefaultNodeJSVersion   = "24"
+	DefaultPIEVersion      = "1"
+)
+
+// defaultInternalToolVersion returns the version used to provision a tool into
+// the global internal tools directory when nothing else pins one. Tools that
+// are never provisioned internally return an empty string.
+func defaultInternalToolVersion(tool string) string {
+	switch tool {
+	case toolPHP, toolPHPZTS:
+		return DefaultPHPVersion
+	case toolComposer:
+		return DefaultComposerVersion
+	case toolNodeJS:
+		return DefaultNodeJSVersion
+	case toolPIE:
+		return DefaultPIEVersion
+	default:
+		return ""
+	}
+}
+
 var (
 	validName                 = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 	validVersion              = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
@@ -537,6 +565,13 @@ func (s Store) InstallToolWithProgress(name, tool, version string, report func(I
 	if len(results) == 0 {
 		return InstallResult{}, fmt.Errorf("no install result produced for %s %s", request.Tool, request.Version)
 	}
+	// A freshly (re)installed PHP runtime needs its PIE-managed extensions
+	// provisioned again: the extraction replaced the extension directory.
+	if request.Tool == toolPHP || request.Tool == toolPHPZTS {
+		if err := s.installPIEExtensions(environment, report); err != nil {
+			return InstallResult{}, err
+		}
+	}
 
 	if err := s.writeEnvironmentConfig(name, environment); err != nil {
 		return InstallResult{}, fmt.Errorf("write config file: %w", err)
@@ -590,7 +625,17 @@ func (s Store) install(name string, options InstallOptions, report func(InstallP
 		return nil, err
 	}
 
-	return s.installRequests(environment, requests, options.Force, report)
+	results, err := s.installRequests(environment, requests, options.Force, report)
+	if err != nil {
+		return nil, err
+	}
+	// PIE-managed extensions install after the tools so the target PHP binary
+	// exists; this makes fresh checkouts reproduce vendor/name entries.
+	if err := s.installPIEExtensions(environment, report); err != nil {
+		return nil, err
+	}
+
+	return results, nil
 }
 
 func (s Store) installEnvironment(name string) (Environment, *ToolRegistry, error) {
@@ -617,8 +662,15 @@ func (s Store) installEnvironment(name string) (Environment, *ToolRegistry, erro
 func validateInstallEnvironment(name string, environment Environment, requests []tools.InstallRequest, registry *ToolRegistry) error {
 	hasPHPCLI := config.HasPHPCLI(environment)
 	includesPHP := installRequestsIncludeTool(requests, toolPHP) || installRequestsIncludeTool(requests, toolPHPZTS) || installRequestsIncludeTool(requests, toolFrankenPHP)
-	if len(environment.PHPExtensions) > 0 && !hasPHPCLI && !includesPHP {
+	if (len(environment.PHPExtensions) > 0 || len(environment.PIEExtensions) > 0) && !hasPHPCLI && !includesPHP {
 		return fmt.Errorf("environment %q defines php-extensions but does not define a PHP CLI provider", name)
+	}
+	// PIE builds extensions against a standalone PHP install; it cannot
+	// target FrankenPHP's embedded runtime.
+	if len(environment.PIEExtensions) > 0 {
+		if tool, _ := config.PrimaryPHPTool(environment); tool == "" {
+			return fmt.Errorf("environment %q defines PIE-managed php-extensions but no standalone php or php-zts runtime; PIE cannot target FrankenPHP's embedded PHP", name)
+		}
 	}
 	if config.NormalizePHPMemoryLimit(environment.MemoryLimit) != "" && !hasPHPCLI && !includesPHP {
 		return fmt.Errorf("environment %q defines memory-limit but does not define a PHP CLI provider", name)
@@ -852,6 +904,9 @@ func normalizeInstallRequest(registry *ToolRegistry, tool, version string) (tool
 	if _, ok := registry.Plugin(normalizedTool); !ok {
 		return tools.InstallRequest{}, fmt.Errorf("unsupported tool %q", tool)
 	}
+	if registry.InternalOnly(normalizedTool) {
+		return tools.InstallRequest{}, fmt.Errorf("%s is managed internally by polka and cannot be installed into a project environment", normalizedTool)
+	}
 	if err := validateVersion(normalizedTool, normalizedVersion); err != nil {
 		return tools.InstallRequest{}, err
 	}
@@ -871,8 +926,6 @@ func environmentWithInstallRequest(environment Environment, request tools.Instal
 		environment.FrankenPHPVersion = request.Version
 	case toolComposer:
 		environment.ComposerVersion = request.Version
-	case toolPIE:
-		environment.PIEVersion = request.Version
 	case toolNodeJS:
 		environment.NodeJSVersion = request.Version
 	case toolMago:
@@ -1514,6 +1567,35 @@ func validateEnvironmentFileSchema(data []byte) error {
 	if hasOPcacheConfig {
 		if err := validateOPcacheConfigSchema(opcacheConfig); err != nil {
 			return err
+		}
+	}
+
+	phpExtensions, hasPHPExtensions, err := rawMapForKey(raw, "php-extensions")
+	if err != nil {
+		return err
+	}
+	if hasPHPExtensions {
+		if err := validatePHPExtensionsSchema(phpExtensions); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validatePHPExtensionsSchema checks the shared php-extensions map: bundled
+// extension names hold enable/disable booleans while vendor/name keys hold
+// PIE version constraints.
+func validatePHPExtensionsSchema(values map[string]any) error {
+	for key, value := range values {
+		if strings.Contains(key, "/") {
+			if !isYAMLVersionScalar(value) {
+				return fmt.Errorf("php-extensions.%s must be a version constraint for PIE-managed extensions", key)
+			}
+			continue
+		}
+		if _, ok := value.(bool); !ok {
+			return fmt.Errorf("php-extensions.%s must be true or false; use a vendor/name key for PIE-managed extensions", key)
 		}
 	}
 

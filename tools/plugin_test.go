@@ -11,6 +11,8 @@ import (
 
 func TestDefaultRegistryInstallRequestsUseConfiguredToolOrder(t *testing.T) {
 	registry := NewDefaultRegistry()
+	// PIE is internal-only: a configured pie version never yields a project
+	// install request (it would also fail validation; see manifest tests).
 	environment := config.Environment{
 		PHPVersion:        "8.4",
 		FrankenPHPVersion: "1.12",
@@ -40,7 +42,6 @@ func TestDefaultRegistryInstallRequestsUseConfiguredToolOrder(t *testing.T) {
 		"php:8.4",
 		"frankenphp:1.12",
 		"composer:2.8",
-		"pie:1.4",
 		"nodejs:24",
 		"mago:1.27",
 		"nginx:1.30",

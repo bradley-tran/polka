@@ -9,7 +9,11 @@ Commands:
   init [framework] [--docroot PATH]
                        create the local .polka directory and optional framework config
   new <name>           create an environment with default or explicit versions
+  create-project <package> [directory]
+                       scaffold a new app with Polka's internal composer and initialize polka in it
   config <key> <value> set one config value for an environment
+  ext <install|remove> <vendor/name[:version]>
+                       manage PIE-provided PHP extensions for an environment
   install [tool:version]
                        install one tool version or all tools for an environment
   cert-install         install Polka's local HTTPS certificate into the user trust store
@@ -30,6 +34,8 @@ Commands:
 Examples:
   polka init
   polka init laravel
+  polka create-project laravel/laravel demo
+  polka ext install xdebug/xdebug
   polka new api
   polka config tools.php 8.4
   polka config tools.php-zts 8.4
@@ -71,6 +77,26 @@ The generated default environment enables HTTPS and uses <directory>.localhost a
 Use --docroot PATH to set the generated default environment's document root.
 When framework is cakephp, codeigniter, drupal, wordpress, laravel, or symfony, Polka writes an opinionated default config for that framework.
 Framework init is config-only; it does not create app files, install tools, or start services. It fails if polka.yaml already exists.
+`
+
+const createProjectUsage = `Usage:
+  polka create-project <package> [directory] [composer-args...]
+
+Scaffold a new application with Polka's internal composer, then initialize polka in the created directory.
+Polka provisions an internal PHP runtime and composer into the global tools directory on first use; project configs never reference them.
+Remaining arguments pass through to composer create-project unchanged, so options such as --stability work as usual.
+After scaffolding, Polka detects the framework (cakephp, codeigniter, drupal, wordpress, laravel, or symfony) from the package name or marker files and writes the matching polka.yaml preset; run polka install inside the new directory to provision its tools.
+`
+
+const extUsage = `Usage:
+  polka ext install <vendor/name[:version]> [--env NAME]
+  polka ext remove <vendor/name> [--env NAME]
+
+Manage PHP extensions provided by PIE (the PHP Installer for Extensions) for an environment's installed PHP runtime.
+install downloads or builds the extension against the environment's standalone php/php-zts install using Polka's internal PIE, records it under the php-extensions config key as vendor/name: version, and regenerates the runtime php.ini.
+remove uninstalls the extension and deletes its config entry.
+PIE-managed entries in php-extensions are also provisioned by polka install, so fresh checkouts reproduce them.
+PIE requires a standalone php or php-zts runtime; it cannot target FrankenPHP's embedded PHP.
 `
 
 const newUsage = `Usage:

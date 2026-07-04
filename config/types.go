@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -72,7 +73,7 @@ type ProjectFile struct {
 	EnvVars       map[string]string `yaml:"env-vars,omitempty"`
 	Database      *DatabaseConfig   `yaml:"database,omitempty"`
 	MemoryLimit   any               `yaml:"memory-limit,omitempty"`
-	PHPExtensions map[string]bool   `yaml:"php-extensions,omitempty"`
+	PHPExtensions map[string]any    `yaml:"php-extensions,omitempty"`
 	OPcachePreset string            `yaml:"opcache-preset,omitempty"`
 	OPcacheConfig map[string]any    `yaml:"opcache-config,omitempty"`
 	Server        *ServerConfig     `yaml:"server,omitempty"`
@@ -89,7 +90,7 @@ type EnvironmentFile struct {
 	EnvVars       map[string]string `yaml:"env-vars,omitempty"`
 	Database      *DatabaseConfig   `yaml:"database,omitempty"`
 	MemoryLimit   any               `yaml:"memory-limit,omitempty"`
-	PHPExtensions map[string]bool   `yaml:"php-extensions,omitempty"`
+	PHPExtensions map[string]any    `yaml:"php-extensions,omitempty"`
 	OPcachePreset string            `yaml:"opcache-preset,omitempty"`
 	OPcacheConfig map[string]any    `yaml:"opcache-config,omitempty"`
 	Server        *ServerConfig     `yaml:"server,omitempty"`
@@ -121,6 +122,7 @@ type Environment struct {
 	Meilisearch       *MeilisearchConfig `yaml:"meilisearch,omitempty"`
 	MemoryLimit       string             `yaml:"memory-limit,omitempty"`
 	PHPExtensions     map[string]bool    `yaml:"php-extensions,omitempty"`
+	PIEExtensions     map[string]string  `yaml:"-"`
 	OPcachePreset     string             `yaml:"opcache-preset,omitempty"`
 	OPcacheConfig     map[string]string  `yaml:"opcache-config,omitempty"`
 	Server            *ServerConfig      `yaml:"server,omitempty"`
@@ -236,7 +238,7 @@ func ProjectFileFromEnvironment(version int, root string, environment Environmen
 		EnvVars:       environment.EnvVars,
 		Database:      DatabaseRuntimeConfigFromEnvironment(environment),
 		MemoryLimit:   phpMemoryLimitFileValue(environment.MemoryLimit),
-		PHPExtensions: environment.PHPExtensions,
+		PHPExtensions: PHPExtensionsFileValue(environment.PHPExtensions, environment.PIEExtensions),
 		OPcachePreset: NormalizeOPcachePreset(environment.OPcachePreset),
 		OPcacheConfig: OPcacheFileConfigFromEnvironment(environment),
 		Server:        ServerConfigFromEnvironment(environment),
@@ -277,7 +279,7 @@ func EnvironmentFileFromEnvironment(environment Environment) EnvironmentFile {
 		EnvVars:       environment.EnvVars,
 		Database:      DatabaseRuntimeConfigFromEnvironment(environment),
 		MemoryLimit:   phpMemoryLimitFileValue(environment.MemoryLimit),
-		PHPExtensions: environment.PHPExtensions,
+		PHPExtensions: PHPExtensionsFileValue(environment.PHPExtensions, environment.PIEExtensions),
 		OPcachePreset: NormalizeOPcachePreset(environment.OPcachePreset),
 		OPcacheConfig: OPcacheFileConfigFromEnvironment(environment),
 		Server:        ServerConfigFromEnvironment(environment),
@@ -447,7 +449,8 @@ func (settings SettingsConfig) IsZero() bool {
 		settings.Meilisearch == nil
 }
 
-func environmentFromFileParts(name string, framework string, tools *ToolsConfig, settings *SettingsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *DatabaseConfig, memoryLimit any, phpExtensions map[string]bool, opcachePreset string, opcacheConfig map[string]any, server *ServerConfig) Environment {
+func environmentFromFileParts(name string, framework string, tools *ToolsConfig, settings *SettingsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *DatabaseConfig, memoryLimit any, phpExtensions map[string]any, opcachePreset string, opcacheConfig map[string]any, server *ServerConfig) Environment {
+	bundledExtensions, pieExtensions := SplitPHPExtensionsFromYAML(phpExtensions)
 	environment := Environment{
 		Name:          name,
 		Framework:     strings.ToLower(strings.TrimSpace(framework)),
@@ -457,7 +460,8 @@ func environmentFromFileParts(name string, framework string, tools *ToolsConfig,
 		EnvVars:       envVars,
 		Database:      database,
 		MemoryLimit:   NormalizePHPMemoryLimit(phpMemoryLimitValueString(memoryLimit)),
-		PHPExtensions: phpExtensions,
+		PHPExtensions: bundledExtensions,
+		PIEExtensions: pieExtensions,
 		OPcachePreset: opcachePreset,
 		OPcacheConfig: NormalizeOPcacheConfigFromYAML(opcacheConfig),
 		Server:        server,
@@ -647,6 +651,7 @@ func NormalizeEnvironment(name string, environment Environment) Environment {
 		Meilisearch:       NormalizeMeilisearchConfig(environment.Meilisearch),
 		MemoryLimit:       NormalizePHPMemoryLimit(environment.MemoryLimit),
 		PHPExtensions:     NormalizePHPExtensions(environment.PHPExtensions),
+		PIEExtensions:     NormalizePIEExtensions(environment.PIEExtensions),
 		OPcachePreset:     NormalizeOPcachePreset(environment.OPcachePreset),
 		OPcacheConfig:     NormalizeOPcacheConfig(environment.OPcacheConfig),
 		Server:            NormalizeServerConfig(environment.Server),
@@ -810,6 +815,129 @@ func NormalizePHPExtensions(extensions map[string]bool) map[string]bool {
 	}
 
 	return normalized
+}
+
+// NormalizePIEExtensions canonicalizes PIE-managed extension entries: package
+// names are lowercased and version constraints trimmed; empty entries drop out.
+func NormalizePIEExtensions(extensions map[string]string) map[string]string {
+	if len(extensions) == 0 {
+		return nil
+	}
+
+	normalized := make(map[string]string, len(extensions))
+	for name, version := range extensions {
+		trimmedName := strings.ToLower(strings.TrimSpace(name))
+		trimmedVersion := strings.TrimSpace(version)
+		if trimmedName == "" || trimmedVersion == "" {
+			continue
+		}
+		normalized[trimmedName] = trimmedVersion
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+
+	return normalized
+}
+
+// SplitPHPExtensionsFromYAML separates the raw php-extensions YAML map into
+// bundled extension toggles (name → enabled) and PIE-managed entries
+// (vendor/name → version constraint). Malformed values are coerced
+// best-effort; validateEnvironmentFileSchema rejects them with clear errors
+// before configs reach this conversion.
+func SplitPHPExtensionsFromYAML(values map[string]any) (map[string]bool, map[string]string) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+
+	bundled := map[string]bool{}
+	pie := map[string]string{}
+	for key, value := range values {
+		name := strings.ToLower(strings.TrimSpace(key))
+		if name == "" {
+			continue
+		}
+		if strings.Contains(name, "/") {
+			pie[name] = pieExtensionVersionString(value)
+			continue
+		}
+		if enabled, ok := value.(bool); ok {
+			bundled[name] = enabled
+			continue
+		}
+		// Coerce scalar strings such as "true"; anything else reads as enabled.
+		bundled[name] = !strings.EqualFold(strings.TrimSpace(fmt.Sprint(value)), "false")
+	}
+	if len(bundled) == 0 {
+		bundled = nil
+	}
+	if len(pie) == 0 {
+		pie = nil
+	}
+
+	return bundled, pie
+}
+
+// PHPExtensionsFileValue merges bundled toggles and PIE-managed entries back
+// into the shared php-extensions YAML wire shape.
+func PHPExtensionsFileValue(bundled map[string]bool, pie map[string]string) map[string]any {
+	if len(bundled) == 0 && len(pie) == 0 {
+		return nil
+	}
+
+	values := make(map[string]any, len(bundled)+len(pie))
+	for name, enabled := range NormalizePHPExtensions(bundled) {
+		values[name] = enabled
+	}
+	for name, version := range NormalizePIEExtensions(pie) {
+		values[name] = version
+	}
+
+	return values
+}
+
+// pieExtensionVersionString coerces a YAML scalar into a version constraint
+// string; nil (a bare key) means "any version".
+func pieExtensionVersionString(value any) string {
+	if value == nil {
+		return "*"
+	}
+
+	return strings.TrimSpace(fmt.Sprint(value))
+}
+
+// validPIEExtensionPackage matches Composer package names (vendor/name).
+var validPIEExtensionPackage = regexp.MustCompile(`^[a-z0-9]([_.-]?[a-z0-9]+)*/[a-z0-9](([_.]|-{1,2})?[a-z0-9]+)*$`)
+
+// ValidatePIEExtensionPackage checks a PIE-managed extension key uses the
+// Composer vendor/name package shape.
+func ValidatePIEExtensionPackage(name string) error {
+	trimmed := strings.ToLower(strings.TrimSpace(name))
+	if trimmed == "" {
+		return fmt.Errorf("php extension package cannot be empty")
+	}
+	if !validPIEExtensionPackage.MatchString(trimmed) {
+		return fmt.Errorf("invalid php extension package %q: use the Composer vendor/name shape, such as xdebug/xdebug", name)
+	}
+
+	return nil
+}
+
+// ValidatePIEExtensionVersion checks a PIE-managed extension version
+// constraint is a single-line Composer-style constraint.
+func ValidatePIEExtensionVersion(pkg, version string) error {
+	trimmed := strings.TrimSpace(version)
+	if trimmed == "" {
+		return fmt.Errorf("php extension %s requires a version constraint; use * for the latest version", pkg)
+	}
+	if strings.EqualFold(trimmed, "true") || strings.EqualFold(trimmed, "false") {
+		return fmt.Errorf("invalid version %q for php extension %s: use a Composer version constraint such as 1.2 or *", version, pkg)
+	}
+	if strings.ContainsAny(trimmed, " \t\r\n\"'") {
+		return fmt.Errorf("invalid version %q for php extension %s: constraints must be single-line scalars", version, pkg)
+	}
+
+	return nil
 }
 
 // NormalizePHPMemoryLimit trims a PHP memory_limit value and canonicalizes its unit suffix.

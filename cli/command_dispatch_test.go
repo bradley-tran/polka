@@ -341,7 +341,9 @@ func TestRunDispatchRunsPostComposerHookExceptComposerExitTwo(t *testing.T) {
 	}
 }
 
-func TestRunDispatchRunsPIEPHARThroughManagedPHP(t *testing.T) {
+// TestRunDispatchRejectsPIE verifies pie is no longer a dispatchable tool:
+// it is provisioned internally and only reachable through polka ext.
+func TestRunDispatchRejectsPIE(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
@@ -350,7 +352,6 @@ func TestRunDispatchRunsPIEPHARThroughManagedPHP(t *testing.T) {
 	stderr := &bytes.Buffer{}
 
 	writeCachedPHP(t, cacheDir, "8.4", fakePHPScript())
-	writeCachedPIE(t, cacheDir, "1.4", []byte("pie phar\n"))
 
 	config := testConfigFile{
 		Version: 1,
@@ -358,7 +359,6 @@ func TestRunDispatchRunsPIEPHARThroughManagedPHP(t *testing.T) {
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
 				PHP: "8.4",
-				PIE: "1.4",
 			},
 		},
 	}
@@ -371,13 +371,11 @@ func TestRunDispatchRunsPIEPHARThroughManagedPHP(t *testing.T) {
 	stdout.Reset()
 	stderr.Reset()
 
-	if code := Run(stdout, stderr, []string{"--root", root, "dispatch", "pie", "install", "asgrim/example-pie-extension"}); code != 0 {
-		t.Fatalf("Run(dispatch pie) code = %d, stderr = %q", code, stderr.String())
+	if code := Run(stdout, stderr, []string{"--root", root, "dispatch", "pie", "install", "asgrim/example-pie-extension"}); code == 0 {
+		t.Fatal("Run(dispatch pie) code = 0, want failure for internal-only tool")
 	}
-
-	output := stdout.String()
-	if !strings.Contains(output, "fake-php") || !strings.Contains(output, "pie.phar install asgrim/example-pie-extension") {
-		t.Fatalf("Run(dispatch pie) stdout = %q, want pie.phar executed through php", output)
+	if !strings.Contains(stderr.String(), "unsupported tool") {
+		t.Fatalf("Run(dispatch pie) stderr = %q, want unsupported tool error", stderr.String())
 	}
 }
 

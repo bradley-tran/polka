@@ -67,6 +67,16 @@ func parseConfigValuePath(key string) ([]string, error) {
 
 		return []string{"opcache-config", directive}, nil
 	}
+	// Split php-extensions keys only once: PIE package names such as
+	// vendor/my.ext may legitimately contain dots.
+	if strings.HasPrefix(trimmed, "php-extensions.") {
+		name := strings.TrimSpace(strings.TrimPrefix(trimmed, "php-extensions."))
+		if name == "" {
+			return nil, fmt.Errorf("config key %q must include a PHP extension name", key)
+		}
+
+		return []string{"php-extensions", name}, nil
+	}
 
 	path := strings.Split(trimmed, ".")
 	for _, segment := range path {
@@ -150,7 +160,7 @@ func applyToolConfigValue(environment *Environment, path []string, value string)
 	case toolComposer:
 		environment.ComposerVersion = version
 	case toolPIE:
-		environment.PIEVersion = version
+		return fmt.Errorf("pie is managed internally by polka and cannot be configured in a project environment; use 'polka ext' to manage PHP extensions")
 	case toolNodeJS:
 		environment.NodeJSVersion = version
 	case toolMago:
@@ -330,6 +340,30 @@ func applyPHPExtensionConfigValue(environment *Environment, path []string, value
 	if name == "" {
 		return unsupportedConfigKey(path)
 	}
+
+	// vendor/name keys are PIE-managed extensions holding a version
+	// constraint; an empty value removes the entry (used by polka ext remove).
+	if strings.Contains(name, "/") {
+		normalized := strings.ToLower(name)
+		if err := config.ValidatePIEExtensionPackage(normalized); err != nil {
+			return err
+		}
+		version := strings.TrimSpace(value)
+		if version == "" {
+			delete(environment.PIEExtensions, normalized)
+			return nil
+		}
+		if err := config.ValidatePIEExtensionVersion(normalized, version); err != nil {
+			return err
+		}
+		if environment.PIEExtensions == nil {
+			environment.PIEExtensions = map[string]string{}
+		}
+		environment.PIEExtensions[normalized] = version
+
+		return nil
+	}
+
 	enabled, err := parseConfigBoolValue(strings.Join(path, "."), value)
 	if err != nil {
 		return err

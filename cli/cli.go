@@ -73,8 +73,10 @@ func newRootCommand(ctx *commandContext) *cobra.Command {
 	root.AddCommand(
 		newInitCommand(ctx),
 		newNewCommand(ctx),
+		newCreateProjectCommand(ctx),
 		newConfigCommand(ctx),
 		newInstallCommand(ctx),
+		newExtCommand(ctx),
 		newCertInstallCommand(ctx),
 		newDBCommand(ctx),
 		newServeCommand(ctx),

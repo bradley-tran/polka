@@ -218,6 +218,40 @@ func (r *Registry) PHPExtensions(environment config.Environment) map[string]bool
 	return extensions
 }
 
+// internalToolInfo is implemented by plugins that support global internal
+// installs. Plugins without it are treated as regular project-only tools.
+type internalToolInfo interface {
+	InternalOnly() bool
+	InternalVersion(config.Environment) string
+}
+
+// InternalOnly reports whether the tool is reserved for polka-internal use and
+// cannot be configured in a project environment.
+func (r *Registry) InternalOnly(id string) bool {
+	plugin, ok := r.Plugin(id)
+	if !ok {
+		return false
+	}
+	info, ok := plugin.(internalToolInfo)
+
+	return ok && info.InternalOnly()
+}
+
+// InternalVersion resolves the tool version configured in the reserved
+// _internal environment, falling back to the plugin's public Version func for
+// plugins without internal metadata.
+func (r *Registry) InternalVersion(id string, environment config.Environment) string {
+	plugin, ok := r.Plugin(id)
+	if !ok {
+		return ""
+	}
+	if info, ok := plugin.(internalToolInfo); ok {
+		return info.InternalVersion(environment)
+	}
+
+	return strings.TrimSpace(plugin.Version(environment))
+}
+
 func (r *Registry) ResolveDispatchRequest(tool string) (DispatchRequest, error) {
 	if r == nil {
 		return DispatchRequest{}, fmt.Errorf("tool registry is not configured")
@@ -350,6 +384,8 @@ func uniqueToolCommands(plugins []ToolPlugin, commandList func(ToolPlugin) []str
 type builtinPlugin struct {
 	id                 string
 	version            func(config.Environment) string
+	internalOnly       bool
+	internalVersion    func(config.Environment) string
 	phpExtensions      map[string]bool
 	validate           func(config.Environment) error
 	installCandidates  func(root, version string) []string
@@ -364,6 +400,23 @@ type builtinPlugin struct {
 
 func (p builtinPlugin) ID() string {
 	return p.id
+}
+
+// InternalOnly reports whether the tool may only be provisioned internally by
+// polka and never configured in a project environment.
+func (p builtinPlugin) InternalOnly() bool {
+	return p.internalOnly
+}
+
+// InternalVersion resolves the tool version from the reserved _internal
+// environment using the raw manifest version mapping, bypassing the
+// internal-only wrapper that neutralizes the public Version func.
+func (p builtinPlugin) InternalVersion(environment config.Environment) string {
+	if p.internalVersion == nil {
+		return ""
+	}
+
+	return strings.TrimSpace(p.internalVersion(environment))
 }
 
 func (p builtinPlugin) Version(environment config.Environment) string {

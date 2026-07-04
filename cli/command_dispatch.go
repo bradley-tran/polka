@@ -102,7 +102,7 @@ func dispatchPHARRequiresManagedPHP(tool, target string) bool {
 	}
 
 	switch strings.ToLower(strings.TrimSpace(tool)) {
-	case "composer", "pie":
+	case "composer":
 		return true
 	default:
 		return false

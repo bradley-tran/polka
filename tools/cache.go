@@ -405,6 +405,34 @@ func copyCachedPayloadFile(sourcePath, targetPath string) error {
 	return nil
 }
 
+// DirLock is an exclusive advisory file lock on a directory, used to
+// serialize cross-process work such as global internal tool installs.
+type DirLock struct {
+	lock *cacheLock
+}
+
+// AcquireDirLock takes an exclusive lock file inside dir, creating dir when
+// needed. It shares the cache lock's timeout and stale-lock recovery behavior.
+func AcquireDirLock(dir string) (*DirLock, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("create lock directory %s: %w", dir, err)
+	}
+	lock, err := acquireCacheLock(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	return &DirLock{lock: lock}, nil
+}
+
+// Release removes the lock file; safe to call on a nil lock.
+func (l *DirLock) Release() {
+	if l == nil {
+		return
+	}
+	l.lock.release()
+}
+
 func acquireCacheLock(toolDir string) (*cacheLock, error) {
 	lockPath := filepath.Join(toolDir, cacheMetadataLockFileName)
 	deadline := time.Now().Add(cacheLockTimeout)

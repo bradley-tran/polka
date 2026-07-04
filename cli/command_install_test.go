@@ -58,6 +58,123 @@ func TestRunInstallSecondRunReportsUnchanged(t *testing.T) {
 	}
 }
 
+// TestRunInstallProvisionsPIEExtensions verifies polka install reproduces
+// vendor/name php-extensions entries via the internal PIE when the module is
+// not yet loadable, and skips them when PHP already loads the module.
+func TestRunInstallProvisionsPIEExtensions(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	cacheDir := filepath.Join(projectDir, "global-cache")
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
+	capturePath := filepath.Join(projectDir, "php-invocations.log")
+	t.Setenv("POLKA_TEST_PHP_CAPTURE_PATH", capturePath)
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	// The fake PHP loads mbstring but not xdebug, so the xdebug/xdebug entry
+	// must trigger a PIE install.
+	writeCachedPHP(t, cacheDir, "8.4", fakePIEHostPHPScript([]string{"mbstring"}, []string{"mbstring"}, ""))
+	writeCachedPIE(t, cacheDir, "1", []byte("pie phar\n"))
+
+	writeTestConfigFile(t, projectDir, testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {
+				PHP:           "8.4",
+				PHPExtensions: map[string]any{"mbstring": true, "xdebug/xdebug": "3.4.1"},
+			},
+		},
+	})
+	writeTestActiveEnvironment(t, root, "demo")
+
+	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
+		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	captured, err := os.ReadFile(capturePath)
+	if err != nil {
+		t.Fatalf("ReadFile(capture) error = %v", err)
+	}
+	invocations := string(captured)
+	if !strings.Contains(invocations, "--skip-enable-extension") || !strings.Contains(invocations, "xdebug/xdebug:3.4.1") {
+		t.Fatalf("php invocations = %q, want PIE install of xdebug/xdebug:3.4.1", invocations)
+	}
+	if count := strings.Count(invocations, "--skip-enable-extension"); count != 1 {
+		t.Fatalf("php invocations = %q, want exactly one PIE install, got %d", invocations, count)
+	}
+
+	// The generated php.ini loads the PIE-managed module.
+	phpIni, err := os.ReadFile(projectInstalledPHPConfigPath(root, "8.4"))
+	if err != nil {
+		t.Fatalf("ReadFile(php.ini) error = %v", err)
+	}
+	if !strings.Contains(string(phpIni), "extension=xdebug") {
+		t.Fatalf("php.ini = %q, want extension=xdebug", string(phpIni))
+	}
+}
+
+// TestRunInstallSkipsLoadedPIEExtensions verifies no PIE install runs when
+// the environment's PHP already loads the module.
+func TestRunInstallSkipsLoadedPIEExtensions(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	cacheDir := filepath.Join(projectDir, "global-cache")
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
+	capturePath := filepath.Join(projectDir, "php-invocations.log")
+	t.Setenv("POLKA_TEST_PHP_CAPTURE_PATH", capturePath)
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	writeCachedPHP(t, cacheDir, "8.4", fakePIEHostPHPScript([]string{"mbstring"}, []string{"mbstring", "xdebug"}, ""))
+	writeCachedPIE(t, cacheDir, "1", []byte("pie phar\n"))
+
+	writeTestConfigFile(t, projectDir, testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {
+				PHP:           "8.4",
+				PHPExtensions: map[string]any{"xdebug/xdebug": "3.4.1"},
+			},
+		},
+	})
+	writeTestActiveEnvironment(t, root, "demo")
+
+	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
+		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	captured, err := os.ReadFile(capturePath)
+	if err != nil {
+		t.Fatalf("ReadFile(capture) error = %v", err)
+	}
+	if strings.Contains(string(captured), "--skip-enable-extension") {
+		t.Fatalf("php invocations = %q, want no PIE install for already-loaded module", string(captured))
+	}
+}
+
+// TestRunInstallRejectsInternalOnlyTool verifies pie cannot be installed as
+// an explicit tool:version argument.
+func TestRunInstallRejectsInternalOnlyTool(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	t.Setenv("POLKA_CACHE_DIR", filepath.Join(projectDir, "global-cache"))
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.php", "8.4")
+	stdout.Reset()
+	stderr.Reset()
+
+	if code := Run(stdout, stderr, []string{"--root", root, "install", "pie:1", "--env", "demo"}); code == 0 {
+		t.Fatal("Run(install pie:1) code = 0, want internal-only rejection")
+	}
+	if !strings.Contains(stderr.String(), "managed internally") {
+		t.Fatalf("Run(install pie:1) stderr = %q, want managed-internally message", stderr.String())
+	}
+}
+
 func TestRunInstallUnknownToolLeavesConfigUnchanged(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
