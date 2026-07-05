@@ -29,6 +29,7 @@ Some configured tool keys expose different command names:
 | `sqlite` | `sqlite3` |
 | `mailpit` | `mailpit` |
 | `meilisearch` | `meilisearch` |
+| `redis` | `redis-server`, `redis-cli` |
 | `traefik` | `traefik` |
 | `phpmyadmin` | none |
 
@@ -97,6 +98,8 @@ The `phpmyadmin` tool key installs the phpMyAdmin web app archive under `.polka/
 The `mailpit` tool key installs Mailpit and creates a `mailpit` command shim. Its SMTP and UI port settings live under `settings.mailpit`.
 
 The `meilisearch` tool key installs Meilisearch and creates a `meilisearch` command shim. Its HTTP port and optional local master key live under `settings.meilisearch`; Polka stores only a runtime fingerprint of the master key and does not print it in status output.
+
+The `redis` tool key installs Redis and creates `redis-server` and `redis-cli` command shims. Its port and optional local password live under `settings.redis`; the password maps to Redis `requirepass`, and Polka stores only a runtime fingerprint of it and does not print it in status output. On Windows, Redis is provided by a community native build (`zkteco-home/redis-windows`), whose prebuilt binaries are committed to the repository rather than published as release assets, so Polka downloads the tag's GitHub source-archive zip. Because that archive has no published checksum, Polka verifies integrity by comparing the source commit embedded in the zip's archive comment against the commit the tag resolves to via the GitHub API.
 
 The `traefik` tool key installs the [Traefik](https://traefik.io/) reverse proxy and creates a `traefik` command shim. Polka runs it as a managed background service that **fronts the environment webserver**: when `tools.traefik` is installed, `polka serve` starts Traefik on a `web` entrypoint at `settings.traefik.port` (default `8080`) and points it at whatever webserver the environment serves (php, nginx, apache, or frankenphp). Traefik uses a file provider that watches `.polka/run/traefik/<environment>/dynamic`; once the webserver address is known, Polka writes the routing rules there (`polka.yml`) and Traefik hot-reloads them, so the site is reachable through Traefik at `<scheme>://<hostname>:<port>` in addition to the webserver's own address.
 

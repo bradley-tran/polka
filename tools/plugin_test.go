@@ -25,6 +25,7 @@ func TestDefaultRegistryInstallRequestsUseConfiguredToolOrder(t *testing.T) {
 		PHPMyAdmin:        &config.PHPMyAdminConfig{Version: "5.2", Port: 8081, HTTPS: true},
 		Mailpit:           &config.MailpitConfig{Version: "1.30"},
 		Meilisearch:       &config.MeilisearchConfig{Version: "1.48", Port: 7701, MasterKey: "dev-key"},
+		Redis:             &config.RedisConfig{Version: "8.8.0", Port: 6380, Password: "dev-password"},
 		MySQLVersion:      "8.4",
 		MariaDBVersion:    "11.8",
 		PostgreSQLVersion: "17",
@@ -48,6 +49,7 @@ func TestDefaultRegistryInstallRequestsUseConfiguredToolOrder(t *testing.T) {
 		"apache:2.4",
 		"mailpit:1.30",
 		"meilisearch:1.48",
+		"redis:8.8.0",
 		"phpmyadmin:5.2",
 		"mysql:8.4",
 		"mariadb:11.8",
@@ -175,6 +177,24 @@ func TestDefaultRegistryValidatesMeilisearchConfig(t *testing.T) {
 	active := registry.ActiveCommandNames(&environment)
 	if !reflect.DeepEqual(active, []string{Meilisearch}) {
 		t.Fatalf("ActiveCommandNames(meilisearch env) = %#v, want meilisearch", active)
+	}
+}
+
+func TestDefaultRegistryValidatesRedisConfig(t *testing.T) {
+	registry := NewDefaultRegistry()
+
+	if err := registry.ValidateEnvironment(config.Environment{Redis: &config.RedisConfig{Version: "8.8.0", Port: 70000}}); err == nil {
+		t.Fatal("ValidateEnvironment(redis invalid port) error = nil, want port validation error")
+	}
+	if err := registry.ValidateEnvironment(config.Environment{Redis: &config.RedisConfig{Port: 6379}}); err == nil {
+		t.Fatal("ValidateEnvironment(redis without version) error = nil, want version validation error")
+	}
+
+	// Redis ships two managed binaries, so it exposes both dispatch commands.
+	environment := config.Environment{Redis: &config.RedisConfig{Version: "8.8.0"}}
+	active := registry.ActiveCommandNames(&environment)
+	if !reflect.DeepEqual(active, []string{"redis-server", "redis-cli"}) {
+		t.Fatalf("ActiveCommandNames(redis env) = %#v, want redis-server and redis-cli", active)
 	}
 }
 

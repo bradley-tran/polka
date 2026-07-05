@@ -77,6 +77,7 @@ func defaultCLIHookRegistry() cliHookRegistry {
 			{id: "database", run: startDatabaseServiceHook},
 			{id: "mailpit", run: startMailpitServiceHook},
 			{id: "meilisearch", run: startMeilisearchServiceHook},
+			{id: "redis", run: startRedisServiceHook},
 			{id: "traefik", run: startTraefikServiceHook},
 			{id: "phpmyadmin", run: startPHPMyAdminServiceHook},
 		},
@@ -90,6 +91,7 @@ func defaultCLIHookRegistry() cliHookRegistry {
 			{id: "webserver", run: stopWebserverHook},
 			{id: "phpmyadmin", run: stopPHPMyAdminServiceHook},
 			{id: "traefik", run: stopTraefikServiceHook},
+			{id: "redis", run: stopRedisServiceHook},
 			{id: "meilisearch", run: stopMeilisearchServiceHook},
 			{id: "database", run: stopDatabaseServiceHook},
 			{id: "mailpit", run: stopMailpitServiceHook},
@@ -106,6 +108,7 @@ func defaultCLIHookRegistry() cliHookRegistry {
 			{id: "roadrunner", run: statusRoadRunnerConfigHook},
 			{id: "sqlite", run: statusSQLiteConfigHook},
 			{id: "meilisearch", run: statusMeilisearchConfigHook},
+			{id: "redis", run: statusRedisConfigHook},
 			{id: "traefik", run: statusTraefikConfigHook},
 			{id: "phpmyadmin", run: statusPHPMyAdminConfigHook},
 			{id: "database", run: statusDatabaseConfigHook},
@@ -115,6 +118,7 @@ func defaultCLIHookRegistry() cliHookRegistry {
 			{id: "webserver", run: statusWebserverRuntimeHook},
 			{id: "phpmyadmin", run: statusPHPMyAdminRuntimeHook},
 			{id: "meilisearch", run: statusMeilisearchRuntimeHook},
+			{id: "redis", run: statusRedisRuntimeHook},
 			{id: "traefik", run: statusTraefikRuntimeHook},
 			{id: "database", run: statusDatabaseRuntimeHook},
 			{id: "mailpit", run: statusMailpitRuntimeHook},
@@ -127,6 +131,7 @@ func (r cliHookRegistry) StartServices(ctx startHookContext) error {
 		Database:                dbRuntimeHooks(),
 		Mailpit:                 mailpitRuntimeHooks(),
 		Meilisearch:             meilisearchRuntimeHooks(),
+		Redis:                   redisRuntimeHooks(),
 		Traefik:                 traefikRuntimeHooks(),
 		PHPMyAdmin:              phpMyAdminRuntimeHooks(ctx.Store),
 		EnsurePHPMyAdminStorage: ensurePHPMyAdminStorageConfiguredFunc,
@@ -170,6 +175,7 @@ func (r cliHookRegistry) Stop(ctx stopHookContext) error {
 		Database:    dbRuntimeHooks(),
 		Mailpit:     mailpitRuntimeHooks(),
 		Meilisearch: meilisearchRuntimeHooks(),
+		Redis:       redisRuntimeHooks(),
 		Traefik:     traefikRuntimeHooks(),
 		PHPMyAdmin:  phpMyAdminRuntimeHooks(ctx.Store),
 	})
@@ -220,6 +226,16 @@ func writeManagedServiceStopSummary(ctx stopHookContext, result service.StopResu
 			}
 		} else {
 			fmt.Fprintf(ctx.Stdout, "Stopped Meilisearch for environment %q.\n", ctx.Environment.Name)
+		}
+	}
+
+	if result.Redis != nil {
+		if result.Redis.AlreadyStopped {
+			if ctx.Environment.Redis != nil && strings.TrimSpace(ctx.Environment.Redis.Version) != "" {
+				fmt.Fprintf(ctx.Stdout, "Redis for environment %q is already stopped.\n", ctx.Environment.Name)
+			}
+		} else {
+			fmt.Fprintf(ctx.Stdout, "Stopped Redis for environment %q.\n", ctx.Environment.Name)
 		}
 	}
 
@@ -279,6 +295,15 @@ func startMeilisearchServiceHook(ctx startHookContext) error {
 	}
 
 	_, _, err := ensureManagedMeilisearchStarted(ctx.Store, ctx.Environment)
+	return err
+}
+
+func startRedisServiceHook(ctx startHookContext) error {
+	if ctx.Environment.Redis == nil || strings.TrimSpace(ctx.Environment.Redis.Version) == "" {
+		return nil
+	}
+
+	_, _, err := ensureManagedRedisStarted(ctx.Store, ctx.Environment)
 	return err
 }
 
@@ -490,6 +515,24 @@ func stopMeilisearchServiceHook(ctx stopHookContext) error {
 	return nil
 }
 
+func stopRedisServiceHook(ctx stopHookContext) error {
+	if ctx.Environment.Redis == nil || strings.TrimSpace(ctx.Environment.Redis.Version) == "" {
+		return nil
+	}
+
+	_, redisAlreadyStopped, err := stopManagedRedis(ctx.Store, ctx.Environment.Name)
+	if err != nil {
+		return err
+	}
+	if redisAlreadyStopped {
+		fmt.Fprintf(ctx.Stdout, "Redis for environment %q is already stopped.\n", ctx.Environment.Name)
+		return nil
+	}
+
+	fmt.Fprintf(ctx.Stdout, "Stopped Redis for environment %q.\n", ctx.Environment.Name)
+	return nil
+}
+
 func stopTraefikServiceHook(ctx stopHookContext) error {
 	if ctx.Environment.Traefik == nil || strings.TrimSpace(ctx.Environment.Traefik.Version) == "" {
 		return nil
@@ -589,6 +632,11 @@ func statusMeilisearchConfigHook(ctx statusHookContext) error {
 	return nil
 }
 
+func statusRedisConfigHook(ctx statusHookContext) error {
+	_, _ = fmt.Fprintf(ctx.Stdout, "redis %s\n", labelRedis(ctx.Environment.Redis))
+	return nil
+}
+
 func statusTraefikConfigHook(ctx statusHookContext) error {
 	_, _ = fmt.Fprintf(ctx.Stdout, "traefik %s\n", labelTraefik(ctx.Environment.Traefik))
 	return nil
@@ -677,6 +725,25 @@ func statusMeilisearchRuntimeHook(ctx statusHookContext) error {
 	}
 
 	_, _ = fmt.Fprintf(ctx.Stdout, "meilisearch-server running %s\n", meilisearchURL(*liveMeilisearchState))
+	return nil
+}
+
+func statusRedisRuntimeHook(ctx statusHookContext) error {
+	if ctx.Environment.Redis == nil || strings.TrimSpace(ctx.Environment.Redis.Version) == "" {
+		_, _ = fmt.Fprintln(ctx.Stdout, "redis-server unset")
+		return nil
+	}
+
+	liveRedisState, err := loadLiveRedisState(ctx.Store.RootDir, ctx.Environment.Name)
+	if err != nil {
+		return err
+	}
+	if liveRedisState == nil {
+		_, _ = fmt.Fprintln(ctx.Stdout, "redis-server stopped")
+		return nil
+	}
+
+	_, _ = fmt.Fprintf(ctx.Stdout, "redis-server running %s\n", redisURL(*liveRedisState))
 	return nil
 }
 

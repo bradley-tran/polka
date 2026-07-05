@@ -78,7 +78,7 @@ Automatic service startup skips a configured service when its matching managed t
 
 The `tools` package owns managed tool behavior:
 
-- tool IDs such as `PHP`, `PHPZTS`, `FrankenPHP`, `Composer`, `PIE`, `NodeJS`, `Mago`, `Nginx`, `Apache`, `Mailpit`, `Meilisearch`, `Traefik`, `PHPMyAdmin`, `MySQL`, `MariaDB`, `PostgreSQL`, and `SQLite`
+- tool IDs such as `PHP`, `PHPZTS`, `FrankenPHP`, `Composer`, `PIE`, `NodeJS`, `Mago`, `Nginx`, `Apache`, `Mailpit`, `Meilisearch`, `Redis`, `Traefik`, `PHPMyAdmin`, `MySQL`, `MariaDB`, `PostgreSQL`, and `SQLite`
 - tool plugin interfaces and registry
 - embedded YAML manifests for built-in plugin metadata
 - PHP extension dependencies declared by tool manifests
@@ -141,6 +141,7 @@ Runtime services are split between `service` and `cli`:
 - Managed database lifecycle is in `service`.
 - Mailpit startup, shutdown, and status are in `service`, with CLI adapters for command output and test hooks.
 - Meilisearch startup, shutdown, and status are in `service`, with CLI adapters for command output and test hooks.
+- Redis startup, shutdown, and status are in `service`, with CLI adapters for command output and test hooks.
 - Traefik startup, shutdown, and status are in `service`, with CLI adapters for command output and test hooks.
 - phpMyAdmin startup, shutdown, status, and managed MySQL/MariaDB storage import are in `service`; CLI supplies the PHP/nginx/Apache/FrankenPHP web runtime callbacks.
 - Certificates remain CLI-managed assets and are passed to services through callback adapters.

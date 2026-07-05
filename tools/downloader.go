@@ -40,6 +40,11 @@ const (
 	checksumAlgorithmMD5      checksumAlgorithm = "md5"
 	checksumAlgorithmSHA256   checksumAlgorithm = "sha256"
 	checksumAlgorithmSHA3_256 checksumAlgorithm = "sha3-256"
+	// checksumAlgorithmEmbeddedCommitID marks a download whose integrity is
+	// verified out of band by a plugin hook against a source-control commit
+	// embedded in the payload (redis verifies the commit stored in the GitHub
+	// source-archive zip comment) rather than by a file-content hash.
+	checksumAlgorithmEmbeddedCommitID checksumAlgorithm = "embedded-commit-id"
 
 	downloadMaxAttempts = 3
 )

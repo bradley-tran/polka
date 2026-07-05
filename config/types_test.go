@@ -43,6 +43,27 @@ func TestTraefikToolAndSettingsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRedisToolAndSettingsRoundTrip(t *testing.T) {
+	environment := NormalizeEnvironment("demo", Environment{
+		Name:  "demo",
+		Redis: &RedisConfig{Version: "8.8.0", Port: 6380, Password: "local-dev-password"},
+	})
+
+	// The version belongs under tools; the port and password belong under settings.
+	file := EnvironmentFileFromEnvironment(environment)
+	if file.Tools == nil || file.Tools.RedisVersion != "8.8.0" {
+		t.Fatalf("EnvironmentFileFromEnvironment().Tools = %#v, want redis 8.8.0", file.Tools)
+	}
+	if file.Settings == nil || file.Settings.Redis == nil || file.Settings.Redis.Port != 6380 || file.Settings.Redis.Password != "local-dev-password" {
+		t.Fatalf("EnvironmentFileFromEnvironment().Settings = %#v, want redis port and password", file.Settings)
+	}
+
+	roundTrip := EnvironmentFileToEnvironment("demo", file)
+	if roundTrip.Redis == nil || roundTrip.Redis.Version != "8.8.0" || roundTrip.Redis.Port != 6380 || roundTrip.Redis.Password != "local-dev-password" {
+		t.Fatalf("EnvironmentFileToEnvironment().Redis = %#v, want restored version, port, and password", roundTrip.Redis)
+	}
+}
+
 func TestPHPZTSConfigRoundTrip(t *testing.T) {
 	environment := ProjectFileToEnvironment("default", ProjectFile{
 		Tools: &ToolsConfig{PHPZTSVersion: "8.4"},

@@ -16,6 +16,7 @@ type DatabaseConfig = config.DatabaseConfig
 type MailpitConfig = config.MailpitConfig
 type PHPMyAdminConfig = config.PHPMyAdminConfig
 type MeilisearchConfig = config.MeilisearchConfig
+type RedisConfig = config.RedisConfig
 type TraefikConfig = config.TraefikConfig
 
 const (
@@ -24,6 +25,7 @@ const (
 	toolMailpit     = tools.Mailpit
 	toolPHPMyAdmin  = tools.PHPMyAdmin
 	toolMeilisearch = tools.Meilisearch
+	toolRedis       = tools.Redis
 	toolTraefik     = tools.Traefik
 	toolMySQL       = tools.MySQL
 	toolMariaDB     = tools.MariaDB

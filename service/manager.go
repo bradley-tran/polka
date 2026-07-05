@@ -12,6 +12,7 @@ type RuntimeHooks struct {
 	Database                DatabaseRuntimeHooks
 	Mailpit                 MailpitRuntimeHooks
 	Meilisearch             MeilisearchRuntimeHooks
+	Redis                   RedisRuntimeHooks
 	Traefik                 TraefikRuntimeHooks
 	PHPMyAdmin              PHPMyAdminRuntimeHooks
 	EnsurePHPMyAdminStorage func(Context, Environment, DatabaseRuntimeHooks) error
@@ -19,12 +20,18 @@ type RuntimeHooks struct {
 
 type StartResult struct {
 	Meilisearch *MeilisearchStartSummary
+	Redis       *RedisStartSummary
 	Traefik     *TraefikStartSummary
 	PHPMyAdmin  *PHPMyAdminStartResult
 }
 
 type MeilisearchStartSummary struct {
 	State          MeilisearchRuntimeState
+	AlreadyStarted bool
+}
+
+type RedisStartSummary struct {
+	State          RedisRuntimeState
 	AlreadyStarted bool
 }
 
@@ -41,6 +48,7 @@ type PHPMyAdminStartResult struct {
 type StopResult struct {
 	PHPMyAdmin  *StopServeResult
 	Meilisearch *StopMeilisearchResult
+	Redis       *StopRedisResult
 	Traefik     *StopTraefikResult
 	Database    *StopDatabaseResult
 	Mailpit     *StopMailpitResult
@@ -63,6 +71,11 @@ type StopMailpitResult struct {
 
 type StopMeilisearchResult struct {
 	State          MeilisearchRuntimeState
+	AlreadyStopped bool
+}
+
+type StopRedisResult struct {
+	State          RedisRuntimeState
 	AlreadyStopped bool
 }
 
@@ -97,6 +110,16 @@ func (m Manager) Start(ctx Context, hooks RuntimeHooks) (StartResult, error) {
 				return StartResult{}, err
 			}
 			result.Meilisearch = &MeilisearchStartSummary{State: state, AlreadyStarted: alreadyStarted}
+		}
+	}
+
+	if ctx.Environment.Redis != nil && strings.TrimSpace(ctx.Environment.Redis.Version) != "" {
+		if !ctx.skipMissingTool("redis", toolRedis) {
+			state, alreadyStarted, err := EnsureManagedRedisStarted(ctx, hooks.Redis)
+			if err != nil {
+				return StartResult{}, err
+			}
+			result.Redis = &RedisStartSummary{State: state, AlreadyStarted: alreadyStarted}
 		}
 	}
 
@@ -148,6 +171,12 @@ func (m Manager) Stop(ctx Context, hooks RuntimeHooks) (StopResult, error) {
 	}
 	result.Meilisearch = &StopMeilisearchResult{State: meilisearchState, AlreadyStopped: meilisearchAlreadyStopped}
 
+	redisState, redisAlreadyStopped, err := StopManagedRedis(ctx, hooks.Redis)
+	if err != nil {
+		return StopResult{}, err
+	}
+	result.Redis = &StopRedisResult{State: redisState, AlreadyStopped: redisAlreadyStopped}
+
 	traefikState, traefikAlreadyStopped, err := StopManagedTraefik(ctx, hooks.Traefik)
 	if err != nil {
 		return StopResult{}, err
@@ -182,6 +211,9 @@ func (m Manager) WarnMissingRuntimeTools(ctx Context) {
 	}
 	if ctx.Environment.Meilisearch != nil && strings.TrimSpace(ctx.Environment.Meilisearch.Version) != "" {
 		_ = ctx.skipMissingTool("meilisearch", toolMeilisearch)
+	}
+	if ctx.Environment.Redis != nil && strings.TrimSpace(ctx.Environment.Redis.Version) != "" {
+		_ = ctx.skipMissingTool("redis", toolRedis)
 	}
 	if ctx.Environment.Traefik != nil && strings.TrimSpace(ctx.Environment.Traefik.Version) != "" {
 		_ = ctx.skipMissingTool("traefik", toolTraefik)
