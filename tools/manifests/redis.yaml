@@ -1,0 +1,28 @@
+id: redis
+install-candidates:
+  windows-amd64:
+    - redis-server.exe
+  linux-amd64:
+    - redis-server
+dispatch-commands:
+  - redis-server
+  - redis-cli
+dispatch-candidates:
+  redis-cli:
+    windows-amd64:
+      - redis-cli.exe
+    linux-amd64:
+      - redis-cli
+logs:
+  info:
+    - redis.log
+download:
+  github:
+    owner: zkteco-home
+    repo: redis-windows
+  assets:
+    windows-amd64:
+      filename: redis-windows-{version}.zip
+      url: https://github.com/zkteco-home/redis-windows/archive/refs/tags/{tag}.zip
+      checksum-algorithm: embedded-commit-id
+      archive-format: zip

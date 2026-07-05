@@ -252,7 +252,7 @@ func validateDownloadAsset(tool, platform string, asset downloadAsset) error {
 		return fmt.Errorf("tool manifest %q download assets %s requires url", tool, platform)
 	}
 	switch asset.ChecksumAlgorithm {
-	case checksumAlgorithmNone, checksumAlgorithmMD5, checksumAlgorithmSHA256, checksumAlgorithmSHA3_256:
+	case checksumAlgorithmNone, checksumAlgorithmMD5, checksumAlgorithmSHA256, checksumAlgorithmSHA3_256, checksumAlgorithmEmbeddedCommitID:
 	default:
 		return fmt.Errorf("tool manifest %q download assets %s has unsupported checksum algorithm %q", tool, platform, asset.ChecksumAlgorithm)
 	}
@@ -383,6 +383,11 @@ func manifestVersionFunc(m pluginManifest) func(config.Environment) string {
 				return ""
 			}
 			return environment.Meilisearch.Version
+		case Redis:
+			if environment.Redis == nil {
+				return ""
+			}
+			return environment.Redis.Version
 		case Traefik:
 			if environment.Traefik == nil {
 				return ""

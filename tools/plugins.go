@@ -13,6 +13,7 @@ func DefaultPlugins() []ToolPlugin {
 		apachePlugin(),
 		mailpitPlugin(),
 		meilisearchPlugin(),
+		redisPlugin(),
 		traefikPlugin(),
 		roadRunnerPlugin(),
 		phpMyAdminPlugin(),
