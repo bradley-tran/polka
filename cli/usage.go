@@ -8,14 +8,17 @@ Usage:
 Commands:
   init [framework] [--docroot PATH]
                        create the local .polka directory and optional framework config
-  new <name>           create an environment with default or explicit versions
   create-project <package> [directory]
                        scaffold a new app with Polka's internal composer and initialize polka in it
+  env <command>        manage environment definitions (new, config, install, list, use, remove)
+  new <name>           create an environment with default or explicit versions
   config <key> <value> set one config value for an environment
   ext <install|remove> <vendor/name[:version]>
                        manage PIE-provided PHP extensions for an environment
   install [tool:version]
                        install one tool version or all tools for an environment
+  php [args...]        run php with the local shell environment
+  composer [args...]   run composer with the local shell environment
   cert-install         install Polka's local HTTPS certificate into the user trust store
   db [args...]         run the active environment's database client or manage its local server
   serve, start [docroot]
@@ -48,6 +51,9 @@ Examples:
   polka install php-zts:8.4
   polka install frankenphp:1.12
   polka install --env api
+  polka env install
+  polka php -v
+  polka composer install
   polka cert-install
   polka db start
   polka db status
@@ -75,6 +81,23 @@ The generated default environment enables HTTPS and uses <directory>.localhost a
 Use --docroot PATH to set the generated default environment's document root.
 When framework is cakephp, codeigniter, drupal, wordpress, laravel, or symfony, Polka writes an opinionated default config for that framework.
 Framework init is config-only; it does not create app files, install tools, or start services. It fails if polka.yaml already exists.
+`
+
+const envUsage = `Usage:
+  polka env <command> [options]
+
+Manage environment definitions. The default environment is stored in polka.yaml; named environments are stored in polka.<name>.yaml.
+
+Commands:
+  new <name>           create an environment with default or explicit versions
+  config <key> <value> set one config value for an environment
+  install [tool:version]
+                       install one tool version or all tools for an environment
+  list                 list environments
+  use <name>           select the active environment
+  remove <name>        remove an environment
+
+Each of these is also available as a top-level shortcut, so "polka install" and "polka env install" are equivalent.
 `
 
 const createProjectUsage = `Usage:

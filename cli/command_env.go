@@ -19,6 +19,35 @@ const (
 	defaultNewNodeJSVersion   = backend.DefaultNodeJSVersion
 )
 
+// newEnvCommand groups the environment-definition commands under "env". The real
+// implementations live here; the familiar top-level names (new, config, install,
+// list, use) are registered on the root as shortcuts that expand to these.
+func newEnvCommand(ctx *commandContext) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "env <command> [options]",
+		Short: "Manage environment definitions.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				return &statusError{code: 2, err: fmt.Errorf("unknown command %q", strings.TrimSpace(args[0])), showUsage: true, usage: envUsage}
+			}
+
+			_, _ = fmt.Fprint(cmd.OutOrStdout(), envUsage)
+			return nil
+		},
+	}
+	configureHelp(cmd, envUsage)
+	cmd.AddCommand(
+		newNewCommand(ctx),
+		newConfigCommand(ctx),
+		newInstallCommand(ctx),
+		newListCommand(ctx),
+		newUseCommand(ctx),
+		newRemoveCommand(ctx),
+	)
+
+	return cmd
+}
+
 func newInitCommand(ctx *commandContext) *cobra.Command {
 	var input initCommandInput
 
