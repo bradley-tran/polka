@@ -6,12 +6,6 @@ install-candidates:
     - rr
 dispatch-commands:
   - rr
-dispatch-candidates:
-  rr:
-    windows-amd64:
-      - rr.exe
-    linux-amd64:
-      - rr
 logs:
   debug:
     - serve.log

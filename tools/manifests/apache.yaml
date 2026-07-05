@@ -10,15 +10,6 @@ install-candidates:
 dispatch-commands:
   - apache
   - httpd
-dispatch-candidates:
-  httpd:
-    windows-amd64:
-      - Apache24/bin/httpd.exe
-      - bin/httpd.exe
-      - httpd.exe
-    linux-amd64:
-      - bin/httpd
-      - httpd
 logs:
   info:
     - logs/access.log

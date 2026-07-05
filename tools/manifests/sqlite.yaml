@@ -15,18 +15,6 @@ install-candidates:
     - bin/sqlite3
 dispatch-commands:
   - sqlite3
-dispatch-candidates:
-  sqlite3:
-    windows-amd64:
-      - sqlite3.cmd
-      - sqlite3.bat
-      - sqlite3.exe
-      - bin/sqlite3.cmd
-      - bin/sqlite3.bat
-      - bin/sqlite3.exe
-    linux-amd64:
-      - sqlite3
-      - bin/sqlite3
 download:
   assets:
     windows-amd64:

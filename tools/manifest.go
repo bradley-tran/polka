@@ -433,14 +433,15 @@ func manifestDispatchCandidatesFunc(m pluginManifest) func(root, executable, ver
 	return func(root, executable, version string) []string {
 		normalizedExecutable := strings.ToLower(strings.TrimSpace(executable))
 		installDir := filepath.Join(root, tool, version)
+		// An explicit dispatch-candidates entry overrides the primary binary for
+		// commands whose executable differs from install-candidates (nodejs
+		// npm/npx/yarn, frankenphp php). Every other dispatch command resolves to
+		// the tool's install-candidates.
 		if paths, ok := dispatchCandidates[normalizedExecutable]; ok {
 			return manifestCandidatePaths(installDir, paths, runtime.GOOS, runtime.GOARCH)
 		}
-		if normalizedExecutable == tool {
-			return manifestCandidatePaths(installDir, installPaths, runtime.GOOS, runtime.GOARCH)
-		}
 
-		return nil
+		return manifestCandidatePaths(installDir, installPaths, runtime.GOOS, runtime.GOARCH)
 	}
 }
 

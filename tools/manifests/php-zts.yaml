@@ -12,15 +12,3 @@ install-candidates:
     - php
 dispatch-commands:
   - php
-dispatch-candidates:
-  php:
-    windows-amd64:
-      - bin/php.exe
-      - bin/php.cmd
-      - bin/php.bat
-      - php.exe
-      - php.cmd
-      - php.bat
-    linux-amd64:
-      - bin/php
-      - php

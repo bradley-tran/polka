@@ -83,7 +83,7 @@ The `tools` package owns managed tool behavior:
 - embedded YAML manifests for built-in plugin metadata
 - PHP extension dependencies declared by tool manifests
 - install candidate paths
-- dispatch command mappings
+- dispatch command mappings (a command without an explicit dispatch candidate falls back to the tool's install candidates)
 - download templates, release resolution, checksums, cache metadata, and archive extraction
 - per-tool Go hooks for dynamic downloads or post-install behavior
 - PHP extension post-install config generation
@@ -179,7 +179,7 @@ To add a new managed tool:
 2. Add a plugin constructor in `tools/plugins.go` or a new focused tool file.
 3. Implement version lookup from `config.Environment`.
 4. Implement validation if the tool has nested config.
-5. Implement install candidates and dispatch candidates.
+5. Implement install candidates. Add dispatch candidates only to override commands whose executable differs from the install candidates (for example a multi-binary tool); every dispatch command without an override resolves to the install candidates.
 6. Add embedded manifest download assets or a focused download hook if Polka should download it automatically.
 7. Add a focused per-tool Go file only for hook wiring, dynamic download logic, validation, or post-install behavior.
 8. Register the plugin in `tools.DefaultPlugins`.
