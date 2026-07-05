@@ -78,11 +78,13 @@ polka config --env reporting database.engine postgresql
 polka config --env blog settings.mailpit.smtp-port 1025
 polka config --env blog tools.meilisearch 1.48
 polka config --env blog settings.meilisearch.port 7700
+polka config --env blog tools.redis 8.8.0
+polka config --env blog settings.redis.port 6379
 polka config --env blog tools.traefik 3.3
 polka config --env blog settings.traefik.port 8080
 ```
 
-Use `--env name` to select a named environment. When `--env` is omitted, Polka updates the current environment, falling back to `default` when no local override is selected. Supported keys are schema-aware dot paths such as `tools.php`, `tools.php-zts`, `tools.frankenphp`, `tools.apache`, `tools.meilisearch`, `settings.meilisearch.port`, `settings.meilisearch.master-key`, `tools.traefik`, `settings.traefik.port`, `database.port`, `server.type`, `server.hostname`, `env-vars.APP_ENV`, `memory-limit`, `php-extensions.xdebug`, and `opcache-config.opcache.enable_cli`. `tools.php` and `tools.php-zts` are mutually exclusive; setting one switches the primary runtime and both expose the standard `php` command. `server.type` accepts `php`, `nginx`, `apache`, or `frankenphp`. `tools.pie` is rejected: PIE is managed internally by Polka and driven through `polka ext`. `php-extensions.<vendor>/<name>` keys hold PIE version constraints instead of booleans.
+Use `--env name` to select a named environment. When `--env` is omitted, Polka updates the current environment, falling back to `default` when no local override is selected. Supported keys are schema-aware dot paths such as `tools.php`, `tools.php-zts`, `tools.frankenphp`, `tools.apache`, `tools.meilisearch`, `settings.meilisearch.port`, `settings.meilisearch.master-key`, `tools.redis`, `settings.redis.port`, `settings.redis.password`, `tools.traefik`, `settings.traefik.port`, `database.port`, `server.type`, `server.hostname`, `env-vars.APP_ENV`, `memory-limit`, `php-extensions.xdebug`, and `opcache-config.opcache.enable_cli`. `tools.php` and `tools.php-zts` are mutually exclusive; setting one switches the primary runtime and both expose the standard `php` command. `server.type` accepts `php`, `nginx`, `apache`, or `frankenphp`. `tools.pie` is rejected: PIE is managed internally by Polka and driven through `polka ext`. `php-extensions.<vendor>/<name>` keys hold PIE version constraints instead of booleans.
 
 ### `polka install [tool:version] [--env name]`
 
@@ -127,7 +129,7 @@ Selects one environment as the local override. Use `default` to clear the overri
 
 Alias: `polka info`
 
-Shows the active environment, prints each configured tool on its own line, includes the resolved web server URL, and reports whether the webserver, phpMyAdmin, Meilisearch, Traefik, managed database, and Mailpit are running.
+Shows the active environment, prints each configured tool on its own line, includes the resolved web server URL, and reports whether the webserver, phpMyAdmin, Meilisearch, Redis, Traefik, managed database, and Mailpit are running.
 
 ### `polka remove <name>`
 
@@ -180,7 +182,7 @@ By default, Polka starts the webserver in the background, waits for it to begin 
 
 Set `server.type` to `php`, `nginx`, `apache`, or `frankenphp` to select the webserver explicitly. When it is omitted, Polka preserves the existing behavior of selecting nginx when configured and PHP otherwise; Apache is selected only by `server.type: apache`. Nginx and Apache start `php-cgi` on an internal loopback port with generated FastCGI configs. Apache enables project `.htaccess` files by default. FrankenPHP runs through a generated Caddyfile. PHP's built-in webserver uses a generated router that serves existing static files and forwards missing requests into the app router or front controller.
 
-If the environment defines `mailpit`, `meilisearch`, `traefik`, `phpmyadmin`, or a managed database, Polka starts those local services before the webserver. When `traefik` is installed, Polka points it at the webserver and reports the proxy URL (`Reverse proxying through Traefik at ...`). `polka status` prints the full Mailpit, Meilisearch, Traefik, and phpMyAdmin URLs.
+If the environment defines `mailpit`, `meilisearch`, `redis`, `traefik`, `phpmyadmin`, or a managed database, Polka starts those local services before the webserver. When `traefik` is installed, Polka points it at the webserver and reports the proxy URL (`Reverse proxying through Traefik at ...`). `polka status` prints the full Mailpit, Meilisearch, Redis, Traefik, and phpMyAdmin URLs.
 
 HTTPS requires nginx, Apache, or FrankenPHP at start time. They use the generated server certificate from the global Polka cache. The certificate covers `localhost`, `*.localhost`, `127.0.0.1`, and `::1`, and is signed by a generated local Polka CA. Hostnames ending in `.localhost`, such as `blog.localhost`, work without editing the hosts file.
 
@@ -188,7 +190,7 @@ When Polka creates new HTTPS certificate material during `serve`, it prefers to 
 
 ### `polka stop`
 
-Stops the active environment's background webserver, phpMyAdmin, Meilisearch, Traefik, managed database, and Mailpit when they are running.
+Stops the active environment's background webserver, phpMyAdmin, Meilisearch, Redis, Traefik, managed database, and Mailpit when they are running.
 
 ### `polka logs <tool> [--level info|error|debug]`
 
@@ -205,7 +207,7 @@ polka logs mariadb --level error
 polka logs postgresql --level error
 ```
 
-Manifest log paths are resolved under `.polka/run/<tool>/<environment>`. When `--level` is omitted, Polka prints `info`, `error`, and `debug` logs in that order. Missing log files are skipped. If no matching declared log file exists on disk, the command exits with an error. Built-in log declarations cover `nginx`, `apache`, `frankenphp`, `mailpit`, `meilisearch`, `traefik`, `phpmyadmin`, `mysql`, `mariadb`, and `postgresql`.
+Manifest log paths are resolved under `.polka/run/<tool>/<environment>`. When `--level` is omitted, Polka prints `info`, `error`, and `debug` logs in that order. Missing log files are skipped. If no matching declared log file exists on disk, the command exits with an error. Built-in log declarations cover `nginx`, `apache`, `frankenphp`, `mailpit`, `meilisearch`, `redis`, `traefik`, `phpmyadmin`, `mysql`, `mariadb`, and `postgresql`.
 
 ### `polka cert-install [--no-encryption]`
 
