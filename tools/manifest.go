@@ -383,6 +383,11 @@ func manifestVersionFunc(m pluginManifest) func(config.Environment) string {
 				return ""
 			}
 			return environment.Meilisearch.Version
+		case Redis:
+			if environment.Redis == nil {
+				return ""
+			}
+			return environment.Redis.Version
 		case Traefik:
 			if environment.Traefik == nil {
 				return ""

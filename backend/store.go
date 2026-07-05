@@ -503,8 +503,8 @@ func (s Store) writeEnvironment(name, phpVersion, composerVersion, nodeJSVersion
 		environment.Database = mergeDatabaseConfig(environment.Database, database)
 		environment = setDatabaseToolVersion(environment, database)
 	}
-	if environment.PHPVersion == "" && environment.PHPZTSVersion == "" && environment.FrankenPHPVersion == "" && environment.RoadRunnerVersion == "" && environment.ComposerVersion == "" && environment.PIEVersion == "" && environment.NodeJSVersion == "" && environment.MagoVersion == "" && environment.NginxVersion == "" && environment.ApacheVersion == "" && environment.MySQLVersion == "" && environment.MariaDBVersion == "" && environment.PostgreSQLVersion == "" && environment.SQLiteVersion == "" && environment.PHPMyAdmin == nil && environment.Database == nil && environment.Mailpit == nil && environment.Meilisearch == nil && environment.Traefik == nil {
-		return Environment{}, fmt.Errorf("environment requires at least one of php, php-zts, frankenphp, roadrunner, composer, nodejs, mago, nginx, apache, mysql, mariadb, postgresql, sqlite, phpmyadmin, database, mailpit, meilisearch, or traefik")
+	if environment.PHPVersion == "" && environment.PHPZTSVersion == "" && environment.FrankenPHPVersion == "" && environment.RoadRunnerVersion == "" && environment.ComposerVersion == "" && environment.PIEVersion == "" && environment.NodeJSVersion == "" && environment.MagoVersion == "" && environment.NginxVersion == "" && environment.ApacheVersion == "" && environment.MySQLVersion == "" && environment.MariaDBVersion == "" && environment.PostgreSQLVersion == "" && environment.SQLiteVersion == "" && environment.PHPMyAdmin == nil && environment.Database == nil && environment.Mailpit == nil && environment.Meilisearch == nil && environment.Redis == nil && environment.Traefik == nil {
+		return Environment{}, fmt.Errorf("environment requires at least one of php, php-zts, frankenphp, roadrunner, composer, nodejs, mago, nginx, apache, mysql, mariadb, postgresql, sqlite, phpmyadmin, database, mailpit, meilisearch, redis, or traefik")
 	}
 	if err := s.toolRegistry().ValidateEnvironment(environment); err != nil {
 		return Environment{}, err
@@ -965,6 +965,11 @@ func environmentWithInstallRequest(environment Environment, request tools.Instal
 			environment.Meilisearch = &MeilisearchConfig{}
 		}
 		environment.Meilisearch.Version = request.Version
+	case toolRedis:
+		if environment.Redis == nil {
+			environment.Redis = &RedisConfig{}
+		}
+		environment.Redis.Version = request.Version
 	case toolTraefik:
 		if environment.Traefik == nil {
 			environment.Traefik = &TraefikConfig{}
@@ -1650,6 +1655,13 @@ func validateSettingsSchema(settings, tools map[string]any) error {
 			if err := validateSettingKeys("settings.meilisearch", settingMap, map[string]struct{}{"port": {}, "master-key": {}}); err != nil {
 				return err
 			}
+		case "redis":
+			if !hasConfiguredToolVersion(tools, "redis") {
+				return fmt.Errorf("settings.redis requires tools.redis")
+			}
+			if err := validateSettingKeys("settings.redis", settingMap, map[string]struct{}{"port": {}}); err != nil {
+				return err
+			}
 		case "traefik":
 			if !hasConfiguredToolVersion(tools, "traefik") {
 				return fmt.Errorf("settings.traefik requires tools.traefik")
@@ -1767,7 +1779,7 @@ func asYAMLStringMap(value any) (map[string]any, bool) {
 
 func knownToolVersionKey(key string) bool {
 	switch key {
-	case toolPHP, toolPHPZTS, toolFrankenPHP, toolRoadRunner, toolComposer, toolPIE, toolNodeJS, toolMago, toolNginx, toolApache, toolMySQL, toolMariaDB, toolPostgreSQL, toolSQLite, toolMailpit, toolPHPMyAdmin, toolMeilisearch, toolTraefik:
+	case toolPHP, toolPHPZTS, toolFrankenPHP, toolRoadRunner, toolComposer, toolPIE, toolNodeJS, toolMago, toolNginx, toolApache, toolMySQL, toolMariaDB, toolPostgreSQL, toolSQLite, toolMailpit, toolPHPMyAdmin, toolMeilisearch, toolRedis, toolTraefik:
 		return true
 	default:
 		return false

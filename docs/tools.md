@@ -29,6 +29,7 @@ Some configured tool keys expose different command names:
 | `sqlite` | `sqlite3` |
 | `mailpit` | `mailpit` |
 | `meilisearch` | `meilisearch` |
+| `redis` | `redis-server`, `redis-cli` |
 | `traefik` | `traefik` |
 | `phpmyadmin` | none |
 
@@ -64,6 +65,12 @@ Polka resolves configured versions against the local install layout under `.polk
 |   |-- php-zts/
 |   |   `-- 8.4/
 |   |       `-- bin/php[.exe|.cmd|.bat]
+|   |-- redis/
+|   |   `-- 8.8/
+|   |       |-- bin/redis-server (Linux)
+|   |       |-- bin/redis-cli (Linux)
+|   |       |-- redis-server.exe (Windows)
+|   |       `-- redis-cli.exe (Windows)
 |   `-- sqlite/
 |       `-- 3.53/
 |           `-- sqlite3[.exe]
@@ -97,6 +104,8 @@ The `phpmyadmin` tool key installs the phpMyAdmin web app archive under `.polka/
 The `mailpit` tool key installs Mailpit and creates a `mailpit` command shim. Its SMTP and UI port settings live under `settings.mailpit`.
 
 The `meilisearch` tool key installs Meilisearch and creates a `meilisearch` command shim. Its HTTP port and optional local master key live under `settings.meilisearch`; Polka stores only a runtime fingerprint of the master key and does not print it in status output.
+
+The `redis` tool key installs Redis Open Source and creates `redis-server` and `redis-cli` command shims. Its TCP port lives under `settings.redis.port` and defaults to `6379`; the managed background service binds to `127.0.0.1`, stores data under `.polka/data/redis/<environment>`, and writes `redis.log` under `.polka/run/redis/<environment>`. On Linux amd64, Polka resolves `redis-server` and `redis-tools` from Redis-maintained `packages.redis.io` APT package metadata, verifies the SHA256 values published in that index, extracts the official `.deb` payloads, and caches a merged archive containing the Redis binaries. On Windows amd64, Polka resolves Redis versions from `zkteco-home/redis-windows` GitHub releases and caches that tag's source archive, which includes `redis-server.exe` and `redis-cli.exe`. macOS and other platforms return an unsupported-platform error.
 
 The `traefik` tool key installs the [Traefik](https://traefik.io/) reverse proxy and creates a `traefik` command shim. Polka runs it as a managed background service that **fronts the environment webserver**: when `tools.traefik` is installed, `polka serve` starts Traefik on a `web` entrypoint at `settings.traefik.port` (default `8080`) and points it at whatever webserver the environment serves (php, nginx, apache, or frankenphp). Traefik uses a file provider that watches `.polka/run/traefik/<environment>/dynamic`; once the webserver address is known, Polka writes the routing rules there (`polka.yml`) and Traefik hot-reloads them, so the site is reachable through Traefik at `<scheme>://<hostname>:<port>` in addition to the webserver's own address.
 
@@ -151,3 +160,5 @@ Automatic FrankenPHP downloads are currently implemented for Windows amd64 and L
 Automatic RoadRunner downloads are currently implemented for Windows amd64 and Linux amd64.
 
 Automatic phpMyAdmin downloads use the official cross-platform zip archive.
+
+Automatic Redis downloads are currently implemented for Linux amd64 from Redis-maintained APT package metadata on `packages.redis.io` and for Windows amd64 from `zkteco-home/redis-windows` GitHub release source archives.

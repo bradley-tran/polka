@@ -71,6 +71,30 @@ func TestRunLogsPrintsFrankenPHPServeLog(t *testing.T) {
 	}
 }
 
+func TestRunLogsPrintsRedisLog(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	writeTestConfigFile(t, projectDir, testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {Redis: &testRedisConfig{Version: "8.8"}},
+		},
+	})
+	writeTestActiveEnvironment(t, root, "demo")
+	writeTestLogFile(t, filepath.Join(root, "run", "redis", "demo", "redis.log"), "redis-info\n")
+
+	if code := Run(stdout, stderr, []string{"--root", root, "logs", "redis"}); code != 0 {
+		t.Fatalf("Run(logs redis) code = %d, stderr = %q", code, stderr.String())
+	}
+	if stdout.String() != "redis-info\n" {
+		t.Fatalf("Run(logs redis) stdout = %q, want redis log", stdout.String())
+	}
+}
+
 func TestRunLogsErrorsWhenNoMatchingFilesExist(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")

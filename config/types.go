@@ -35,6 +35,7 @@ type ToolsConfig struct {
 	MailpitVersion     string `yaml:"mailpit,omitempty"`
 	PHPMyAdminVersion  string `yaml:"phpmyadmin,omitempty"`
 	MeilisearchVersion string `yaml:"meilisearch,omitempty"`
+	RedisVersion       string `yaml:"redis,omitempty"`
 	TraefikVersion     string `yaml:"traefik,omitempty"`
 }
 
@@ -43,6 +44,7 @@ type SettingsConfig struct {
 	Mailpit     *MailpitSettingsConfig     `yaml:"mailpit,omitempty"`
 	PHPMyAdmin  *PHPMyAdminSettingsConfig  `yaml:"phpmyadmin,omitempty"`
 	Meilisearch *MeilisearchSettingsConfig `yaml:"meilisearch,omitempty"`
+	Redis       *RedisSettingsConfig       `yaml:"redis,omitempty"`
 	Traefik     *TraefikSettingsConfig     `yaml:"traefik,omitempty"`
 }
 
@@ -61,6 +63,11 @@ type PHPMyAdminSettingsConfig struct {
 type MeilisearchSettingsConfig struct {
 	Port      int    `yaml:"port,omitempty"`
 	MasterKey string `yaml:"master-key,omitempty"`
+}
+
+// RedisSettingsConfig is the YAML shape for Redis runtime settings.
+type RedisSettingsConfig struct {
+	Port int `yaml:"port,omitempty"`
 }
 
 // TraefikSettingsConfig is the YAML shape for Traefik runtime settings.
@@ -129,6 +136,7 @@ type Environment struct {
 	Mailpit           *MailpitConfig     `yaml:"mailpit,omitempty"`
 	PHPMyAdmin        *PHPMyAdminConfig  `yaml:"phpmyadmin,omitempty"`
 	Meilisearch       *MeilisearchConfig `yaml:"meilisearch,omitempty"`
+	Redis             *RedisConfig       `yaml:"redis,omitempty"`
 	Traefik           *TraefikConfig     `yaml:"traefik,omitempty"`
 	MemoryLimit       string             `yaml:"memory-limit,omitempty"`
 	PHPExtensions     map[string]bool    `yaml:"php-extensions,omitempty"`
@@ -161,6 +169,12 @@ type MeilisearchConfig struct {
 	Version   string `yaml:"version,omitempty"`
 	Port      int    `yaml:"port,omitempty"`
 	MasterKey string `yaml:"master-key,omitempty"`
+}
+
+// RedisConfig configures the managed Redis tool and local service.
+type RedisConfig struct {
+	Version string `yaml:"version,omitempty"`
+	Port    int    `yaml:"port,omitempty"`
 }
 
 type TraefikConfig struct {
@@ -321,6 +335,7 @@ func ToolsConfigFromEnvironment(environment Environment) *ToolsConfig {
 		MailpitVersion:     ToolVersionFromMailpitConfig(environment.Mailpit),
 		PHPMyAdminVersion:  ToolVersionFromPHPMyAdminConfig(environment.PHPMyAdmin),
 		MeilisearchVersion: ToolVersionFromMeilisearchConfig(environment.Meilisearch),
+		RedisVersion:       ToolVersionFromRedisConfig(environment.Redis),
 		TraefikVersion:     ToolVersionFromTraefikConfig(environment.Traefik),
 	}
 	if tools.IsZero() {
@@ -336,6 +351,7 @@ func SettingsConfigFromEnvironment(environment Environment) *SettingsConfig {
 		Mailpit:     MailpitSettingsConfigFromEnvironment(environment),
 		PHPMyAdmin:  PHPMyAdminSettingsConfigFromEnvironment(environment),
 		Meilisearch: MeilisearchSettingsConfigFromEnvironment(environment),
+		Redis:       RedisSettingsConfigFromEnvironment(environment),
 		Traefik:     TraefikSettingsConfigFromEnvironment(environment),
 	}
 	if settings.IsZero() {
@@ -370,6 +386,15 @@ func ToolVersionFromMeilisearchConfig(meilisearch *MeilisearchConfig) string {
 	}
 
 	return strings.TrimSpace(meilisearch.Version)
+}
+
+// ToolVersionFromRedisConfig extracts Redis's managed tool version label.
+func ToolVersionFromRedisConfig(redis *RedisConfig) string {
+	if redis == nil {
+		return ""
+	}
+
+	return strings.TrimSpace(redis.Version)
 }
 
 // ToolVersionFromTraefikConfig extracts Traefik's managed tool version label.
@@ -431,6 +456,22 @@ func MeilisearchSettingsConfigFromEnvironment(environment Environment) *Meilisea
 	return meilisearch
 }
 
+// RedisSettingsConfigFromEnvironment extracts Redis settings that belong under settings.
+func RedisSettingsConfigFromEnvironment(environment Environment) *RedisSettingsConfig {
+	if environment.Redis == nil {
+		return nil
+	}
+
+	redis := &RedisSettingsConfig{
+		Port: environment.Redis.Port,
+	}
+	if redis.Port == 0 {
+		return nil
+	}
+
+	return redis
+}
+
 // TraefikSettingsConfigFromEnvironment extracts Traefik settings that belong under settings.
 func TraefikSettingsConfigFromEnvironment(environment Environment) *TraefikSettingsConfig {
 	if environment.Traefik == nil {
@@ -484,6 +525,7 @@ func (tools ToolsConfig) IsZero() bool {
 		strings.TrimSpace(tools.MailpitVersion) == "" &&
 		strings.TrimSpace(tools.PHPMyAdminVersion) == "" &&
 		strings.TrimSpace(tools.MeilisearchVersion) == "" &&
+		strings.TrimSpace(tools.RedisVersion) == "" &&
 		strings.TrimSpace(tools.TraefikVersion) == ""
 }
 
@@ -492,6 +534,7 @@ func (settings SettingsConfig) IsZero() bool {
 	return settings.Mailpit == nil &&
 		settings.PHPMyAdmin == nil &&
 		settings.Meilisearch == nil &&
+		settings.Redis == nil &&
 		settings.Traefik == nil
 }
 
@@ -538,6 +581,9 @@ func environmentFromFileParts(name string, framework string, tools *ToolsConfig,
 		if strings.TrimSpace(tools.MeilisearchVersion) != "" {
 			environment.Meilisearch = &MeilisearchConfig{Version: tools.MeilisearchVersion}
 		}
+		if strings.TrimSpace(tools.RedisVersion) != "" {
+			environment.Redis = &RedisConfig{Version: tools.RedisVersion}
+		}
 		if strings.TrimSpace(tools.TraefikVersion) != "" {
 			environment.Traefik = &TraefikConfig{Version: tools.TraefikVersion}
 		}
@@ -570,6 +616,12 @@ func applySettingsConfig(environment Environment, settings *SettingsConfig) Envi
 		}
 		environment.Meilisearch.Port = settings.Meilisearch.Port
 		environment.Meilisearch.MasterKey = settings.Meilisearch.MasterKey
+	}
+	if settings.Redis != nil {
+		if environment.Redis == nil {
+			environment.Redis = &RedisConfig{}
+		}
+		environment.Redis.Port = settings.Redis.Port
 	}
 	if settings.Traefik != nil {
 		if environment.Traefik == nil {
@@ -706,6 +758,7 @@ func NormalizeEnvironment(name string, environment Environment) Environment {
 		Mailpit:           NormalizeMailpitConfig(environment.Mailpit),
 		PHPMyAdmin:        NormalizePHPMyAdminConfig(environment.PHPMyAdmin),
 		Meilisearch:       NormalizeMeilisearchConfig(environment.Meilisearch),
+		Redis:             NormalizeRedisConfig(environment.Redis),
 		Traefik:           NormalizeTraefikConfig(environment.Traefik),
 		MemoryLimit:       NormalizePHPMemoryLimit(environment.MemoryLimit),
 		PHPExtensions:     NormalizePHPExtensions(environment.PHPExtensions),
@@ -838,6 +891,23 @@ func NormalizeMeilisearchConfig(meilisearch *MeilisearchConfig) *MeilisearchConf
 		MasterKey: strings.TrimSpace(meilisearch.MasterKey),
 	}
 	if normalized.Version == "" && normalized.Port == 0 && normalized.MasterKey == "" {
+		return nil
+	}
+
+	return normalized
+}
+
+// NormalizeRedisConfig trims Redis version labels and drops empty configs.
+func NormalizeRedisConfig(redis *RedisConfig) *RedisConfig {
+	if redis == nil {
+		return nil
+	}
+
+	normalized := &RedisConfig{
+		Version: strings.TrimSpace(redis.Version),
+		Port:    redis.Port,
+	}
+	if normalized.Version == "" && normalized.Port == 0 {
 		return nil
 	}
 

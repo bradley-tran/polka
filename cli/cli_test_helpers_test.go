@@ -41,6 +41,7 @@ type testEnvironmentConfig struct {
 	SQLite        string                 `yaml:"sqlite,omitempty"`
 	PHPMyAdmin    *testPHPMyAdminConfig  `yaml:"phpmyadmin,omitempty"`
 	Meilisearch   *testMeilisearchConfig `yaml:"meilisearch,omitempty"`
+	Redis         *testRedisConfig       `yaml:"redis,omitempty"`
 	Docroot       string                 `yaml:"docroot,omitempty"`
 	HTTPS         bool                   `yaml:"https,omitempty"`
 	EnvFile       string                 `yaml:"env-file,omitempty"`
@@ -125,6 +126,11 @@ type testMeilisearchConfig struct {
 	MasterKey string `yaml:"master-key,omitempty"`
 }
 
+type testRedisConfig struct {
+	Version string `yaml:"version,omitempty"`
+	Port    int    `yaml:"port,omitempty"`
+}
+
 type testProjectConfigData struct {
 	Version       int                 `yaml:"version,omitempty"`
 	Root          string              `yaml:"root,omitempty"`
@@ -176,12 +182,14 @@ type testToolsConfig struct {
 	Mailpit     string `yaml:"mailpit,omitempty"`
 	PHPMyAdmin  string `yaml:"phpmyadmin,omitempty"`
 	Meilisearch string `yaml:"meilisearch,omitempty"`
+	Redis       string `yaml:"redis,omitempty"`
 }
 
 type testSettingsConfig struct {
 	Mailpit     *testMailpitSettingsConfig     `yaml:"mailpit,omitempty"`
 	PHPMyAdmin  *testPHPMyAdminSettingsConfig  `yaml:"phpmyadmin,omitempty"`
 	Meilisearch *testMeilisearchSettingsConfig `yaml:"meilisearch,omitempty"`
+	Redis       *testRedisSettingsConfig       `yaml:"redis,omitempty"`
 }
 
 type testMailpitSettingsConfig struct {
@@ -196,6 +204,10 @@ type testPHPMyAdminSettingsConfig struct {
 type testMeilisearchSettingsConfig struct {
 	Port      int    `yaml:"port,omitempty"`
 	MasterKey string `yaml:"master-key,omitempty"`
+}
+
+type testRedisSettingsConfig struct {
+	Port int `yaml:"port,omitempty"`
 }
 
 func writeTestConfigFile(t *testing.T, projectDir string, config testConfigFile) {
@@ -397,6 +409,9 @@ func testEnvironmentFromParts(framework string, tools *testToolsConfig, settings
 		if strings.TrimSpace(tools.Meilisearch) != "" {
 			environment.Meilisearch = &testMeilisearchConfig{Version: tools.Meilisearch}
 		}
+		if strings.TrimSpace(tools.Redis) != "" {
+			environment.Redis = &testRedisConfig{Version: tools.Redis}
+		}
 	}
 	environment = testApplySettings(environment, settings)
 	if environment.HTTPS {
@@ -459,6 +474,7 @@ func testToolsFromEnvironment(environment testEnvironmentConfig) *testToolsConfi
 		Mailpit:     testMailpitVersion(environment.Mailpit),
 		PHPMyAdmin:  testPHPMyAdminVersion(environment.PHPMyAdmin),
 		Meilisearch: testMeilisearchVersion(environment.Meilisearch),
+		Redis:       testRedisVersion(environment.Redis),
 	}
 	if strings.TrimSpace(tools.PHP) == "" &&
 		strings.TrimSpace(tools.PHPZTS) == "" &&
@@ -475,7 +491,8 @@ func testToolsFromEnvironment(environment testEnvironmentConfig) *testToolsConfi
 		strings.TrimSpace(tools.SQLite) == "" &&
 		strings.TrimSpace(tools.Mailpit) == "" &&
 		strings.TrimSpace(tools.PHPMyAdmin) == "" &&
-		strings.TrimSpace(tools.Meilisearch) == "" {
+		strings.TrimSpace(tools.Meilisearch) == "" &&
+		strings.TrimSpace(tools.Redis) == "" {
 		return nil
 	}
 
@@ -487,8 +504,9 @@ func testSettingsFromEnvironment(environment testEnvironmentConfig) *testSetting
 		Mailpit:     testMailpitSettingsFromEnvironment(environment),
 		PHPMyAdmin:  testPHPMyAdminSettingsFromEnvironment(environment),
 		Meilisearch: testMeilisearchSettingsFromEnvironment(environment),
+		Redis:       testRedisSettingsFromEnvironment(environment),
 	}
-	if settings.Mailpit == nil && settings.PHPMyAdmin == nil && settings.Meilisearch == nil {
+	if settings.Mailpit == nil && settings.PHPMyAdmin == nil && settings.Meilisearch == nil && settings.Redis == nil {
 		return nil
 	}
 
@@ -525,6 +543,14 @@ func testMeilisearchSettingsFromEnvironment(environment testEnvironmentConfig) *
 	}
 }
 
+func testRedisSettingsFromEnvironment(environment testEnvironmentConfig) *testRedisSettingsConfig {
+	if environment.Redis == nil || environment.Redis.Port == 0 {
+		return nil
+	}
+
+	return &testRedisSettingsConfig{Port: environment.Redis.Port}
+}
+
 func testApplySettings(environment testEnvironmentConfig, settings *testSettingsConfig) testEnvironmentConfig {
 	if settings == nil {
 		return environment
@@ -548,6 +574,12 @@ func testApplySettings(environment testEnvironmentConfig, settings *testSettings
 		}
 		environment.Meilisearch.Port = settings.Meilisearch.Port
 		environment.Meilisearch.MasterKey = settings.Meilisearch.MasterKey
+	}
+	if settings.Redis != nil {
+		if environment.Redis == nil {
+			environment.Redis = &testRedisConfig{}
+		}
+		environment.Redis.Port = settings.Redis.Port
 	}
 
 	return environment
@@ -575,6 +607,14 @@ func testMeilisearchVersion(meilisearch *testMeilisearchConfig) string {
 	}
 
 	return strings.TrimSpace(meilisearch.Version)
+}
+
+func testRedisVersion(redis *testRedisConfig) string {
+	if redis == nil {
+		return ""
+	}
+
+	return strings.TrimSpace(redis.Version)
 }
 
 func testDatabaseToolVersion(environment testEnvironmentConfig, engine string) string {

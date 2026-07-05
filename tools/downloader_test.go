@@ -9,11 +9,13 @@ import (
 	"crypto/sha256"
 	"crypto/sha3"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -891,6 +893,141 @@ func TestDownloadDatabaseAssetCachesSupportedArchives(t *testing.T) {
 	}
 }
 
+func TestDownloadRedisResolvesAPTIndexAndExtractsDebianPackages(t *testing.T) {
+	serverDeb := buildDebianPackage(t, "usr/bin/redis-server", []byte("redis-server"))
+	toolsDeb := buildDebianPackage(t, "usr/bin/redis-cli", []byte("redis-cli"))
+	packages := strings.Join([]string{
+		strings.Join([]string{
+			"Package: redis-server",
+			"Version: 6:8.8.0-1rl1~jammy1",
+			"Filename: pool/jammy/r/re/redis-server_8.8.0-1rl1~jammy1_amd64.deb",
+			"SHA256: " + checksumForBytes(t, checksumAlgorithmSHA256, serverDeb),
+		}, "\n"),
+		strings.Join([]string{
+			"Package: redis-tools",
+			"Version: 6:8.8.0-1rl1~jammy1",
+			"Filename: pool/jammy/r/re/redis-tools_8.8.0-1rl1~jammy1_amd64.deb",
+			"SHA256: " + checksumForBytes(t, checksumAlgorithmSHA256, toolsDeb),
+		}, "\n"),
+	}, "\n\n")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/dists/jammy/main/binary-amd64/Packages":
+			_, _ = w.Write([]byte(packages))
+		case "/pool/jammy/r/re/redis-server_8.8.0-1rl1~jammy1_amd64.deb":
+			_, _ = w.Write(serverDeb)
+		case "/pool/jammy/r/re/redis-tools_8.8.0-1rl1~jammy1_amd64.deb":
+			_, _ = w.Write(toolsDeb)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	withTemporaryString(t, &redisAPTBaseURL, server.URL)
+	withTemporaryRedisDistributions(t, []string{"jammy"})
+	withTemporaryRedisPackagesURL(t, func(distribution string) string {
+		return server.URL + "/dists/" + distribution + "/main/binary-amd64/Packages"
+	})
+	withTemporaryRedisRuntime(t, "linux", "amd64")
+
+	cacheDir := t.TempDir()
+	if err := downloadRedis(server.Client(), cacheDir, "8.8"); err != nil {
+		t.Fatalf("downloadRedis() error = %v", err)
+	}
+
+	payload, err := CachedToolPayload(cacheDir, Redis, "8.8")
+	if err != nil {
+		t.Fatalf("CachedToolPayload(redis 8.8) error = %v", err)
+	}
+	if payload.DownloadedVersion != "8.8.0" {
+		t.Fatalf("CachedToolPayload(redis).DownloadedVersion = %q, want 8.8.0", payload.DownloadedVersion)
+	}
+	targetDir := filepath.Join(t.TempDir(), "install")
+	if _, err := InstallCachedToolPayload(cacheDir, targetDir, Redis, "8.8"); err != nil {
+		t.Fatalf("InstallCachedToolPayload(redis 8.8) error = %v", err)
+	}
+	for path, want := range map[string]string{
+		filepath.Join(targetDir, "bin", "redis-server"): "redis-server",
+		filepath.Join(targetDir, "bin", "redis-cli"):    "redis-cli",
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("ReadFile(%s) error = %v", path, err)
+		}
+		if string(data) != want {
+			t.Fatalf("ReadFile(%s) = %q, want %q", path, string(data), want)
+		}
+	}
+}
+
+func TestDownloadRedisWindowsResolvesGitHubReleaseSourceArchive(t *testing.T) {
+	archiveData := buildZipArchiveFiles(t, "redis-windows-8.8.0", map[string][]byte{
+		"redis-server.exe": []byte("redis-server"),
+		"redis-cli.exe":    []byte("redis-cli"),
+	})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/zkteco-home/redis-windows/releases":
+			_, _ = w.Write([]byte(`[
+				{"tag_name":"8.8.0","draft":false,"prerelease":false,"assets":[]},
+				{"tag_name":"8.6.3","draft":false,"prerelease":false,"assets":[]}
+			]`))
+		case "/archive/refs/tags/8.8.0.zip":
+			_, _ = w.Write(archiveData)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	withTemporaryString(t, &githubAPIBaseURL, server.URL)
+	withTemporaryRedisWindowsArchiveURL(t, func(tag string) string {
+		return server.URL + "/archive/refs/tags/" + tag + ".zip"
+	})
+	withTemporaryRedisRuntime(t, "windows", "amd64")
+
+	cacheDir := t.TempDir()
+	if err := downloadRedis(server.Client(), cacheDir, "8.8"); err != nil {
+		t.Fatalf("downloadRedis(windows) error = %v", err)
+	}
+
+	payload, err := CachedToolPayload(cacheDir, Redis, "8.8")
+	if err != nil {
+		t.Fatalf("CachedToolPayload(redis 8.8) error = %v", err)
+	}
+	if payload.DownloadedVersion != "8.8.0" {
+		t.Fatalf("CachedToolPayload(redis).DownloadedVersion = %q, want 8.8.0", payload.DownloadedVersion)
+	}
+	targetDir := filepath.Join(t.TempDir(), "install")
+	if _, err := InstallCachedToolPayload(cacheDir, targetDir, Redis, "8.8"); err != nil {
+		t.Fatalf("InstallCachedToolPayload(redis 8.8) error = %v", err)
+	}
+	for path, want := range map[string]string{
+		filepath.Join(targetDir, "redis-server.exe"): "redis-server",
+		filepath.Join(targetDir, "redis-cli.exe"):    "redis-cli",
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("ReadFile(%s) error = %v", path, err)
+		}
+		if string(data) != want {
+			t.Fatalf("ReadFile(%s) = %q, want %q", path, string(data), want)
+		}
+	}
+}
+
+func TestDownloadRedisRejectsUnsupportedPlatform(t *testing.T) {
+	withTemporaryRedisRuntime(t, "darwin", "arm64")
+
+	err := downloadRedis(http.DefaultClient, t.TempDir(), "8.8")
+	if err == nil || !strings.Contains(err.Error(), "supported only on linux/amd64 and windows/amd64") {
+		t.Fatalf("downloadRedis(unsupported) error = %v, want platform error", err)
+	}
+}
+
 func TestDownloadDatabaseAssetMetadataTracksMultipleVersions(t *testing.T) {
 	archiveData := buildZipArchive(t, "mysql-test", "bin/mysql.exe", []byte("mysql"))
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -933,14 +1070,27 @@ func TestDownloadDatabaseAssetMetadataTracksMultipleVersions(t *testing.T) {
 func buildZipArchive(t *testing.T, rootDir, filePath string, contents []byte) []byte {
 	t.Helper()
 
+	return buildZipArchiveFiles(t, rootDir, map[string][]byte{filePath: contents})
+}
+
+func buildZipArchiveFiles(t *testing.T, rootDir string, files map[string][]byte) []byte {
+	t.Helper()
+
 	buffer := &bytes.Buffer{}
 	writer := zip.NewWriter(buffer)
-	fileWriter, err := writer.Create(filepath.ToSlash(filepath.Join(rootDir, filePath)))
-	if err != nil {
-		t.Fatalf("Create(zip entry) error = %v", err)
+	paths := make([]string, 0, len(files))
+	for path := range files {
+		paths = append(paths, filepath.ToSlash(path))
 	}
-	if _, err := fileWriter.Write(contents); err != nil {
-		t.Fatalf("Write(zip entry) error = %v", err)
+	sort.Strings(paths)
+	for _, path := range paths {
+		fileWriter, err := writer.Create(filepath.ToSlash(filepath.Join(rootDir, path)))
+		if err != nil {
+			t.Fatalf("Create(zip entry) error = %v", err)
+		}
+		if _, err := fileWriter.Write(files[path]); err != nil {
+			t.Fatalf("Write(zip entry) error = %v", err)
+		}
 	}
 	if err := writer.Close(); err != nil {
 		t.Fatalf("Close(zip writer) error = %v", err)
@@ -998,6 +1148,32 @@ func writeTarArchive(t *testing.T, writer io.Writer, rootDir, filePath string, c
 	}
 }
 
+func buildDebianPackage(t *testing.T, filePath string, contents []byte) []byte {
+	t.Helper()
+
+	buffer := &bytes.Buffer{}
+	buffer.WriteString("!<arch>\n")
+	writeArMember(t, buffer, "debian-binary", []byte("2.0\n"))
+	writeArMember(t, buffer, "control.tar.xz", buildTarXZArchive(t, ".", "control", []byte("Package: redis\n")))
+	writeArMember(t, buffer, "data.tar.xz", buildTarXZArchive(t, ".", filePath, contents))
+
+	return buffer.Bytes()
+}
+
+func writeArMember(t *testing.T, buffer *bytes.Buffer, name string, data []byte) {
+	t.Helper()
+
+	if len(name) > 15 {
+		t.Fatalf("ar member name %q is too long for test helper", name)
+	}
+	header := fmt.Sprintf("%-16s%-12d%-6d%-6d%-8o%-10d`\n", name+"/", 0, 0, 0, 0o644, len(data))
+	buffer.WriteString(header)
+	buffer.Write(data)
+	if len(data)%2 != 0 {
+		buffer.WriteByte('\n')
+	}
+}
+
 func withTemporaryString(t *testing.T, target *string, value string) {
 	t.Helper()
 
@@ -1005,6 +1181,49 @@ func withTemporaryString(t *testing.T, target *string, value string) {
 	*target = value
 	t.Cleanup(func() {
 		*target = original
+	})
+}
+
+func withTemporaryRedisDistributions(t *testing.T, value []string) {
+	t.Helper()
+
+	original := redisAPTDistributions
+	redisAPTDistributions = value
+	t.Cleanup(func() {
+		redisAPTDistributions = original
+	})
+}
+
+func withTemporaryRedisPackagesURL(t *testing.T, value func(string) string) {
+	t.Helper()
+
+	original := redisAPTPackagesURL
+	redisAPTPackagesURL = value
+	t.Cleanup(func() {
+		redisAPTPackagesURL = original
+	})
+}
+
+func withTemporaryRedisWindowsArchiveURL(t *testing.T, value func(string) string) {
+	t.Helper()
+
+	original := redisWindowsArchiveURL
+	redisWindowsArchiveURL = value
+	t.Cleanup(func() {
+		redisWindowsArchiveURL = original
+	})
+}
+
+func withTemporaryRedisRuntime(t *testing.T, goos, goarch string) {
+	t.Helper()
+
+	originalGOOS := redisRuntimeGOOS
+	originalGOARCH := redisRuntimeGOARCH
+	redisRuntimeGOOS = func() string { return goos }
+	redisRuntimeGOARCH = func() string { return goarch }
+	t.Cleanup(func() {
+		redisRuntimeGOOS = originalGOOS
+		redisRuntimeGOARCH = originalGOARCH
 	})
 }
 

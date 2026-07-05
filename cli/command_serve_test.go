@@ -1415,6 +1415,115 @@ func TestRunServeStartsConfiguredMeilisearchBeforeWebserver(t *testing.T) {
 	}
 }
 
+func TestRunServeStartsConfiguredRedisBeforeWebserver(t *testing.T) {
+	if (runtime.GOOS != "linux" && runtime.GOOS != "windows") || runtime.GOARCH != "amd64" {
+		t.Skip("redis manifest install candidates are linux/amd64 and windows/amd64 only")
+	}
+
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	docroot := filepath.Join(projectDir, "site", "public")
+	if err := os.MkdirAll(docroot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(docroot) error = %v", err)
+	}
+
+	writeTestConfigFile(t, projectDir, testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {
+				PHP:     "8.4",
+				Docroot: filepath.ToSlash(filepath.Join("site", "public")),
+				Redis:   &testRedisConfig{Version: "8.8", Port: 6380},
+				Server:  &testServerConfig{Hostname: "localhost", Port: 8080},
+			},
+		},
+	})
+	writeTestActiveEnvironment(t, root, "demo")
+	for _, path := range []string{
+		projectInstalledPHPPath(root, "8.4"),
+		projectInstalledRedisServerPath(root, "8.8"),
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("MkdirAll(%s) error = %v", filepath.Dir(path), err)
+		}
+		if err := os.WriteFile(path, []byte("placeholder\n"), 0o755); err != nil {
+			t.Fatalf("WriteFile(%s) error = %v", path, err)
+		}
+	}
+
+	oldStartRedis := startRedisServerFunc
+	oldStopRedis := stopRedisRuntimeFunc
+	oldPingRedis := pingRedisAddressFunc
+	oldRedisNow := redisNowFunc
+	oldStartPHP := startBackgroundPHPRuntimeServe
+	oldPingServe := pingServeAddressFunc
+	t.Cleanup(func() {
+		startRedisServerFunc = oldStartRedis
+		stopRedisRuntimeFunc = oldStopRedis
+		pingRedisAddressFunc = oldPingRedis
+		redisNowFunc = oldRedisNow
+		startBackgroundPHPRuntimeServe = oldStartPHP
+		pingServeAddressFunc = oldPingServe
+	})
+
+	order := []string{}
+	redisRunning := map[string]bool{}
+	serveRunning := map[string]bool{}
+	var startedSpec redisServerSpec
+	startRedisServerFunc = func(spec redisServerSpec) (redisStartResult, error) {
+		order = append(order, "redis")
+		startedSpec = spec
+		redisRunning[service.RedisAddress(spec.Port)] = true
+		return redisStartResult{PID: 7878}, nil
+	}
+	stopRedisRuntimeFunc = func(state redisRuntimeState) error {
+		redisRunning[service.RedisAddress(state.Port)] = false
+		return nil
+	}
+	pingRedisAddressFunc = func(address string) bool {
+		return redisRunning[address]
+	}
+	redisNowFunc = func() time.Time {
+		return time.Date(2026, time.May, 29, 12, 0, 0, 0, time.UTC)
+	}
+	startBackgroundPHPRuntimeServe = func(store backend.Store, environment backend.Environment, serverAddress string, layout serveAppLayout) (serveRuntimeState, error) {
+		order = append(order, "web")
+		serveRunning[serverAddress] = true
+		return serveRuntimeState{PrimaryPID: 4242}, nil
+	}
+	pingServeAddressFunc = func(address string) bool {
+		return serveRunning[address]
+	}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "start"}); code != 0 {
+		t.Fatalf("Run(serve with redis) code = %d, stderr = %q", code, stderr.String())
+	}
+	if strings.Join(order, ",") != "redis,web" {
+		t.Fatalf("start order = %v, want redis before webserver", order)
+	}
+	if startedSpec.Port != 6380 || startedSpec.DataDir != service.RedisDataPath(root, "demo") {
+		t.Fatalf("started redis spec = %#v, want configured port and data dir", startedSpec)
+	}
+	state, err := loadRedisState(redisStatePath(root, "demo"))
+	if err != nil {
+		t.Fatalf("loadRedisState() error = %v", err)
+	}
+	if state.PID != 7878 || state.Port != 6380 {
+		t.Fatalf("redis state = %#v, want pid 7878 and configured port", state)
+	}
+}
+
+func projectInstalledRedisServerPath(root, version string) string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(root, "envs", "redis", version, "redis-server.exe")
+	}
+
+	return filepath.Join(root, "envs", "redis", version, "bin", "redis-server")
+}
+
 func TestRunServeStartsConfiguredPHPMyAdminBeforeWebserver(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")

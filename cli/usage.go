@@ -109,7 +109,7 @@ const configUsage = `Usage:
 
 Create or update one environment config value. The default environment is stored in polka.yaml; named environments are stored in polka.<name>.yaml.
 Use --env NAME to select a named environment. When --env is omitted, Polka updates the current environment, falling back to default when no local override is selected.
-Keys are dot-separated YAML paths such as tools.php, tools.php-zts, tools.frankenphp, tools.apache, tools.meilisearch, server.type, database.engine, settings.mailpit.smtp-port, settings.meilisearch.port, settings.meilisearch.master-key, env-vars.APP_ENV, memory-limit, php-extensions.xdebug, and opcache-config.opcache.enable_cli.
+Keys are dot-separated YAML paths such as tools.php, tools.php-zts, tools.frankenphp, tools.apache, tools.meilisearch, tools.redis, server.type, database.engine, settings.mailpit.smtp-port, settings.meilisearch.port, settings.meilisearch.master-key, settings.redis.port, env-vars.APP_ENV, memory-limit, php-extensions.xdebug, and opcache-config.opcache.enable_cli.
 tools.php and tools.php-zts are mutually exclusive standalone runtimes; setting one clears the other and both take precedence for the php command. FrankenPHP supplies php when neither is configured.
 server.type accepts php, nginx, apache, or frankenphp. When omitted, Polka preserves the legacy behavior of selecting nginx when configured and PHP otherwise.
 `
@@ -167,7 +167,7 @@ Start the active environment's local web server.
 When docroot is omitted, Polka uses docroot from the current environment file.
 When --server is omitted, Polka uses the current environment's server.hostname, server.port, and root-level https setting, defaulting to localhost:8000.
 server.type explicitly selects php, nginx, apache, or frankenphp. When omitted, nginx is selected when configured and PHP is used otherwise.
-When the current environment defines a database, mailpit, meilisearch, or phpmyadmin, Polka starts those managed local services first.
+When the current environment defines a database, mailpit, meilisearch, redis, traefik, or phpmyadmin, Polka starts those managed local services first.
 Set root-level https to true to serve nginx, Apache, or FrankenPHP and applicable managed services over HTTPS with Polka's generated local certificate. PHP's built-in webserver does not support HTTPS.
 By default, Polka starts the webserver in the background and returns once it is listening.
 Pass --watch to keep the webserver attached to the current terminal with the previous foreground behavior.
@@ -176,7 +176,7 @@ Pass --watch to keep the webserver attached to the current terminal with the pre
 const stopUsage = `Usage:
   polka stop
 
-Stop the active environment's local web server, phpMyAdmin, Meilisearch, Traefik, managed database, and mailpit when they are running.
+Stop the active environment's local web server, phpMyAdmin, Meilisearch, Redis, Traefik, managed database, and mailpit when they are running.
 `
 
 const execUsage = `Usage:
@@ -232,7 +232,7 @@ const statusUsage = `Usage:
 
 Show the active environment, including one line per configured tool and the resolved server URL.
 The active environment name is stored in .polka/run/current when a local override is selected; otherwise Polka uses default.
-Also shows whether the active environment's webserver, phpMyAdmin, Meilisearch, Traefik, managed database, and mailpit are currently running.
+Also shows whether the active environment's webserver, phpMyAdmin, Meilisearch, Redis, Traefik, managed database, and mailpit are currently running.
 `
 
 const removeUsage = `Usage:

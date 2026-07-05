@@ -8,16 +8,16 @@ import (
 func TestDefaultCLIHookRegistryLifecycleOrder(t *testing.T) {
 	registry := defaultCLIHookRegistry()
 
-	if got, want := startServiceHookIDs(registry.startServices), []string{"database", "mailpit", "meilisearch", "traefik", "phpmyadmin"}; !reflect.DeepEqual(got, want) {
+	if got, want := startServiceHookIDs(registry.startServices), []string{"database", "mailpit", "meilisearch", "redis", "traefik", "phpmyadmin"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("start service hooks = %#v, want %#v", got, want)
 	}
 	if got, want := webserverHookIDs(registry.webservers), []string{"nginx", "apache", "frankenphp", "php"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("webserver hooks = %#v, want %#v", got, want)
 	}
-	if got, want := stopHookIDs(registry.stopHooks), []string{"webserver", "phpmyadmin", "traefik", "meilisearch", "database", "mailpit"}; !reflect.DeepEqual(got, want) {
+	if got, want := stopHookIDs(registry.stopHooks), []string{"webserver", "phpmyadmin", "traefik", "meilisearch", "redis", "database", "mailpit"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("stop hooks = %#v, want %#v", got, want)
 	}
-	if got, want := statusHookIDs(registry.runtimeStatusHooks), []string{"webserver", "phpmyadmin", "meilisearch", "traefik", "database", "mailpit"}; !reflect.DeepEqual(got, want) {
+	if got, want := statusHookIDs(registry.runtimeStatusHooks), []string{"webserver", "phpmyadmin", "meilisearch", "redis", "traefik", "database", "mailpit"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("runtime status hooks = %#v, want %#v", got, want)
 	}
 }
@@ -26,7 +26,7 @@ func TestDefaultCLIHookRegistryConfigStatusOrder(t *testing.T) {
 	registry := defaultCLIHookRegistry()
 
 	got := statusHookIDs(registry.configStatusHooks)
-	want := []string{"php", "composer", "pie", "nodejs", "mago", "nginx", "apache", "frankenphp", "roadrunner", "sqlite", "meilisearch", "traefik", "phpmyadmin", "database", "mailpit"}
+	want := []string{"php", "composer", "pie", "nodejs", "mago", "nginx", "apache", "frankenphp", "roadrunner", "sqlite", "meilisearch", "redis", "traefik", "phpmyadmin", "database", "mailpit"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("config status hooks = %#v, want %#v", got, want)
 	}

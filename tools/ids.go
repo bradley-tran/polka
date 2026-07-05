@@ -23,6 +23,7 @@ const (
 	Mailpit     = "mailpit"
 	PHPMyAdmin  = "phpmyadmin"
 	Meilisearch = "meilisearch"
+	Redis       = "redis"
 	Traefik     = "traefik"
 	RoadRunner  = "roadrunner"
 	MySQL       = "mysql"

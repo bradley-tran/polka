@@ -1,0 +1,18 @@
+id: redis
+install-candidates:
+  windows-amd64:
+    - redis-server.exe
+  linux-amd64:
+    - bin/redis-server
+dispatch-commands:
+  - redis-server
+  - redis-cli
+dispatch-candidates:
+  redis-cli:
+    windows-amd64:
+      - redis-cli.exe
+    linux-amd64:
+      - bin/redis-cli
+logs:
+  info:
+    - redis.log

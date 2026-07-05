@@ -282,6 +282,63 @@ func TestRunStopStopsMeilisearchWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestRunStopStopsRedisWhenConfigured(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	writeStopTestConfig(t, projectDir, testEnvironmentConfig{
+		PHP:   "8.4",
+		Redis: &testRedisConfig{Version: "8.8", Port: 6380},
+	})
+	if err := writeRedisState(redisStatePath(root, "demo"), redisRuntimeState{
+		EnvironmentName: "demo",
+		Version:         "8.8",
+		Port:            6380,
+		PID:             7878,
+	}); err != nil {
+		t.Fatalf("writeRedisState() error = %v", err)
+	}
+
+	oldStopRedis := stopRedisRuntimeFunc
+	oldPingRedis := pingRedisAddressFunc
+	t.Cleanup(func() {
+		stopRedisRuntimeFunc = oldStopRedis
+		pingRedisAddressFunc = oldPingRedis
+	})
+
+	running := map[string]bool{
+		service.RedisAddress(6380): true,
+	}
+	stopCalls := 0
+	var stoppedState redisRuntimeState
+	stopRedisRuntimeFunc = func(state redisRuntimeState) error {
+		stopCalls++
+		stoppedState = state
+		running[service.RedisAddress(state.Port)] = false
+		return nil
+	}
+	pingRedisAddressFunc = func(address string) bool {
+		return running[address]
+	}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "stop"}); code != 0 {
+		t.Fatalf("Run(stop) code = %d, stderr = %q", code, stderr.String())
+	}
+	if stopCalls != 1 {
+		t.Fatalf("redis stop calls = %d, want 1", stopCalls)
+	}
+	if stoppedState.PID != 7878 || stoppedState.Port != 6380 {
+		t.Fatalf("stopped redis state = %#v, want persisted runtime state", stoppedState)
+	}
+	if !strings.Contains(stdout.String(), "Stopped Redis for environment \"demo\".") {
+		t.Fatalf("Run(stop) stdout = %q, want redis stop summary", stdout.String())
+	}
+	if _, err := os.Stat(redisStatePath(root, "demo")); !os.IsNotExist(err) {
+		t.Fatalf("Stat(redis state) error = %v, want not exists", err)
+	}
+}
+
 func writeStopTestConfig(t *testing.T, projectDir string, environment testEnvironmentConfig) {
 	t.Helper()
 

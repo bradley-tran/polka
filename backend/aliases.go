@@ -12,6 +12,7 @@ type Environment = config.Environment
 type MailpitConfig = config.MailpitConfig
 type PHPMyAdminConfig = config.PHPMyAdminConfig
 type MeilisearchConfig = config.MeilisearchConfig
+type RedisConfig = config.RedisConfig
 type TraefikConfig = config.TraefikConfig
 type ServerConfig = config.ServerConfig
 
@@ -45,6 +46,7 @@ const (
 	toolMailpit     = tools.Mailpit
 	toolPHPMyAdmin  = tools.PHPMyAdmin
 	toolMeilisearch = tools.Meilisearch
+	toolRedis       = tools.Redis
 	toolTraefik     = tools.Traefik
 	toolRoadRunner  = tools.RoadRunner
 	toolMySQL       = tools.MySQL

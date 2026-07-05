@@ -1094,6 +1094,30 @@ func TestStoreConfigureValueInfersPostgreSQLVersionFromTool(t *testing.T) {
 	}
 }
 
+func TestStoreConfigureValuePersistsRedisToolAndSettings(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+
+	if _, err := store.ConfigureValue("demo", "tools.redis", "8.8"); err != nil {
+		t.Fatalf("ConfigureValue(tools.redis) error = %v", err)
+	}
+	environment, err := store.ConfigureValue("demo", "settings.redis.port", "6380")
+	if err != nil {
+		t.Fatalf("ConfigureValue(settings.redis.port) error = %v", err)
+	}
+	if environment.Redis == nil || environment.Redis.Version != "8.8" || environment.Redis.Port != 6380 {
+		t.Fatalf("environment.Redis = %#v, want version and port", environment.Redis)
+	}
+
+	stored, ok, err := store.readEnvironment("demo")
+	if err != nil {
+		t.Fatalf("readEnvironment(demo) error = %v", err)
+	}
+	if !ok || stored.Redis == nil || stored.Redis.Version != "8.8" || stored.Redis.Port != 6380 {
+		t.Fatalf("stored Redis = %#v, ok = %v, want persisted version and port", stored.Redis, ok)
+	}
+}
+
 // TestStoreConfigureValueRejectsPIEToolVersion verifies pie cannot be pinned
 // in a project environment: it is provisioned internally and driven by polka ext.
 func TestStoreConfigureValueRejectsPIEToolVersion(t *testing.T) {
@@ -1748,6 +1772,68 @@ func TestStoreInstallDownloadsConfiguredMeilisearch(t *testing.T) {
 	assertPathExists(t, filepath.Join(store.BinDir, toolMeilisearch+".cmd"))
 }
 
+func TestStoreInstallToolPersistsRedisAndSyncsShims(t *testing.T) {
+	if (runtime.GOOS != "linux" && runtime.GOOS != "windows") || runtime.GOARCH != "amd64" {
+		t.Skip("redis manifest install candidates are linux/amd64 and windows/amd64 only")
+	}
+
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+	writeCachedRedisTool(t, store.CacheDir, "8.8")
+
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+
+	result, err := store.InstallTool("demo", toolRedis, "8.8")
+	if err != nil {
+		t.Fatalf("InstallTool(redis) error = %v", err)
+	}
+	if result.Tool != toolRedis || result.Version != "8.8" {
+		t.Fatalf("InstallTool(redis) result = %#v, want redis 8.8", result)
+	}
+	if result.Downloaded {
+		t.Fatalf("InstallTool(redis) Downloaded = true, want cache hit")
+	}
+	wantServerPath, wantCLIPath := installedRedisPaths(store.EnvsDir, "8.8")
+	if result.TargetPath != wantServerPath {
+		t.Fatalf("InstallTool(redis) target = %q, want redis-server", result.TargetPath)
+	}
+
+	config, err = store.readConfig()
+	if err != nil {
+		t.Fatalf("readConfig() error = %v", err)
+	}
+	if config.Environments["demo"].Redis == nil || config.Environments["demo"].Redis.Version != "8.8" {
+		t.Fatalf("demo Redis config = %#v, want version 8.8", config.Environments["demo"].Redis)
+	}
+
+	if err := store.Use("demo"); err != nil {
+		t.Fatalf("Use(demo) error = %v", err)
+	}
+	resolvedServer, err := store.ResolveTool("redis-server")
+	if err != nil {
+		t.Fatalf("ResolveTool(redis-server) error = %v", err)
+	}
+	if resolvedServer != result.TargetPath {
+		t.Fatalf("ResolveTool(redis-server) = %q, want %q", resolvedServer, result.TargetPath)
+	}
+	resolvedCLI, err := store.ResolveTool("redis-cli")
+	if err != nil {
+		t.Fatalf("ResolveTool(redis-cli) error = %v", err)
+	}
+	if resolvedCLI != wantCLIPath {
+		t.Fatalf("ResolveTool(redis-cli) = %q, want redis-cli", resolvedCLI)
+	}
+	for _, name := range []string{"redis-server", "redis-cli"} {
+		assertPathExists(t, filepath.Join(store.BinDir, name))
+		assertPathExists(t, filepath.Join(store.BinDir, name+".cmd"))
+	}
+}
+
 func TestStoreInstallDownloadsConfiguredTraefik(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
@@ -2317,6 +2403,7 @@ func TestStoreWritesToolSettingsSeparatelyFromVersions(t *testing.T) {
 		Mailpit:     &MailpitConfig{Version: "1.30", SMTPPort: 1125, UIPort: 8125},
 		PHPMyAdmin:  &PHPMyAdminConfig{Version: "5.2", Port: 8082},
 		Meilisearch: &MeilisearchConfig{Version: "1.48", Port: 7701, MasterKey: "local-dev-key"},
+		Redis:       &RedisConfig{Version: "8.8", Port: 6380},
 	}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
@@ -2327,10 +2414,10 @@ func TestStoreWritesToolSettingsSeparatelyFromVersions(t *testing.T) {
 		t.Fatalf("ReadFile(demo config) error = %v", err)
 	}
 	text := string(data)
-	if !strings.Contains(text, "tools:\n  mailpit: \"1.30\"\n  phpmyadmin: \"5.2\"\n  meilisearch: \"1.48\"") {
+	if !strings.Contains(text, "tools:\n  mailpit: \"1.30\"\n  phpmyadmin: \"5.2\"\n  meilisearch: \"1.48\"\n  redis: \"8.8\"") {
 		t.Fatalf("config = %q, want managed service version labels under tools", text)
 	}
-	if !strings.Contains(text, "settings:\n  mailpit:\n    smtp-port: 1125\n    ui-port: 8125\n  phpmyadmin:\n    port: 8082\n  meilisearch:\n    port: 7701\n    master-key: local-dev-key") {
+	if !strings.Contains(text, "settings:\n  mailpit:\n    smtp-port: 1125\n    ui-port: 8125\n  phpmyadmin:\n    port: 8082\n  meilisearch:\n    port: 7701\n    master-key: local-dev-key\n  redis:\n    port: 6380") {
 		t.Fatalf("config = %q, want managed service settings under settings", text)
 	}
 	if strings.Contains(text, "    version:") {
@@ -2378,6 +2465,7 @@ func TestStoreReadsToolSettingsSeparatedFromVersions(t *testing.T) {
 				"  mailpit: \"1.30\"",
 				"  phpmyadmin: \"5.2\"",
 				"  meilisearch: \"1.48\"",
+				"  redis: \"8.8\"",
 				"settings:",
 				"  mailpit:",
 				"    smtp-port: 1125",
@@ -2387,6 +2475,8 @@ func TestStoreReadsToolSettingsSeparatedFromVersions(t *testing.T) {
 				"  meilisearch:",
 				"    port: 7701",
 				"    master-key: local-dev-key",
+				"  redis:",
+				"    port: 6380",
 				"",
 			}, "\n"))
 			if test.envName != defaultEnvironmentName {
@@ -2395,6 +2485,7 @@ func TestStoreReadsToolSettingsSeparatedFromVersions(t *testing.T) {
 					"  mailpit: \"1.30\"",
 					"  phpmyadmin: \"5.2\"",
 					"  meilisearch: \"1.48\"",
+					"  redis: \"8.8\"",
 					"settings:",
 					"  mailpit:",
 					"    smtp-port: 1125",
@@ -2404,6 +2495,8 @@ func TestStoreReadsToolSettingsSeparatedFromVersions(t *testing.T) {
 					"  meilisearch:",
 					"    port: 7701",
 					"    master-key: local-dev-key",
+					"  redis:",
+					"    port: 6380",
 					"",
 				}, "\n"))
 			}
@@ -2424,6 +2517,9 @@ func TestStoreReadsToolSettingsSeparatedFromVersions(t *testing.T) {
 			}
 			if environment.Meilisearch == nil || environment.Meilisearch.Version != "1.48" || environment.Meilisearch.Port != 7701 || environment.Meilisearch.MasterKey != "local-dev-key" {
 				t.Fatalf("environment.Meilisearch = %#v, want version and configured settings", environment.Meilisearch)
+			}
+			if environment.Redis == nil || environment.Redis.Version != "8.8" || environment.Redis.Port != 6380 {
+				t.Fatalf("environment.Redis = %#v, want version and configured settings", environment.Redis)
 			}
 		})
 	}
@@ -2852,6 +2948,17 @@ func TestStoreRejectsNonVersionToolsAndOrphanSettings(t *testing.T) {
 			wantErr: "tools.meilisearch must be a scalar version label",
 		},
 		{
+			name: "nested redis",
+			config: strings.Join([]string{
+				"tools:",
+				"  redis:",
+				"    version: \"8.8\"",
+				"    port: 6379",
+				"",
+			}, "\n"),
+			wantErr: "tools.redis must be a scalar version label",
+		},
+		{
 			name: "tools database object",
 			config: strings.Join([]string{
 				"tools:",
@@ -2901,6 +3008,16 @@ func TestStoreRejectsNonVersionToolsAndOrphanSettings(t *testing.T) {
 				"",
 			}, "\n"),
 			wantErr: "settings.meilisearch requires tools.meilisearch",
+		},
+		{
+			name: "orphan redis settings",
+			config: strings.Join([]string{
+				"settings:",
+				"  redis:",
+				"    port: 6379",
+				"",
+			}, "\n"),
+			wantErr: "settings.redis requires tools.redis",
 		},
 		{
 			name: "invalid opcache preset",
@@ -3056,6 +3173,33 @@ func TestStoreResolveToolLogsSupportsApache(t *testing.T) {
 	}}
 	if !reflect.DeepEqual(logs, want) {
 		t.Fatalf("ResolveToolLogs(apache, error) = %#v, want %#v", logs, want)
+	}
+}
+
+func TestStoreResolveToolLogsSupportsRedis(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+
+	config := store.defaultConfig()
+	config.Environments["demo"] = Environment{Redis: &RedisConfig{Version: "8.8"}}
+	if err := store.writeConfig(config); err != nil {
+		t.Fatalf("writeConfig() error = %v", err)
+	}
+	if err := store.writeActiveEnvironmentName("demo"); err != nil {
+		t.Fatalf("writeActiveEnvironmentName() error = %v", err)
+	}
+
+	logs, err := store.ResolveToolLogs("redis", "")
+	if err != nil {
+		t.Fatalf("ResolveToolLogs(redis) error = %v", err)
+	}
+
+	want := []ToolLogEntry{{
+		Path:  filepath.Join(store.RootDir, "run", "redis", "demo", "redis.log"),
+		Level: "info",
+	}}
+	if !reflect.DeepEqual(logs, want) {
+		t.Fatalf("ResolveToolLogs(redis) = %#v, want %#v", logs, want)
 	}
 }
 
@@ -3335,6 +3479,30 @@ func writeCachedTool(t *testing.T, cacheDir, tool, version string) string {
 	}
 
 	return writeCachedArchivePayload(t, cacheDir, tool, version, files)
+}
+
+func writeCachedRedisTool(t *testing.T, cacheDir, version string) string {
+	t.Helper()
+
+	files := map[string][]byte{}
+	if runtime.GOOS == "windows" {
+		files["redis-server.exe"] = []byte("redis-server\n")
+		files["redis-cli.exe"] = []byte("redis-cli\n")
+	} else {
+		files[".polka-redis-payload"] = []byte("redis\n")
+		files["bin/redis-server"] = []byte("redis-server\n")
+		files["bin/redis-cli"] = []byte("redis-cli\n")
+	}
+
+	return writeCachedArchivePayload(t, cacheDir, toolRedis, version, files)
+}
+
+func installedRedisPaths(envsDir, version string) (string, string) {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(envsDir, toolRedis, version, "redis-server.exe"), filepath.Join(envsDir, toolRedis, version, "redis-cli.exe")
+	}
+
+	return filepath.Join(envsDir, toolRedis, version, "bin", "redis-server"), filepath.Join(envsDir, toolRedis, version, "bin", "redis-cli")
 }
 
 func fakeFrankenPHPModuleListScript(modules []string) []byte {

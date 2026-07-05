@@ -522,6 +522,8 @@ func TestRunConfigPersistsSchemaDotKeys(t *testing.T) {
 	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.meilisearch", "1.48")
 	runTestConfigValue(t, stdout, stderr, root, "demo", "settings.meilisearch.port", "7701")
 	runTestConfigValue(t, stdout, stderr, root, "demo", "settings.meilisearch.master-key", "local-dev-key")
+	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.redis", "8.8")
+	runTestConfigValue(t, stdout, stderr, root, "demo", "settings.redis.port", "6380")
 	runTestConfigValue(t, stdout, stderr, root, "demo", "env-vars.APP_ENV", "local")
 	runTestConfigValue(t, stdout, stderr, root, "demo", "memory-limit", "512m")
 	runTestConfigValue(t, stdout, stderr, root, "demo", "php-extensions.xdebug", "false")
@@ -533,6 +535,9 @@ func TestRunConfigPersistsSchemaDotKeys(t *testing.T) {
 	}
 	if environment.Meilisearch == nil || environment.Meilisearch.Version != "1.48" || environment.Meilisearch.Port != 7701 || environment.Meilisearch.MasterKey != "local-dev-key" {
 		t.Fatalf("meilisearch = %#v, want version and configured settings", environment.Meilisearch)
+	}
+	if environment.Redis == nil || environment.Redis.Version != "8.8" || environment.Redis.Port != 6380 {
+		t.Fatalf("redis = %#v, want version and configured settings", environment.Redis)
 	}
 	if environment.EnvVars["APP_ENV"] != "local" {
 		t.Fatalf("env-vars = %#v, want APP_ENV", environment.EnvVars)
@@ -574,6 +579,8 @@ func TestRunConfigRejectsInvalidKeysAndValuesWithoutWriting(t *testing.T) {
 		{name: "orphan setting", args: []string{"--env", "demo", "settings.mailpit.smtp-port", "1025"}, wantErr: "mailpit configuration requires version"},
 		{name: "orphan meilisearch setting", args: []string{"--env", "demo", "settings.meilisearch.port", "7700"}, wantErr: "meilisearch configuration requires version"},
 		{name: "invalid meilisearch port", args: []string{"--env", "demo", "settings.meilisearch.port", "nope"}, wantErr: "settings.meilisearch.port requires an integer value"},
+		{name: "orphan redis setting", args: []string{"--env", "demo", "settings.redis.port", "6379"}, wantErr: "redis configuration requires version"},
+		{name: "invalid redis port", args: []string{"--env", "demo", "settings.redis.port", "nope"}, wantErr: "settings.redis.port requires an integer value"},
 		{name: "invalid memory limit", args: []string{"--env", "demo", "memory-limit", "1.5G"}, wantErr: "invalid memory-limit"},
 	}
 
@@ -926,6 +933,7 @@ func TestRunStatusShowsToolsEachOnOwnLine(t *testing.T) {
 				HTTPS:       true,
 				PHPMyAdmin:  &testPHPMyAdminConfig{Version: "5.2", Port: 8082},
 				Meilisearch: &testMeilisearchConfig{Version: "1.48", Port: 7701, MasterKey: "local-dev-key"},
+				Redis:       &testRedisConfig{Version: "8.8", Port: 6380},
 				Database:    &testDatabaseConfig{Engine: "mysql", Version: "8.0", Port: 3306},
 				Server:      &testServerConfig{Hostname: "localhost", Port: 8080},
 			},
@@ -949,6 +957,7 @@ func TestRunStatusShowsToolsEachOnOwnLine(t *testing.T) {
 		"nginx 1.30\n",
 		"frankenphp 1.12\n",
 		"meilisearch 1.48 http=http://127.0.0.1:7701 auth=enabled\n",
+		"redis 8.8 tcp=127.0.0.1:6380\n",
 		"phpmyadmin 5.2 ui=https://127.0.0.1:8082\n",
 		"database mysql:8.0@3306\n",
 		"mailpit unset\n",
@@ -956,6 +965,7 @@ func TestRunStatusShowsToolsEachOnOwnLine(t *testing.T) {
 		"webserver stopped\n",
 		"phpmyadmin-server stopped\n",
 		"meilisearch-server stopped\n",
+		"redis-server stopped 127.0.0.1:6380\n",
 		"database-server stopped\n",
 		"mailpit-server unset\n",
 	} {
@@ -1035,6 +1045,9 @@ func TestRunStatusUsesDefaultServerAddress(t *testing.T) {
 	if !strings.Contains(output, "meilisearch unset\n") {
 		t.Fatalf("Run(status) stdout = %q, want meilisearch unset line", output)
 	}
+	if !strings.Contains(output, "redis unset\n") {
+		t.Fatalf("Run(status) stdout = %q, want redis unset line", output)
+	}
 	if !strings.Contains(output, "webserver stopped\n") {
 		t.Fatalf("Run(status) stdout = %q, want webserver stopped line", output)
 	}
@@ -1043,6 +1056,9 @@ func TestRunStatusUsesDefaultServerAddress(t *testing.T) {
 	}
 	if !strings.Contains(output, "meilisearch-server unset\n") {
 		t.Fatalf("Run(status) stdout = %q, want meilisearch server unset line", output)
+	}
+	if !strings.Contains(output, "redis-server unset\n") {
+		t.Fatalf("Run(status) stdout = %q, want redis server unset line", output)
 	}
 	if !strings.Contains(output, "database-server unset\n") {
 		t.Fatalf("Run(status) stdout = %q, want database unset line", output)
@@ -1214,6 +1230,52 @@ func TestRunStatusShowsMeilisearchURL(t *testing.T) {
 	}
 	if strings.Contains(output, "local-dev-key") {
 		t.Fatalf("Run(status) stdout = %q, want master key hidden", output)
+	}
+}
+
+func TestRunStatusShowsRedisAddress(t *testing.T) {
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	writeTestConfigFile(t, projectDir, testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {
+				Redis: &testRedisConfig{Version: "8.8", Port: 6380},
+			},
+		},
+	})
+	writeTestActiveEnvironment(t, root, "demo")
+	if err := writeRedisState(redisStatePath(root, "demo"), redisRuntimeState{
+		EnvironmentName: "demo",
+		Version:         "8.8",
+		Port:            6380,
+		PID:             1234,
+	}); err != nil {
+		t.Fatalf("writeRedisState() error = %v", err)
+	}
+
+	oldPingRedis := pingRedisAddressFunc
+	t.Cleanup(func() {
+		pingRedisAddressFunc = oldPingRedis
+	})
+	pingRedisAddressFunc = func(address string) bool {
+		return address == service.RedisAddress(6380)
+	}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "status"}); code != 0 {
+		t.Fatalf("Run(status) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "redis 8.8 tcp=127.0.0.1:6380\n") {
+		t.Fatalf("Run(status) stdout = %q, want configured redis address", output)
+	}
+	if !strings.Contains(output, "redis-server running 127.0.0.1:6380\n") {
+		t.Fatalf("Run(status) stdout = %q, want running redis address", output)
 	}
 }
 

@@ -629,6 +629,14 @@ func labelMeilisearch(meilisearch *backend.MeilisearchConfig) string {
 	return fmt.Sprintf("%s http=%s auth=%s", meilisearch.Version, meilisearchURLForConfig(meilisearch), auth)
 }
 
+func labelRedis(redis *backend.RedisConfig) string {
+	if redis == nil {
+		return "unset"
+	}
+
+	return fmt.Sprintf("%s tcp=%s", redis.Version, redisAddressForConfig(redis))
+}
+
 func labelTraefik(traefik *backend.TraefikConfig) string {
 	if traefik == nil {
 		return "unset"
