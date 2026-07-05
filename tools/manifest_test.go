@@ -309,6 +309,37 @@ dispatch-candidates:
 	}
 }
 
+// TestManifestDispatchCandidatesFallBackToInstallCandidates verifies that a
+// dispatch command without an explicit dispatch-candidates entry resolves to
+// the tool's install-candidates, even when the command name differs from the
+// tool id.
+func TestManifestDispatchCandidatesFallBackToInstallCandidates(t *testing.T) {
+	manifest, err := parsePluginManifest([]byte(`
+id: demo
+install-candidates:
+  all:
+    - bin/demo
+dispatch-commands:
+  - foo
+`))
+	if err != nil {
+		t.Fatalf("parsePluginManifest() error = %v", err)
+	}
+
+	plugin, err := manifest.toPlugin(pluginHooks{})
+	if err != nil {
+		t.Fatalf("toPlugin() error = %v", err)
+	}
+
+	// "foo" != tool id "demo" and has no override, so it must fall back to the
+	// install-candidates paths rather than resolving to nothing.
+	dispatchCandidates := plugin.DispatchCandidates("root", "foo", "1.2.3")
+	want := []string{filepath.Join("root", "demo", "1.2.3", "bin", "demo")}
+	if !reflect.DeepEqual(dispatchCandidates, want) {
+		t.Fatalf("DispatchCandidates(foo) = %#v, want %#v", dispatchCandidates, want)
+	}
+}
+
 func TestManifestVersionFuncInfersDatabaseToolVersion(t *testing.T) {
 	manifest, err := parsePluginManifest([]byte(`
 id: mariadb
