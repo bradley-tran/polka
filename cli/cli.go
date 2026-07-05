@@ -72,10 +72,8 @@ func newRootCommand(ctx *commandContext) *cobra.Command {
 	root.PersistentFlags().StringVar(&ctx.rootDir, "root", "", "override Polka state directory")
 	root.AddCommand(
 		newInitCommand(ctx),
-		newNewCommand(ctx),
+		newEnvCommand(ctx),
 		newCreateProjectCommand(ctx),
-		newConfigCommand(ctx),
-		newInstallCommand(ctx),
 		newExtCommand(ctx),
 		newCertInstallCommand(ctx),
 		newDBCommand(ctx),
@@ -84,12 +82,12 @@ func newRootCommand(ctx *commandContext) *cobra.Command {
 		newExecCommand(ctx),
 		newShCommand(ctx),
 		newLogsCommand(ctx),
-		newListCommand(ctx),
-		newUseCommand(ctx),
 		newStatusCommand(ctx),
-		newRemoveCommand(ctx),
 		newDispatchCommand(ctx),
 	)
+	for _, spec := range shortcutSpecs() {
+		root.AddCommand(newShortcutCommand(spec))
+	}
 
 	return root
 }
