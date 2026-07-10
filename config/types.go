@@ -78,73 +78,76 @@ type TraefikSettingsConfig struct {
 
 // ProjectFile is the YAML shape of polka.yaml, which also defines the default environment.
 type ProjectFile struct {
-	Version       int               `yaml:"version"`
-	Root          string            `yaml:"root"`
-	Framework     string            `yaml:"framework,omitempty"`
-	Tools         *ToolsConfig      `yaml:"tools,omitempty"`
-	Settings      *SettingsConfig   `yaml:"settings,omitempty"`
-	Docroot       string            `yaml:"docroot,omitempty"`
-	HTTPS         bool              `yaml:"https,omitempty"`
-	EnvFile       string            `yaml:"env-file,omitempty"`
-	EnvVars       map[string]string `yaml:"env-vars,omitempty"`
-	Database      *DatabaseConfig   `yaml:"database,omitempty"`
-	MemoryLimit   any               `yaml:"memory-limit,omitempty"`
-	PHPExtensions map[string]any    `yaml:"php-extensions,omitempty"`
-	OPcachePreset string            `yaml:"opcache-preset,omitempty"`
-	OPcacheConfig map[string]any    `yaml:"opcache-config,omitempty"`
-	Server        *ServerConfig     `yaml:"server,omitempty"`
+	Version       int                     `yaml:"version"`
+	Root          string                  `yaml:"root"`
+	Framework     string                  `yaml:"framework,omitempty"`
+	Tools         *ToolsConfig            `yaml:"tools,omitempty"`
+	Settings      *SettingsConfig         `yaml:"settings,omitempty"`
+	Docroot       string                  `yaml:"docroot,omitempty"`
+	HTTPS         bool                    `yaml:"https,omitempty"`
+	EnvFile       string                  `yaml:"env-file,omitempty"`
+	EnvVars       map[string]string       `yaml:"env-vars,omitempty"`
+	Database      *DatabaseConfig         `yaml:"database,omitempty"`
+	MemoryLimit   any                     `yaml:"memory-limit,omitempty"`
+	PHPExtensions map[string]any          `yaml:"php-extensions,omitempty"`
+	OPcachePreset string                  `yaml:"opcache-preset,omitempty"`
+	OPcacheConfig map[string]any          `yaml:"opcache-config,omitempty"`
+	Server        *ServerConfig           `yaml:"server,omitempty"`
+	Workers       map[string]WorkerConfig `yaml:"workers,omitempty"`
 }
 
 // EnvironmentFile is the YAML shape of polka.<name>.yaml.
 type EnvironmentFile struct {
-	Framework     string            `yaml:"framework,omitempty"`
-	Tools         *ToolsConfig      `yaml:"tools,omitempty"`
-	Settings      *SettingsConfig   `yaml:"settings,omitempty"`
-	Docroot       string            `yaml:"docroot,omitempty"`
-	HTTPS         bool              `yaml:"https,omitempty"`
-	EnvFile       string            `yaml:"env-file,omitempty"`
-	EnvVars       map[string]string `yaml:"env-vars,omitempty"`
-	Database      *DatabaseConfig   `yaml:"database,omitempty"`
-	MemoryLimit   any               `yaml:"memory-limit,omitempty"`
-	PHPExtensions map[string]any    `yaml:"php-extensions,omitempty"`
-	OPcachePreset string            `yaml:"opcache-preset,omitempty"`
-	OPcacheConfig map[string]any    `yaml:"opcache-config,omitempty"`
-	Server        *ServerConfig     `yaml:"server,omitempty"`
+	Framework     string                  `yaml:"framework,omitempty"`
+	Tools         *ToolsConfig            `yaml:"tools,omitempty"`
+	Settings      *SettingsConfig         `yaml:"settings,omitempty"`
+	Docroot       string                  `yaml:"docroot,omitempty"`
+	HTTPS         bool                    `yaml:"https,omitempty"`
+	EnvFile       string                  `yaml:"env-file,omitempty"`
+	EnvVars       map[string]string       `yaml:"env-vars,omitempty"`
+	Database      *DatabaseConfig         `yaml:"database,omitempty"`
+	MemoryLimit   any                     `yaml:"memory-limit,omitempty"`
+	PHPExtensions map[string]any          `yaml:"php-extensions,omitempty"`
+	OPcachePreset string                  `yaml:"opcache-preset,omitempty"`
+	OPcacheConfig map[string]any          `yaml:"opcache-config,omitempty"`
+	Server        *ServerConfig           `yaml:"server,omitempty"`
+	Workers       map[string]WorkerConfig `yaml:"workers,omitempty"`
 }
 
 type Environment struct {
-	Name              string             `yaml:"-"`
-	Framework         string             `yaml:"framework,omitempty"`
-	PHPVersion        string             `yaml:"php,omitempty"`
-	PHPZTSVersion     string             `yaml:"php-zts,omitempty"`
-	FrankenPHPVersion string             `yaml:"frankenphp,omitempty"`
-	RoadRunnerVersion string             `yaml:"roadrunner,omitempty"`
-	ComposerVersion   string             `yaml:"composer,omitempty"`
-	PIEVersion        string             `yaml:"pie,omitempty"`
-	NodeJSVersion     string             `yaml:"nodejs,omitempty"`
-	MagoVersion       string             `yaml:"mago,omitempty"`
-	NginxVersion      string             `yaml:"nginx,omitempty"`
-	ApacheVersion     string             `yaml:"apache,omitempty"`
-	MySQLVersion      string             `yaml:"mysql,omitempty"`
-	MariaDBVersion    string             `yaml:"mariadb,omitempty"`
-	PostgreSQLVersion string             `yaml:"postgresql,omitempty"`
-	SQLiteVersion     string             `yaml:"sqlite,omitempty"`
-	Docroot           string             `yaml:"docroot,omitempty"`
-	HTTPS             bool               `yaml:"https,omitempty"`
-	EnvFile           string             `yaml:"env-file,omitempty"`
-	EnvVars           map[string]string  `yaml:"env-vars,omitempty"`
-	Database          *DatabaseConfig    `yaml:"database,omitempty"`
-	Mailpit           *MailpitConfig     `yaml:"mailpit,omitempty"`
-	PHPMyAdmin        *PHPMyAdminConfig  `yaml:"phpmyadmin,omitempty"`
-	Meilisearch       *MeilisearchConfig `yaml:"meilisearch,omitempty"`
-	Redis             *RedisConfig       `yaml:"redis,omitempty"`
-	Traefik           *TraefikConfig     `yaml:"traefik,omitempty"`
-	MemoryLimit       string             `yaml:"memory-limit,omitempty"`
-	PHPExtensions     map[string]bool    `yaml:"php-extensions,omitempty"`
-	PIEExtensions     map[string]string  `yaml:"-"`
-	OPcachePreset     string             `yaml:"opcache-preset,omitempty"`
-	OPcacheConfig     map[string]string  `yaml:"opcache-config,omitempty"`
-	Server            *ServerConfig      `yaml:"server,omitempty"`
+	Name              string                  `yaml:"-"`
+	Framework         string                  `yaml:"framework,omitempty"`
+	PHPVersion        string                  `yaml:"php,omitempty"`
+	PHPZTSVersion     string                  `yaml:"php-zts,omitempty"`
+	FrankenPHPVersion string                  `yaml:"frankenphp,omitempty"`
+	RoadRunnerVersion string                  `yaml:"roadrunner,omitempty"`
+	ComposerVersion   string                  `yaml:"composer,omitempty"`
+	PIEVersion        string                  `yaml:"pie,omitempty"`
+	NodeJSVersion     string                  `yaml:"nodejs,omitempty"`
+	MagoVersion       string                  `yaml:"mago,omitempty"`
+	NginxVersion      string                  `yaml:"nginx,omitempty"`
+	ApacheVersion     string                  `yaml:"apache,omitempty"`
+	MySQLVersion      string                  `yaml:"mysql,omitempty"`
+	MariaDBVersion    string                  `yaml:"mariadb,omitempty"`
+	PostgreSQLVersion string                  `yaml:"postgresql,omitempty"`
+	SQLiteVersion     string                  `yaml:"sqlite,omitempty"`
+	Docroot           string                  `yaml:"docroot,omitempty"`
+	HTTPS             bool                    `yaml:"https,omitempty"`
+	EnvFile           string                  `yaml:"env-file,omitempty"`
+	EnvVars           map[string]string       `yaml:"env-vars,omitempty"`
+	Database          *DatabaseConfig         `yaml:"database,omitempty"`
+	Mailpit           *MailpitConfig          `yaml:"mailpit,omitempty"`
+	PHPMyAdmin        *PHPMyAdminConfig       `yaml:"phpmyadmin,omitempty"`
+	Meilisearch       *MeilisearchConfig      `yaml:"meilisearch,omitempty"`
+	Redis             *RedisConfig            `yaml:"redis,omitempty"`
+	Traefik           *TraefikConfig          `yaml:"traefik,omitempty"`
+	MemoryLimit       string                  `yaml:"memory-limit,omitempty"`
+	PHPExtensions     map[string]bool         `yaml:"php-extensions,omitempty"`
+	PIEExtensions     map[string]string       `yaml:"-"`
+	OPcachePreset     string                  `yaml:"opcache-preset,omitempty"`
+	OPcacheConfig     map[string]string       `yaml:"opcache-config,omitempty"`
+	Server            *ServerConfig           `yaml:"server,omitempty"`
+	Workers           map[string]WorkerConfig `yaml:"workers,omitempty"`
 }
 
 type DatabaseConfig struct {
@@ -251,6 +254,7 @@ func ProjectFileToEnvironment(name string, file ProjectFile) Environment {
 		file.OPcachePreset,
 		file.OPcacheConfig,
 		file.Server,
+		file.Workers,
 	)
 }
 
@@ -272,6 +276,7 @@ func ProjectFileFromEnvironment(version int, root string, environment Environmen
 		OPcachePreset: NormalizeOPcachePreset(environment.OPcachePreset),
 		OPcacheConfig: OPcacheFileConfigFromEnvironment(environment),
 		Server:        ServerConfigFromEnvironment(environment),
+		Workers:       NormalizeWorkersConfig(environment.Workers),
 	}
 
 	return file
@@ -294,6 +299,7 @@ func EnvironmentFileToEnvironment(name string, file EnvironmentFile) Environment
 		file.OPcachePreset,
 		file.OPcacheConfig,
 		file.Server,
+		file.Workers,
 	)
 }
 
@@ -313,6 +319,7 @@ func EnvironmentFileFromEnvironment(environment Environment) EnvironmentFile {
 		OPcachePreset: NormalizeOPcachePreset(environment.OPcachePreset),
 		OPcacheConfig: OPcacheFileConfigFromEnvironment(environment),
 		Server:        ServerConfigFromEnvironment(environment),
+		Workers:       NormalizeWorkersConfig(environment.Workers),
 	}
 }
 
@@ -540,7 +547,7 @@ func (settings SettingsConfig) IsZero() bool {
 		settings.Traefik == nil
 }
 
-func environmentFromFileParts(name string, framework string, tools *ToolsConfig, settings *SettingsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *DatabaseConfig, memoryLimit any, phpExtensions map[string]any, opcachePreset string, opcacheConfig map[string]any, server *ServerConfig) Environment {
+func environmentFromFileParts(name string, framework string, tools *ToolsConfig, settings *SettingsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *DatabaseConfig, memoryLimit any, phpExtensions map[string]any, opcachePreset string, opcacheConfig map[string]any, server *ServerConfig, workers map[string]WorkerConfig) Environment {
 	bundledExtensions, pieExtensions := SplitPHPExtensionsFromYAML(phpExtensions)
 	environment := Environment{
 		Name:          name,
@@ -556,6 +563,7 @@ func environmentFromFileParts(name string, framework string, tools *ToolsConfig,
 		OPcachePreset: opcachePreset,
 		OPcacheConfig: NormalizeOPcacheConfigFromYAML(opcacheConfig),
 		Server:        server,
+		Workers:       NormalizeWorkersConfig(workers),
 	}
 	if tools != nil {
 		environment.PHPVersion = tools.PHPVersion
@@ -769,6 +777,7 @@ func NormalizeEnvironment(name string, environment Environment) Environment {
 		OPcachePreset:     NormalizeOPcachePreset(environment.OPcachePreset),
 		OPcacheConfig:     NormalizeOPcacheConfig(environment.OPcacheConfig),
 		Server:            NormalizeServerConfig(environment.Server),
+		Workers:           NormalizeWorkersConfig(environment.Workers),
 	}
 
 	return populateDatabaseToolVersion(inheritEnvironmentHTTPS(normalized))

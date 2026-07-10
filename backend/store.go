@@ -1589,6 +1589,16 @@ func validateEnvironmentFileSchema(data []byte) error {
 		}
 	}
 
+	workers, hasWorkers, err := rawMapForKey(raw, "workers")
+	if err != nil {
+		return err
+	}
+	if hasWorkers {
+		if err := validateWorkersSchema(workers); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -1675,6 +1685,74 @@ func validateSettingsSchema(settings, tools map[string]any) error {
 	}
 
 	return nil
+}
+
+// validateWorkersSchema checks the raw workers map from an environment file:
+// each worker needs a valid name and a mapping with a non-empty command plus
+// optional replicas, dir, and env keys.
+func validateWorkersSchema(workers map[string]any) error {
+	for name, value := range workers {
+		if !validName.MatchString(name) {
+			return fmt.Errorf("invalid workers.%s key: use letters, numbers, dots, dashes, or underscores", name)
+		}
+		workerMap, ok := asYAMLStringMap(value)
+		if !ok {
+			return fmt.Errorf("workers.%s must be a mapping", name)
+		}
+		for key, entry := range workerMap {
+			switch key {
+			case "command":
+				command, ok := entry.(string)
+				if !ok || strings.TrimSpace(command) == "" {
+					return fmt.Errorf("workers.%s.command must be a non-empty string", name)
+				}
+				if _, err := config.SplitWorkerCommand(command); err != nil {
+					return fmt.Errorf("workers.%s.command is invalid: %w", name, err)
+				}
+			case "replicas":
+				if !isPositiveYAMLInteger(entry) {
+					return fmt.Errorf("workers.%s.replicas must be a positive integer", name)
+				}
+			case "dir":
+				dir, ok := entry.(string)
+				if !ok || strings.TrimSpace(dir) == "" || strings.ContainsAny(dir, "\r\n") {
+					return fmt.Errorf("workers.%s.dir must be a non-empty single-line string", name)
+				}
+			case "env":
+				envMap, ok := asYAMLStringMap(entry)
+				if !ok {
+					return fmt.Errorf("workers.%s.env must be a mapping", name)
+				}
+				for envKey, envValue := range envMap {
+					if !isYAMLSettingScalar(envValue) {
+						return fmt.Errorf("workers.%s.env.%s must be a scalar value", name, envKey)
+					}
+				}
+			default:
+				return fmt.Errorf("unsupported workers.%s.%s key", name, key)
+			}
+		}
+		if _, ok := workerMap["command"]; !ok {
+			return fmt.Errorf("workers.%s.command must be a non-empty string", name)
+		}
+	}
+
+	return nil
+}
+
+// isPositiveYAMLInteger reports whether a decoded YAML scalar is an integer
+// greater than zero, covering the integer types goccy/go-yaml produces.
+func isPositiveYAMLInteger(value any) bool {
+	switch v := value.(type) {
+	case int:
+		return v > 0
+	case int64:
+		return v > 0
+	case uint64:
+		return v > 0
+	default:
+		return false
+	}
 }
 
 func validateSettingKeys(prefix string, settings map[string]any, allowed map[string]struct{}) error {

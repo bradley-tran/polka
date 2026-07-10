@@ -23,6 +23,9 @@ defaults:
     engine: mariadb
     port: 3306
   opcache-preset: dev
+  workers:
+    queue:
+      command: php artisan queue:work
 php-extensions:
   - bcmath
   - curl

@@ -15,6 +15,7 @@ type RuntimeHooks struct {
 	Redis                   RedisRuntimeHooks
 	Traefik                 TraefikRuntimeHooks
 	PHPMyAdmin              PHPMyAdminRuntimeHooks
+	Workers                 WorkersRuntimeHooks
 	EnsurePHPMyAdminStorage func(Context, Environment, DatabaseRuntimeHooks) error
 }
 
@@ -23,6 +24,7 @@ type StartResult struct {
 	Redis       *RedisStartSummary
 	Traefik     *TraefikStartSummary
 	PHPMyAdmin  *PHPMyAdminStartResult
+	Workers     *WorkersStartSummary
 }
 
 type MeilisearchStartSummary struct {
@@ -45,7 +47,13 @@ type PHPMyAdminStartResult struct {
 	AlreadyStarted bool
 }
 
+type WorkersStartSummary struct {
+	State          WorkersRuntimeState
+	AlreadyStarted bool
+}
+
 type StopResult struct {
+	Workers     *StopWorkersResult
 	PHPMyAdmin  *StopServeResult
 	Meilisearch *StopMeilisearchResult
 	Redis       *StopRedisResult
@@ -81,6 +89,11 @@ type StopRedisResult struct {
 
 type StopTraefikResult struct {
 	State          TraefikRuntimeState
+	AlreadyStopped bool
+}
+
+type StopWorkersResult struct {
+	State          WorkersRuntimeState
 	AlreadyStopped bool
 }
 
@@ -134,23 +147,34 @@ func (m Manager) Start(ctx Context, hooks RuntimeHooks) (StartResult, error) {
 	}
 
 	if ctx.Environment.PHPMyAdmin != nil && strings.TrimSpace(ctx.Environment.PHPMyAdmin.Version) != "" {
-		if ctx.skipMissingTool("phpmyadmin", toolPHPMyAdmin) {
-			return result, nil
-		}
-		if ctx.Environment.Database == nil || strings.TrimSpace(ctx.Environment.Database.Engine) == "" || ctx.hasTool(ctx.Environment.Database.Engine) {
-			ensureStorage := hooks.EnsurePHPMyAdminStorage
-			if ensureStorage == nil {
-				ensureStorage = EnsurePHPMyAdminStorageConfigured
+		if !ctx.skipMissingTool("phpmyadmin", toolPHPMyAdmin) {
+			if ctx.Environment.Database == nil || strings.TrimSpace(ctx.Environment.Database.Engine) == "" || ctx.hasTool(ctx.Environment.Database.Engine) {
+				ensureStorage := hooks.EnsurePHPMyAdminStorage
+				if ensureStorage == nil {
+					ensureStorage = EnsurePHPMyAdminStorageConfigured
+				}
+				if err := ensureStorage(ctx, ctx.Environment, hooks.Database); err != nil {
+					return StartResult{}, err
+				}
 			}
-			if err := ensureStorage(ctx, ctx.Environment, hooks.Database); err != nil {
+			state, alreadyStarted, err := EnsureManagedPHPMyAdminStarted(ctx, hooks.PHPMyAdmin)
+			if err != nil {
 				return StartResult{}, err
 			}
+			result.PHPMyAdmin = &PHPMyAdminStartResult{State: state, AlreadyStarted: alreadyStarted}
 		}
-		state, alreadyStarted, err := EnsureManagedPHPMyAdminStarted(ctx, hooks.PHPMyAdmin)
+	}
+
+	// Workers start last so managed services (database, redis, ...) are
+	// already available to queue consumers and schedulers. Worker failures are
+	// warnings only: they must not abort serve or the other services.
+	if len(ctx.Environment.Workers) > 0 {
+		state, alreadyStarted, err := EnsureManagedWorkersStarted(ctx, hooks.Workers)
 		if err != nil {
-			return StartResult{}, err
+			ctx.warnf("Skipping workers for environment %q: %v.\n", ctx.Environment.Name, err)
+		} else {
+			result.Workers = &WorkersStartSummary{State: state, AlreadyStarted: alreadyStarted}
 		}
-		result.PHPMyAdmin = &PHPMyAdminStartResult{State: state, AlreadyStarted: alreadyStarted}
 	}
 
 	return result, nil
@@ -158,6 +182,16 @@ func (m Manager) Start(ctx Context, hooks RuntimeHooks) (StartResult, error) {
 
 func (m Manager) Stop(ctx Context, hooks RuntimeHooks) (StopResult, error) {
 	result := StopResult{}
+
+	// Workers stop first so queue consumers wind down before the services
+	// they depend on (database, redis, ...) go away. Worker failures are
+	// warnings only: they must not block stopping the other services.
+	workersState, workersAlreadyStopped, err := StopManagedWorkers(ctx, hooks.Workers)
+	if err != nil {
+		ctx.warnf("Failed to stop workers for environment %q: %v.\n", ctx.Environment.Name, err)
+	} else {
+		result.Workers = &StopWorkersResult{State: workersState, AlreadyStopped: workersAlreadyStopped}
+	}
 
 	phpMyAdminState, phpMyAdminAlreadyStopped, err := StopManagedPHPMyAdmin(ctx, hooks.PHPMyAdmin)
 	if err != nil {
