@@ -129,7 +129,7 @@ Selects one environment as the local override. Use `default` to clear the overri
 
 Alias: `polka info`
 
-Shows the active environment, prints each configured tool on its own line, includes the resolved web server URL, and reports whether the webserver, phpMyAdmin, Meilisearch, Redis, Traefik, managed database, and Mailpit are running.
+Shows the active environment, prints each configured tool on its own line, includes the resolved web server URL, and reports whether the webserver, background workers, phpMyAdmin, Meilisearch, Redis, Traefik, managed database, and Mailpit are running. Configured workers are listed one per line, and the runtime section reports live worker replicas as `workers running <live>/<configured>`.
 
 ### `polka remove <name>`
 
@@ -182,7 +182,19 @@ By default, Polka starts the webserver in the background, waits for it to begin 
 
 Set `server.type` to `php`, `nginx`, `apache`, or `frankenphp` to select the webserver explicitly. When it is omitted, Polka preserves the existing behavior of selecting nginx when configured and PHP otherwise; Apache is selected only by `server.type: apache`. Nginx and Apache start `php-cgi` on an internal loopback port with generated FastCGI configs. Apache enables project `.htaccess` files by default. FrankenPHP runs through a generated Caddyfile. PHP's built-in webserver uses a generated router that serves existing static files and forwards missing requests into the app router or front controller.
 
-If the environment defines `mailpit`, `meilisearch`, `redis`, `traefik`, `phpmyadmin`, or a managed database, Polka starts those local services before the webserver. When `traefik` is installed, Polka points it at the webserver and reports the proxy URL (`Reverse proxying through Traefik at ...`). `polka status` prints the full Mailpit, Meilisearch, Redis, Traefik, and phpMyAdmin URLs.
+If the environment defines `mailpit`, `meilisearch`, `redis`, `traefik`, `phpmyadmin`, or a managed database, Polka starts those local services before the webserver. If the environment defines `workers`, Polka starts those background worker processes after the other services, so queue consumers and schedulers see the database and Redis already running:
+
+```yaml
+workers:
+  queue:
+    command: php artisan queue:work
+    replicas: 2          # optional, defaults to 1
+    dir: .               # optional working directory, relative to the project
+    env:                 # optional per-worker environment variables
+      QUEUE_TRIES: "3"
+```
+
+Worker commands run with the same environment as `polka exec`: managed tools such as `php` resolve to the environment's installed binaries, and configured `env-file`/`env-vars` values apply. Each replica logs to `.polka/run/workers/<environment>/<name>-<replica>.log`. A worker that fails to launch (bad command, immediate exit) is reported as a warning and never fails `polka serve`; the remaining workers still start, and failed replicas are retried on the next `polka serve`. Workers are also restarted on the next `polka serve` when their configuration changes; a crashed worker is not restarted automatically. `polka init laravel` and `polka init symfony` preset a `queue` and `messenger` worker respectively. When `traefik` is installed, Polka points it at the webserver and reports the proxy URL (`Reverse proxying through Traefik at ...`). `polka status` prints the full Mailpit, Meilisearch, Redis, Traefik, and phpMyAdmin URLs.
 
 HTTPS requires nginx, Apache, or FrankenPHP at start time. They use the generated server certificate from the global Polka cache. The certificate covers `localhost`, `*.localhost`, `127.0.0.1`, and `::1`, and is signed by a generated local Polka CA. Hostnames ending in `.localhost`, such as `blog.localhost`, work without editing the hosts file.
 
@@ -190,7 +202,7 @@ When Polka creates new HTTPS certificate material during `serve`, it prefers to 
 
 ### `polka stop`
 
-Stops the active environment's background webserver, phpMyAdmin, Meilisearch, Redis, Traefik, managed database, and Mailpit when they are running.
+Stops the active environment's background webserver, workers, phpMyAdmin, Meilisearch, Redis, Traefik, managed database, and Mailpit when they are running. Workers stop before the services they depend on.
 
 ### `polka logs <tool> [--level info|error|debug]`
 

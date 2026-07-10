@@ -108,6 +108,9 @@ func (m frameworkManifest) validate() error {
 	if strings.TrimSpace(m.Defaults.Docroot) == "" {
 		return fmt.Errorf("framework manifest %q defaults.docroot cannot be empty", id)
 	}
+	if err := config.ValidateWorkersConfig(m.Defaults.Workers); err != nil {
+		return fmt.Errorf("framework manifest %q: %w", id, err)
+	}
 	if err := validateFrameworkRuntimeEnvManifest(id, m.RuntimeEnv); err != nil {
 		return err
 	}

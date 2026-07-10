@@ -51,6 +51,7 @@ The `config` package contains shared YAML schema types and normalization helpers
 - `MailpitConfig`
 - `PHPMyAdminConfig`
 - `ServerConfig`
+- `WorkerConfig` under the top-level `workers` map
 - framework IDs stored as `framework` on project and environment files
 
 This package exists to avoid import cycles. Both `backend` and `tools` can depend on config types without either package importing the other.
@@ -70,6 +71,7 @@ The `service` package owns long-running managed services:
 - managed MySQL, MariaDB, and PostgreSQL server lifecycle, credentials, state, and data paths
 - Mailpit server lifecycle, state, ports, and logs
 - phpMyAdmin service lifecycle, UI endpoint helpers, state, and managed MySQL/MariaDB storage bootstrap
+- background worker lifecycle for the environment's `workers` config: per-replica process launch, PID state, log files, and reconcile-on-config-change behavior (workers start last and stop first relative to the other managed services); worker launch and stop failures are reported through the warning callback and never fail serve or stop
 - service matching against the active `tools.Registry`
 
 Automatic service startup skips a configured service when its matching managed tool plugin is not registered, and reports that through the caller's warning callback. Explicit service commands still fail when their required tool cannot be resolved.
@@ -143,6 +145,7 @@ Runtime services are split between `service` and `cli`:
 - Meilisearch startup, shutdown, and status are in `service`, with CLI adapters for command output and test hooks.
 - Redis startup, shutdown, and status are in `service`, with CLI adapters for command output and test hooks.
 - Traefik startup, shutdown, and status are in `service`, with CLI adapters for command output and test hooks.
+- Background worker startup, shutdown, and status are in `service`; the CLI injects the managed shell environment and managed-tool target resolution so worker commands such as `php artisan queue:work` run against the real installed binaries.
 - phpMyAdmin startup, shutdown, status, and managed MySQL/MariaDB storage import are in `service`; CLI supplies the PHP/nginx/Apache/FrankenPHP web runtime callbacks.
 - Certificates remain CLI-managed assets and are passed to services through callback adapters.
 - The shell command composes environment variables and `PATH` behavior around the active environment.

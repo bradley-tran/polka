@@ -22,6 +22,60 @@ func TestBuiltinFrameworkManifestsLoad(t *testing.T) {
 	}
 }
 
+// TestBuiltinFrameworkManifestWorkerDefaults checks the shipped worker
+// presets for frameworks that define background workers.
+func TestBuiltinFrameworkManifestWorkerDefaults(t *testing.T) {
+	laravel, err := loadBuiltinFrameworkManifest(Laravel)
+	if err != nil {
+		t.Fatalf("loadBuiltinFrameworkManifest(laravel) error = %v", err)
+	}
+	if got := laravel.Defaults.Workers["queue"].Command; got != "php artisan queue:work" {
+		t.Fatalf("laravel workers.queue.command = %q, want queue:work preset", got)
+	}
+
+	symfony, err := loadBuiltinFrameworkManifest(Symfony)
+	if err != nil {
+		t.Fatalf("loadBuiltinFrameworkManifest(symfony) error = %v", err)
+	}
+	if got := symfony.Defaults.Workers["messenger"].Command; got != "php bin/console messenger:consume async" {
+		t.Fatalf("symfony workers.messenger.command = %q, want messenger:consume preset", got)
+	}
+
+	// Worker defaults must survive the plugin conversion used by init.
+	plugin := newManifestFrameworkPlugin(Laravel)
+	if got := plugin.Defaults().Workers["queue"].Command; got != "php artisan queue:work" {
+		t.Fatalf("laravel plugin Defaults().Workers = %q, want queue:work preset", got)
+	}
+}
+
+// TestParseFrameworkManifestRejectsInvalidWorkers checks that manifests with
+// broken worker definitions fail to load.
+func TestParseFrameworkManifestRejectsInvalidWorkers(t *testing.T) {
+	_, err := parseFrameworkManifest([]byte(`
+id: demo
+defaults:
+  docroot: public
+  workers:
+    queue:
+      replicas: 2
+`))
+	if err == nil || !strings.Contains(err.Error(), "requires a command") {
+		t.Fatalf("parseFrameworkManifest(worker without command) error = %v, want command error", err)
+	}
+
+	_, err = parseFrameworkManifest([]byte(`
+id: demo
+defaults:
+  docroot: public
+  workers:
+    "bad name":
+      command: php run
+`))
+	if err == nil || !strings.Contains(err.Error(), "invalid worker name") {
+		t.Fatalf("parseFrameworkManifest(invalid worker name) error = %v, want name error", err)
+	}
+}
+
 func TestParseFrameworkManifestRequiresID(t *testing.T) {
 	_, err := parseFrameworkManifest([]byte(`
 defaults:

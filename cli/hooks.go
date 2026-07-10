@@ -89,6 +89,7 @@ func defaultCLIHookRegistry() cliHookRegistry {
 		},
 		stopHooks: []stopHook{
 			{id: "webserver", run: stopWebserverHook},
+			{id: "workers", run: stopWorkersServiceHook},
 			{id: "phpmyadmin", run: stopPHPMyAdminServiceHook},
 			{id: "traefik", run: stopTraefikServiceHook},
 			{id: "redis", run: stopRedisServiceHook},
@@ -113,9 +114,11 @@ func defaultCLIHookRegistry() cliHookRegistry {
 			{id: "phpmyadmin", run: statusPHPMyAdminConfigHook},
 			{id: "database", run: statusDatabaseConfigHook},
 			{id: "mailpit", run: statusMailpitConfigHook},
+			{id: "workers", run: statusWorkersConfigHook},
 		},
 		runtimeStatusHooks: []statusHook{
 			{id: "webserver", run: statusWebserverRuntimeHook},
+			{id: "workers", run: statusWorkersRuntimeHook},
 			{id: "phpmyadmin", run: statusPHPMyAdminRuntimeHook},
 			{id: "meilisearch", run: statusMeilisearchRuntimeHook},
 			{id: "redis", run: statusRedisRuntimeHook},
@@ -134,20 +137,29 @@ func (r cliHookRegistry) StartServices(ctx startHookContext) error {
 		Redis:                   redisRuntimeHooks(),
 		Traefik:                 traefikRuntimeHooks(),
 		PHPMyAdmin:              phpMyAdminRuntimeHooks(ctx.Store),
+		Workers:                 workersRuntimeHooks(ctx.Store, ctx.Environment),
 		EnsurePHPMyAdminStorage: ensurePHPMyAdminStorageConfiguredFunc,
 	})
 	if err != nil {
 		return err
 	}
-	if result.PHPMyAdmin == nil {
-		return nil
+	if result.PHPMyAdmin != nil {
+		if result.PHPMyAdmin.AlreadyStarted {
+			fmt.Fprintf(ctx.Stdout, "phpMyAdmin for environment %q is already running at %s.\n", ctx.Environment.Name, serveStateURL(result.PHPMyAdmin.State))
+		} else {
+			fmt.Fprintf(ctx.Stdout, "Started phpMyAdmin for environment %q at %s.\n", ctx.Environment.Name, serveStateURL(result.PHPMyAdmin.State))
+		}
 	}
-	if result.PHPMyAdmin.AlreadyStarted {
-		fmt.Fprintf(ctx.Stdout, "phpMyAdmin for environment %q is already running at %s.\n", ctx.Environment.Name, serveStateURL(result.PHPMyAdmin.State))
-		return nil
+	if result.Workers != nil {
+		if result.Workers.AlreadyStarted {
+			fmt.Fprintf(ctx.Stdout, "Workers for environment %q are already running.\n", ctx.Environment.Name)
+		} else if len(result.Workers.State.Processes) > 0 {
+			// When every replica failed to launch, the failures were already
+			// reported as warnings; there is nothing to summarize.
+			fmt.Fprintf(ctx.Stdout, "Started %d worker process(es) for environment %q (%s).\n", len(result.Workers.State.Processes), ctx.Environment.Name, workerProcessSummary(result.Workers.State))
+		}
 	}
 
-	fmt.Fprintf(ctx.Stdout, "Started phpMyAdmin for environment %q at %s.\n", ctx.Environment.Name, serveStateURL(result.PHPMyAdmin.State))
 	return nil
 }
 
@@ -178,6 +190,7 @@ func (r cliHookRegistry) Stop(ctx stopHookContext) error {
 		Redis:       redisRuntimeHooks(),
 		Traefik:     traefikRuntimeHooks(),
 		PHPMyAdmin:  phpMyAdminRuntimeHooks(ctx.Store),
+		Workers:     workersRuntimeHooks(ctx.Store, ctx.Environment),
 	})
 	if err != nil {
 		return err
@@ -209,6 +222,16 @@ func (r cliHookRegistry) WriteRuntimeStatus(ctx statusHookContext) error {
 }
 
 func writeManagedServiceStopSummary(ctx stopHookContext, result service.StopResult) {
+	if result.Workers != nil {
+		if result.Workers.AlreadyStopped {
+			if len(ctx.Environment.Workers) > 0 {
+				fmt.Fprintf(ctx.Stdout, "Workers for environment %q are already stopped.\n", ctx.Environment.Name)
+			}
+		} else {
+			fmt.Fprintf(ctx.Stdout, "Stopped %d worker process(es) for environment %q.\n", len(result.Workers.State.Processes), ctx.Environment.Name)
+		}
+	}
+
 	if result.PHPMyAdmin != nil {
 		if result.PHPMyAdmin.AlreadyStopped {
 			if ctx.Environment.PHPMyAdmin != nil && strings.TrimSpace(ctx.Environment.PHPMyAdmin.Version) != "" {
@@ -566,6 +589,70 @@ func stopPHPMyAdminServiceHook(ctx stopHookContext) error {
 	}
 
 	fmt.Fprintf(ctx.Stdout, "Stopped phpMyAdmin for environment %q.\n", ctx.Environment.Name)
+	return nil
+}
+
+// stopWorkersServiceHook stops the environment's background workers. It is
+// registered for lifecycle symmetry with the other managed services; the
+// combined Stop path handles workers through the service manager.
+func stopWorkersServiceHook(ctx stopHookContext) error {
+	if len(ctx.Environment.Workers) == 0 {
+		return nil
+	}
+
+	state, alreadyStopped, err := stopManagedWorkers(ctx.Store, ctx.Environment)
+	if err != nil {
+		return err
+	}
+	if alreadyStopped {
+		fmt.Fprintf(ctx.Stdout, "Workers for environment %q are already stopped.\n", ctx.Environment.Name)
+		return nil
+	}
+
+	fmt.Fprintf(ctx.Stdout, "Stopped %d worker process(es) for environment %q.\n", len(state.Processes), ctx.Environment.Name)
+	return nil
+}
+
+// statusWorkersConfigHook prints one line per configured worker.
+func statusWorkersConfigHook(ctx statusHookContext) error {
+	if len(ctx.Environment.Workers) == 0 {
+		_, _ = fmt.Fprintln(ctx.Stdout, "workers unset")
+		return nil
+	}
+
+	for _, name := range config.SortedWorkerNames(ctx.Environment.Workers) {
+		worker := ctx.Environment.Workers[name]
+		if replicas := config.EffectiveWorkerReplicas(worker); replicas > 1 {
+			_, _ = fmt.Fprintf(ctx.Stdout, "worker %s: %s (replicas %d)\n", name, worker.Command, replicas)
+		} else {
+			_, _ = fmt.Fprintf(ctx.Stdout, "worker %s: %s\n", name, worker.Command)
+		}
+	}
+
+	return nil
+}
+
+// statusWorkersRuntimeHook reports how many configured worker replicas are live.
+func statusWorkersRuntimeHook(ctx statusHookContext) error {
+	if len(ctx.Environment.Workers) == 0 {
+		_, _ = fmt.Fprintln(ctx.Stdout, "workers unset")
+		return nil
+	}
+
+	liveWorkersState, err := loadLiveWorkersState(ctx.Store.RootDir, ctx.Environment.Name)
+	if err != nil {
+		return err
+	}
+	if liveWorkersState == nil {
+		_, _ = fmt.Fprintln(ctx.Stdout, "workers stopped")
+		return nil
+	}
+
+	configured := 0
+	for _, worker := range ctx.Environment.Workers {
+		configured += config.EffectiveWorkerReplicas(worker)
+	}
+	_, _ = fmt.Fprintf(ctx.Stdout, "workers running %d/%d\n", len(liveWorkersState.Processes), configured)
 	return nil
 }
 

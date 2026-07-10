@@ -23,6 +23,9 @@ defaults:
     engine: mariadb
     port: 3306
   opcache-preset: dev
+  workers:
+    messenger:
+      command: php bin/console messenger:consume async
 php-extensions:
   - ctype
   - curl
