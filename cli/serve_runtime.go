@@ -227,9 +227,30 @@ func serveStatePath(rootDir, environmentName string) string {
 	return filepath.Join(serveRuntimeDir(rootDir, environmentName), serveStateFileName)
 }
 
-// resolveServeAppLayout inspects the docroot for a front controller and
-// captures the derived paths used by webserver config generation.
+// resolveServeAppLayout inspects a directory docroot for index.php or treats a
+// regular PHP file as an explicit front controller rooted in its parent.
 func resolveServeAppLayout(docroot string) (serveAppLayout, error) {
+	docrootInfo, err := os.Stat(docroot)
+	if err != nil {
+		return serveAppLayout{}, fmt.Errorf("stat docroot: %w", err)
+	}
+	if !docrootInfo.IsDir() {
+		if !docrootInfo.Mode().IsRegular() {
+			return serveAppLayout{}, fmt.Errorf("docroot %q is neither a directory nor a regular file", docroot)
+		}
+		if !strings.EqualFold(filepath.Ext(docroot), ".php") {
+			return serveAppLayout{}, fmt.Errorf("docroot file %q is not a PHP front controller", docroot)
+		}
+
+		frontController := filepath.Base(docroot)
+		return serveAppLayout{
+			Docroot:                 filepath.Dir(docroot),
+			FrontControllerRelative: frontController,
+			FrontControllerWebPath:  "/" + filepath.ToSlash(frontController),
+			FrontControllerIndex:    frontController,
+		}, nil
+	}
+
 	layout := serveAppLayout{Docroot: docroot}
 	frontControllerPath := filepath.Join(docroot, "index.php")
 	fileInfo, err := os.Stat(frontControllerPath)

@@ -172,7 +172,18 @@ func renderFrankenPHPCaddyfile(endpoint serverEndpoint, layout serveAppLayout, t
 		builder.WriteString(strconv.Quote(filepath.ToSlash(tlsConfig.CertificateKeyPath)))
 		builder.WriteString("\n")
 	}
-	builder.WriteString("\tphp_server\n")
+	if layout.FrontControllerRelative == "" || layout.FrontControllerRelative == "index.php" {
+		builder.WriteString("\tphp_server\n")
+	} else {
+		frontController := filepath.ToSlash(layout.FrontControllerRelative)
+		builder.WriteString("\tphp_server {\n")
+		builder.WriteString("\t\ttry_files {path} {path}/")
+		builder.WriteString(frontController)
+		builder.WriteString(" ")
+		builder.WriteString(frontController)
+		builder.WriteString("\n")
+		builder.WriteString("\t}\n")
+	}
 	builder.WriteString("}\n")
 
 	return []byte(builder.String())
