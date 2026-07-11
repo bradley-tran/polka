@@ -322,6 +322,9 @@ func runInstall(stdout, stderr io.Writer, store backend.Store, input installComm
 			for _, pkg := range sortedPIEExtensionPackages(environment) {
 				spinner.Register(pkg, environment.PIEExtensions[pkg])
 			}
+			for _, pkg := range sortedPECLExtensionPackages(environment) {
+				spinner.Register("pecl:"+pkg, environment.PECLExtensions[pkg].Version)
+			}
 		}
 	}
 	spinner.printInitialLines()
@@ -479,6 +482,18 @@ func runUse(stdout, stderr io.Writer, store backend.Store, name string) error {
 func sortedPIEExtensionPackages(environment backend.Environment) []string {
 	packages := make([]string, 0, len(environment.PIEExtensions))
 	for pkg := range environment.PIEExtensions {
+		packages = append(packages, pkg)
+	}
+	sort.Strings(packages)
+
+	return packages
+}
+
+// sortedPECLExtensionPackages returns legacy PECL packages in stable order for
+// install progress display registration.
+func sortedPECLExtensionPackages(environment backend.Environment) []string {
+	packages := make([]string, 0, len(environment.PECLExtensions))
+	for pkg := range environment.PECLExtensions {
 		packages = append(packages, pkg)
 	}
 	sort.Strings(packages)

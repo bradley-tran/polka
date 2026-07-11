@@ -15,6 +15,7 @@ type MeilisearchConfig = config.MeilisearchConfig
 type RedisConfig = config.RedisConfig
 type TraefikConfig = config.TraefikConfig
 type ServerConfig = config.ServerConfig
+type PECLExtensionConfig = config.PECLExtensionConfig
 
 type InstallResult = tools.InstallResult
 type ToolLogEntry = tools.LogEntry

@@ -84,7 +84,7 @@ polka config --env blog tools.traefik 3.3
 polka config --env blog settings.traefik.port 8080
 ```
 
-Use `--env name` to select a named environment. When `--env` is omitted, Polka updates the current environment, falling back to `default` when no local override is selected. Supported keys are schema-aware dot paths such as `tools.php`, `tools.php-zts`, `tools.frankenphp`, `tools.apache`, `tools.meilisearch`, `settings.meilisearch.port`, `settings.meilisearch.master-key`, `tools.redis`, `settings.redis.port`, `settings.redis.password`, `tools.traefik`, `settings.traefik.port`, `database.port`, `server.type`, `server.hostname`, `env-vars.APP_ENV`, `memory-limit`, `php-extensions.xdebug`, and `opcache-config.opcache.enable_cli`. `tools.php` and `tools.php-zts` are mutually exclusive; setting one switches the primary runtime and both expose the standard `php` command. `server.type` accepts `php`, `nginx`, `apache`, or `frankenphp`. `tools.pie` is rejected: PIE is managed internally by Polka and driven through `polka ext`. `php-extensions.<vendor>/<name>` keys hold PIE version constraints instead of booleans.
+Use `--env name` to select a named environment. When `--env` is omitted, Polka updates the current environment, falling back to `default` when no local override is selected. Supported keys are schema-aware dot paths such as `tools.php`, `tools.php-zts`, `tools.frankenphp`, `tools.apache`, `database.port`, `server.type`, `env-vars.APP_ENV`, `memory-limit`, `php-extensions.xdebug`, `pecl-extensions.redis`, and `opcache-config.opcache.enable_cli`. `tools.php` and `tools.php-zts` are mutually exclusive. `tools.pie` is rejected because PIE is managed internally. `php-extensions.<vendor>/<name>` holds recommended PIE constraints; `pecl-extensions.<name>` holds exact deprecated PECL releases.
 
 ### `polka install [tool:version] [--env name]`
 
@@ -105,17 +105,22 @@ For managed tool installation, command shims, PHP runtime generation, and platfo
 
 When the environment's `php-extensions` config contains PIE-managed `vendor/name` entries, `polka install` also provisions any of those extensions that the environment's installed PHP does not yet load, using Polka's internal PIE. Fresh checkouts therefore reproduce PIE-managed extensions.
 
-### `polka ext <install|remove> <vendor/name[:version]> [--env name]`
+Configured `pecl-extensions` are also reproduced. PECL is deprecated legacy compatibility support; prefer a PIE package whenever one exists. Windows uses matching official prebuilt DLLs, while Linux requires matching `phpize`/`php-config` and an existing native build toolchain.
 
-Manages PHP extensions provided by PIE (the PHP Installer for Extensions) for an environment's installed PHP runtime.
+### `polka ext <install|remove> <vendor/name[:version]|name[:version]> [--env name]`
+
+Manages PHP extensions through recommended PIE packages or discouraged legacy PECL compatibility.
 
 ```bash
 polka ext install xdebug/xdebug
 polka ext install xdebug/xdebug:3.4.1
 polka ext remove xdebug/xdebug
+polka ext install redis:6.2.0
+polka ext install imagick:3.8.0 --configure-option with-imagick=/opt/imagemagick
+polka ext remove redis
 ```
 
-`install` downloads or builds the extension against the environment's standalone `php`/`php-zts` install using Polka's internal PIE, records it under the `php-extensions` config key as `vendor/name: version`, and regenerates the runtime `php.ini`. When no version is given, Polka records the version PIE resolved, falling back to `*` (latest). `remove` uninstalls the extension and deletes its config entry. PIE requires a standalone PHP runtime; it cannot target FrankenPHP's embedded PHP.
+Names containing `/` use PIE and are stored under `php-extensions`. Bare names use PECL and are stored under `pecl-extensions`; use this path only when no PIE package is available. PECL installs resolve and pin the newest compatible stable version when omitted. Repeatable `--configure-option NAME=VALUE` flags persist Linux build answers; reinstalling without flags preserves them, and `--clear-configure-options` resets them. Both providers require standalone PHP and cannot target FrankenPHP's embedded runtime.
 
 ### `polka list`
 

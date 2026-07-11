@@ -525,6 +525,7 @@ func TestRunConfigPersistsSchemaDotKeys(t *testing.T) {
 	runTestConfigValue(t, stdout, stderr, root, "demo", "env-vars.APP_ENV", "local")
 	runTestConfigValue(t, stdout, stderr, root, "demo", "memory-limit", "512m")
 	runTestConfigValue(t, stdout, stderr, root, "demo", "php-extensions.xdebug", "false")
+	runTestConfigValue(t, stdout, stderr, root, "demo", "pecl-extensions.redis", "6.2.0")
 	runTestConfigValue(t, stdout, stderr, root, "demo", "opcache-config.opcache.enable_cli", "1")
 
 	environment := readTestEnvironmentConfig(t, projectDir, "demo")
@@ -542,6 +543,9 @@ func TestRunConfigPersistsSchemaDotKeys(t *testing.T) {
 	}
 	if enabled, ok := environment.PHPExtensions["xdebug"].(bool); !ok || enabled {
 		t.Fatalf("php-extensions = %#v, want xdebug disabled", environment.PHPExtensions)
+	}
+	if environment.PECLExtensions["redis"] != "6.2.0" {
+		t.Fatalf("pecl-extensions = %#v, want redis 6.2.0", environment.PECLExtensions)
 	}
 	if environment.OPcacheConfig["opcache.enable_cli"] != "1" {
 		t.Fatalf("opcache-config = %#v, want dotted directive", environment.OPcacheConfig)

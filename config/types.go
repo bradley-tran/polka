@@ -78,76 +78,87 @@ type TraefikSettingsConfig struct {
 
 // ProjectFile is the YAML shape of polka.yaml, which also defines the default environment.
 type ProjectFile struct {
-	Version       int                     `yaml:"version"`
-	Root          string                  `yaml:"root"`
-	Framework     string                  `yaml:"framework,omitempty"`
-	Tools         *ToolsConfig            `yaml:"tools,omitempty"`
-	Settings      *SettingsConfig         `yaml:"settings,omitempty"`
-	Docroot       string                  `yaml:"docroot,omitempty"`
-	HTTPS         bool                    `yaml:"https,omitempty"`
-	EnvFile       string                  `yaml:"env-file,omitempty"`
-	EnvVars       map[string]string       `yaml:"env-vars,omitempty"`
-	Database      *DatabaseConfig         `yaml:"database,omitempty"`
-	MemoryLimit   any                     `yaml:"memory-limit,omitempty"`
-	PHPExtensions map[string]any          `yaml:"php-extensions,omitempty"`
-	OPcachePreset string                  `yaml:"opcache-preset,omitempty"`
-	OPcacheConfig map[string]any          `yaml:"opcache-config,omitempty"`
-	Server        *ServerConfig           `yaml:"server,omitempty"`
-	Workers       map[string]WorkerConfig `yaml:"workers,omitempty"`
+	Version        int                     `yaml:"version"`
+	Root           string                  `yaml:"root"`
+	Framework      string                  `yaml:"framework,omitempty"`
+	Tools          *ToolsConfig            `yaml:"tools,omitempty"`
+	Settings       *SettingsConfig         `yaml:"settings,omitempty"`
+	Docroot        string                  `yaml:"docroot,omitempty"`
+	HTTPS          bool                    `yaml:"https,omitempty"`
+	EnvFile        string                  `yaml:"env-file,omitempty"`
+	EnvVars        map[string]string       `yaml:"env-vars,omitempty"`
+	Database       *DatabaseConfig         `yaml:"database,omitempty"`
+	MemoryLimit    any                     `yaml:"memory-limit,omitempty"`
+	PHPExtensions  map[string]any          `yaml:"php-extensions,omitempty"`
+	PECLExtensions map[string]any          `yaml:"pecl-extensions,omitempty"`
+	OPcachePreset  string                  `yaml:"opcache-preset,omitempty"`
+	OPcacheConfig  map[string]any          `yaml:"opcache-config,omitempty"`
+	Server         *ServerConfig           `yaml:"server,omitempty"`
+	Workers        map[string]WorkerConfig `yaml:"workers,omitempty"`
 }
 
 // EnvironmentFile is the YAML shape of polka.<name>.yaml.
 type EnvironmentFile struct {
-	Framework     string                  `yaml:"framework,omitempty"`
-	Tools         *ToolsConfig            `yaml:"tools,omitempty"`
-	Settings      *SettingsConfig         `yaml:"settings,omitempty"`
-	Docroot       string                  `yaml:"docroot,omitempty"`
-	HTTPS         bool                    `yaml:"https,omitempty"`
-	EnvFile       string                  `yaml:"env-file,omitempty"`
-	EnvVars       map[string]string       `yaml:"env-vars,omitempty"`
-	Database      *DatabaseConfig         `yaml:"database,omitempty"`
-	MemoryLimit   any                     `yaml:"memory-limit,omitempty"`
-	PHPExtensions map[string]any          `yaml:"php-extensions,omitempty"`
-	OPcachePreset string                  `yaml:"opcache-preset,omitempty"`
-	OPcacheConfig map[string]any          `yaml:"opcache-config,omitempty"`
-	Server        *ServerConfig           `yaml:"server,omitempty"`
-	Workers       map[string]WorkerConfig `yaml:"workers,omitempty"`
+	Framework      string                  `yaml:"framework,omitempty"`
+	Tools          *ToolsConfig            `yaml:"tools,omitempty"`
+	Settings       *SettingsConfig         `yaml:"settings,omitempty"`
+	Docroot        string                  `yaml:"docroot,omitempty"`
+	HTTPS          bool                    `yaml:"https,omitempty"`
+	EnvFile        string                  `yaml:"env-file,omitempty"`
+	EnvVars        map[string]string       `yaml:"env-vars,omitempty"`
+	Database       *DatabaseConfig         `yaml:"database,omitempty"`
+	MemoryLimit    any                     `yaml:"memory-limit,omitempty"`
+	PHPExtensions  map[string]any          `yaml:"php-extensions,omitempty"`
+	PECLExtensions map[string]any          `yaml:"pecl-extensions,omitempty"`
+	OPcachePreset  string                  `yaml:"opcache-preset,omitempty"`
+	OPcacheConfig  map[string]any          `yaml:"opcache-config,omitempty"`
+	Server         *ServerConfig           `yaml:"server,omitempty"`
+	Workers        map[string]WorkerConfig `yaml:"workers,omitempty"`
 }
 
 type Environment struct {
-	Name              string                  `yaml:"-"`
-	Framework         string                  `yaml:"framework,omitempty"`
-	PHPVersion        string                  `yaml:"php,omitempty"`
-	PHPZTSVersion     string                  `yaml:"php-zts,omitempty"`
-	FrankenPHPVersion string                  `yaml:"frankenphp,omitempty"`
-	RoadRunnerVersion string                  `yaml:"roadrunner,omitempty"`
-	ComposerVersion   string                  `yaml:"composer,omitempty"`
-	PIEVersion        string                  `yaml:"pie,omitempty"`
-	NodeJSVersion     string                  `yaml:"nodejs,omitempty"`
-	MagoVersion       string                  `yaml:"mago,omitempty"`
-	NginxVersion      string                  `yaml:"nginx,omitempty"`
-	ApacheVersion     string                  `yaml:"apache,omitempty"`
-	MySQLVersion      string                  `yaml:"mysql,omitempty"`
-	MariaDBVersion    string                  `yaml:"mariadb,omitempty"`
-	PostgreSQLVersion string                  `yaml:"postgresql,omitempty"`
-	SQLiteVersion     string                  `yaml:"sqlite,omitempty"`
-	Docroot           string                  `yaml:"docroot,omitempty"`
-	HTTPS             bool                    `yaml:"https,omitempty"`
-	EnvFile           string                  `yaml:"env-file,omitempty"`
-	EnvVars           map[string]string       `yaml:"env-vars,omitempty"`
-	Database          *DatabaseConfig         `yaml:"database,omitempty"`
-	Mailpit           *MailpitConfig          `yaml:"mailpit,omitempty"`
-	PHPMyAdmin        *PHPMyAdminConfig       `yaml:"phpmyadmin,omitempty"`
-	Meilisearch       *MeilisearchConfig      `yaml:"meilisearch,omitempty"`
-	Redis             *RedisConfig            `yaml:"redis,omitempty"`
-	Traefik           *TraefikConfig          `yaml:"traefik,omitempty"`
-	MemoryLimit       string                  `yaml:"memory-limit,omitempty"`
-	PHPExtensions     map[string]bool         `yaml:"php-extensions,omitempty"`
-	PIEExtensions     map[string]string       `yaml:"-"`
-	OPcachePreset     string                  `yaml:"opcache-preset,omitempty"`
-	OPcacheConfig     map[string]string       `yaml:"opcache-config,omitempty"`
-	Server            *ServerConfig           `yaml:"server,omitempty"`
-	Workers           map[string]WorkerConfig `yaml:"workers,omitempty"`
+	Name              string                         `yaml:"-"`
+	Framework         string                         `yaml:"framework,omitempty"`
+	PHPVersion        string                         `yaml:"php,omitempty"`
+	PHPZTSVersion     string                         `yaml:"php-zts,omitempty"`
+	FrankenPHPVersion string                         `yaml:"frankenphp,omitempty"`
+	RoadRunnerVersion string                         `yaml:"roadrunner,omitempty"`
+	ComposerVersion   string                         `yaml:"composer,omitempty"`
+	PIEVersion        string                         `yaml:"pie,omitempty"`
+	NodeJSVersion     string                         `yaml:"nodejs,omitempty"`
+	MagoVersion       string                         `yaml:"mago,omitempty"`
+	NginxVersion      string                         `yaml:"nginx,omitempty"`
+	ApacheVersion     string                         `yaml:"apache,omitempty"`
+	MySQLVersion      string                         `yaml:"mysql,omitempty"`
+	MariaDBVersion    string                         `yaml:"mariadb,omitempty"`
+	PostgreSQLVersion string                         `yaml:"postgresql,omitempty"`
+	SQLiteVersion     string                         `yaml:"sqlite,omitempty"`
+	Docroot           string                         `yaml:"docroot,omitempty"`
+	HTTPS             bool                           `yaml:"https,omitempty"`
+	EnvFile           string                         `yaml:"env-file,omitempty"`
+	EnvVars           map[string]string              `yaml:"env-vars,omitempty"`
+	Database          *DatabaseConfig                `yaml:"database,omitempty"`
+	Mailpit           *MailpitConfig                 `yaml:"mailpit,omitempty"`
+	PHPMyAdmin        *PHPMyAdminConfig              `yaml:"phpmyadmin,omitempty"`
+	Meilisearch       *MeilisearchConfig             `yaml:"meilisearch,omitempty"`
+	Redis             *RedisConfig                   `yaml:"redis,omitempty"`
+	Traefik           *TraefikConfig                 `yaml:"traefik,omitempty"`
+	MemoryLimit       string                         `yaml:"memory-limit,omitempty"`
+	PHPExtensions     map[string]bool                `yaml:"php-extensions,omitempty"`
+	PIEExtensions     map[string]string              `yaml:"-"`
+	PECLExtensions    map[string]PECLExtensionConfig `yaml:"-"`
+	ZendExtensions    map[string]bool                `yaml:"-"`
+	OPcachePreset     string                         `yaml:"opcache-preset,omitempty"`
+	OPcacheConfig     map[string]string              `yaml:"opcache-config,omitempty"`
+	Server            *ServerConfig                  `yaml:"server,omitempty"`
+	Workers           map[string]WorkerConfig        `yaml:"workers,omitempty"`
+}
+
+// PECLExtensionConfig describes one legacy PECL package. ConfigureOptions
+// contains answers for package.xml configure options used by Linux builds.
+type PECLExtensionConfig struct {
+	Version          string            `yaml:"version"`
+	ConfigureOptions map[string]string `yaml:"configure-options,omitempty"`
 }
 
 type DatabaseConfig struct {
@@ -251,6 +262,7 @@ func ProjectFileToEnvironment(name string, file ProjectFile) Environment {
 		file.Database,
 		file.MemoryLimit,
 		file.PHPExtensions,
+		file.PECLExtensions,
 		file.OPcachePreset,
 		file.OPcacheConfig,
 		file.Server,
@@ -261,22 +273,23 @@ func ProjectFileToEnvironment(name string, file ProjectFile) Environment {
 // ProjectFileFromEnvironment converts the default environment into polka.yaml data.
 func ProjectFileFromEnvironment(version int, root string, environment Environment) ProjectFile {
 	file := ProjectFile{
-		Version:       version,
-		Root:          root,
-		Framework:     strings.ToLower(strings.TrimSpace(environment.Framework)),
-		Tools:         ToolsConfigFromEnvironment(environment),
-		Settings:      SettingsConfigFromEnvironment(environment),
-		Docroot:       environment.Docroot,
-		HTTPS:         environment.HTTPS,
-		EnvFile:       environment.EnvFile,
-		EnvVars:       environment.EnvVars,
-		Database:      DatabaseRuntimeConfigFromEnvironment(environment),
-		MemoryLimit:   phpMemoryLimitFileValue(environment.MemoryLimit),
-		PHPExtensions: PHPExtensionsFileValue(environment.PHPExtensions, environment.PIEExtensions),
-		OPcachePreset: NormalizeOPcachePreset(environment.OPcachePreset),
-		OPcacheConfig: OPcacheFileConfigFromEnvironment(environment),
-		Server:        ServerConfigFromEnvironment(environment),
-		Workers:       NormalizeWorkersConfig(environment.Workers),
+		Version:        version,
+		Root:           root,
+		Framework:      strings.ToLower(strings.TrimSpace(environment.Framework)),
+		Tools:          ToolsConfigFromEnvironment(environment),
+		Settings:       SettingsConfigFromEnvironment(environment),
+		Docroot:        environment.Docroot,
+		HTTPS:          environment.HTTPS,
+		EnvFile:        environment.EnvFile,
+		EnvVars:        environment.EnvVars,
+		Database:       DatabaseRuntimeConfigFromEnvironment(environment),
+		MemoryLimit:    phpMemoryLimitFileValue(environment.MemoryLimit),
+		PHPExtensions:  PHPExtensionsFileValue(environment.PHPExtensions, environment.PIEExtensions),
+		PECLExtensions: PECLExtensionsFileValue(environment.PECLExtensions),
+		OPcachePreset:  NormalizeOPcachePreset(environment.OPcachePreset),
+		OPcacheConfig:  OPcacheFileConfigFromEnvironment(environment),
+		Server:         ServerConfigFromEnvironment(environment),
+		Workers:        NormalizeWorkersConfig(environment.Workers),
 	}
 
 	return file
@@ -296,6 +309,7 @@ func EnvironmentFileToEnvironment(name string, file EnvironmentFile) Environment
 		file.Database,
 		file.MemoryLimit,
 		file.PHPExtensions,
+		file.PECLExtensions,
 		file.OPcachePreset,
 		file.OPcacheConfig,
 		file.Server,
@@ -306,20 +320,21 @@ func EnvironmentFileToEnvironment(name string, file EnvironmentFile) Environment
 // EnvironmentFileFromEnvironment converts a named environment into polka.<name>.yaml data.
 func EnvironmentFileFromEnvironment(environment Environment) EnvironmentFile {
 	return EnvironmentFile{
-		Framework:     strings.ToLower(strings.TrimSpace(environment.Framework)),
-		Tools:         ToolsConfigFromEnvironment(environment),
-		Settings:      SettingsConfigFromEnvironment(environment),
-		Docroot:       environment.Docroot,
-		HTTPS:         environment.HTTPS,
-		EnvFile:       environment.EnvFile,
-		EnvVars:       environment.EnvVars,
-		Database:      DatabaseRuntimeConfigFromEnvironment(environment),
-		MemoryLimit:   phpMemoryLimitFileValue(environment.MemoryLimit),
-		PHPExtensions: PHPExtensionsFileValue(environment.PHPExtensions, environment.PIEExtensions),
-		OPcachePreset: NormalizeOPcachePreset(environment.OPcachePreset),
-		OPcacheConfig: OPcacheFileConfigFromEnvironment(environment),
-		Server:        ServerConfigFromEnvironment(environment),
-		Workers:       NormalizeWorkersConfig(environment.Workers),
+		Framework:      strings.ToLower(strings.TrimSpace(environment.Framework)),
+		Tools:          ToolsConfigFromEnvironment(environment),
+		Settings:       SettingsConfigFromEnvironment(environment),
+		Docroot:        environment.Docroot,
+		HTTPS:          environment.HTTPS,
+		EnvFile:        environment.EnvFile,
+		EnvVars:        environment.EnvVars,
+		Database:       DatabaseRuntimeConfigFromEnvironment(environment),
+		MemoryLimit:    phpMemoryLimitFileValue(environment.MemoryLimit),
+		PHPExtensions:  PHPExtensionsFileValue(environment.PHPExtensions, environment.PIEExtensions),
+		PECLExtensions: PECLExtensionsFileValue(environment.PECLExtensions),
+		OPcachePreset:  NormalizeOPcachePreset(environment.OPcachePreset),
+		OPcacheConfig:  OPcacheFileConfigFromEnvironment(environment),
+		Server:         ServerConfigFromEnvironment(environment),
+		Workers:        NormalizeWorkersConfig(environment.Workers),
 	}
 }
 
@@ -547,23 +562,24 @@ func (settings SettingsConfig) IsZero() bool {
 		settings.Traefik == nil
 }
 
-func environmentFromFileParts(name string, framework string, tools *ToolsConfig, settings *SettingsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *DatabaseConfig, memoryLimit any, phpExtensions map[string]any, opcachePreset string, opcacheConfig map[string]any, server *ServerConfig, workers map[string]WorkerConfig) Environment {
+func environmentFromFileParts(name string, framework string, tools *ToolsConfig, settings *SettingsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *DatabaseConfig, memoryLimit any, phpExtensions map[string]any, peclExtensions map[string]any, opcachePreset string, opcacheConfig map[string]any, server *ServerConfig, workers map[string]WorkerConfig) Environment {
 	bundledExtensions, pieExtensions := SplitPHPExtensionsFromYAML(phpExtensions)
 	environment := Environment{
-		Name:          name,
-		Framework:     strings.ToLower(strings.TrimSpace(framework)),
-		Docroot:       docroot,
-		HTTPS:         https,
-		EnvFile:       envFile,
-		EnvVars:       envVars,
-		Database:      database,
-		MemoryLimit:   NormalizePHPMemoryLimit(phpMemoryLimitValueString(memoryLimit)),
-		PHPExtensions: bundledExtensions,
-		PIEExtensions: pieExtensions,
-		OPcachePreset: opcachePreset,
-		OPcacheConfig: NormalizeOPcacheConfigFromYAML(opcacheConfig),
-		Server:        server,
-		Workers:       NormalizeWorkersConfig(workers),
+		Name:           name,
+		Framework:      strings.ToLower(strings.TrimSpace(framework)),
+		Docroot:        docroot,
+		HTTPS:          https,
+		EnvFile:        envFile,
+		EnvVars:        envVars,
+		Database:       database,
+		MemoryLimit:    NormalizePHPMemoryLimit(phpMemoryLimitValueString(memoryLimit)),
+		PHPExtensions:  bundledExtensions,
+		PIEExtensions:  pieExtensions,
+		PECLExtensions: PECLExtensionsFromYAML(peclExtensions),
+		OPcachePreset:  opcachePreset,
+		OPcacheConfig:  NormalizeOPcacheConfigFromYAML(opcacheConfig),
+		Server:         server,
+		Workers:        NormalizeWorkersConfig(workers),
 	}
 	if tools != nil {
 		environment.PHPVersion = tools.PHPVersion
@@ -774,6 +790,8 @@ func NormalizeEnvironment(name string, environment Environment) Environment {
 		MemoryLimit:       NormalizePHPMemoryLimit(environment.MemoryLimit),
 		PHPExtensions:     NormalizePHPExtensions(environment.PHPExtensions),
 		PIEExtensions:     NormalizePIEExtensions(environment.PIEExtensions),
+		PECLExtensions:    NormalizePECLExtensions(environment.PECLExtensions),
+		ZendExtensions:    NormalizePHPExtensions(environment.ZendExtensions),
 		OPcachePreset:     NormalizeOPcachePreset(environment.OPcachePreset),
 		OPcacheConfig:     NormalizeOPcacheConfig(environment.OPcacheConfig),
 		Server:            NormalizeServerConfig(environment.Server),
@@ -996,6 +1014,104 @@ func NormalizePIEExtensions(extensions map[string]string) map[string]string {
 	return normalized
 }
 
+// NormalizePECLExtensions canonicalizes legacy PECL package names, versions,
+// and configure option keys and removes incomplete entries.
+func NormalizePECLExtensions(extensions map[string]PECLExtensionConfig) map[string]PECLExtensionConfig {
+	if len(extensions) == 0 {
+		return nil
+	}
+
+	normalized := make(map[string]PECLExtensionConfig, len(extensions))
+	for name, extension := range extensions {
+		packageName := strings.ToLower(strings.TrimSpace(name))
+		version := strings.TrimSpace(extension.Version)
+		if packageName == "" || version == "" {
+			continue
+		}
+		options := make(map[string]string, len(extension.ConfigureOptions))
+		for option, value := range extension.ConfigureOptions {
+			option = strings.TrimLeft(strings.ToLower(strings.TrimSpace(option)), "-")
+			if option != "" {
+				options[option] = strings.TrimSpace(value)
+			}
+		}
+		if len(options) == 0 {
+			options = nil
+		}
+		normalized[packageName] = PECLExtensionConfig{Version: version, ConfigureOptions: options}
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+
+	return normalized
+}
+
+// PECLExtensionsFromYAML converts scalar versions and structured legacy PECL
+// package definitions from the public YAML representation.
+func PECLExtensionsFromYAML(values map[string]any) map[string]PECLExtensionConfig {
+	if len(values) == 0 {
+		return nil
+	}
+
+	extensions := make(map[string]PECLExtensionConfig, len(values))
+	for name, value := range values {
+		extension := PECLExtensionConfig{}
+		switch typed := value.(type) {
+		case map[string]any:
+			extension.Version = peclExtensionVersionString(typed["version"])
+			switch rawOptions := typed["configure-options"].(type) {
+			case map[string]any:
+				extension.ConfigureOptions = make(map[string]string, len(rawOptions))
+				for option, optionValue := range rawOptions {
+					extension.ConfigureOptions[option] = strings.TrimSpace(fmt.Sprint(optionValue))
+				}
+			case map[string]string:
+				extension.ConfigureOptions = make(map[string]string, len(rawOptions))
+				for option, optionValue := range rawOptions {
+					extension.ConfigureOptions[option] = strings.TrimSpace(optionValue)
+				}
+			}
+		default:
+			extension.Version = peclExtensionVersionString(value)
+		}
+		extensions[name] = extension
+	}
+
+	return NormalizePECLExtensions(extensions)
+}
+
+// PECLExtensionsFileValue renders scalar values for ordinary packages and an
+// object only when reproducible configure options are present.
+func PECLExtensionsFileValue(extensions map[string]PECLExtensionConfig) map[string]any {
+	normalized := NormalizePECLExtensions(extensions)
+	if len(normalized) == 0 {
+		return nil
+	}
+
+	values := make(map[string]any, len(normalized))
+	for name, extension := range normalized {
+		if len(extension.ConfigureOptions) == 0 {
+			values[name] = extension.Version
+			continue
+		}
+		values[name] = map[string]any{
+			"version":           extension.Version,
+			"configure-options": extension.ConfigureOptions,
+		}
+	}
+
+	return values
+}
+
+func peclExtensionVersionString(value any) string {
+	if value == nil {
+		return "*"
+	}
+
+	return strings.TrimSpace(fmt.Sprint(value))
+}
+
 // SplitPHPExtensionsFromYAML separates the raw php-extensions YAML map into
 // bundled extension toggles (name → enabled) and PIE-managed entries
 // (vendor/name → version constraint). Malformed values are coerced
@@ -1091,6 +1207,39 @@ func ValidatePIEExtensionVersion(pkg, version string) error {
 	}
 	if strings.ContainsAny(trimmed, " \t\r\n\"'") {
 		return fmt.Errorf("invalid version %q for php extension %s: constraints must be single-line scalars", version, pkg)
+	}
+
+	return nil
+}
+
+var validPECLExtensionPackage = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
+
+// ValidatePECLExtensionPackage validates one package name from the legacy
+// PECL channel. PIE-style vendor/name packages are deliberately excluded.
+func ValidatePECLExtensionPackage(name string) error {
+	trimmed := strings.ToLower(strings.TrimSpace(name))
+	if trimmed == "" {
+		return fmt.Errorf("PECL extension package cannot be empty")
+	}
+	if !validPECLExtensionPackage.MatchString(trimmed) {
+		return fmt.Errorf("invalid PECL extension package %q: use a bare package name such as redis; prefer a PIE vendor/name package when available", name)
+	}
+
+	return nil
+}
+
+// ValidatePECLExtensionVersion validates an exact PECL release or the latest
+// stable marker. PECL does not accept Composer-style version constraints.
+func ValidatePECLExtensionVersion(pkg, version string) error {
+	trimmed := strings.TrimSpace(version)
+	if trimmed == "" {
+		return fmt.Errorf("PECL extension %s requires a version; use * for the latest compatible stable release", pkg)
+	}
+	if trimmed == "*" {
+		return nil
+	}
+	if strings.ContainsAny(trimmed, " \t\r\n\"'") || strings.ContainsAny(trimmed, "^~<>,") {
+		return fmt.Errorf("invalid PECL version %q for %s: use an exact release such as 6.2.0 or *", version, pkg)
 	}
 
 	return nil

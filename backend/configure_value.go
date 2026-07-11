@@ -77,6 +77,14 @@ func parseConfigValuePath(key string) ([]string, error) {
 
 		return []string{"php-extensions", name}, nil
 	}
+	if strings.HasPrefix(trimmed, "pecl-extensions.") {
+		name := strings.TrimSpace(strings.TrimPrefix(trimmed, "pecl-extensions."))
+		if name == "" {
+			return nil, fmt.Errorf("config key %q must include a PECL extension name", key)
+		}
+
+		return []string{"pecl-extensions", name}, nil
+	}
 
 	path := strings.Split(trimmed, ".")
 	for _, segment := range path {
@@ -106,11 +114,89 @@ func applyConfigValue(environment *Environment, path []string, value string) err
 		return applyEnvVarConfigValue(environment, path, value)
 	case "php-extensions":
 		return applyPHPExtensionConfigValue(environment, path, value)
+	case "pecl-extensions":
+		return applyPECLExtensionConfigValue(environment, path, value)
 	case "opcache-config":
 		return applyOPcacheConfigValue(environment, path, value)
 	default:
 		return unsupportedConfigKey(path)
 	}
+}
+
+// applyPECLExtensionConfigValue updates a scalar legacy PECL package entry.
+func applyPECLExtensionConfigValue(environment *Environment, path []string, value string) error {
+	if len(path) != 2 {
+		return unsupportedConfigKey(path)
+	}
+	name := strings.ToLower(strings.TrimSpace(path[1]))
+	if err := config.ValidatePECLExtensionPackage(name); err != nil {
+		return err
+	}
+	version := strings.TrimSpace(value)
+	if version == "" {
+		delete(environment.PECLExtensions, name)
+		return nil
+	}
+	if err := config.ValidatePECLExtensionVersion(name, version); err != nil {
+		return err
+	}
+	if environment.PECLExtensions == nil {
+		environment.PECLExtensions = map[string]config.PECLExtensionConfig{}
+	}
+	environment.PECLExtensions[name] = config.PECLExtensionConfig{Version: version}
+
+	return nil
+}
+
+// ConfigurePECLExtension records a resolved legacy PECL extension including
+// reproducible configure options. An empty version removes the package.
+func (s Store) ConfigurePECLExtension(name, packageName string, extension config.PECLExtensionConfig) (Environment, error) {
+	if err := s.Init(); err != nil {
+		return Environment{}, err
+	}
+	if err := validateName(name); err != nil {
+		return Environment{}, err
+	}
+	packageName = strings.ToLower(strings.TrimSpace(packageName))
+	if err := config.ValidatePECLExtensionPackage(packageName); err != nil {
+		return Environment{}, err
+	}
+
+	stored, _, err := s.readEnvironment(name)
+	if err != nil {
+		return Environment{}, err
+	}
+	environment := s.normalizeEnvironment(name, stored)
+	if strings.TrimSpace(extension.Version) == "" {
+		delete(environment.PECLExtensions, packageName)
+	} else {
+		if err := config.ValidatePECLExtensionVersion(packageName, extension.Version); err != nil {
+			return Environment{}, err
+		}
+		if environment.PECLExtensions == nil {
+			environment.PECLExtensions = map[string]config.PECLExtensionConfig{}
+		}
+		environment.PECLExtensions[packageName] = extension
+	}
+	environment = normalizeConfigValueEnvironment(environment)
+	if err := s.validateEnvironmentFramework(environment); err != nil {
+		return Environment{}, err
+	}
+	if err := s.toolRegistry().ValidateEnvironment(environment); err != nil {
+		return Environment{}, err
+	}
+	if err := s.writeEnvironmentConfig(name, environment); err != nil {
+		return Environment{}, fmt.Errorf("write config file: %w", err)
+	}
+	loadedConfig, err := s.loadConfig()
+	if err != nil {
+		return Environment{}, err
+	}
+	if err := s.syncManagedBinaries(loadedConfig); err != nil {
+		return Environment{}, fmt.Errorf("sync managed binaries: %w", err)
+	}
+
+	return environment, nil
 }
 
 func applyTopLevelConfigValue(environment *Environment, key, value string) error {
