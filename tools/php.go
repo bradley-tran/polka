@@ -97,6 +97,19 @@ func phpRuntimePlugin(tool string, threadSafe bool) Plugin {
 					return err
 				}
 			}
+			for pkg, extension := range environment.PECLExtensions {
+				if err := config.ValidatePECLExtensionPackage(pkg); err != nil {
+					return err
+				}
+				if err := config.ValidatePECLExtensionVersion(pkg, extension.Version); err != nil {
+					return err
+				}
+				for piePackage := range environment.PIEExtensions {
+					if PIEExtensionModuleName(piePackage) == strings.ToLower(strings.TrimSpace(pkg)) {
+						return fmt.Errorf("PHP module %s is configured through both recommended PIE package %s and legacy PECL", pkg, piePackage)
+					}
+				}
+			}
 
 			return nil
 		},

@@ -568,6 +568,12 @@ func (s Store) InstallToolWithProgress(name, tool, version string, report func(I
 		if err := s.installPIEExtensions(environment, report); err != nil {
 			return InstallResult{}, err
 		}
+		if err := s.installPECLExtensions(environment, report); err != nil {
+			return InstallResult{}, err
+		}
+		if err := s.syncPECLRuntimeConfig(environment); err != nil {
+			return InstallResult{}, err
+		}
 	}
 
 	if err := s.writeEnvironmentConfig(name, environment); err != nil {
@@ -631,6 +637,12 @@ func (s Store) install(name string, options InstallOptions, report func(InstallP
 	if err := s.installPIEExtensions(environment, report); err != nil {
 		return nil, err
 	}
+	if err := s.installPECLExtensions(environment, report); err != nil {
+		return nil, err
+	}
+	if err := s.syncPECLRuntimeConfig(environment); err != nil {
+		return nil, err
+	}
 
 	return results, nil
 }
@@ -659,7 +671,7 @@ func (s Store) installEnvironment(name string) (Environment, *ToolRegistry, erro
 func validateInstallEnvironment(name string, environment Environment, requests []tools.InstallRequest, registry *ToolRegistry) error {
 	hasPHPCLI := config.HasPHPCLI(environment)
 	includesPHP := installRequestsIncludeTool(requests, toolPHP) || installRequestsIncludeTool(requests, toolPHPZTS) || installRequestsIncludeTool(requests, toolFrankenPHP)
-	if (len(environment.PHPExtensions) > 0 || len(environment.PIEExtensions) > 0) && !hasPHPCLI && !includesPHP {
+	if (len(environment.PHPExtensions) > 0 || len(environment.PIEExtensions) > 0 || len(environment.PECLExtensions) > 0) && !hasPHPCLI && !includesPHP {
 		return fmt.Errorf("environment %q defines php-extensions but does not define a PHP CLI provider", name)
 	}
 	// PIE builds extensions against a standalone PHP install; it cannot
@@ -667,6 +679,11 @@ func validateInstallEnvironment(name string, environment Environment, requests [
 	if len(environment.PIEExtensions) > 0 {
 		if tool, _ := config.PrimaryPHPTool(environment); tool == "" {
 			return fmt.Errorf("environment %q defines PIE-managed php-extensions but no standalone php or php-zts runtime; PIE cannot target FrankenPHP's embedded PHP", name)
+		}
+	}
+	if len(environment.PECLExtensions) > 0 {
+		if tool, _ := config.PrimaryPHPTool(environment); tool == "" {
+			return fmt.Errorf("environment %q defines legacy pecl-extensions but no standalone php or php-zts runtime; PECL cannot target FrankenPHP's embedded PHP", name)
 		}
 	}
 	if config.NormalizePHPMemoryLimit(environment.MemoryLimit) != "" && !hasPHPCLI && !includesPHP {
@@ -697,7 +714,7 @@ func installRequestsIncludeTool(requests []tools.InstallRequest, tool string) bo
 }
 
 func (s Store) installRequests(environment Environment, requests []tools.InstallRequest, force bool, report func(InstallProgress)) ([]InstallResult, error) {
-	installEnvironment := s.withFrameworkPHPConfig(environment)
+	installEnvironment := s.withFrameworkPHPConfig(s.withInstalledPECLExtensions(environment))
 	installPHPConfig := tools.EffectivePHPConfigForInstall(installEnvironment)
 	registry := s.toolRegistry()
 	state := s.readInstallState()
@@ -1589,6 +1606,16 @@ func validateEnvironmentFileSchema(data []byte) error {
 		}
 	}
 
+	peclExtensions, hasPECLExtensions, err := rawMapForKey(raw, "pecl-extensions")
+	if err != nil {
+		return err
+	}
+	if hasPECLExtensions {
+		if err := validatePECLExtensionsSchema(peclExtensions); err != nil {
+			return err
+		}
+	}
+
 	workers, hasWorkers, err := rawMapForKey(raw, "workers")
 	if err != nil {
 		return err
@@ -1619,6 +1646,59 @@ func validatePHPExtensionsSchema(values map[string]any) error {
 	}
 
 	return nil
+}
+
+// validatePECLExtensionsSchema accepts an exact version scalar or a structured
+// version/configure-options object for each legacy PECL package.
+func validatePECLExtensionsSchema(values map[string]any) error {
+	for name, value := range values {
+		if err := config.ValidatePECLExtensionPackage(name); err != nil {
+			return err
+		}
+		if isYAMLVersionScalar(value) {
+			if err := config.ValidatePECLExtensionVersion(name, yamlVersionScalarString(value)); err != nil {
+				return err
+			}
+			continue
+		}
+		object, ok := value.(map[string]any)
+		if !ok {
+			return fmt.Errorf("pecl-extensions.%s must be a version or an object with version and configure-options", name)
+		}
+		for key := range object {
+			if key != "version" && key != "configure-options" {
+				return fmt.Errorf("pecl-extensions.%s has unsupported key %q", name, key)
+			}
+		}
+		version, ok := object["version"]
+		if !ok || !isYAMLVersionScalar(version) {
+			return fmt.Errorf("pecl-extensions.%s.version must be an exact version or *", name)
+		}
+		if err := config.ValidatePECLExtensionVersion(name, yamlVersionScalarString(version)); err != nil {
+			return err
+		}
+		if rawOptions, ok := object["configure-options"]; ok {
+			options, ok := rawOptions.(map[string]any)
+			if !ok {
+				return fmt.Errorf("pecl-extensions.%s.configure-options must be a map", name)
+			}
+			for option, optionValue := range options {
+				if strings.Trim(strings.TrimSpace(option), "-") == "" || !isYAMLSettingScalar(optionValue) {
+					return fmt.Errorf("pecl-extensions.%s.configure-options.%s must be a scalar value", name, option)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func yamlVersionScalarString(value any) string {
+	if value == nil {
+		return "*"
+	}
+
+	return strings.TrimSpace(fmt.Sprint(value))
 }
 
 func validateToolsSchema(tools map[string]any) error {

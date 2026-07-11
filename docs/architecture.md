@@ -112,6 +112,8 @@ The global cache and project-local install layouts are intentionally separate. T
 
 After the tool installs, `backend.Store` provisions any PIE-managed `vendor/name` entries under `php-extensions` that the environment's installed PHP does not yet load, by running the internal PIE against the project PHP (`--with-php-path`, `--skip-enable-extension`). The generated `php.ini` loads those modules, so fresh checkouts reproduce PIE-managed extensions.
 
+As discouraged legacy compatibility, the backend also provisions `pecl-extensions` after PIE. It resolves official PECL metadata, installs matching Windows DLLs or builds Linux sources with target-matched PHP development tools, tracks installed artifacts beside the PHP runtime, and performs a final `php.ini` synchronization. PIE remains the preferred provider.
+
 ## Internal Tools
 
 Internal tools are consumed by Polka commands rather than exposed to projects. `backend/internal_tools.go` installs them through the same cache pipeline into a machine-global tools directory (`POLKA_TOOLS_DIR`, else `<POLKA_CACHE_DIR>/internal-tools`, else `<user cache dir>/polka/tools`), which acts as the `EnvsDir` of the reserved `_internal` environment:

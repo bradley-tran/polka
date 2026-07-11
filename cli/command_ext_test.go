@@ -261,3 +261,27 @@ func TestRunExtRejectsInvalidSpecs(t *testing.T) {
 		}
 	}
 }
+
+// TestParseExtSpecRoutesProviders verifies slash package names use PIE while
+// bare legacy package names use PECL.
+func TestParseExtSpecRoutesProviders(t *testing.T) {
+	provider, pkg, version, err := parseExtSpec("xdebug/xdebug:^3.4")
+	if err != nil || provider != extProviderPIE || pkg != "xdebug/xdebug" || version != "^3.4" {
+		t.Fatalf("parseExtSpec(PIE) = %v, %q, %q, %v", provider, pkg, version, err)
+	}
+	provider, pkg, version, err = parseExtSpec("redis:6.2.0")
+	if err != nil || provider != extProviderPECL || pkg != "redis" || version != "6.2.0" {
+		t.Fatalf("parseExtSpec(PECL) = %v, %q, %q, %v", provider, pkg, version, err)
+	}
+}
+
+// TestParsePECLConfigureOptions validates repeatable NAME=VALUE flags.
+func TestParsePECLConfigureOptions(t *testing.T) {
+	options, err := parsePECLConfigureOptions([]string{"--with-imagick=/opt/imagemagick", "enable-foo=no"})
+	if err != nil || options["with-imagick"] != "/opt/imagemagick" || options["enable-foo"] != "no" {
+		t.Fatalf("parsePECLConfigureOptions() = %#v, %v", options, err)
+	}
+	if _, err := parsePECLConfigureOptions([]string{"broken"}); err == nil {
+		t.Fatal("parsePECLConfigureOptions(broken) error = nil")
+	}
+}

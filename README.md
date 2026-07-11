@@ -90,6 +90,9 @@ memory-limit: 512M
 php-extensions:
   openssl: true
   xdebug: false
+# Deprecated compatibility only; prefer PIE vendor/name entries above.
+pecl-extensions:
+  redis: "6.2.0"
 opcache-preset: dev
 opcache-config:
   opcache.enable_cli: "1"

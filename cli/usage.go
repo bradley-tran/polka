@@ -13,8 +13,8 @@ Commands:
   env <command>        manage environment definitions (new, config, install, list, use, remove)
   new <name>           create an environment with default or explicit versions
   config <key> <value> set one config value for an environment
-  ext <install|remove> <vendor/name[:version]>
-                       manage PIE-provided PHP extensions for an environment
+  ext <install|remove> <vendor/name[:version]|name[:version]>
+                       manage recommended PIE or legacy PECL PHP extensions
   install [tool:version]
                        install one tool version or all tools for an environment
   php [args...]        run php with the local shell environment
@@ -112,12 +112,13 @@ After scaffolding, Polka detects the framework (cakephp, codeigniter, drupal, wo
 const extUsage = `Usage:
   polka ext install <vendor/name[:version]> [--env NAME]
   polka ext remove <vendor/name> [--env NAME]
+  polka ext install <pecl-name[:version]> [--configure-option NAME=VALUE] [--clear-configure-options] [--env NAME]
+  polka ext remove <pecl-name> [--env NAME]
 
-Manage PHP extensions provided by PIE (the PHP Installer for Extensions) for an environment's installed PHP runtime.
-install downloads or builds the extension against the environment's standalone php/php-zts install using Polka's internal PIE, records it under the php-extensions config key as vendor/name: version, and regenerates the runtime php.ini.
-remove uninstalls the extension and deletes its config entry.
-PIE-managed entries in php-extensions are also provisioned by polka install, so fresh checkouts reproduce them.
-PIE requires a standalone php or php-zts runtime; it cannot target FrankenPHP's embedded PHP.
+Package names containing a slash use PIE (the recommended PHP Installer for Extensions) and are recorded under php-extensions.
+Bare package names use deprecated PECL compatibility support and are recorded under pecl-extensions. Prefer PIE whenever an extension publishes a PIE package.
+PECL uses matching prebuilt DLLs on Windows and a local phpize/php-config/compiler toolchain on Linux. Configure options are persisted for reproducible Linux builds.
+Both providers are reprovisioned by polka install and require standalone php or php-zts; neither can target FrankenPHP's embedded PHP.
 `
 
 const newUsage = `Usage:
@@ -132,7 +133,7 @@ const configUsage = `Usage:
 
 Create or update one environment config value. The default environment is stored in polka.yaml; named environments are stored in polka.<name>.yaml.
 Use --env NAME to select a named environment. When --env is omitted, Polka updates the current environment, falling back to default when no local override is selected.
-Keys are dot-separated YAML paths such as tools.php, tools.php-zts, tools.frankenphp, tools.apache, tools.meilisearch, tools.redis, server.type, database.engine, settings.mailpit.smtp-port, settings.meilisearch.port, settings.meilisearch.master-key, settings.redis.port, settings.redis.password, env-vars.APP_ENV, memory-limit, php-extensions.xdebug, and opcache-config.opcache.enable_cli.
+Keys are dot-separated YAML paths such as tools.php, tools.php-zts, tools.frankenphp, tools.apache, tools.meilisearch, tools.redis, server.type, database.engine, settings.mailpit.smtp-port, settings.meilisearch.port, settings.meilisearch.master-key, settings.redis.port, settings.redis.password, env-vars.APP_ENV, memory-limit, php-extensions.xdebug, pecl-extensions.redis, and opcache-config.opcache.enable_cli.
 tools.php and tools.php-zts are mutually exclusive standalone runtimes; setting one clears the other and both take precedence for the php command. FrankenPHP supplies php when neither is configured.
 server.type accepts php, nginx, apache, or frankenphp. When omitted, Polka preserves the legacy behavior of selecting nginx when configured and PHP otherwise.
 `

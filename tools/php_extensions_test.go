@@ -111,6 +111,21 @@ func TestRenderPHPConfigLoadsZendExtensionsWithZendDirective(t *testing.T) {
 	}
 }
 
+// TestRenderMetadataDefinedZendExtension verifies legacy PECL package
+// metadata can mark Zend modules beyond the built-in known-module list.
+func TestRenderMetadataDefinedZendExtension(t *testing.T) {
+	configData, err := renderPHPConfig("../ext", PHPInstallConfig{
+		Extensions:     map[string]bool{"custom_zend": true},
+		ZendExtensions: map[string]bool{"custom_zend": true},
+	})
+	if err != nil {
+		t.Fatalf("renderPHPConfig() error = %v", err)
+	}
+	if !phpIniHasLine(string(configData), "zend_extension=custom_zend") {
+		t.Fatalf("php.ini = %q, want metadata-defined Zend extension", string(configData))
+	}
+}
+
 func TestRenderPHPConfigSupportsOPcacheOnly(t *testing.T) {
 	configData, err := renderPHPConfig("../ext", PHPInstallConfig{
 		OPcacheConfig: map[string]string{

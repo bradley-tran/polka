@@ -225,5 +225,5 @@ func (s Store) SyncPHPRuntimeConfig(name string) error {
 		return fmt.Errorf("environment %q does not define a standalone php or php-zts runtime", name)
 	}
 
-	return tools.ResyncInstalledPHPRuntimeConfig(s.EnvsDir, tool, version, s.withFrameworkPHPConfig(environment))
+	return tools.ResyncInstalledPHPRuntimeConfig(s.EnvsDir, tool, version, s.withFrameworkPHPConfig(s.withInstalledPECLExtensions(environment)))
 }
