@@ -26,7 +26,7 @@ Commands:
   stop                 stop the active environment's local web server and managed services
   exec <command>       run one command with the local shell environment
   sh, shell            open an interactive shell with local binaries first
-  logs <tool>          print active environment logs for one managed tool
+  logs <tool>          print or follow active environment logs for one managed tool
   list                 list environments
   use <name>           select the active environment
   status, info         show the active environment status
@@ -65,6 +65,7 @@ Examples:
   polka sh
   polka logs nginx
   polka logs nginx --level error
+  polka logs nginx --follow
   polka list
   polka use api
   polka status
@@ -231,12 +232,13 @@ On POSIX systems, Polka launches $SHELL when it is set, otherwise /bin/sh.
 `
 
 const logsUsage = `Usage:
-  polka logs <tool> [--level info|error|debug]
+  polka logs <tool> [--level info|error|debug] [-f|--follow]
 
 Print existing log files declared by a managed tool's manifest for the active environment.
 Manifest log paths are resolved under <root>/run/<tool>/<environment>.
 When --level is omitted, Polka prints info, error, and debug logs in that order.
 Missing log files are skipped. If no matching declared log file exists on disk, the command exits with an error.
+Pass -f or --follow to keep watching all matching paths and print data appended to them. Follow mode also detects truncated or replaced log files.
 `
 
 const listUsage = `Usage:
