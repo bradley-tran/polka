@@ -80,7 +80,16 @@ func runDispatch(stdout, stderr io.Writer, args []string, store backend.Store) i
 		}
 	}
 
-	exitCode, err := executeTargetWithEnv(stdout, stderr, env, target, dispatchArgs)
+	exitCode, err := executeTargetWithComposerScriptSupport(
+		runtime.GOOS,
+		strings.EqualFold(tool, "composer"),
+		stdout,
+		stderr,
+		env,
+		workingDir,
+		target,
+		dispatchArgs,
+	)
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
