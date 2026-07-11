@@ -160,6 +160,8 @@ On Windows, Polka launches PowerShell and generates temporary `.cmd` wrappers fo
 
 Runs one command with the same resolution order and runtime environment as `polka sh`.
 
+On Windows, Composer scripts that directly invoke an extensionless PHP-shebang file, such as `bin/console cache:clear`, run through the environment's managed PHP. Polka creates a temporary `.cmd` companion for the duration of Composer and leaves existing project-owned wrappers unchanged.
+
 ```bash
 polka exec php -v
 polka exec frankenphp version

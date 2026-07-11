@@ -59,6 +59,61 @@ func TestRunExecRunsCommandWithShellEnvironment(t *testing.T) {
 	}
 }
 
+// TestRunExecComposerRunsExtensionlessPHPScriptOnWindows covers the complete
+// cmd.exe path used by a legacy Composer script such as bin/console.
+func TestRunExecComposerRunsExtensionlessPHPScriptOnWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows command resolution behavior")
+	}
+
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	binDir := filepath.Join(projectDir, "bin")
+	systemBinDir := filepath.Join(projectDir, "system-bin")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	chdirTest(t, projectDir)
+	t.Setenv("PATH", systemBinDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	for _, dir := range []string{filepath.Join(root, "bin"), binDir, systemBinDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%s) error = %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "bin", "php.cmd"), fakePHPScript(), 0o755); err != nil {
+		t.Fatalf("WriteFile(root php) error = %v", err)
+	}
+	consolePath := filepath.Join(binDir, "console")
+	if err := os.WriteFile(consolePath, []byte("#!/usr/bin/env php\n<?php\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile(bin/console) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "composer.json"), []byte(`{"scripts":{"post-cmd":"bin/console cache:clear"}}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(composer.json) error = %v", err)
+	}
+	composerScript := []byte("@echo off\r\ncall bin\\console cache:clear\r\nexit /b %ERRORLEVEL%\r\n")
+	if err := os.WriteFile(filepath.Join(systemBinDir, "composer.cmd"), composerScript, 0o755); err != nil {
+		t.Fatalf("WriteFile(composer.cmd) error = %v", err)
+	}
+	writeTestConfigFile(t, projectDir, testConfigFile{
+		Version: 1,
+		Root:    ".polka",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {},
+		},
+	})
+	writeTestActiveEnvironment(t, root, "demo")
+
+	if code := Run(stdout, stderr, []string{"--root", root, "exec", "composer", "run-script", "post-cmd"}); code != 0 {
+		t.Fatalf("Run(exec composer) code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "fake-php") || !strings.Contains(stdout.String(), "cache:clear") {
+		t.Fatalf("Run(exec composer) stdout = %q, want Composer script run through managed PHP", stdout.String())
+	}
+	if _, err := os.Stat(consolePath + ".cmd"); !os.IsNotExist(err) {
+		t.Fatalf("Stat(bin/console.cmd) error = %v, want temporary wrapper removed", err)
+	}
+}
+
 func TestRunExecUsesNearestNestedVendorBin(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")

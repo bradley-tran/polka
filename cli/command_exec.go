@@ -65,7 +65,16 @@ func runExec(stdout, stderr io.Writer, store backend.Store, args []string) int {
 		return 1
 	}
 
-	exitCode, err := executeTargetWithEnv(stdout, stderr, resolvedEnv, target, args[1:])
+	exitCode, err := executeTargetWithComposerScriptSupport(
+		runtime.GOOS,
+		isComposerExecutable(args[0]),
+		stdout,
+		stderr,
+		resolvedEnv,
+		workingDir,
+		target,
+		args[1:],
+	)
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1

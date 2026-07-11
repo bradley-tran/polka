@@ -211,6 +211,8 @@ Polka resolves commands in this order:
 1. <root>/bin
 2. vendor/bin
 3. system PATH
+
+On Windows, direct extensionless PHP-shebang commands in Composer scripts run through the environment's managed PHP.
 `
 
 const shUsage = `Usage:
