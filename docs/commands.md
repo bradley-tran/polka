@@ -211,12 +211,13 @@ When Polka creates new HTTPS certificate material during `serve`, it prefers to 
 
 Stops the active environment's background webserver, workers, phpMyAdmin, Meilisearch, Redis, Traefik, managed database, and Mailpit when they are running. Workers stop before the services they depend on.
 
-### `polka logs <tool> [--level info|error|debug]`
+### `polka logs <tool> [--level info|error|debug] [-f|--follow]`
 
-Prints existing log files declared by one managed tool's manifest for the active environment.
+Prints existing log files declared by one managed tool's manifest for the active environment. Pass `-f` or `--follow` to keep watching every matching path and print appended data; follow mode also detects truncated or replaced log files.
 
 ```bash
 polka logs nginx
+polka logs nginx -f
 polka logs nginx --level error
 polka logs apache
 polka logs frankenphp
