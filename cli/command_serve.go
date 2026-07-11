@@ -350,7 +350,9 @@ func validateServeHostAndPort(host string, port int) error {
 }
 
 // resolveServeDocroot resolves the docroot from the argument or environment
-// config, makes it absolute relative to the project, and requires a directory.
+// config and makes it absolute relative to the project. A regular PHP file is
+// accepted as an explicit front controller; resolveServeAppLayout converts it
+// to the containing document root before webserver startup.
 func resolveServeDocroot(projectDir, configuredDocroot, overrideDocroot string) (string, error) {
 	trimmed := strings.TrimSpace(overrideDocroot)
 	if trimmed == "" {
@@ -369,8 +371,8 @@ func resolveServeDocroot(projectDir, configuredDocroot, overrideDocroot string) 
 	if err != nil {
 		return "", fmt.Errorf("stat docroot: %w", err)
 	}
-	if !fileInfo.IsDir() {
-		return "", fmt.Errorf("docroot %q is not a directory", trimmed)
+	if !fileInfo.IsDir() && !fileInfo.Mode().IsRegular() {
+		return "", fmt.Errorf("docroot %q is neither a directory nor a regular file", trimmed)
 	}
 
 	return resolved, nil

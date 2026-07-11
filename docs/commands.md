@@ -183,7 +183,7 @@ polka serve public --server blog.localhost:8443
 polka serve --watch
 ```
 
-When `docroot` is omitted, Polka uses `docroot` from the current environment file. When `--server` is omitted, Polka reads `server.hostname`, `server.port`, and the root-level `https` setting from the current environment file, defaulting to `http://localhost:8000`.
+When `docroot` is omitted, Polka uses `docroot` from the current environment file. A docroot may name either a directory or a PHP front-controller file. For example, `docroot: web/app.php` serves static files from `web` and routes missing requests to `app.php`. When `--server` is omitted, Polka reads `server.hostname`, `server.port`, and the root-level `https` setting from the current environment file, defaulting to `http://localhost:8000`.
 
 By default, Polka starts the webserver in the background, waits for it to begin listening, and records runtime state so `polka stop` can stop it later. Pass `--watch` to keep the webserver attached to the current terminal.
 

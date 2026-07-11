@@ -1050,6 +1050,80 @@ func TestResolveServeAppLayoutAllowsMissingFrontController(t *testing.T) {
 	}
 }
 
+// TestResolveServeAppLayoutSupportsFileDocroot verifies that a configured PHP
+// file becomes the front controller while its parent becomes the server root.
+func TestResolveServeAppLayoutSupportsFileDocroot(t *testing.T) {
+	projectDir := t.TempDir()
+	webroot := filepath.Join(projectDir, "web")
+	if err := os.MkdirAll(webroot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(webroot) error = %v", err)
+	}
+	frontController := filepath.Join(webroot, "app.php")
+	if err := os.WriteFile(frontController, []byte("<?php\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(app.php) error = %v", err)
+	}
+
+	resolved, err := resolveServeDocroot(projectDir, filepath.ToSlash(filepath.Join("web", "app.php")), "")
+	if err != nil {
+		t.Fatalf("resolveServeDocroot() error = %v", err)
+	}
+	layout, err := resolveServeAppLayout(resolved)
+	if err != nil {
+		t.Fatalf("resolveServeAppLayout() error = %v", err)
+	}
+	if layout.Docroot != webroot {
+		t.Fatalf("layout docroot = %q, want %q", layout.Docroot, webroot)
+	}
+	if layout.FrontControllerRelative != "app.php" || layout.FrontControllerWebPath != "/app.php" || layout.FrontControllerIndex != "app.php" {
+		t.Fatalf("layout front controller = %#v, want app.php", layout)
+	}
+}
+
+// TestResolveServeAppLayoutRejectsNonPHPFileDocroot verifies that file-level
+// docroots cannot silently produce inconsistent static and PHP routing.
+func TestResolveServeAppLayoutRejectsNonPHPFileDocroot(t *testing.T) {
+	frontController := filepath.Join(t.TempDir(), "index.html")
+	if err := os.WriteFile(frontController, []byte("<!doctype html>\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(index.html) error = %v", err)
+	}
+
+	if _, err := resolveServeAppLayout(frontController); err == nil || !strings.Contains(err.Error(), "not a PHP front controller") {
+		t.Fatalf("resolveServeAppLayout() error = %v, want PHP front controller error", err)
+	}
+}
+
+// TestFileDocrootConfiguresAllWebservers verifies that every supported server
+// routes missing requests to an explicitly selected front-controller file.
+func TestFileDocrootConfiguresAllWebservers(t *testing.T) {
+	docroot := filepath.Join(t.TempDir(), "web")
+	layout := serveAppLayout{
+		Docroot:                 docroot,
+		FrontControllerRelative: "app.php",
+		FrontControllerWebPath:  "/app.php",
+		FrontControllerIndex:    "app.php",
+	}
+
+	phpRouter := string(renderPHPRuntimeRouter(layout))
+	if !strings.Contains(phpRouter, "$frontControllerRelative = \"app.php\";") {
+		t.Fatalf("PHP router = %q, want app.php front controller", phpRouter)
+	}
+
+	nginxConfig := string(renderNginxServeConfig("localhost", 8080, layout, "127.0.0.1:9000", serveTLSConfig{}))
+	if !strings.Contains(nginxConfig, "try_files $uri $uri/ /app.php$is_args$args;") || !strings.Contains(nginxConfig, "fastcgi_index app.php;") {
+		t.Fatalf("nginx config = %q, want app.php front controller", nginxConfig)
+	}
+
+	apacheConfig := string(renderApacheServeConfig(t.TempDir(), t.TempDir(), "localhost", 8080, layout, "127.0.0.1:9000", serveTLSConfig{}))
+	if !strings.Contains(apacheConfig, "DirectoryIndex app.php index.html") || !strings.Contains(apacheConfig, "RewriteRule ^ app.php [QSA,L]") {
+		t.Fatalf("Apache config = %q, want app.php front controller", apacheConfig)
+	}
+
+	frankenPHPConfig := string(renderFrankenPHPCaddyfile(serverEndpoint{Scheme: "http", Address: "localhost:8080"}, layout, serveTLSConfig{}))
+	if !strings.Contains(frankenPHPConfig, "php_server {\n\t\ttry_files {path} {path}/app.php app.php\n\t}") {
+		t.Fatalf("FrankenPHP Caddyfile = %q, want app.php front controller", frankenPHPConfig)
+	}
+}
+
 func TestResolvePHPCGITargetUsesSiblingBinary(t *testing.T) {
 	phpDir := filepath.Join(t.TempDir(), "php")
 	phpTarget := filepath.Join(phpDir, "php")

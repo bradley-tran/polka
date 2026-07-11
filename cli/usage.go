@@ -189,6 +189,7 @@ const startUsage = `Usage:
 
 Start the active environment's local web server.
 When docroot is omitted, Polka uses docroot from the current environment file.
+Docroot may be a directory or a PHP front-controller file such as web/app.php.
 When --server is omitted, Polka uses the current environment's server.hostname, server.port, and root-level https setting, defaulting to localhost:8000.
 server.type explicitly selects php, nginx, apache, or frankenphp. When omitted, nginx is selected when configured and PHP is used otherwise.
 When the current environment defines a database, mailpit, meilisearch, redis, or phpmyadmin, Polka starts those managed local services first.
