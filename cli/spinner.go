@@ -28,6 +28,17 @@ func isTTY(w io.Writer) bool {
 	return (info.Mode() & os.ModeCharDevice) != 0
 }
 
+// stdinIsTTY reports whether standard input is connected to a terminal.
+// Interactive TUI commands require both a terminal stdout (for rendering)
+// and a terminal stdin (for key input).
+func stdinIsTTY() bool {
+	info, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return (info.Mode() & os.ModeCharDevice) != 0
+}
+
 // toolState holds the display state for a single tool being installed.
 type toolState struct {
 	tool    string

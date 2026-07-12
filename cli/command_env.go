@@ -135,12 +135,24 @@ func newConfigCommand(ctx *commandContext) *cobra.Command {
 	var input configCommandInput
 
 	cmd := &cobra.Command{
-		Use:  "config [--env NAME] <key> <value>",
-		Args: exactArgsError("config requires exactly a key and value", 2),
+		Use: "config [--env NAME] [<key> <value>]",
+		// No arguments opens the interactive settings form; a key and value
+		// set one config value directly.
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) != 0 && len(args) != 2 {
+				return &statusError{code: 1, err: fmt.Errorf("config requires a key and value, or no arguments for the interactive form")}
+			}
+
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store, err := ctx.store()
 			if err != nil {
 				return &statusError{code: 1, err: err}
+			}
+
+			if len(args) == 0 {
+				return runConfigForm(cmd.OutOrStdout(), cmd.ErrOrStderr(), store, input.Name)
 			}
 
 			input.Key = args[0]

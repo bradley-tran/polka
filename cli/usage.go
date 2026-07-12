@@ -12,7 +12,8 @@ Commands:
                        scaffold a new app with Polka's internal composer and initialize polka in it
   env <command>        manage environment definitions (new, config, install, list, use, remove)
   new <name>           create an environment with default or explicit versions
-  config <key> <value> set one config value for an environment
+  config [<key> <value>]
+                       set one config value or open the interactive settings form
   ext <install|remove> <vendor/name[:version]|name[:version]>
                        manage recommended PIE or legacy PECL PHP extensions
   install [tool:version]
@@ -30,6 +31,7 @@ Commands:
   list                 list environments
   use <name>           select the active environment
   status, info         show the active environment status
+  dashboard            open a live auto-refreshing status view for the active environment
   remove <name>        remove an environment
   help                 show this help
 
@@ -39,6 +41,7 @@ Examples:
   polka create-project laravel/laravel demo
   polka ext install xdebug/xdebug
   polka new api
+  polka config
   polka config tools.php 8.4
   polka config tools.php-zts 8.4
   polka config tools.frankenphp 1.12
@@ -69,6 +72,7 @@ Examples:
   polka list
   polka use api
   polka status
+  polka dashboard
 
 Flags:
   --root PATH          override the state directory (defaults to ./.polka)
@@ -91,7 +95,8 @@ Manage environment definitions. The default environment is stored in polka.yaml;
 
 Commands:
   new <name>           create an environment with default or explicit versions
-  config <key> <value> set one config value for an environment
+  config [<key> <value>]
+                       set one config value or open the interactive settings form
   install [tool:version]
                        install one tool version or all tools for an environment
   list                 list environments
@@ -130,10 +135,11 @@ When omitted, --php defaults to 8.4, --composer defaults to 2.8, and --nodejs de
 `
 
 const configUsage = `Usage:
-  polka config [--env NAME] <key> <value>
+  polka config [--env NAME] [<key> <value>]
 
 Create or update one environment config value. The default environment is stored in polka.yaml; named environments are stored in polka.<name>.yaml.
 Use --env NAME to select a named environment. When --env is omitted, Polka updates the current environment, falling back to default when no local override is selected.
+Run polka config without arguments in a terminal to open an interactive settings form pre-filled with the environment's current values; every edited value is saved on submit. The form edits existing env-vars, php-extensions, and opcache-config entries; adding new entries and managing PIE or PECL extensions still uses the key/value form or polka ext.
 Keys are dot-separated YAML paths such as tools.php, tools.php-zts, tools.frankenphp, tools.apache, tools.meilisearch, tools.redis, server.type, database.engine, settings.mailpit.smtp-port, settings.meilisearch.port, settings.meilisearch.master-key, settings.redis.port, settings.redis.password, env-vars.APP_ENV, memory-limit, php-extensions.xdebug, pecl-extensions.redis, and opcache-config.opcache.enable_cli.
 tools.php and tools.php-zts are mutually exclusive standalone runtimes; setting one clears the other and both take precedence for the php command. FrankenPHP supplies php when neither is configured.
 server.type accepts php, nginx, apache, or frankenphp. When omitted, Polka preserves the legacy behavior of selecting nginx when configured and PHP otherwise.
@@ -262,6 +268,14 @@ const statusUsage = `Usage:
 Show the active environment, including one line per configured tool and the resolved server URL.
 The active environment name is stored in .polka/run/current when a local override is selected; otherwise Polka uses default.
 Also shows whether the active environment's webserver, phpMyAdmin, Meilisearch, Redis, Traefik, managed database, and mailpit are currently running.
+`
+
+const dashboardUsage = `Usage:
+  polka dashboard
+
+Open a live status view for the active environment in the terminal, showing the webserver, managed services, and workers with their URLs, PIDs, and uptimes.
+The view refreshes every 2 seconds; press q to quit.
+When stdin or stdout is not a terminal, dashboard prints the one-shot status output instead.
 `
 
 const removeUsage = `Usage:
