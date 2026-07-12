@@ -47,7 +47,7 @@ func newShortcutCommand(spec shortcutSpec) *cobra.Command {
 func shortcutSpecs() []shortcutSpec {
 	return []shortcutSpec{
 		{use: "new <name>", short: "shortcut for env new", prefix: []string{"env", "new"}, usage: newUsage},
-		{use: "config <key> <value>", short: "shortcut for env config", prefix: []string{"env", "config"}, usage: configUsage},
+		{use: "config [<key> <value>]", short: "shortcut for env config", prefix: []string{"env", "config"}, usage: configUsage},
 		{use: "install [tool:version]", short: "shortcut for env install", prefix: []string{"env", "install"}, usage: installUsage},
 		{use: "list", short: "shortcut for env list", prefix: []string{"env", "list"}, usage: listUsage},
 		{use: "use <name>", short: "shortcut for env use", prefix: []string{"env", "use"}, usage: useUsage},

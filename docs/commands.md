@@ -59,11 +59,14 @@ polka create-project symfony/skeleton api --stability=beta
 
 Polka provisions an internal PHP runtime and composer into the global tools directory on first use; they are implementation details and never appear in project config. Remaining arguments pass through to `composer create-project` unchanged. After scaffolding, Polka detects the framework from the package name or scaffolded marker files, writes the matching `polka.yaml` preset (or a plain default config when nothing is detected), and runs the same post-Composer framework hooks as a dispatched `composer create-project`. Run `polka install` inside the new directory to provision its tools.
 
-### `polka config [--env name] <key> <value>`
+### `polka config [--env name] [<key> <value>]`
 
 Creates or updates one environment config value. The default environment is stored in `polka.yaml`; named environments are stored in `polka.<name>.yaml`.
 
+Run `polka config` without arguments in a terminal to open an interactive settings form pre-filled with the environment's current values. Fields are grouped into pages (general, PHP runtime, web server, database, services, and existing env vars, PHP extensions, and OPcache directives); every edited value is saved on submit and confirmed with the same `Configured` output as the key/value form. Adding new env-var, extension, or OPcache entries still uses the key/value form, and PIE/PECL extensions remain managed by `polka ext`.
+
 ```bash
+polka config
 polka config tools.php 8.4
 polka config tools.php-zts 8.4
 polka config tools.frankenphp 1.12
@@ -135,6 +138,12 @@ Selects one environment as the local override. Use `default` to clear the overri
 Alias: `polka info`
 
 Shows the active environment, prints each configured tool on its own line, includes the resolved web server URL, and reports whether the webserver, background workers, phpMyAdmin, Meilisearch, Redis, Traefik, managed database, and Mailpit are running. Configured workers are listed one per line, and the runtime section reports live worker replicas as `workers running <live>/<configured>`.
+
+### `polka dashboard`
+
+Opens a live status view for the active environment in the terminal. It shows the webserver, managed services (database, Mailpit, phpMyAdmin, Meilisearch, Redis, Traefik), and worker processes with their URLs, PIDs, and uptimes, refreshing every 2 seconds. Press `q` to quit.
+
+When stdin or stdout is not a terminal — for example when the output is piped — `polka dashboard` prints the one-shot `polka status` output instead.
 
 ### `polka remove <name>`
 
