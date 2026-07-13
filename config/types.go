@@ -36,6 +36,7 @@ type ToolsConfig struct {
 	PHPMyAdminVersion  string `yaml:"phpmyadmin,omitempty"`
 	MeilisearchVersion string `yaml:"meilisearch,omitempty"`
 	RedisVersion       string `yaml:"redis,omitempty"`
+	RabbitMQVersion    string `yaml:"rabbitmq,omitempty"`
 	TraefikVersion     string `yaml:"traefik,omitempty"`
 }
 
@@ -45,6 +46,7 @@ type SettingsConfig struct {
 	PHPMyAdmin  *PHPMyAdminSettingsConfig  `yaml:"phpmyadmin,omitempty"`
 	Meilisearch *MeilisearchSettingsConfig `yaml:"meilisearch,omitempty"`
 	Redis       *RedisSettingsConfig       `yaml:"redis,omitempty"`
+	RabbitMQ    *RabbitMQSettingsConfig    `yaml:"rabbitmq,omitempty"`
 	Traefik     *TraefikSettingsConfig     `yaml:"traefik,omitempty"`
 }
 
@@ -69,6 +71,14 @@ type MeilisearchSettingsConfig struct {
 type RedisSettingsConfig struct {
 	Port     int    `yaml:"port,omitempty"`
 	Password string `yaml:"password,omitempty"`
+}
+
+// RabbitMQSettingsConfig is the YAML shape for RabbitMQ runtime settings.
+type RabbitMQSettingsConfig struct {
+	Port           int    `yaml:"port,omitempty"`
+	ManagementPort int    `yaml:"management-port,omitempty"`
+	Username       string `yaml:"username,omitempty"`
+	Password       string `yaml:"password,omitempty"`
 }
 
 // TraefikSettingsConfig is the YAML shape for Traefik runtime settings.
@@ -142,6 +152,7 @@ type Environment struct {
 	PHPMyAdmin        *PHPMyAdminConfig              `yaml:"phpmyadmin,omitempty"`
 	Meilisearch       *MeilisearchConfig             `yaml:"meilisearch,omitempty"`
 	Redis             *RedisConfig                   `yaml:"redis,omitempty"`
+	RabbitMQ          *RabbitMQConfig                `yaml:"rabbitmq,omitempty"`
 	Traefik           *TraefikConfig                 `yaml:"traefik,omitempty"`
 	MemoryLimit       string                         `yaml:"memory-limit,omitempty"`
 	PHPExtensions     map[string]bool                `yaml:"php-extensions,omitempty"`
@@ -190,6 +201,15 @@ type RedisConfig struct {
 	Version  string `yaml:"version,omitempty"`
 	Port     int    `yaml:"port,omitempty"`
 	Password string `yaml:"password,omitempty"`
+}
+
+// RabbitMQConfig combines the managed version with local broker settings.
+type RabbitMQConfig struct {
+	Version        string `yaml:"version,omitempty"`
+	Port           int    `yaml:"port,omitempty"`
+	ManagementPort int    `yaml:"management-port,omitempty"`
+	Username       string `yaml:"username,omitempty"`
+	Password       string `yaml:"password,omitempty"`
 }
 
 type TraefikConfig struct {
@@ -359,6 +379,7 @@ func ToolsConfigFromEnvironment(environment Environment) *ToolsConfig {
 		PHPMyAdminVersion:  ToolVersionFromPHPMyAdminConfig(environment.PHPMyAdmin),
 		MeilisearchVersion: ToolVersionFromMeilisearchConfig(environment.Meilisearch),
 		RedisVersion:       ToolVersionFromRedisConfig(environment.Redis),
+		RabbitMQVersion:    ToolVersionFromRabbitMQConfig(environment.RabbitMQ),
 		TraefikVersion:     ToolVersionFromTraefikConfig(environment.Traefik),
 	}
 	if tools.IsZero() {
@@ -375,6 +396,7 @@ func SettingsConfigFromEnvironment(environment Environment) *SettingsConfig {
 		PHPMyAdmin:  PHPMyAdminSettingsConfigFromEnvironment(environment),
 		Meilisearch: MeilisearchSettingsConfigFromEnvironment(environment),
 		Redis:       RedisSettingsConfigFromEnvironment(environment),
+		RabbitMQ:    RabbitMQSettingsConfigFromEnvironment(environment),
 		Traefik:     TraefikSettingsConfigFromEnvironment(environment),
 	}
 	if settings.IsZero() {
@@ -418,6 +440,15 @@ func ToolVersionFromRedisConfig(redis *RedisConfig) string {
 	}
 
 	return strings.TrimSpace(redis.Version)
+}
+
+// ToolVersionFromRabbitMQConfig extracts RabbitMQ's managed tool version label.
+func ToolVersionFromRabbitMQConfig(rabbitMQ *RabbitMQConfig) string {
+	if rabbitMQ == nil {
+		return ""
+	}
+
+	return strings.TrimSpace(rabbitMQ.Version)
 }
 
 // ToolVersionFromTraefikConfig extracts Traefik's managed tool version label.
@@ -496,6 +527,25 @@ func RedisSettingsConfigFromEnvironment(environment Environment) *RedisSettingsC
 	return redis
 }
 
+// RabbitMQSettingsConfigFromEnvironment extracts versionless broker settings.
+func RabbitMQSettingsConfigFromEnvironment(environment Environment) *RabbitMQSettingsConfig {
+	if environment.RabbitMQ == nil {
+		return nil
+	}
+
+	rabbitMQ := &RabbitMQSettingsConfig{
+		Port:           environment.RabbitMQ.Port,
+		ManagementPort: environment.RabbitMQ.ManagementPort,
+		Username:       strings.TrimSpace(environment.RabbitMQ.Username),
+		Password:       strings.TrimSpace(environment.RabbitMQ.Password),
+	}
+	if rabbitMQ.Port == 0 && rabbitMQ.ManagementPort == 0 && rabbitMQ.Username == "" && rabbitMQ.Password == "" {
+		return nil
+	}
+
+	return rabbitMQ
+}
+
 // TraefikSettingsConfigFromEnvironment extracts Traefik settings that belong under settings.
 func TraefikSettingsConfigFromEnvironment(environment Environment) *TraefikSettingsConfig {
 	if environment.Traefik == nil {
@@ -550,6 +600,7 @@ func (tools ToolsConfig) IsZero() bool {
 		strings.TrimSpace(tools.PHPMyAdminVersion) == "" &&
 		strings.TrimSpace(tools.MeilisearchVersion) == "" &&
 		strings.TrimSpace(tools.RedisVersion) == "" &&
+		strings.TrimSpace(tools.RabbitMQVersion) == "" &&
 		strings.TrimSpace(tools.TraefikVersion) == ""
 }
 
@@ -559,6 +610,7 @@ func (settings SettingsConfig) IsZero() bool {
 		settings.PHPMyAdmin == nil &&
 		settings.Meilisearch == nil &&
 		settings.Redis == nil &&
+		settings.RabbitMQ == nil &&
 		settings.Traefik == nil
 }
 
@@ -610,6 +662,9 @@ func environmentFromFileParts(name string, framework string, tools *ToolsConfig,
 		if strings.TrimSpace(tools.RedisVersion) != "" {
 			environment.Redis = &RedisConfig{Version: tools.RedisVersion}
 		}
+		if strings.TrimSpace(tools.RabbitMQVersion) != "" {
+			environment.RabbitMQ = &RabbitMQConfig{Version: tools.RabbitMQVersion}
+		}
 		if strings.TrimSpace(tools.TraefikVersion) != "" {
 			environment.Traefik = &TraefikConfig{Version: tools.TraefikVersion}
 		}
@@ -649,6 +704,15 @@ func applySettingsConfig(environment Environment, settings *SettingsConfig) Envi
 		}
 		environment.Redis.Port = settings.Redis.Port
 		environment.Redis.Password = settings.Redis.Password
+	}
+	if settings.RabbitMQ != nil {
+		if environment.RabbitMQ == nil {
+			environment.RabbitMQ = &RabbitMQConfig{}
+		}
+		environment.RabbitMQ.Port = settings.RabbitMQ.Port
+		environment.RabbitMQ.ManagementPort = settings.RabbitMQ.ManagementPort
+		environment.RabbitMQ.Username = settings.RabbitMQ.Username
+		environment.RabbitMQ.Password = settings.RabbitMQ.Password
 	}
 	if settings.Traefik != nil {
 		if environment.Traefik == nil {
@@ -786,6 +850,7 @@ func NormalizeEnvironment(name string, environment Environment) Environment {
 		PHPMyAdmin:        NormalizePHPMyAdminConfig(environment.PHPMyAdmin),
 		Meilisearch:       NormalizeMeilisearchConfig(environment.Meilisearch),
 		Redis:             NormalizeRedisConfig(environment.Redis),
+		RabbitMQ:          NormalizeRabbitMQConfig(environment.RabbitMQ),
 		Traefik:           NormalizeTraefikConfig(environment.Traefik),
 		MemoryLimit:       NormalizePHPMemoryLimit(environment.MemoryLimit),
 		PHPExtensions:     NormalizePHPExtensions(environment.PHPExtensions),
@@ -938,6 +1003,26 @@ func NormalizeRedisConfig(redis *RedisConfig) *RedisConfig {
 		Password: strings.TrimSpace(redis.Password),
 	}
 	if normalized.Version == "" && normalized.Port == 0 && normalized.Password == "" {
+		return nil
+	}
+
+	return normalized
+}
+
+// NormalizeRabbitMQConfig trims scalar values and removes an empty config.
+func NormalizeRabbitMQConfig(rabbitMQ *RabbitMQConfig) *RabbitMQConfig {
+	if rabbitMQ == nil {
+		return nil
+	}
+
+	normalized := &RabbitMQConfig{
+		Version:        strings.TrimSpace(rabbitMQ.Version),
+		Port:           rabbitMQ.Port,
+		ManagementPort: rabbitMQ.ManagementPort,
+		Username:       strings.TrimSpace(rabbitMQ.Username),
+		Password:       strings.TrimSpace(rabbitMQ.Password),
+	}
+	if normalized.Version == "" && normalized.Port == 0 && normalized.ManagementPort == 0 && normalized.Username == "" && normalized.Password == "" {
 		return nil
 	}
 

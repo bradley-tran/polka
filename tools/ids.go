@@ -25,6 +25,8 @@ const (
 	Meilisearch = "meilisearch"
 	Redis       = "redis"
 	RedisCLI    = "redis-cli"
+	RabbitMQ    = "rabbitmq"
+	Erlang      = "erlang"
 	Traefik     = "traefik"
 	RoadRunner  = "roadrunner"
 	MySQL       = "mysql"

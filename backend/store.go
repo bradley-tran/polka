@@ -503,8 +503,8 @@ func (s Store) writeEnvironment(name, phpVersion, composerVersion, nodeJSVersion
 		environment.Database = mergeDatabaseConfig(environment.Database, database)
 		environment = setDatabaseToolVersion(environment, database)
 	}
-	if environment.PHPVersion == "" && environment.PHPZTSVersion == "" && environment.FrankenPHPVersion == "" && environment.RoadRunnerVersion == "" && environment.ComposerVersion == "" && environment.PIEVersion == "" && environment.NodeJSVersion == "" && environment.MagoVersion == "" && environment.NginxVersion == "" && environment.ApacheVersion == "" && environment.MySQLVersion == "" && environment.MariaDBVersion == "" && environment.PostgreSQLVersion == "" && environment.SQLiteVersion == "" && environment.PHPMyAdmin == nil && environment.Database == nil && environment.Mailpit == nil && environment.Meilisearch == nil && environment.Redis == nil && environment.Traefik == nil {
-		return Environment{}, fmt.Errorf("environment requires at least one of php, php-zts, frankenphp, roadrunner, composer, nodejs, mago, nginx, apache, mysql, mariadb, postgresql, sqlite, phpmyadmin, database, mailpit, meilisearch, redis, or traefik")
+	if environment.PHPVersion == "" && environment.PHPZTSVersion == "" && environment.FrankenPHPVersion == "" && environment.RoadRunnerVersion == "" && environment.ComposerVersion == "" && environment.PIEVersion == "" && environment.NodeJSVersion == "" && environment.MagoVersion == "" && environment.NginxVersion == "" && environment.ApacheVersion == "" && environment.MySQLVersion == "" && environment.MariaDBVersion == "" && environment.PostgreSQLVersion == "" && environment.SQLiteVersion == "" && environment.PHPMyAdmin == nil && environment.Database == nil && environment.Mailpit == nil && environment.Meilisearch == nil && environment.Redis == nil && environment.RabbitMQ == nil && environment.Traefik == nil {
+		return Environment{}, fmt.Errorf("environment requires at least one of php, php-zts, frankenphp, roadrunner, composer, nodejs, mago, nginx, apache, mysql, mariadb, postgresql, sqlite, phpmyadmin, database, mailpit, meilisearch, redis, rabbitmq, or traefik")
 	}
 	if err := s.toolRegistry().ValidateEnvironment(environment); err != nil {
 		return Environment{}, err
@@ -587,7 +587,12 @@ func (s Store) InstallToolWithProgress(name, tool, version string, report func(I
 		return InstallResult{}, fmt.Errorf("sync managed binaries: %w", err)
 	}
 
-	return results[0], nil
+	for _, result := range results {
+		if result.Tool == request.Tool {
+			return result, nil
+		}
+	}
+	return InstallResult{}, fmt.Errorf("no install result produced for %s %s", request.Tool, request.Version)
 }
 
 // InstallRequests returns the ordered list of tools that would be installed for
@@ -606,10 +611,15 @@ func (s Store) InstallRequests(name string) ([]InstallRequest, error) {
 	}
 	normalized := s.normalizeEnvironment(name, environment)
 	registry := s.toolRegistry()
-	requests := registry.InstallRequests(normalized)
-	result := make([]InstallRequest, len(requests))
-	for i, r := range requests {
-		result[i] = InstallRequest{Tool: r.Tool, Version: r.Version}
+	layers, err := registry.InstallRequestLayers(normalized, nil)
+	if err != nil {
+		return nil, err
+	}
+	result := []InstallRequest{}
+	for _, layer := range layers {
+		for _, request := range layer {
+			result = append(result, InstallRequest{Tool: request.Tool, Version: request.Version})
+		}
 	}
 	return result, nil
 }
@@ -714,6 +724,29 @@ func installRequestsIncludeTool(requests []tools.InstallRequest, tool string) bo
 }
 
 func (s Store) installRequests(environment Environment, requests []tools.InstallRequest, force bool, report func(InstallProgress)) ([]InstallResult, error) {
+	layers, err := s.toolRegistry().InstallRequestLayers(environment, requests)
+	if err != nil {
+		return nil, err
+	}
+	total := 0
+	for _, layer := range layers {
+		total += len(layer)
+	}
+	results := make([]InstallResult, 0, total)
+	offset := 0
+	for _, layer := range layers {
+		layerResults, err := s.installRequestLayer(environment, layer, force, report, offset, total)
+		results = append(results, layerResults...)
+		if err != nil {
+			return nil, err
+		}
+		offset += len(layer)
+	}
+	return results, nil
+}
+
+// installRequestLayer installs a set of dependency-independent tools in parallel.
+func (s Store) installRequestLayer(environment Environment, requests []tools.InstallRequest, force bool, report func(InstallProgress), offset, total int) ([]InstallResult, error) {
 	installEnvironment := s.withFrameworkPHPConfig(s.withInstalledPECLExtensions(environment))
 	installPHPConfig := tools.EffectivePHPConfigForInstall(installEnvironment)
 	registry := s.toolRegistry()
@@ -745,8 +778,8 @@ func (s Store) installRequests(environment Environment, requests []tools.Install
 				return
 			}
 			baseProgress := InstallProgress{
-				Index:   i + 1,
-				Total:   len(requests),
+				Index:   offset + i + 1,
+				Total:   total,
 				Tool:    req.Tool,
 				Version: req.Version,
 			}
@@ -987,6 +1020,11 @@ func environmentWithInstallRequest(environment Environment, request tools.Instal
 			environment.Redis = &RedisConfig{}
 		}
 		environment.Redis.Version = request.Version
+	case toolRabbitMQ:
+		if environment.RabbitMQ == nil {
+			environment.RabbitMQ = &RabbitMQConfig{}
+		}
+		environment.RabbitMQ.Version = request.Version
 	case toolTraefik:
 		if environment.Traefik == nil {
 			environment.Traefik = &TraefikConfig{}
@@ -1752,6 +1790,13 @@ func validateSettingsSchema(settings, tools map[string]any) error {
 			if err := validateSettingKeys("settings.redis", settingMap, map[string]struct{}{"port": {}, "password": {}}); err != nil {
 				return err
 			}
+		case "rabbitmq":
+			if !hasConfiguredToolVersion(tools, "rabbitmq") {
+				return fmt.Errorf("settings.rabbitmq requires tools.rabbitmq")
+			}
+			if err := validateSettingKeys("settings.rabbitmq", settingMap, map[string]struct{}{"port": {}, "management-port": {}, "username": {}, "password": {}}); err != nil {
+				return err
+			}
 		case "traefik":
 			if !hasConfiguredToolVersion(tools, "traefik") {
 				return fmt.Errorf("settings.traefik requires tools.traefik")
@@ -1937,7 +1982,7 @@ func asYAMLStringMap(value any) (map[string]any, bool) {
 
 func knownToolVersionKey(key string) bool {
 	switch key {
-	case toolPHP, toolPHPZTS, toolFrankenPHP, toolRoadRunner, toolComposer, toolPIE, toolNodeJS, toolMago, toolNginx, toolApache, toolMySQL, toolMariaDB, toolPostgreSQL, toolSQLite, toolMailpit, toolPHPMyAdmin, toolMeilisearch, toolRedis, toolTraefik:
+	case toolPHP, toolPHPZTS, toolFrankenPHP, toolRoadRunner, toolComposer, toolPIE, toolNodeJS, toolMago, toolNginx, toolApache, toolMySQL, toolMariaDB, toolPostgreSQL, toolSQLite, toolMailpit, toolPHPMyAdmin, toolMeilisearch, toolRedis, toolRabbitMQ, toolTraefik:
 		return true
 	default:
 		return false

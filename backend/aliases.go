@@ -13,6 +13,7 @@ type MailpitConfig = config.MailpitConfig
 type PHPMyAdminConfig = config.PHPMyAdminConfig
 type MeilisearchConfig = config.MeilisearchConfig
 type RedisConfig = config.RedisConfig
+type RabbitMQConfig = config.RabbitMQConfig
 type TraefikConfig = config.TraefikConfig
 type ServerConfig = config.ServerConfig
 type PECLExtensionConfig = config.PECLExtensionConfig
@@ -48,6 +49,8 @@ const (
 	toolPHPMyAdmin  = tools.PHPMyAdmin
 	toolMeilisearch = tools.Meilisearch
 	toolRedis       = tools.Redis
+	toolRabbitMQ    = tools.RabbitMQ
+	toolErlang      = tools.Erlang
 	toolTraefik     = tools.Traefik
 	toolRoadRunner  = tools.RoadRunner
 	toolMySQL       = tools.MySQL

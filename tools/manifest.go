@@ -17,9 +17,10 @@ import (
 var builtinManifestFiles embed.FS
 
 type pluginHooks struct {
-	validate    func(config.Environment) error
-	download    func(DownloadContext) error
-	postInstall func(InstallContext) error
+	validate     func(config.Environment) error
+	download     func(DownloadContext) error
+	postInstall  func(InstallContext) error
+	dependencies func(config.Environment) []InstallRequest
 }
 
 type pluginManifest struct {
@@ -323,6 +324,7 @@ func (m pluginManifest) toPlugin(hooks pluginHooks) (Plugin, error) {
 		logs:               normalizeLogEntries(m.Logs),
 		download:           download,
 		postInstall:        hooks.postInstall,
+		dependencies:       hooks.dependencies,
 	}, nil
 }
 
@@ -388,6 +390,11 @@ func manifestVersionFunc(m pluginManifest) func(config.Environment) string {
 				return ""
 			}
 			return environment.Redis.Version
+		case RabbitMQ:
+			if environment.RabbitMQ == nil {
+				return ""
+			}
+			return environment.RabbitMQ.Version
 		case Traefik:
 			if environment.Traefik == nil {
 				return ""

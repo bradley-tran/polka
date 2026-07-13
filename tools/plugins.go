@@ -14,6 +14,8 @@ func DefaultPlugins() []ToolPlugin {
 		mailpitPlugin(),
 		meilisearchPlugin(),
 		redisPlugin(),
+		erlangPlugin(),
+		rabbitMQPlugin(),
 		traefikPlugin(),
 		roadRunnerPlugin(),
 		phpMyAdminPlugin(),

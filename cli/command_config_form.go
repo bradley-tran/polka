@@ -155,6 +155,10 @@ func buildConfigFormFields(environment backend.Environment) []*configFormField {
 	if environment.Redis != nil {
 		redis = *environment.Redis
 	}
+	var rabbitMQ config.RabbitMQConfig
+	if environment.RabbitMQ != nil {
+		rabbitMQ = *environment.RabbitMQ
+	}
 	var traefik config.TraefikConfig
 	if environment.Traefik != nil {
 		traefik = *environment.Traefik
@@ -200,6 +204,11 @@ func buildConfigFormFields(environment backend.Environment) []*configFormField {
 		configInputField(configFormGroupServices, "tools.redis", "Redis version", "", redis.Version),
 		configPortField(configFormGroupServices, "settings.redis.port", "Redis port", "", redis.Port),
 		configInputField(configFormGroupServices, "settings.redis.password", "Redis password", "", redis.Password),
+		configInputField(configFormGroupServices, "tools.rabbitmq", "RabbitMQ version", "Windows amd64 only", rabbitMQ.Version),
+		configPortField(configFormGroupServices, "settings.rabbitmq.port", "RabbitMQ AMQP port", "", rabbitMQ.Port),
+		configPortField(configFormGroupServices, "settings.rabbitmq.management-port", "RabbitMQ management port", "", rabbitMQ.ManagementPort),
+		configInputField(configFormGroupServices, "settings.rabbitmq.username", "RabbitMQ username", "defaults to guest", rabbitMQ.Username),
+		configInputField(configFormGroupServices, "settings.rabbitmq.password", "RabbitMQ password", "defaults to guest", rabbitMQ.Password),
 		configInputField(configFormGroupServices, "tools.traefik", "Traefik version", "", traefik.Version),
 		configPortField(configFormGroupServices, "settings.traefik.port", "Traefik port", "", traefik.Port),
 	}

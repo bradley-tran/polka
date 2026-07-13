@@ -38,7 +38,7 @@ For the full command reference, see [docs/commands.md](docs/commands.md). For ma
 
 Polka config files store portable version labels under `tools` and non-version tool options under `settings`. The default environment lives in `polka.yaml`; named environments live in `polka.<name>.yaml`.
 
-Use `polka config <key> <value>` to update the current environment, or `polka config --env blog <key> <value>` to update a named environment. Keys are dot-separated config paths such as `tools.php`, `tools.php-zts`, `tools.frankenphp`, `tools.apache`, `tools.meilisearch`, `tools.redis`, `server.type`, `database.engine`, `settings.mailpit.smtp-port`, `settings.meilisearch.port`, `settings.redis.port`, and `settings.traefik.port`.
+Use `polka config <key> <value>` to update the current environment, or `polka config --env blog <key> <value>` to update a named environment. Keys are dot-separated config paths such as `tools.php`, `tools.php-zts`, `tools.frankenphp`, `tools.apache`, `tools.meilisearch`, `tools.redis`, `tools.rabbitmq`, `server.type`, `database.engine`, `settings.mailpit.smtp-port`, `settings.meilisearch.port`, `settings.redis.port`, `settings.rabbitmq.port`, and `settings.traefik.port`.
 
 ```yaml
 # polka.yaml
@@ -60,6 +60,7 @@ tools:
   mailpit: "1.30"
   meilisearch: "1.48"
   redis: "8.8.0"
+  rabbitmq: "4.3"
   traefik: "3.3"
 settings:
   phpmyadmin:
@@ -73,6 +74,11 @@ settings:
   redis:
     port: 6379
     password: local-dev-password
+  rabbitmq:
+    port: 5672
+    management-port: 15672
+    username: guest
+    password: guest
   traefik:
     port: 8080
 docroot: public
