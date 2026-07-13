@@ -78,6 +78,7 @@ func defaultCLIHookRegistry() cliHookRegistry {
 			{id: "mailpit", run: startMailpitServiceHook},
 			{id: "meilisearch", run: startMeilisearchServiceHook},
 			{id: "redis", run: startRedisServiceHook},
+			{id: "rabbitmq", run: startRabbitMQServiceHook},
 			{id: "traefik", run: startTraefikServiceHook},
 			{id: "phpmyadmin", run: startPHPMyAdminServiceHook},
 		},
@@ -93,6 +94,7 @@ func defaultCLIHookRegistry() cliHookRegistry {
 			{id: "phpmyadmin", run: stopPHPMyAdminServiceHook},
 			{id: "traefik", run: stopTraefikServiceHook},
 			{id: "redis", run: stopRedisServiceHook},
+			{id: "rabbitmq", run: stopRabbitMQServiceHook},
 			{id: "meilisearch", run: stopMeilisearchServiceHook},
 			{id: "database", run: stopDatabaseServiceHook},
 			{id: "mailpit", run: stopMailpitServiceHook},
@@ -110,6 +112,7 @@ func defaultCLIHookRegistry() cliHookRegistry {
 			{id: "sqlite", run: statusSQLiteConfigHook},
 			{id: "meilisearch", run: statusMeilisearchConfigHook},
 			{id: "redis", run: statusRedisConfigHook},
+			{id: "rabbitmq", run: statusRabbitMQConfigHook},
 			{id: "traefik", run: statusTraefikConfigHook},
 			{id: "phpmyadmin", run: statusPHPMyAdminConfigHook},
 			{id: "database", run: statusDatabaseConfigHook},
@@ -122,6 +125,7 @@ func defaultCLIHookRegistry() cliHookRegistry {
 			{id: "phpmyadmin", run: statusPHPMyAdminRuntimeHook},
 			{id: "meilisearch", run: statusMeilisearchRuntimeHook},
 			{id: "redis", run: statusRedisRuntimeHook},
+			{id: "rabbitmq", run: statusRabbitMQRuntimeHook},
 			{id: "traefik", run: statusTraefikRuntimeHook},
 			{id: "database", run: statusDatabaseRuntimeHook},
 			{id: "mailpit", run: statusMailpitRuntimeHook},
@@ -135,6 +139,7 @@ func (r cliHookRegistry) StartServices(ctx startHookContext) error {
 		Mailpit:                 mailpitRuntimeHooks(),
 		Meilisearch:             meilisearchRuntimeHooks(),
 		Redis:                   redisRuntimeHooks(),
+		RabbitMQ:                rabbitMQRuntimeHooks(),
 		Traefik:                 traefikRuntimeHooks(),
 		PHPMyAdmin:              phpMyAdminRuntimeHooks(ctx.Store),
 		Workers:                 workersRuntimeHooks(ctx.Store, ctx.Environment),
@@ -188,6 +193,7 @@ func (r cliHookRegistry) Stop(ctx stopHookContext) error {
 		Mailpit:     mailpitRuntimeHooks(),
 		Meilisearch: meilisearchRuntimeHooks(),
 		Redis:       redisRuntimeHooks(),
+		RabbitMQ:    rabbitMQRuntimeHooks(),
 		Traefik:     traefikRuntimeHooks(),
 		PHPMyAdmin:  phpMyAdminRuntimeHooks(ctx.Store),
 		Workers:     workersRuntimeHooks(ctx.Store, ctx.Environment),
@@ -261,6 +267,15 @@ func writeManagedServiceStopSummary(ctx stopHookContext, result service.StopResu
 			fmt.Fprintf(ctx.Stdout, "Stopped Redis for environment %q.\n", ctx.Environment.Name)
 		}
 	}
+	if result.RabbitMQ != nil {
+		if result.RabbitMQ.AlreadyStopped {
+			if ctx.Environment.RabbitMQ != nil && strings.TrimSpace(ctx.Environment.RabbitMQ.Version) != "" {
+				fmt.Fprintf(ctx.Stdout, "RabbitMQ for environment %q is already stopped.\n", ctx.Environment.Name)
+			}
+		} else {
+			fmt.Fprintf(ctx.Stdout, "Stopped RabbitMQ for environment %q.\n", ctx.Environment.Name)
+		}
+	}
 
 	if result.Traefik != nil {
 		if result.Traefik.AlreadyStopped {
@@ -327,6 +342,14 @@ func startRedisServiceHook(ctx startHookContext) error {
 	}
 
 	_, _, err := ensureManagedRedisStarted(ctx.Store, ctx.Environment)
+	return err
+}
+
+func startRabbitMQServiceHook(ctx startHookContext) error {
+	if ctx.Environment.RabbitMQ == nil || strings.TrimSpace(ctx.Environment.RabbitMQ.Version) == "" {
+		return nil
+	}
+	_, _, err := ensureManagedRabbitMQStarted(ctx.Store, ctx.Environment)
 	return err
 }
 
@@ -556,6 +579,22 @@ func stopRedisServiceHook(ctx stopHookContext) error {
 	return nil
 }
 
+func stopRabbitMQServiceHook(ctx stopHookContext) error {
+	if ctx.Environment.RabbitMQ == nil || strings.TrimSpace(ctx.Environment.RabbitMQ.Version) == "" {
+		return nil
+	}
+	_, alreadyStopped, err := stopManagedRabbitMQ(ctx.Store, ctx.Environment.Name)
+	if err != nil {
+		return err
+	}
+	if alreadyStopped {
+		fmt.Fprintf(ctx.Stdout, "RabbitMQ for environment %q is already stopped.\n", ctx.Environment.Name)
+		return nil
+	}
+	fmt.Fprintf(ctx.Stdout, "Stopped RabbitMQ for environment %q.\n", ctx.Environment.Name)
+	return nil
+}
+
 func stopTraefikServiceHook(ctx stopHookContext) error {
 	if ctx.Environment.Traefik == nil || strings.TrimSpace(ctx.Environment.Traefik.Version) == "" {
 		return nil
@@ -724,6 +763,11 @@ func statusRedisConfigHook(ctx statusHookContext) error {
 	return nil
 }
 
+func statusRabbitMQConfigHook(ctx statusHookContext) error {
+	_, _ = fmt.Fprintf(ctx.Stdout, "rabbitmq %s\n", labelRabbitMQ(ctx.Environment.RabbitMQ))
+	return nil
+}
+
 func statusTraefikConfigHook(ctx statusHookContext) error {
 	_, _ = fmt.Fprintf(ctx.Stdout, "traefik %s\n", labelTraefik(ctx.Environment.Traefik))
 	return nil
@@ -831,6 +875,23 @@ func statusRedisRuntimeHook(ctx statusHookContext) error {
 	}
 
 	_, _ = fmt.Fprintf(ctx.Stdout, "redis-server running %s\n", redisURL(*liveRedisState))
+	return nil
+}
+
+func statusRabbitMQRuntimeHook(ctx statusHookContext) error {
+	if ctx.Environment.RabbitMQ == nil || strings.TrimSpace(ctx.Environment.RabbitMQ.Version) == "" {
+		_, _ = fmt.Fprintln(ctx.Stdout, "rabbitmq-server unset")
+		return nil
+	}
+	state, err := loadLiveRabbitMQState(ctx.Store.RootDir, ctx.Environment.Name)
+	if err != nil {
+		return err
+	}
+	if state == nil {
+		_, _ = fmt.Fprintln(ctx.Stdout, "rabbitmq-server stopped")
+		return nil
+	}
+	_, _ = fmt.Fprintf(ctx.Stdout, "rabbitmq-server running amqp=%s management=%s\n", rabbitMQURLForConfig(ctx.Environment.RabbitMQ), rabbitMQManagementURLForConfig(ctx.Environment.RabbitMQ))
 	return nil
 }
 

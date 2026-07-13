@@ -698,6 +698,13 @@ func labelRedis(redis *backend.RedisConfig) string {
 	return fmt.Sprintf("%s url=%s auth=%s", redis.Version, redisURLForConfig(redis), auth)
 }
 
+func labelRabbitMQ(rabbitMQ *backend.RabbitMQConfig) string {
+	if rabbitMQ == nil {
+		return "unset"
+	}
+	return fmt.Sprintf("%s amqp=%s management=%s auth=enabled", rabbitMQ.Version, rabbitMQURLForConfig(rabbitMQ), rabbitMQManagementURLForConfig(rabbitMQ))
+}
+
 func labelTraefik(traefik *backend.TraefikConfig) string {
 	if traefik == nil {
 		return "unset"

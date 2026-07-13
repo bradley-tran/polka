@@ -83,6 +83,7 @@ func gatherDashboardSnapshot(store backend.Store, now time.Time) dashboardSnapsh
 		gatherPHPMyAdminRow(store, environment, &snapshot),
 		gatherMeilisearchRow(store, environment, &snapshot),
 		gatherRedisRow(store, environment, &snapshot),
+		gatherRabbitMQRow(store, environment, &snapshot),
 		gatherTraefikRow(store, environment, &snapshot),
 	}
 
@@ -213,6 +214,27 @@ func gatherRedisRow(store backend.Store, environment backend.Environment, snapsh
 
 	row.Status = dashboardStatusRunning
 	row.Detail = redisURL(*state)
+	row.PID = state.PID
+	row.StartedAt = state.StartedAt
+	return row
+}
+
+func gatherRabbitMQRow(store backend.Store, environment backend.Environment, snapshot *dashboardSnapshot) dashboardServiceRow {
+	row := dashboardServiceRow{Name: "rabbitmq", Status: dashboardStatusUnset}
+	if environment.RabbitMQ == nil || strings.TrimSpace(environment.RabbitMQ.Version) == "" {
+		return row
+	}
+	row.Status = dashboardStatusStopped
+	state, err := loadLiveRabbitMQState(store.RootDir, environment.Name)
+	if err != nil {
+		snapshot.recordError(row.Name, err)
+		return row
+	}
+	if state == nil {
+		return row
+	}
+	row.Status = dashboardStatusRunning
+	row.Detail = fmt.Sprintf("amqp=%s ui=%s", rabbitMQURLForConfig(environment.RabbitMQ), rabbitMQManagementURLForConfig(environment.RabbitMQ))
 	row.PID = state.PID
 	row.StartedAt = state.StartedAt
 	return row

@@ -64,6 +64,22 @@ func TestRedisToolAndSettingsRoundTrip(t *testing.T) {
 	}
 }
 
+// TestRabbitMQToolAndSettingsRoundTrip verifies the split tools/settings schema.
+func TestRabbitMQToolAndSettingsRoundTrip(t *testing.T) {
+	environment := Environment{Name: "demo", RabbitMQ: &RabbitMQConfig{Version: "4.3", Port: 5673, ManagementPort: 15673, Username: "polka", Password: "secret"}}
+	file := EnvironmentFileFromEnvironment(environment)
+	if file.Tools == nil || file.Tools.RabbitMQVersion != "4.3" {
+		t.Fatalf("tools.rabbitmq = %#v, want 4.3", file.Tools)
+	}
+	if file.Settings == nil || file.Settings.RabbitMQ == nil || file.Settings.RabbitMQ.ManagementPort != 15673 {
+		t.Fatalf("settings.rabbitmq = %#v, want configured settings", file.Settings)
+	}
+	roundTrip := EnvironmentFileToEnvironment("demo", file)
+	if roundTrip.RabbitMQ == nil || roundTrip.RabbitMQ.Username != "polka" || roundTrip.RabbitMQ.Password != "secret" {
+		t.Fatalf("round-trip rabbitmq = %#v", roundTrip.RabbitMQ)
+	}
+}
+
 func TestPHPZTSConfigRoundTrip(t *testing.T) {
 	environment := ProjectFileToEnvironment("default", ProjectFile{
 		Tools: &ToolsConfig{PHPZTSVersion: "8.4"},

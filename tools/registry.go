@@ -3,6 +3,7 @@ package tools
 import (
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"polka/config"
@@ -69,6 +70,12 @@ type ToolPlugin interface {
 	Logs() []LogEntry
 	Download(DownloadContext) error
 	PostInstall(InstallContext) error
+}
+
+// ToolDependencyProvider is implemented by tools that require other managed
+// payloads to be installed before they can be used.
+type ToolDependencyProvider interface {
+	Dependencies(config.Environment) []InstallRequest
 }
 
 // Plugin is kept as a compatibility alias for older backend-facing tests and helpers.
@@ -193,6 +200,97 @@ func (r *Registry) InstallRequests(environment config.Environment) []InstallRequ
 	}
 
 	return requests
+}
+
+// InstallRequestLayers returns dependency-ordered installation layers. Tools
+// in one layer are independent and may be installed concurrently.
+func (r *Registry) InstallRequestLayers(environment config.Environment, roots []InstallRequest) ([][]InstallRequest, error) {
+	if r == nil {
+		return nil, fmt.Errorf("tool registry is not configured")
+	}
+	if roots == nil {
+		roots = r.InstallRequests(environment)
+	}
+
+	requests := map[string]InstallRequest{}
+	order := map[string]int{}
+	nextOrder := 0
+	dependencies := map[string][]string{}
+	visiting := map[string]bool{}
+	visited := map[string]bool{}
+	var visit func(InstallRequest) error
+	visit = func(request InstallRequest) error {
+		id := strings.ToLower(strings.TrimSpace(request.Tool))
+		if id == "" || strings.TrimSpace(request.Version) == "" {
+			return fmt.Errorf("install dependency requires tool and version")
+		}
+		if visiting[id] {
+			return fmt.Errorf("managed tool dependency cycle includes %q", id)
+		}
+		if previous, ok := requests[id]; ok && previous.Version != request.Version {
+			return fmt.Errorf("managed tool %q requires conflicting versions %q and %q", id, previous.Version, request.Version)
+		}
+		requests[id] = InstallRequest{Tool: id, Version: strings.TrimSpace(request.Version)}
+		if _, ok := order[id]; !ok {
+			order[id] = nextOrder
+			nextOrder++
+		}
+		if visited[id] {
+			return nil
+		}
+		plugin, ok := r.Plugin(id)
+		if !ok {
+			return fmt.Errorf("unsupported tool dependency %q", id)
+		}
+		visiting[id] = true
+		if provider, ok := plugin.(ToolDependencyProvider); ok {
+			for _, dependency := range provider.Dependencies(environment) {
+				dependencyID := strings.ToLower(strings.TrimSpace(dependency.Tool))
+				dependencies[id] = append(dependencies[id], dependencyID)
+				if err := visit(dependency); err != nil {
+					return err
+				}
+			}
+		}
+		visiting[id] = false
+		visited[id] = true
+		return nil
+	}
+	for _, root := range roots {
+		if err := visit(root); err != nil {
+			return nil, err
+		}
+	}
+
+	remaining := map[string]bool{}
+	for id := range requests {
+		remaining[id] = true
+	}
+	layers := [][]InstallRequest{}
+	for len(remaining) > 0 {
+		layer := []InstallRequest{}
+		for id := range remaining {
+			ready := true
+			for _, dependency := range dependencies[id] {
+				if remaining[dependency] {
+					ready = false
+					break
+				}
+			}
+			if ready {
+				layer = append(layer, requests[id])
+			}
+		}
+		if len(layer) == 0 {
+			return nil, fmt.Errorf("managed tool dependency cycle detected")
+		}
+		sort.Slice(layer, func(i, j int) bool { return order[layer[i].Tool] < order[layer[j].Tool] })
+		for _, request := range layer {
+			delete(remaining, request.Tool)
+		}
+		layers = append(layers, layer)
+	}
+	return layers, nil
 }
 
 // PHPExtensions returns the union of extensions required by configured tools.
@@ -396,6 +494,15 @@ type builtinPlugin struct {
 	logs               []LogEntry
 	download           func(DownloadContext) error
 	postInstall        func(InstallContext) error
+	dependencies       func(config.Environment) []InstallRequest
+}
+
+// Dependencies returns managed payloads that must precede this tool.
+func (p builtinPlugin) Dependencies(environment config.Environment) []InstallRequest {
+	if p.dependencies == nil {
+		return nil
+	}
+	return append([]InstallRequest(nil), p.dependencies(environment)...)
 }
 
 func (p builtinPlugin) ID() string {

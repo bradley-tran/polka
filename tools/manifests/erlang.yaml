@@ -1,0 +1,16 @@
+id: erlang
+internal-only: true
+install-candidates:
+  windows-amd64:
+    - bin/erl.exe
+download:
+  github:
+    owner: erlang
+    repo: otp
+    tag-prefix: OTP-
+  assets:
+    windows-amd64:
+      filename: otp_win64_{version}.zip
+      url: https://github.com/erlang/otp/releases/download/{tag}/otp_win64_{version}.zip
+      checksum-algorithm: sha256
+      archive-format: zip

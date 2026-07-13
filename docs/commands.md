@@ -83,6 +83,8 @@ polka config --env blog tools.meilisearch 1.48
 polka config --env blog settings.meilisearch.port 7700
 polka config --env blog tools.redis 8.8.0
 polka config --env blog settings.redis.port 6379
+polka config --env blog tools.rabbitmq 4.3
+polka config --env blog settings.rabbitmq.management-port 15672
 polka config --env blog tools.traefik 3.3
 polka config --env blog settings.traefik.port 8080
 ```
@@ -137,7 +139,7 @@ Selects one environment as the local override. Use `default` to clear the overri
 
 Alias: `polka info`
 
-Shows the active environment, prints each configured tool on its own line, includes the resolved web server URL, and reports whether the webserver, background workers, phpMyAdmin, Meilisearch, Redis, Traefik, managed database, and Mailpit are running. Configured workers are listed one per line, and the runtime section reports live worker replicas as `workers running <live>/<configured>`.
+Shows the active environment, prints each configured tool on its own line, includes the resolved web server URL, and reports whether the webserver, background workers, phpMyAdmin, Meilisearch, Redis, RabbitMQ, Traefik, managed database, and Mailpit are running. Configured workers are listed one per line, and the runtime section reports live worker replicas as `workers running <live>/<configured>`.
 
 ### `polka dashboard`
 
@@ -198,7 +200,7 @@ By default, Polka starts the webserver in the background, waits for it to begin 
 
 Set `server.type` to `php`, `nginx`, `apache`, or `frankenphp` to select the webserver explicitly. When it is omitted, Polka preserves the existing behavior of selecting nginx when configured and PHP otherwise; Apache is selected only by `server.type: apache`. Nginx and Apache start `php-cgi` on an internal loopback port with generated FastCGI configs. Apache enables project `.htaccess` files by default. FrankenPHP runs through a generated Caddyfile. PHP's built-in webserver uses a generated router that serves existing static files and forwards missing requests into the app router or front controller.
 
-If the environment defines `mailpit`, `meilisearch`, `redis`, `traefik`, `phpmyadmin`, or a managed database, Polka starts those local services before the webserver. If the environment defines `workers`, Polka starts those background worker processes after the other services, so queue consumers and schedulers see the database and Redis already running:
+If the environment defines `mailpit`, `meilisearch`, `redis`, `rabbitmq`, `traefik`, `phpmyadmin`, or a managed database, Polka starts those local services before the webserver. If the environment defines `workers`, Polka starts those background worker processes after the other services, so queue consumers and schedulers see the database, Redis, and RabbitMQ already running:
 
 ```yaml
 workers:
@@ -232,11 +234,12 @@ polka logs apache
 polka logs frankenphp
 polka logs mailpit
 polka logs meilisearch
+polka logs rabbitmq
 polka logs mariadb --level error
 polka logs postgresql --level error
 ```
 
-Manifest log paths are resolved under `.polka/run/<tool>/<environment>`. When `--level` is omitted, Polka prints `info`, `error`, and `debug` logs in that order. Missing log files are skipped. If no matching declared log file exists on disk, the command exits with an error. Built-in log declarations cover `nginx`, `apache`, `frankenphp`, `mailpit`, `meilisearch`, `redis`, `traefik`, `phpmyadmin`, `mysql`, `mariadb`, and `postgresql`.
+Manifest log paths are resolved under `.polka/run/<tool>/<environment>`. When `--level` is omitted, Polka prints `info`, `error`, and `debug` logs in that order. Missing log files are skipped. If no matching declared log file exists on disk, the command exits with an error. Built-in log declarations cover `nginx`, `apache`, `frankenphp`, `mailpit`, `meilisearch`, `redis`, `rabbitmq`, `traefik`, `phpmyadmin`, `mysql`, `mariadb`, and `postgresql`.
 
 ### `polka cert-install [--no-encryption]`
 

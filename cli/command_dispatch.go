@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"polka/backend"
+	"polka/service"
 )
 
 func newDispatchCommand(ctx *commandContext) *cobra.Command {
@@ -76,6 +77,21 @@ func runDispatch(stdout, stderr io.Writer, args []string, store backend.Store) i
 		env, err = applyManagedPHPRuntimeConfig(runtime.GOOS, env, target)
 		if err != nil {
 			fmt.Fprintf(stderr, "error: %v\n", err)
+			return 1
+		}
+	}
+	if strings.HasPrefix(strings.ToLower(tool), "rabbitmq") {
+		current, currentErr := store.Current()
+		if currentErr != nil || current == nil {
+			if currentErr == nil {
+				currentErr = fmt.Errorf("no active environment")
+			}
+			fmt.Fprintf(stderr, "error: prepare rabbitmq runtime: %v\n", currentErr)
+			return 1
+		}
+		env, err = service.PrepareRabbitMQDispatchEnvironment(managedServiceContext(store, *current, stderr))
+		if err != nil {
+			fmt.Fprintf(stderr, "error: prepare rabbitmq runtime: %v\n", err)
 			return 1
 		}
 	}

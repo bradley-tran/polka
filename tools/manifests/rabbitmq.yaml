@@ -1,0 +1,45 @@
+id: rabbitmq
+install-candidates:
+  windows-amd64:
+    - sbin/rabbitmq-server.bat
+dispatch-commands:
+  - rabbitmq-server
+  - rabbitmqctl
+  - rabbitmq-diagnostics
+  - rabbitmq-plugins
+  - rabbitmq-queues
+  - rabbitmq-streams
+  - rabbitmq-upgrade
+dispatch-candidates:
+  rabbitmqctl:
+    windows-amd64:
+      - sbin/rabbitmqctl.bat
+  rabbitmq-diagnostics:
+    windows-amd64:
+      - sbin/rabbitmq-diagnostics.bat
+  rabbitmq-plugins:
+    windows-amd64:
+      - sbin/rabbitmq-plugins.bat
+  rabbitmq-queues:
+    windows-amd64:
+      - sbin/rabbitmq-queues.bat
+  rabbitmq-streams:
+    windows-amd64:
+      - sbin/rabbitmq-streams.bat
+  rabbitmq-upgrade:
+    windows-amd64:
+      - sbin/rabbitmq-upgrade.bat
+logs:
+  info:
+    - rabbitmq.log
+download:
+  github:
+    owner: rabbitmq
+    repo: rabbitmq-server
+    tag-prefix: v
+  assets:
+    windows-amd64:
+      filename: rabbitmq-server-windows-{version}.zip
+      url: https://github.com/rabbitmq/rabbitmq-server/releases/download/{tag}/rabbitmq-server-windows-{version}.zip
+      checksum-algorithm: sha256
+      archive-format: zip

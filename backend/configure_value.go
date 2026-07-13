@@ -285,6 +285,11 @@ func applyToolConfigValue(environment *Environment, path []string, value string)
 			environment.Redis = &RedisConfig{}
 		}
 		environment.Redis.Version = version
+	case toolRabbitMQ:
+		if environment.RabbitMQ == nil {
+			environment.RabbitMQ = &RabbitMQConfig{}
+		}
+		environment.RabbitMQ.Version = version
 	case toolTraefik:
 		if environment.Traefik == nil {
 			environment.Traefik = &TraefikConfig{}
@@ -420,6 +425,30 @@ func applySettingsConfigValue(environment *Environment, path []string, value str
 			environment.Redis.Port = port
 		case "password":
 			environment.Redis.Password = strings.TrimSpace(value)
+		default:
+			return unsupportedConfigKey(path)
+		}
+	case toolRabbitMQ:
+		if environment.RabbitMQ == nil {
+			environment.RabbitMQ = &RabbitMQConfig{}
+		}
+		switch path[2] {
+		case "port":
+			port, err := parseConfigPortValue(strings.Join(path, "."), value)
+			if err != nil {
+				return err
+			}
+			environment.RabbitMQ.Port = port
+		case "management-port":
+			port, err := parseConfigPortValue(strings.Join(path, "."), value)
+			if err != nil {
+				return err
+			}
+			environment.RabbitMQ.ManagementPort = port
+		case "username":
+			environment.RabbitMQ.Username = strings.TrimSpace(value)
+		case "password":
+			environment.RabbitMQ.Password = strings.TrimSpace(value)
 		default:
 			return unsupportedConfigKey(path)
 		}
