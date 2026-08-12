@@ -221,6 +221,7 @@ Polka resolves commands in this order:
 3. system PATH
 
 On Windows, direct extensionless PHP-shebang commands in Composer scripts run through the environment's managed PHP.
+On Linux, Polka temporarily grants the executable bit to those commands when it's missing.
 `
 
 const shUsage = `Usage:

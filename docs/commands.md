@@ -173,6 +173,8 @@ Runs one command with the same resolution order and runtime environment as `polk
 
 On Windows, Composer scripts that directly invoke an extensionless PHP-shebang file, such as `bin/console cache:clear`, run through the environment's managed PHP. Polka creates a temporary `.cmd` companion for the duration of Composer and leaves existing project-owned wrappers unchanged.
 
+On Linux, Polka instead grants the executable bit to a Composer script's extensionless PHP-shebang file for the duration of Composer when it's missing, then restores the file's original permissions.
+
 ```bash
 polka exec php -v
 polka exec frankenphp version
