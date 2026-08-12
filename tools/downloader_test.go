@@ -739,6 +739,13 @@ func TestDownloadManifestFileAssetSupportsSeriesLabelsAndVerifiesDigest(t *testi
 	if string(data) != string(payload) {
 		t.Fatalf("downloaded manifest file = %q, want %q", string(data), string(payload))
 	}
+	info, err := os.Stat(cachedPayload.PayloadPath)
+	if err != nil {
+		t.Fatalf("Stat(downloaded pie.phar) error = %v", err)
+	}
+	if info.Mode()&0o111 == 0 {
+		t.Fatalf("Mode(downloaded pie.phar) = %v, want file payload cached with the executable bit set", info.Mode())
+	}
 	metadata, err := readToolCacheMetadata(filepath.Join(cacheDir, PIE), PIE)
 	if err != nil {
 		t.Fatalf("readToolCacheMetadata(pie) error = %v", err)

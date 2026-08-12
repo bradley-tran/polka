@@ -965,7 +965,11 @@ func writeCachedFilePayload(t *testing.T, cacheDir, tool, version, fileName, ins
 	if err := os.MkdirAll(filepath.Dir(payloadPath), 0o755); err != nil {
 		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(payloadPath), err)
 	}
-	if err := os.WriteFile(payloadPath, data, 0o644); err != nil {
+	// Mirrors the real caching pipeline (markCachePayloadExecutable), which
+	// grants execute permission to every cached file-kind payload so a
+	// directly-executed single-file tool such as composer, meilisearch, or
+	// frankenphp still runs once copied into an environment's install dir.
+	if err := os.WriteFile(payloadPath, data, 0o755); err != nil {
 		t.Fatalf("WriteFile(%q) error = %v", payloadPath, err)
 	}
 	writeTestCacheMetadata(t, cacheDir, tool, version, testCacheVersionMeta{
