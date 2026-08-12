@@ -206,6 +206,15 @@ func cacheDownloadedPayload(cacheDir, tool, requestedVersion string, entry toolC
 	if err := os.Rename(stagingPath, payloadPath); err != nil {
 		return "", fmt.Errorf("finalize %s cache payload: %w", tool, err)
 	}
+	if entry.PayloadKind == payloadKindFile {
+		// Single-file payloads (e.g. a standalone binary) may be executed
+		// directly, but downloadFile always writes the staged download
+		// without the executable bit. Chmod is a no-op on Windows for these
+		// bits, so it's safe to apply unconditionally.
+		if err := markCachePayloadExecutable(payloadPath); err != nil {
+			return "", err
+		}
+	}
 
 	entry.PayloadPath = payloadRelativePath
 	metadata := readToolCacheMetadataForUpdate(toolDir, tool)
@@ -215,6 +224,21 @@ func cacheDownloadedPayload(cacheDir, tool, requestedVersion string, entry toolC
 	}
 
 	return payloadPath, nil
+}
+
+// markCachePayloadExecutable grants execute permission on a cached file
+// payload so it stays executable once copied into an environment's install
+// directory by copyCachedPayloadFile, which preserves the source file mode.
+func markCachePayloadExecutable(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("stat cache payload %s: %w", path, err)
+	}
+	if err := os.Chmod(path, info.Mode()|0o111); err != nil {
+		return fmt.Errorf("mark cache payload %s executable: %w", path, err)
+	}
+
+	return nil
 }
 
 func cachedToolPayload(cacheDir, tool, version string) (CachedPayload, toolCacheVersion, error) {
