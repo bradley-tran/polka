@@ -7,7 +7,7 @@ install-candidates:
     - php.exe
     - php.cmd
     - php.bat
-  linux-amd64:
+  linux:
     - bin/php
     - php
 dispatch-commands:

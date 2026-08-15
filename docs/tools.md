@@ -148,6 +148,8 @@ After dispatched `composer install`, `composer update`, or `composer create-proj
 
 ## Platform Notes
 
+Automatic PHP downloads use the official windows.php.net builds on Windows amd64 and the standalone herd-lite binaries published at `download.herdphp.com` (the PHP runtime behind php.new) on Linux amd64 and arm64. Both sources publish one build per PHP series, so a pinned patch version installs whichever patch that series currently ships. herd-lite provides non-thread-safe builds only, so `php-zts` has no automatic Linux download. Its binaries carry no published checksum, so Polka verifies the download is a Linux executable and records the SHA-256 it computes over it for later cache validation.
+
 Automatic nginx downloads are currently implemented on Windows amd64.
 
 Automatic Apache downloads use Apache Lounge builds and are currently implemented on Windows amd64.
