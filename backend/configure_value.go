@@ -364,6 +364,15 @@ func applySettingsConfigValue(environment *Environment, path []string, value str
 	}
 
 	switch path[1] {
+	case toolPHP:
+		if path[2] != "extension-sdk" {
+			return unsupportedConfigKey(path)
+		}
+		enabled, err := parseConfigBoolValue(strings.Join(path, "."), value)
+		if err != nil {
+			return err
+		}
+		environment.PHPBuildTools = enabled
 	case toolMailpit:
 		if environment.Mailpit == nil {
 			environment.Mailpit = &MailpitConfig{}

@@ -16,6 +16,8 @@ polka exec php -v
 
 `polka init` creates `polka.yaml` and local helper scripts, enabling HTTPS and using `<directory>.localhost` as the default server hostname. Add `--docroot PATH` to set the generated default environment's docroot. Use `polka init cakephp`, `polka init laravel`, `polka init symfony`, or `polka init codeigniter` instead to write a config-only framework preset; `drupal` and `wordpress` are also supported. Framework init does not create app files, install tools, or start services, and it fails when `polka.yaml` already exists.
 
+For native C extensions, `polka init php-extension` writes a build-oriented `polka.yaml` and a PIE-compatible `composer.json` without replacing an existing Composer manifest.
+
 The remaining commands add a named `blog` environment in `polka.blog.yaml`, install its configured tools into `.polka/envs`, select it as the active environment, and run PHP through Polka's local command resolution. To install a single tool version directly, use a `tool:version` argument such as `polka install php:8.4`.
 
 Start a local web server when your project has a document root:

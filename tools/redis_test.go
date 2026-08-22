@@ -128,13 +128,13 @@ func TestRedisPostInstallMakesBothBinariesExecutable(t *testing.T) {
 func TestVerifyRedisArchiveCommit(t *testing.T) {
 	commit := "abc123def4567890abc123def4567890abc12345"
 
-	if err := verifyRedisArchiveCommit(writeZipWithComment(t, strings.ToUpper(commit)), commit); err != nil {
+	if err := verifyGitHubArchiveCommit(Redis, writeZipWithComment(t, strings.ToUpper(commit)), commit); err != nil {
 		t.Fatalf("verifyRedisArchiveCommit(matching) error = %v, want nil", err)
 	}
-	if err := verifyRedisArchiveCommit(writeZipWithComment(t, "0000000000000000000000000000000000000000"), commit); err == nil {
+	if err := verifyGitHubArchiveCommit(Redis, writeZipWithComment(t, "0000000000000000000000000000000000000000"), commit); err == nil {
 		t.Fatal("verifyRedisArchiveCommit(mismatch) error = nil, want commit mismatch error")
 	}
-	if err := verifyRedisArchiveCommit(writeZipWithComment(t, ""), commit); err == nil {
+	if err := verifyGitHubArchiveCommit(Redis, writeZipWithComment(t, ""), commit); err == nil {
 		t.Fatal("verifyRedisArchiveCommit(empty comment) error = nil, want missing commit error")
 	}
 }

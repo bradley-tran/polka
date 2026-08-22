@@ -383,6 +383,48 @@ func TestPrepareShellEnvironmentAddsWindowsVendorPHPShimDir(t *testing.T) {
 	}
 }
 
+// TestPrepareShellEnvironmentAddsPHPBuildToolDirectories verifies internal SDK
+// payloads become directly runnable after the project and Composer bins.
+func TestPrepareShellEnvironmentAddsPHPBuildToolDirectories(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("managed PHP SDK payloads are Windows-only")
+	}
+	projectDir := t.TempDir()
+	store := backend.NewStore(filepath.Join(projectDir, ".polka"))
+	config := []byte(strings.Join([]string{
+		"version: 1",
+		"root: .polka",
+		"tools:",
+		"  php: \"8.4\"",
+		"settings:",
+		"  php:",
+		"    extension-sdk: true",
+		"",
+	}, "\n"))
+	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), config, 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+
+	updated, err := prepareShellEnvironment("windows", []string{"PATH=C:/Windows/System32"}, store, projectDir, "default")
+	if err != nil {
+		t.Fatalf("prepareShellEnvironment() error = %v", err)
+	}
+	_, pathValue, ok := lookupEnvValue("windows", updated, "PATH")
+	if !ok {
+		t.Fatalf("updated env = %#v, want PATH entry", updated)
+	}
+	want := joinPathList("windows",
+		store.BinDir,
+		filepath.Join(projectDir, "vendor", "bin"),
+		filepath.Join(store.EnvsDir, "php-devel", "8.4"),
+		filepath.Join(store.EnvsDir, "php-sdk", "2.8.3"),
+		"C:/Windows/System32",
+	)
+	if pathValue != want {
+		t.Fatalf("PATH = %q, want %q", pathValue, want)
+	}
+}
+
 func TestShellPromptRootReturnsAbsolutePath(t *testing.T) {
 	projectDir := t.TempDir()
 	originalWorkingDir, err := os.Getwd()

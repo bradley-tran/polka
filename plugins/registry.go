@@ -13,6 +13,7 @@ import (
 const (
 	TypeTool      = "tool"
 	TypeFramework = "framework"
+	TypePreset    = "preset"
 )
 
 var validPluginID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
@@ -22,6 +23,8 @@ type Registry struct {
 	tools          *tools.Registry
 	frameworks     []FrameworkPlugin
 	frameworksByID map[string]FrameworkPlugin
+	presets        []ProjectPreset
+	presetsByID    map[string]ProjectPreset
 }
 
 // NewRegistry builds a plugin registry from an installable tool registry and framework plugins.
@@ -32,6 +35,7 @@ func NewRegistry(toolRegistry *tools.Registry, frameworkPlugins ...FrameworkPlug
 	registry := &Registry{
 		tools:          toolRegistry,
 		frameworksByID: map[string]FrameworkPlugin{},
+		presetsByID:    map[string]ProjectPreset{},
 	}
 	for _, plugin := range frameworkPlugins {
 		if err := registry.RegisterFramework(plugin); err != nil {
@@ -47,6 +51,11 @@ func NewDefaultRegistry() *Registry {
 	registry, err := NewRegistry(tools.NewDefaultRegistry(), DefaultFrameworkPlugins()...)
 	if err != nil {
 		panic(err)
+	}
+	for _, preset := range DefaultProjectPresets() {
+		if err := registry.RegisterPreset(preset); err != nil {
+			panic(err)
+		}
 	}
 
 	return registry
@@ -80,10 +89,74 @@ func (r *Registry) RegisterFramework(plugin FrameworkPlugin) error {
 	if _, exists := r.frameworksByID[id]; exists {
 		return fmt.Errorf("duplicate framework plugin %q", id)
 	}
+	if _, exists := r.presetsByID[id]; exists {
+		return fmt.Errorf("plugin id %q is already registered as a project preset", id)
+	}
 
 	r.frameworks = append(r.frameworks, plugin)
 	r.frameworksByID[id] = plugin
 	return nil
+}
+
+// RegisterPreset adds a project preset to the registry.
+func (r *Registry) RegisterPreset(preset ProjectPreset) error {
+	if preset == nil {
+		return fmt.Errorf("project preset cannot be nil")
+	}
+	if r.presetsByID == nil {
+		r.presetsByID = map[string]ProjectPreset{}
+	}
+
+	id := strings.ToLower(strings.TrimSpace(preset.ID()))
+	if id == "" {
+		return fmt.Errorf("project preset id cannot be empty")
+	}
+	if !validPluginID.MatchString(id) {
+		return fmt.Errorf("invalid project preset id %q: use letters, numbers, dots, dashes, or underscores", preset.ID())
+	}
+	if _, exists := r.presetsByID[id]; exists {
+		return fmt.Errorf("duplicate project preset %q", id)
+	}
+	if _, exists := r.frameworksByID[id]; exists {
+		return fmt.Errorf("plugin id %q is already registered as a framework", id)
+	}
+
+	r.presets = append(r.presets, preset)
+	r.presetsByID[id] = preset
+	return nil
+}
+
+// Preset resolves a project preset by ID.
+func (r *Registry) Preset(id string) (ProjectPreset, bool) {
+	if r == nil {
+		return nil, false
+	}
+
+	preset, ok := r.presetsByID[strings.ToLower(strings.TrimSpace(id))]
+	return preset, ok
+}
+
+// Presets returns registered project presets in registration order.
+func (r *Registry) Presets() []ProjectPreset {
+	if r == nil {
+		return nil
+	}
+
+	presets := make([]ProjectPreset, len(r.presets))
+	copy(presets, r.presets)
+	return presets
+}
+
+// SupportedPresets returns project preset IDs in stable sorted order.
+func (r *Registry) SupportedPresets() []string {
+	presets := r.Presets()
+	ids := make([]string, 0, len(presets))
+	for _, preset := range presets {
+		ids = append(ids, strings.ToLower(strings.TrimSpace(preset.ID())))
+	}
+	sort.Strings(ids)
+
+	return ids
 }
 
 // Framework resolves a framework plugin by ID.

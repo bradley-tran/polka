@@ -1123,13 +1123,19 @@ func verifyPECLPackageFiles(root string, directory peclPackageDir) error {
 }
 
 func resolvePECLBuildTools(installRoot, phpPath string) (string, string, error) {
+	return resolvePHPBuildTools(installRoot, phpPath, "legacy PECL Linux builds")
+}
+
+// resolvePHPBuildTools verifies phpize/php-config match the target PHP and
+// that the host exposes the standard native-extension build commands.
+func resolvePHPBuildTools(installRoot, phpPath, purpose string) (string, string, error) {
 	phpize, err := findPECLBuildTool(installRoot, "phpize")
 	if err != nil {
-		return "", "", fmt.Errorf("legacy PECL Linux builds require phpize matching %s: %w", phpPath, err)
+		return "", "", fmt.Errorf("%s require phpize matching %s: %w", purpose, phpPath, err)
 	}
 	phpConfig, err := findPECLBuildTool(installRoot, "php-config")
 	if err != nil {
-		return "", "", fmt.Errorf("legacy PECL Linux builds require php-config matching %s: %w", phpPath, err)
+		return "", "", fmt.Errorf("%s require php-config matching %s: %w", purpose, phpPath, err)
 	}
 	target, err := inspectPECLPHP(phpPath)
 	if err != nil {
@@ -1137,19 +1143,19 @@ func resolvePECLBuildTools(installRoot, phpPath string) (string, string, error) 
 	}
 	output, err := exec.Command(phpConfig, "--version").Output()
 	if err != nil {
-		return "", "", fmt.Errorf("inspect PECL php-config %s: %w", phpConfig, err)
+		return "", "", fmt.Errorf("inspect php-config %s for %s: %w", phpConfig, purpose, err)
 	}
 	if !strings.HasPrefix(strings.TrimSpace(string(output)), target.Series+".") && strings.TrimSpace(string(output)) != target.Series {
 		return "", "", fmt.Errorf("php-config %s reports PHP %s but target PHP is %s", phpConfig, strings.TrimSpace(string(output)), target.Version)
 	}
 	for _, tool := range []string{"make", "autoconf"} {
 		if _, err := exec.LookPath(tool); err != nil {
-			return "", "", fmt.Errorf("legacy PECL Linux builds require %s on PATH", tool)
+			return "", "", fmt.Errorf("%s require %s on PATH", purpose, tool)
 		}
 	}
 	if _, err := exec.LookPath("cc"); err != nil {
 		if _, gccErr := exec.LookPath("gcc"); gccErr != nil {
-			return "", "", fmt.Errorf("legacy PECL Linux builds require a C compiler (cc or gcc) on PATH")
+			return "", "", fmt.Errorf("%s require a C compiler (cc or gcc) on PATH", purpose)
 		}
 	}
 

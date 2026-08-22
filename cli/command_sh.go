@@ -230,6 +230,18 @@ func buildShellSessionContext(goos string, store backend.Store, workingDir, envi
 		}
 	}
 	context.PathEntries = append(context.PathEntries, vendorBinDir)
+	if environmentName != "none" {
+		environments, err := store.List()
+		if err != nil {
+			return shellSessionContext{}, err
+		}
+		for _, environment := range environments {
+			if environment.Name == environmentName {
+				context.PathEntries = append(context.PathEntries, store.PHPBuildToolPathEntries(environment)...)
+				break
+			}
+		}
+	}
 
 	return context, nil
 }

@@ -34,6 +34,8 @@ type HTTPToolDownloader = tools.HTTPDownloader
 const (
 	toolPHP         = tools.PHP
 	toolPHPZTS      = tools.PHPZTS
+	toolPHPDevel    = tools.PHPDevel
+	toolPHPSDK      = tools.PHPSDK
 	toolFrankenPHP  = tools.FrankenPHP
 	toolComposer    = tools.Composer
 	toolPIE         = tools.PIE

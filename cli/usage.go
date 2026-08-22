@@ -6,7 +6,7 @@ Usage:
   polka [--root PATH] <command> [options]
 
 Commands:
-  init [framework] [--docroot PATH]
+  init [framework|preset] [--docroot PATH] [--package VENDOR/NAME]
                        create the local .polka directory and optional framework config
   create-project <package> [directory]
                        scaffold a new app with Polka's internal composer and initialize polka in it
@@ -79,13 +79,15 @@ Flags:
 `
 
 const initUsage = `Usage:
-  polka init [framework] [--docroot PATH]
+  polka init [framework|preset] [--docroot PATH] [--package VENDOR/NAME]
 
 Create the local .polka directory, bootstrap polka.yaml, and sync the active environment's dispatch shims into .polka/bin.
 The generated default environment enables HTTPS and uses <directory>.localhost as server.hostname.
 Use --docroot PATH to set the generated default environment's document root.
 When framework is cakephp, codeigniter, drupal, wordpress, laravel, or symfony, Polka writes an opinionated default config for that framework.
-Framework init is config-only; it does not create app files, install tools, or start services. It fails if polka.yaml already exists.
+Framework init is config-only; it does not create app files, install tools, or start services.
+When preset is php-extension, Polka writes a native-extension config and a PIE-compatible composer.json, preserving an existing composer.json. Use --package VENDOR/NAME to override its derived package name.
+Framework and preset init fail if polka.yaml already exists.
 `
 
 const envUsage = `Usage:
@@ -218,7 +220,8 @@ Run one command with the same local environment as polka sh.
 Polka resolves commands in this order:
 1. <root>/bin
 2. vendor/bin
-3. system PATH
+3. PHP extension SDK directories, when enabled
+4. system PATH
 
 On Windows, direct extensionless PHP-shebang commands in Composer scripts run through the environment's managed PHP.
 On Linux, Polka temporarily grants the executable bit to those commands when it's missing.
@@ -231,7 +234,8 @@ const shUsage = `Usage:
 Open an interactive shell with command resolution in this order:
 1. <root>/bin
 2. vendor/bin
-3. system PATH
+3. PHP extension SDK directories, when enabled
+4. system PATH
 
 On Windows, Polka launches PowerShell.
 When vendor/bin contains extensionless Composer PHP proxies or shell launchers with a matching .php source, Polka generates temporary .cmd wrappers for those commands on Windows and runs the PHP target under the local php CLI.

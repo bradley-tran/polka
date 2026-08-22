@@ -9,6 +9,8 @@ import (
 const (
 	PHP         = "php"
 	PHPZTS      = "php-zts"
+	PHPDevel    = "php-devel"
+	PHPSDK      = "php-sdk"
 	FrankenPHP  = "frankenphp"
 	Composer    = "composer"
 	PIE         = "pie"
@@ -34,6 +36,12 @@ const (
 	PostgreSQL  = "postgresql"
 	PSQL        = "psql"
 	SQLite      = "sqlite"
+)
+
+const (
+	// DefaultPHPSDKVersion pins the binary tools release paired with managed
+	// Windows PHP extension builds.
+	DefaultPHPSDKVersion = "2.8.3"
 )
 
 var (

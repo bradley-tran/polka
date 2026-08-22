@@ -42,12 +42,18 @@ type ToolsConfig struct {
 
 // SettingsConfig is the YAML shape for versionless per-tool settings.
 type SettingsConfig struct {
+	PHP         *PHPSettingsConfig         `yaml:"php,omitempty"`
 	Mailpit     *MailpitSettingsConfig     `yaml:"mailpit,omitempty"`
 	PHPMyAdmin  *PHPMyAdminSettingsConfig  `yaml:"phpmyadmin,omitempty"`
 	Meilisearch *MeilisearchSettingsConfig `yaml:"meilisearch,omitempty"`
 	Redis       *RedisSettingsConfig       `yaml:"redis,omitempty"`
 	RabbitMQ    *RabbitMQSettingsConfig    `yaml:"rabbitmq,omitempty"`
 	Traefik     *TraefikSettingsConfig     `yaml:"traefik,omitempty"`
+}
+
+// PHPSettingsConfig is the YAML shape for versionless PHP runtime settings.
+type PHPSettingsConfig struct {
+	BuildTools bool `yaml:"extension-sdk,omitempty"`
 }
 
 // MailpitSettingsConfig is the YAML shape for Mailpit runtime settings.
@@ -145,6 +151,7 @@ type Environment struct {
 	SQLiteVersion     string                         `yaml:"sqlite,omitempty"`
 	Docroot           string                         `yaml:"docroot,omitempty"`
 	HTTPS             bool                           `yaml:"https,omitempty"`
+	PHPBuildTools     bool                           `yaml:"-"`
 	EnvFile           string                         `yaml:"env-file,omitempty"`
 	EnvVars           map[string]string              `yaml:"env-vars,omitempty"`
 	Database          *DatabaseConfig                `yaml:"database,omitempty"`
@@ -392,6 +399,7 @@ func ToolsConfigFromEnvironment(environment Environment) *ToolsConfig {
 // SettingsConfigFromEnvironment extracts versionless tool settings from an environment.
 func SettingsConfigFromEnvironment(environment Environment) *SettingsConfig {
 	settings := &SettingsConfig{
+		PHP:         PHPSettingsConfigFromEnvironment(environment),
 		Mailpit:     MailpitSettingsConfigFromEnvironment(environment),
 		PHPMyAdmin:  PHPMyAdminSettingsConfigFromEnvironment(environment),
 		Meilisearch: MeilisearchSettingsConfigFromEnvironment(environment),
@@ -404,6 +412,15 @@ func SettingsConfigFromEnvironment(environment Environment) *SettingsConfig {
 	}
 
 	return settings
+}
+
+// PHPSettingsConfigFromEnvironment extracts versionless PHP settings.
+func PHPSettingsConfigFromEnvironment(environment Environment) *PHPSettingsConfig {
+	if !environment.PHPBuildTools {
+		return nil
+	}
+
+	return &PHPSettingsConfig{BuildTools: true}
 }
 
 // ToolVersionFromMailpitConfig extracts Mailpit's managed tool version label.
@@ -606,7 +623,8 @@ func (tools ToolsConfig) IsZero() bool {
 
 // IsZero reports whether no versionless tool settings are configured.
 func (settings SettingsConfig) IsZero() bool {
-	return settings.Mailpit == nil &&
+	return settings.PHP == nil &&
+		settings.Mailpit == nil &&
 		settings.PHPMyAdmin == nil &&
 		settings.Meilisearch == nil &&
 		settings.Redis == nil &&
@@ -677,6 +695,9 @@ func environmentFromFileParts(name string, framework string, tools *ToolsConfig,
 func applySettingsConfig(environment Environment, settings *SettingsConfig) Environment {
 	if settings == nil {
 		return environment
+	}
+	if settings.PHP != nil {
+		environment.PHPBuildTools = settings.PHP.BuildTools
 	}
 	if settings.Mailpit != nil {
 		if environment.Mailpit == nil {
@@ -843,6 +864,7 @@ func NormalizeEnvironment(name string, environment Environment) Environment {
 		SQLiteVersion:     strings.TrimSpace(environment.SQLiteVersion),
 		Docroot:           strings.TrimSpace(environment.Docroot),
 		HTTPS:             environment.HTTPS,
+		PHPBuildTools:     environment.PHPBuildTools,
 		EnvFile:           strings.TrimSpace(environment.EnvFile),
 		EnvVars:           NormalizeEnvironmentVariables(environment.EnvVars),
 		Database:          NormalizeDatabaseConfig(environment.Database),

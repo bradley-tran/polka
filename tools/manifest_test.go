@@ -11,7 +11,7 @@ import (
 )
 
 func TestBuiltinManifestsLoad(t *testing.T) {
-	for _, tool := range []string{PHP, PHPZTS, FrankenPHP, Composer, PIE, NodeJS, Mago, Nginx, Apache, Mailpit, Meilisearch, PHPMyAdmin, MySQL, MariaDB, PostgreSQL, SQLite} {
+	for _, tool := range []string{PHP, PHPZTS, PHPDevel, PHPSDK, FrankenPHP, Composer, PIE, NodeJS, Mago, Nginx, Apache, Mailpit, Meilisearch, PHPMyAdmin, MySQL, MariaDB, PostgreSQL, SQLite} {
 		t.Run(tool, func(t *testing.T) {
 			manifest, err := loadBuiltinManifest(tool)
 			if err != nil {
@@ -21,6 +21,42 @@ func TestBuiltinManifestsLoad(t *testing.T) {
 				t.Fatalf("loadBuiltinManifest(%s) id = %q, want %q", tool, manifest.ID, tool)
 			}
 		})
+	}
+}
+
+// TestPHPBuildToolManifestsAreInternalOnly verifies dependency payloads cannot
+// accidentally become project-configurable or gain dispatch shims.
+func TestPHPBuildToolManifestsAreInternalOnly(t *testing.T) {
+	for _, tool := range []string{PHPDevel, PHPSDK} {
+		t.Run(tool, func(t *testing.T) {
+			manifest, err := loadBuiltinManifest(tool)
+			if err != nil {
+				t.Fatalf("loadBuiltinManifest(%s) error = %v", tool, err)
+			}
+			if !manifest.InternalOnly {
+				t.Fatalf("%s internal-only = false, want true", tool)
+			}
+			if len(manifest.DispatchCommands) != 0 || len(manifest.DispatchCandidates) != 0 {
+				t.Fatalf("%s dispatch declarations = %#v %#v, want none", tool, manifest.DispatchCommands, manifest.DispatchCandidates)
+			}
+		})
+	}
+}
+
+// TestPHPSDKManifestResolvesTaggedSourceArchive checks the pinned SDK version
+// renders the tag prefix and authenticated source-archive URL correctly.
+func TestPHPSDKManifestResolvesTaggedSourceArchive(t *testing.T) {
+	manifest, err := loadBuiltinManifest(PHPSDK)
+	if err != nil {
+		t.Fatalf("loadBuiltinManifest(php-sdk) error = %v", err)
+	}
+	tag := manifest.Download.GitHub.TagPrefix + DefaultPHPSDKVersion
+	asset, err := resolveManifestDownloadAsset(PHPSDK, manifest.Download.Assets, DefaultPHPSDKVersion, DefaultPHPSDKVersion, tag, "windows", "amd64", nil)
+	if err != nil {
+		t.Fatalf("resolveManifestDownloadAsset(php-sdk) error = %v", err)
+	}
+	if asset.URL != "https://github.com/php/php-sdk-binary-tools/archive/refs/tags/php-sdk-2.8.3.zip" || asset.ChecksumAlgorithm != checksumAlgorithmEmbeddedCommitID || asset.ArchiveFormat != archiveFormatZip {
+		t.Fatalf("php-sdk asset = %#v, want verified tagged source zip", asset)
 	}
 }
 
