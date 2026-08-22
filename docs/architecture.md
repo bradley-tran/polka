@@ -62,7 +62,9 @@ This package exists to avoid import cycles. Both `backend` and `tools` can depen
 
 The `plugins` package owns Polka's higher-level built-in plugin registry. It groups installable tool plugins from `tools` with framework plugins such as `cakephp`, `codeigniter`, `drupal`, `wordpress`, `laravel`, and `symfony`.
 
-Framework plugins provide config defaults and optional hooks for framework-common PHP extensions, runtime environment variables, OPcache directives, post-Composer secret file generation, and nginx config generation. Database driver extensions belong to the configured database tool rather than the framework. Built-in framework metadata lives in `plugins/manifests/*.yaml` and is embedded into the binary; the manifest data selects reusable Go strategies for framework-specific runtime environment and post-Composer behavior. In v1, framework init is config-only and framework nginx hooks delegate to the generic front-controller config.
+Framework plugins provide config defaults and optional hooks for framework-common PHP extensions, runtime environment variables, OPcache directives, post-Composer secret file generation, and nginx config generation. Database driver extensions belong to the configured database tool rather than the framework. Built-in framework metadata lives in `plugins/manifests/*.yaml` and is embedded into the binary; the manifest data selects reusable Go strategies for framework-specific runtime environment and post-Composer behavior. Framework init is config-only and framework nginx hooks delegate to the generic front-controller config.
+
+Project presets are a third plugin kind for non-framework project shapes. They contribute a starting environment plus init-time scaffold files, with no runtime hooks and no marker in `polka.yaml`. Their manifests and templates live under `plugins/manifests/presets/*.yaml` and `plugins/manifests/presets/templates/*`. The built-in `php-extension` preset uses this mechanism to create a PIE-compatible Composer manifest without treating native extension projects as web frameworks.
 
 ### `service`
 
@@ -122,7 +124,7 @@ Internal tools are consumed by Polka commands rather than exposed to projects. `
 - `<tools dir>/installed.json` reuses the standard install state; `Store.EnsureInternalTool` skips work when the recorded install still resolves on disk, and serializes concurrent cross-project installs with a per-tool lock file.
 - Internal PHP installs run the php post-install hook with a synthetic environment enabling a curated broad set of extensions (`tools.InternalPHPExtensions`) — filtered to those whose module file exists in the install's `ext/` directory, always including the TLS baseline (`curl`, `openssl`, `mbstring`, `zip`) — so composer create-project scaffolders and PIE cover most use cases and can reach registries over HTTPS.
 
-Manifests may declare `internal-only: true` (PIE in v1): such tools report no version for project environments, expose no dispatch or shim commands, and reject `tools.<id>` project config with a "managed internally" validation error. `polka create-project` uses internal PHP + composer to scaffold apps before any project config exists; `polka ext` and the install pipeline use internal PHP + PIE (`backend/pie.go`) to manage PHP extensions for project runtimes.
+Manifests may declare `internal-only: true`: such tools report no version for project environments, expose no dispatch or shim commands, and reject `tools.<id>` project config with a "managed internally" validation error. `polka create-project` uses internal PHP + composer to scaffold apps before any project config exists; `polka ext` and the install pipeline use internal PHP + PIE (`backend/pie.go`) to manage PHP extensions for project runtimes. Dependency-only examples include Erlang for RabbitMQ and the PHP devel/SDK payloads used by native extension builds.
 
 ## Dispatch Flow
 

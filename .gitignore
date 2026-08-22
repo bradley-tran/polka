@@ -25,3 +25,4 @@ Thumbs.db
 # Local test folder
 .polka-go-build/
 /test-site
+/test-ext

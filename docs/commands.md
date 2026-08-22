@@ -12,7 +12,7 @@ Use `--root PATH` to override the local state directory. The default is `.polka`
 
 ## Environment Commands
 
-### `polka init [framework] [--docroot PATH]`
+### `polka init [framework|preset] [--docroot PATH] [--package VENDOR/NAME]`
 
 Creates the local `.polka` directory, bootstraps `polka.yaml` when it does not exist, and syncs the active environment's dispatch shims into `.polka/bin`. The bootstrapped default environment enables HTTPS and sets `server.hostname` to `<directory>.localhost`.
 
@@ -24,6 +24,8 @@ polka init drupal
 polka init wordpress
 polka init laravel
 polka init symfony
+polka init php-extension
+polka init php-extension --package acme/native-ext
 polka init --docroot public
 polka init drupal --docroot drupal/web
 ```
@@ -31,6 +33,8 @@ polka init drupal --docroot drupal/web
 Use `--docroot PATH` to set the generated default environment's document root.
 
 When `framework` is `cakephp`, `codeigniter`, `drupal`, `wordpress`, `laravel`, or `symfony`, Polka writes an opinionated default config with a top-level `framework` key, framework docroot, managed tool versions, database settings, and phpMyAdmin settings. Framework init is config-only: it does not create project files, run Composer, install tools, write default PHP extension config, or start services. It fails if `polka.yaml` already exists.
+
+The `php-extension` project preset is not a framework. It configures PHP, Composer, unlimited PHP memory, extension-test environment variables, and `settings.php.extension-sdk: true`, with no webserver, docroot, or database. It also writes a PIE-compatible `composer.json` using the directory name for `vendor/<name>` and the PHP module name. `--package VENDOR/NAME` overrides the derived Composer name. An existing `composer.json` is kept byte-for-byte, and preset init never installs tools or starts services. Like framework init, it fails if `polka.yaml` already exists.
 
 CakePHP uses the `webroot` docroot. CodeIgniter, Laravel, and Symfony use `public`. Drupal uses `web`. These presets include PHP, Composer, Node.js, nginx, MariaDB, phpMyAdmin, and Mailpit. The WordPress preset uses the project root as docroot and includes PHP, nginx, MariaDB, and phpMyAdmin. With a framework, `--docroot PATH` overrides the preset docroot in the generated config.
 
@@ -69,6 +73,7 @@ Run `polka config` without arguments in a terminal to open an interactive settin
 polka config
 polka config tools.php 8.4
 polka config tools.php-zts 8.4
+polka config settings.php.extension-sdk true
 polka config tools.frankenphp 1.12
 polka config tools.apache 2.4
 polka config server.type apache
@@ -89,7 +94,7 @@ polka config --env blog tools.traefik 3.3
 polka config --env blog settings.traefik.port 8080
 ```
 
-Use `--env name` to select a named environment. When `--env` is omitted, Polka updates the current environment, falling back to `default` when no local override is selected. Supported keys are schema-aware dot paths such as `tools.php`, `tools.php-zts`, `tools.frankenphp`, `tools.apache`, `database.port`, `server.type`, `env-vars.APP_ENV`, `memory-limit`, `php-extensions.xdebug`, `pecl-extensions.redis`, and `opcache-config.opcache.enable_cli`. `tools.php` and `tools.php-zts` are mutually exclusive. `tools.pie` is rejected because PIE is managed internally. `php-extensions.<vendor>/<name>` holds recommended PIE constraints; `pecl-extensions.<name>` holds exact deprecated PECL releases.
+Use `--env name` to select a named environment. When `--env` is omitted, Polka updates the current environment, falling back to `default` when no local override is selected. Supported keys are schema-aware dot paths such as `tools.php`, `tools.php-zts`, `settings.php.extension-sdk`, `tools.frankenphp`, `tools.apache`, `database.port`, `server.type`, `env-vars.APP_ENV`, `memory-limit`, `php-extensions.xdebug`, `pecl-extensions.redis`, and `opcache-config.opcache.enable_cli`. `tools.php` and `tools.php-zts` are mutually exclusive. `tools.pie` is rejected because PIE is managed internally. `php-extensions.<vendor>/<name>` holds recommended PIE constraints; `pecl-extensions.<name>` holds exact deprecated PECL releases.
 
 ### `polka install [tool:version] [--env name]`
 
@@ -105,6 +110,8 @@ polka install --env blog
 ```
 
 Use `--env name` to select a named environment. When `--env` is omitted, Polka installs against the current environment and prints which one it selected. If no current environment is selected, Polka uses `default` from `polka.yaml`.
+
+When `settings.php.extension-sdk` is true, install also provisions or verifies the PHP-native build toolchain described in [tools.md](tools.md#php-build-tools).
 
 For managed tool installation, command shims, PHP runtime generation, and platform support details, see [tools.md](tools.md).
 

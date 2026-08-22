@@ -183,3 +183,26 @@ func TestPHPCLIProviderFallsBackToFrankenPHP(t *testing.T) {
 		t.Fatalf("PHPCLIProvider(mixed) = %q, %q, want php, 8.4", tool, version)
 	}
 }
+
+// TestPHPBuildToolsSettingRoundTrip verifies the extension SDK signal survives
+// the public project-file conversion boundary.
+func TestPHPBuildToolsSettingRoundTrip(t *testing.T) {
+	environment := ProjectFileToEnvironment("default", ProjectFile{
+		Settings: &SettingsConfig{
+			PHP: &PHPSettingsConfig{BuildTools: true},
+		},
+	})
+	if !environment.PHPBuildTools {
+		t.Fatal("ProjectFileToEnvironment() PHPBuildTools = false, want true")
+	}
+
+	file := ProjectFileFromEnvironment(1, ".polka", environment)
+	if file.Settings == nil || file.Settings.PHP == nil || !file.Settings.PHP.BuildTools {
+		t.Fatalf("ProjectFileFromEnvironment() settings = %#v, want extension-sdk true", file.Settings)
+	}
+
+	disabled := ProjectFileFromEnvironment(1, ".polka", Environment{})
+	if disabled.Settings != nil {
+		t.Fatalf("ProjectFileFromEnvironment(disabled) settings = %#v, want nil", disabled.Settings)
+	}
+}

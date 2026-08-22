@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"polka/tools"
 )
 
 func TestStoreInitInstallsDispatcherShimsWithoutToolShims(t *testing.T) {
@@ -142,6 +144,196 @@ func TestStoreInitWithFrameworkOptionsOverridesDocroot(t *testing.T) {
 	}
 	if environment.ComposerVersion != "2.8" || environment.NodeJSVersion != "24" || environment.NginxVersion != "1.30" {
 		t.Fatalf("environment = %#v, want other Drupal preset values preserved", environment)
+	}
+}
+
+// TestStoreInitWithPHPExtensionPreset writes the build-oriented environment
+// and its PIE Composer scaffold without web application defaults.
+func TestStoreInitWithPHPExtensionPreset(t *testing.T) {
+	projectDir := filepath.Join(t.TempDir(), "my-ext")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(project) error = %v", err)
+	}
+	store := NewProjectStore(projectDir)
+
+	result, err := store.InitWithPresetOptions("php-extension", InitOptions{})
+	if err != nil {
+		t.Fatalf("InitWithPresetOptions(php-extension) error = %v", err)
+	}
+	if !reflect.DeepEqual(result.ScaffoldWritten, []string{"composer.json"}) || len(result.ScaffoldSkipped) != 0 {
+		t.Fatalf("InitResult = %#v, want composer.json written", result)
+	}
+
+	loadedConfig, err := store.readConfig()
+	if err != nil {
+		t.Fatalf("readConfig() error = %v", err)
+	}
+	environment := loadedConfig.Environments[defaultEnvironmentName]
+	if environment.PHPVersion != "8.4" || environment.ComposerVersion != "2.8" || !environment.PHPBuildTools {
+		t.Fatalf("environment = %#v, want PHP, Composer, and extension SDK", environment)
+	}
+	if environment.MemoryLimit != "-1" {
+		t.Fatalf("environment.MemoryLimit = %q, want -1", environment.MemoryLimit)
+	}
+	for key, want := range map[string]string{
+		"NO_INTERACTION":           "1",
+		"REPORT_EXIT_STATUS":       "1",
+		"USE_ZEND_ALLOC":           "0",
+		"ZEND_DONT_UNLOAD_MODULES": "1",
+	} {
+		if environment.EnvVars[key] != want {
+			t.Fatalf("environment.EnvVars[%q] = %q, want %q", key, environment.EnvVars[key], want)
+		}
+	}
+	if environment.Framework != "" || environment.Docroot != "" || environment.HTTPS || environment.Server != nil || environment.Database != nil {
+		t.Fatalf("environment = %#v, want no framework, web, or database defaults", environment)
+	}
+
+	composer, err := os.ReadFile(filepath.Join(projectDir, "composer.json"))
+	if err != nil {
+		t.Fatalf("ReadFile(composer.json) error = %v", err)
+	}
+	for _, want := range []string{`"name": "vendor/my-ext"`, `"type": "php-ext"`, `"php": "^8.4"`, `"extension-name": "my_ext"`} {
+		if !strings.Contains(string(composer), want) {
+			t.Fatalf("composer.json = %q, want %q", composer, want)
+		}
+	}
+}
+
+// TestStorePHPExtensionPresetInstallRequests includes the hidden Windows
+// toolchain dependencies while keeping them out of project tool config.
+func TestStorePHPExtensionPresetInstallRequests(t *testing.T) {
+	store := NewProjectStore(t.TempDir())
+	if _, err := store.InitWithPresetOptions("php-extension", InitOptions{}); err != nil {
+		t.Fatalf("InitWithPresetOptions(php-extension) error = %v", err)
+	}
+	requests, err := store.InstallRequests(defaultEnvironmentName)
+	if err != nil {
+		t.Fatalf("InstallRequests(default) error = %v", err)
+	}
+	versions := map[string]string{}
+	for _, request := range requests {
+		versions[request.Tool] = request.Version
+	}
+	if versions[toolPHP] != "8.4" || versions[toolComposer] != "2.8" {
+		t.Fatalf("InstallRequests() = %#v, want PHP and Composer", requests)
+	}
+	if runtime.GOOS == "windows" {
+		if versions[toolPHPDevel] != "8.4" || versions[toolPHPSDK] != tools.DefaultPHPSDKVersion {
+			t.Fatalf("InstallRequests() = %#v, want PHP devel and SDK dependencies", requests)
+		}
+	} else if versions[toolPHPDevel] != "" || versions[toolPHPSDK] != "" {
+		t.Fatalf("InstallRequests(non-Windows) = %#v, want no downloadable SDK dependencies", requests)
+	}
+}
+
+// TestStoreInitWithPHPExtensionPresetKeepsComposer verifies adopting an
+// existing extension tree never replaces its manifest.
+func TestStoreInitWithPHPExtensionPresetKeepsComposer(t *testing.T) {
+	projectDir := t.TempDir()
+	composerPath := filepath.Join(projectDir, "composer.json")
+	original := []byte(`{"name":"mine/keep"}`)
+	if err := os.WriteFile(composerPath, original, 0o644); err != nil {
+		t.Fatalf("WriteFile(composer.json) error = %v", err)
+	}
+	store := NewProjectStore(projectDir)
+
+	result, err := store.InitWithPresetOptions("php-extension", InitOptions{Package: "acme/ignored"})
+	if err != nil {
+		t.Fatalf("InitWithPresetOptions(php-extension) error = %v", err)
+	}
+	if !reflect.DeepEqual(result.ScaffoldSkipped, []string{"composer.json"}) || len(result.ScaffoldWritten) != 0 {
+		t.Fatalf("InitResult = %#v, want composer.json skipped", result)
+	}
+	current, err := os.ReadFile(composerPath)
+	if err != nil {
+		t.Fatalf("ReadFile(composer.json) error = %v", err)
+	}
+	if !bytes.Equal(current, original) {
+		t.Fatalf("composer.json = %q, want original %q", current, original)
+	}
+}
+
+// TestStorePresetInitRejectsExistingConfigBeforeCreatingState guards the
+// config overwrite check that must run before .polka is created.
+func TestStorePresetInitRejectsExistingConfigBeforeCreatingState(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	if err := os.WriteFile(store.ConfigFile, []byte("version: 1\nroot: .polka\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+
+	if _, err := store.InitWithPresetOptions("php-extension", InitOptions{}); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("InitWithPresetOptions(existing config) error = %v, want already-exists error", err)
+	}
+	assertPathMissing(t, store.RootDir)
+	assertPathMissing(t, filepath.Join(projectDir, "composer.json"))
+}
+
+// TestStoreInitResolutionListsFrameworksAndPresets keeps the unknown-ID error
+// useful while preserving its historical unsupported-framework wording.
+func TestStoreInitResolutionListsFrameworksAndPresets(t *testing.T) {
+	store := NewProjectStore(t.TempDir())
+	_, err := store.InitWithPresetOptions("yii", InitOptions{})
+	if err == nil || !strings.Contains(err.Error(), "unsupported framework or preset") || !strings.Contains(err.Error(), "laravel") || !strings.Contains(err.Error(), "php-extension") {
+		t.Fatalf("InitWithPresetOptions(yii) error = %v, want framework and preset lists", err)
+	}
+}
+
+// TestStoreFrameworkInitHasNoScaffold verifies the compatibility entry point
+// continues to be config-only.
+func TestStoreFrameworkInitHasNoScaffold(t *testing.T) {
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+
+	result, err := store.InitWithPresetOptions("laravel", InitOptions{})
+	if err != nil {
+		t.Fatalf("InitWithPresetOptions(laravel) error = %v", err)
+	}
+	if len(result.ScaffoldWritten) != 0 || len(result.ScaffoldSkipped) != 0 {
+		t.Fatalf("InitResult = %#v, want no framework scaffold", result)
+	}
+	assertPathMissing(t, filepath.Join(projectDir, "composer.json"))
+}
+
+// TestInstallCacheVersionSeparatesPHPDevelFlavors prevents NTS and ZTS
+// development archives with the same PHP version from colliding globally.
+func TestInstallCacheVersionSeparatesPHPDevelFlavors(t *testing.T) {
+	if got := installCacheVersion(Environment{PHPVersion: "8.4"}, toolPHPDevel, "8.4"); got != "8.4-nts" {
+		t.Fatalf("installCacheVersion(NTS) = %q, want 8.4-nts", got)
+	}
+	if got := installCacheVersion(Environment{PHPZTSVersion: "8.4"}, toolPHPDevel, "8.4"); got != "8.4-zts" {
+		t.Fatalf("installCacheVersion(ZTS) = %q, want 8.4-zts", got)
+	}
+}
+
+// TestValidatePresetScaffoldTargetRejectsInitState checks the backend repeats
+// manifest restrictions before touching a preset-provided path.
+func TestValidatePresetScaffoldTargetRejectsInitState(t *testing.T) {
+	for _, target := range []string{"polka.yaml", "polka.dev.yaml", ".polka/data"} {
+		if err := validatePresetScaffoldTarget(target); err == nil || !strings.Contains(err.Error(), "reserved for init") {
+			t.Fatalf("validatePresetScaffoldTarget(%q) error = %v, want reserved-path error", target, err)
+		}
+	}
+}
+
+// TestPHPBuildToolPathEntries exposes internal Windows SDK installs to shell
+// composition without turning them into dispatchable tools.
+func TestPHPBuildToolPathEntries(t *testing.T) {
+	store := NewProjectStore(t.TempDir())
+	paths := store.PHPBuildToolPathEntries(Environment{PHPVersion: "8.4", PHPBuildTools: true})
+	if runtime.GOOS != "windows" {
+		if paths != nil {
+			t.Fatalf("PHPBuildToolPathEntries(non-Windows) = %#v, want nil", paths)
+		}
+		return
+	}
+	want := []string{
+		filepath.Join(store.EnvsDir, toolPHPDevel, "8.4"),
+		filepath.Join(store.EnvsDir, toolPHPSDK, tools.DefaultPHPSDKVersion),
+	}
+	if !reflect.DeepEqual(paths, want) {
+		t.Fatalf("PHPBuildToolPathEntries() = %#v, want %#v", paths, want)
 	}
 }
 

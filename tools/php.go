@@ -51,7 +51,8 @@ type phpWindowsRelease struct {
 }
 
 type phpWindowsVariant struct {
-	Zip phpWindowsAsset `json:"zip"`
+	Zip       phpWindowsAsset `json:"zip"`
+	DevelPack phpWindowsAsset `json:"devel_pack"`
 }
 
 type phpWindowsAsset struct {
@@ -118,6 +119,20 @@ func phpRuntimePlugin(tool string, threadSafe bool) Plugin {
 		},
 		postInstall: func(ctx InstallContext) error {
 			return SyncInstalledPHPRuntimeConfig(ctx.EnvsDir, ctx.Result.Tool, ctx.Result.Version, ctx.Environment)
+		},
+		dependencies: func(environment config.Environment) []InstallRequest {
+			if !environment.PHPBuildTools {
+				return nil
+			}
+			version := strings.TrimSpace(pluginPHPVersion(tool, environment))
+			if version == "" || runtime.GOOS != "windows" {
+				return nil
+			}
+
+			return []InstallRequest{
+				{Tool: PHPDevel, Version: version},
+				{Tool: PHPSDK, Version: DefaultPHPSDKVersion},
+			}
 		},
 	})
 }
@@ -355,10 +370,11 @@ func downloadPHP(client *http.Client, cacheDir, tool, version string, threadSafe
 		return fmt.Errorf("php version %q is not available in the Windows release index", version)
 	}
 
-	asset, err := selectPHPWindowsAsset(release, threadSafe)
+	variant, err := selectPHPWindowsVariant(release, threadSafe)
 	if err != nil {
 		return err
 	}
+	asset := variant.Zip
 
 	stagingDir, err := os.MkdirTemp(filepath.Join(cacheDir, tool), version+"-tmp-")
 	if err != nil {
@@ -434,6 +450,17 @@ func (r *phpWindowsRelease) UnmarshalJSON(data []byte) error {
 }
 
 func selectPHPWindowsAsset(release phpWindowsRelease, threadSafe bool) (phpWindowsAsset, error) {
+	variant, err := selectPHPWindowsVariant(release, threadSafe)
+	if err != nil {
+		return phpWindowsAsset{}, err
+	}
+
+	return variant.Zip, nil
+}
+
+// selectPHPWindowsVariant chooses the runtime/devel-pack pair matching the
+// requested thread-safety flavor, compiler, and host architecture.
+func selectPHPWindowsVariant(release phpWindowsRelease, threadSafe bool) (phpWindowsVariant, error) {
 	architecture := "x64"
 	if runtime.GOARCH == "386" {
 		architecture = "x86"
@@ -451,11 +478,11 @@ func selectPHPWindowsAsset(release phpWindowsRelease, threadSafe bool) (phpWindo
 
 	for _, key := range preferences {
 		if variant, ok := release.Variants[key]; ok && variant.Zip.Path != "" {
-			return variant.Zip, nil
+			return variant, nil
 		}
 	}
 
-	return phpWindowsAsset{}, fmt.Errorf("no compatible Windows PHP %s binary found for %s on %s", strings.ToUpper(flavor), release.Version, architecture)
+	return phpWindowsVariant{}, fmt.Errorf("no compatible Windows PHP %s binary found for %s on %s", strings.ToUpper(flavor), release.Version, architecture)
 }
 
 func phpSeries(version string) string {

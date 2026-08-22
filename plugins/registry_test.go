@@ -24,6 +24,59 @@ func TestDefaultRegistrySupportsFrameworkPlugins(t *testing.T) {
 	}
 }
 
+// TestDefaultRegistrySupportsProjectPresets verifies preset lookup and stable
+// help ordering without treating presets as frameworks.
+func TestDefaultRegistrySupportsProjectPresets(t *testing.T) {
+	registry := NewDefaultRegistry()
+
+	if got, want := registry.SupportedPresets(), []string{PHPExtension}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("SupportedPresets() = %#v, want %#v", got, want)
+	}
+	if _, ok := registry.Preset(PHPExtension); !ok {
+		t.Fatalf("Preset(%q) ok = false, want true", PHPExtension)
+	}
+	if _, ok := registry.Framework(PHPExtension); ok {
+		t.Fatalf("Framework(%q) ok = true, want false", PHPExtension)
+	}
+}
+
+// TestRegistryRejectsDuplicateAndCollidingProjectPresets keeps init argument
+// resolution unambiguous across the two plugin kinds.
+func TestRegistryRejectsDuplicateAndCollidingProjectPresets(t *testing.T) {
+	registry, err := NewRegistry(tools.NewDefaultRegistry())
+	if err != nil {
+		t.Fatalf("NewRegistry() error = %v", err)
+	}
+	preset := DefaultProjectPresets()[0]
+	if err := registry.RegisterPreset(preset); err != nil {
+		t.Fatalf("RegisterPreset() error = %v", err)
+	}
+	if err := registry.RegisterPreset(preset); err == nil {
+		t.Fatal("RegisterPreset(duplicate) error = nil, want duplicate error")
+	}
+
+	framework := DefaultFrameworkPlugins()[0]
+	registry, err = NewRegistry(tools.NewDefaultRegistry(), framework)
+	if err != nil {
+		t.Fatalf("NewRegistry(framework) error = %v", err)
+	}
+	collidingPreset := builtinProjectPreset{id: framework.ID()}
+	if err := registry.RegisterPreset(collidingPreset); err == nil {
+		t.Fatal("RegisterPreset(framework collision) error = nil, want collision error")
+	}
+
+	registry, err = NewRegistry(tools.NewDefaultRegistry())
+	if err != nil {
+		t.Fatalf("NewRegistry() error = %v", err)
+	}
+	if err := registry.RegisterPreset(collidingPreset); err != nil {
+		t.Fatalf("RegisterPreset() error = %v", err)
+	}
+	if err := registry.RegisterFramework(framework); err == nil {
+		t.Fatal("RegisterFramework(preset collision) error = nil, want collision error")
+	}
+}
+
 func TestRegistryRejectsDuplicateFrameworkPlugins(t *testing.T) {
 	frameworks := DefaultFrameworkPlugins()
 	if _, err := NewRegistry(tools.NewDefaultRegistry(), frameworks[0], frameworks[0]); err == nil {

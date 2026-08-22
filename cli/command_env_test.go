@@ -208,6 +208,147 @@ func TestRunInitWithFrameworkDocrootOverride(t *testing.T) {
 	}
 }
 
+// TestRunInitWithPHPExtensionPreset verifies the CLI summary, build-oriented
+// config, PIE scaffold, and deliberately small shim set.
+func TestRunInitWithPHPExtensionPreset(t *testing.T) {
+	projectDir := filepath.Join(t.TempDir(), "my-ext")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(project) error = %v", err)
+	}
+	root := filepath.Join(projectDir, ".polka")
+	chdirTest(t, projectDir)
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	if code := Run(stdout, stderr, []string{"--root", root, "init", "php-extension"}); code != 0 {
+		t.Fatalf("Run(init php-extension) code = %d, stderr = %q", code, stderr.String())
+	}
+	for _, want := range []string{
+		"Initialized Polka php-extension project",
+		"Wrote composer.json (type: php-ext) for PIE",
+		"Next steps: set name/description/license in composer.json, then polka install",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("Run(init php-extension) stdout = %q, want %q", stdout.String(), want)
+		}
+	}
+
+	for _, shim := range []string{"php.cmd", "composer.cmd"} {
+		if _, err := os.Stat(filepath.Join(root, "bin", shim)); err != nil {
+			t.Fatalf("Stat(%s) error = %v", shim, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "bin", "nginx.cmd")); !os.IsNotExist(err) {
+		t.Fatalf("Stat(nginx.cmd) error = %v, want missing shim", err)
+	}
+
+	configData, err := os.ReadFile(filepath.Join(projectDir, "polka.yaml"))
+	if err != nil {
+		t.Fatalf("ReadFile(polka.yaml) error = %v", err)
+	}
+	configText := string(configData)
+	for _, want := range []string{"php: \"8.4\"", "composer: \"2.8\"", "extension-sdk: true", "memory-limit: \"-1\"", "USE_ZEND_ALLOC: \"0\""} {
+		if !strings.Contains(configText, want) {
+			t.Fatalf("polka.yaml = %q, want %q", configText, want)
+		}
+	}
+	for _, unwanted := range []string{"docroot:", "https:", "server:", "database:"} {
+		if strings.Contains(configText, unwanted) {
+			t.Fatalf("polka.yaml = %q, want no %q", configText, unwanted)
+		}
+	}
+
+	composer, err := os.ReadFile(filepath.Join(projectDir, "composer.json"))
+	if err != nil {
+		t.Fatalf("ReadFile(composer.json) error = %v", err)
+	}
+	for _, want := range []string{`"name": "vendor/my-ext"`, `"type": "php-ext"`, `"extension-name": "my_ext"`} {
+		if !strings.Contains(string(composer), want) {
+			t.Fatalf("composer.json = %q, want %q", composer, want)
+		}
+	}
+}
+
+// TestRunInitWithPHPExtensionPackageOverride checks the CLI package flag is
+// passed through to scaffold rendering.
+func TestRunInitWithPHPExtensionPackageOverride(t *testing.T) {
+	projectDir := t.TempDir()
+	chdirTest(t, projectDir)
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	if code := Run(stdout, stderr, []string{"init", "php-extension", "--package", "acme/ext-thing"}); code != 0 {
+		t.Fatalf("Run(init php-extension --package) code = %d, stderr = %q", code, stderr.String())
+	}
+	composer, err := os.ReadFile(filepath.Join(projectDir, "composer.json"))
+	if err != nil {
+		t.Fatalf("ReadFile(composer.json) error = %v", err)
+	}
+	if !strings.Contains(string(composer), `"name": "acme/ext-thing"`) {
+		t.Fatalf("composer.json = %q, want package override", composer)
+	}
+}
+
+// TestRunInitWithPHPExtensionKeepsExistingComposer verifies the user-facing
+// summary reflects the preset's non-clobber behavior.
+func TestRunInitWithPHPExtensionKeepsExistingComposer(t *testing.T) {
+	projectDir := t.TempDir()
+	chdirTest(t, projectDir)
+	original := []byte(`{"name":"mine/keep"}`)
+	if err := os.WriteFile(filepath.Join(projectDir, "composer.json"), original, 0o644); err != nil {
+		t.Fatalf("WriteFile(composer.json) error = %v", err)
+	}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	if code := Run(stdout, stderr, []string{"init", "php-extension"}); code != 0 {
+		t.Fatalf("Run(init php-extension) code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Kept existing composer.json") {
+		t.Fatalf("Run(init php-extension) stdout = %q, want kept-existing summary", stdout.String())
+	}
+	current, err := os.ReadFile(filepath.Join(projectDir, "composer.json"))
+	if err != nil {
+		t.Fatalf("ReadFile(composer.json) error = %v", err)
+	}
+	if !bytes.Equal(current, original) {
+		t.Fatalf("composer.json = %q, want original %q", current, original)
+	}
+}
+
+// TestRunInitRejectsInvalidPackageUsage covers value validation and contexts
+// where no project preset can consume the flag.
+func TestRunInitRejectsInvalidPackageUsage(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{name: "blank", args: []string{"init", "php-extension", "--package", "   "}, wantErr: "--package requires a non-empty value"},
+		{name: "invalid", args: []string{"init", "php-extension", "--package", "invalid"}, wantErr: "Composer vendor/name shape"},
+		{name: "no preset", args: []string{"init", "--package", "acme/ext"}, wantErr: "--package requires a project preset"},
+		{name: "framework", args: []string{"init", "laravel", "--package", "acme/ext"}, wantErr: "--package can only be used with a project preset"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			projectDir := t.TempDir()
+			chdirTest(t, projectDir)
+			stdout := &bytes.Buffer{}
+			stderr := &bytes.Buffer{}
+			if code := Run(stdout, stderr, test.args); code == 0 {
+				t.Fatalf("Run(%v) code = 0, want failure", test.args)
+			}
+			if !strings.Contains(stderr.String(), test.wantErr) {
+				t.Fatalf("Run(%v) stderr = %q, want %q", test.args, stderr.String(), test.wantErr)
+			}
+			if _, err := os.Stat(filepath.Join(projectDir, ".polka")); !os.IsNotExist(err) {
+				t.Fatalf("Stat(.polka) error = %v, want no state created", err)
+			}
+		})
+	}
+}
+
 func TestRunInitWritesDocrootWithoutFramework(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
@@ -277,8 +418,8 @@ func TestRunInitWithFrameworkRejectsUnknownFramework(t *testing.T) {
 	if code := Run(stdout, stderr, []string{"--root", root, "init", "yii"}); code == 0 {
 		t.Fatal("Run(init yii) code = 0, want unsupported framework failure")
 	}
-	if !strings.Contains(stderr.String(), "unsupported framework") || !strings.Contains(stderr.String(), "cakephp, codeigniter, drupal, laravel, symfony, wordpress") {
-		t.Fatalf("Run(init yii) stderr = %q, want supported framework list", stderr.String())
+	if !strings.Contains(stderr.String(), "unsupported framework") || !strings.Contains(stderr.String(), "cakephp, codeigniter, drupal, laravel, symfony, wordpress") || !strings.Contains(stderr.String(), "supported presets: php-extension") {
+		t.Fatalf("Run(init yii) stderr = %q, want supported framework and preset lists", stderr.String())
 	}
 	if _, err := os.Stat(root); !os.IsNotExist(err) {
 		t.Fatalf("Stat(root) error = %v, want no root created before failure", err)

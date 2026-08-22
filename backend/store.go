@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -117,6 +118,15 @@ type Store struct {
 type InitOptions struct {
 	// Docroot sets the default environment document root when non-empty.
 	Docroot string
+	// Package overrides the Composer package name rendered by project presets.
+	Package string
+}
+
+// InitResult reports which project-preset scaffold files were written or
+// preserved during initialization.
+type InitResult struct {
+	ScaffoldWritten []string
+	ScaffoldSkipped []string
 }
 
 func DefaultStore() (Store, error) {
@@ -292,6 +302,11 @@ func (s Store) pluginRegistry() *PluginRegistry {
 	if err != nil {
 		panic(err)
 	}
+	for _, preset := range plugins.DefaultProjectPresets() {
+		if err := registry.RegisterPreset(preset); err != nil {
+			panic(err)
+		}
+	}
 
 	return registry
 }
@@ -299,6 +314,11 @@ func (s Store) pluginRegistry() *PluginRegistry {
 // SupportedFrameworks returns the built-in framework IDs supported by this store.
 func (s Store) SupportedFrameworks() []string {
 	return s.pluginRegistry().SupportedFrameworks()
+}
+
+// SupportedPresets returns the built-in project preset IDs supported by this store.
+func (s Store) SupportedPresets() []string {
+	return s.pluginRegistry().SupportedPresets()
 }
 
 // FrameworkPlugin resolves a built-in framework plugin by ID.
@@ -323,6 +343,60 @@ func (s Store) FrameworkDefaults(id string) (Environment, error) {
 	}
 
 	return environment, nil
+}
+
+// PresetDefaults returns a validated default environment for a project preset.
+func (s Store) PresetDefaults(id string) (Environment, error) {
+	presetID := strings.ToLower(strings.TrimSpace(id))
+	preset, ok := s.pluginRegistry().Preset(presetID)
+	if !ok {
+		return Environment{}, fmt.Errorf("unsupported project preset %q; supported presets: %s", id, strings.Join(s.SupportedPresets(), ", "))
+	}
+
+	environment := s.normalizeEnvironment(defaultEnvironmentName, preset.Defaults())
+	if err := s.toolRegistry().ValidateEnvironment(environment); err != nil {
+		return Environment{}, err
+	}
+
+	return environment, nil
+}
+
+// PHPBuildToolPathEntries returns the internal Windows SDK install directories
+// that shell-like commands append after project-local command bins.
+func (s Store) PHPBuildToolPathEntries(environment Environment) []string {
+	if !environment.PHPBuildTools || runtime.GOOS != "windows" {
+		return nil
+	}
+	version := strings.TrimSpace(config.PrimaryPHPVersion(environment))
+	if version == "" {
+		return nil
+	}
+
+	return []string{
+		filepath.Join(s.EnvsDir, toolPHPDevel, version),
+		filepath.Join(s.EnvsDir, toolPHPSDK, tools.DefaultPHPSDKVersion),
+	}
+}
+
+// resolveInitPreset resolves an init argument as a framework first and then as
+// a project preset. The bool reports whether the match was a framework.
+func (s Store) resolveInitPreset(id string) (Environment, bool, error) {
+	trimmed := strings.ToLower(strings.TrimSpace(id))
+	if _, ok := s.pluginRegistry().Framework(trimmed); ok {
+		environment, err := s.FrameworkDefaults(trimmed)
+		return environment, true, err
+	}
+	if _, ok := s.pluginRegistry().Preset(trimmed); ok {
+		environment, err := s.PresetDefaults(trimmed)
+		return environment, false, err
+	}
+
+	return Environment{}, false, fmt.Errorf(
+		"unsupported framework or preset %q; supported frameworks: %s; supported presets: %s",
+		id,
+		strings.Join(s.SupportedFrameworks(), ", "),
+		strings.Join(s.SupportedPresets(), ", "),
+	)
 }
 
 func resolveConfiguredRootDir(projectDir, configuredRoot string) string {
@@ -354,7 +428,8 @@ func (s Store) Init() error {
 
 // InitWithOptions initializes a project with config overrides.
 func (s Store) InitWithOptions(options InitOptions) error {
-	return s.init("", options)
+	_, err := s.init("", options)
+	return err
 }
 
 // InitWithFramework initializes a project from a built-in framework preset.
@@ -364,62 +439,163 @@ func (s Store) InitWithFramework(framework string) error {
 
 // InitWithFrameworkOptions initializes a project from a framework preset with overrides.
 func (s Store) InitWithFrameworkOptions(framework string, options InitOptions) error {
-	return s.init(framework, options)
+	_, err := s.InitWithPresetOptions(framework, options)
+	return err
 }
 
-func (s Store) init(framework string, options InitOptions) error {
+// InitWithPresetOptions initializes a project from either a framework or a
+// project preset and reports any preset scaffold files.
+func (s Store) InitWithPresetOptions(id string, options InitOptions) (InitResult, error) {
+	return s.init(id, options)
+}
+
+func (s Store) init(id string, options InitOptions) (InitResult, error) {
+	var result InitResult
 	docroot := strings.TrimSpace(options.Docroot)
-	var preset *Environment
-	if strings.TrimSpace(framework) != "" {
-		environment, err := s.FrameworkDefaults(framework)
+	packageName := strings.ToLower(strings.TrimSpace(options.Package))
+	var initialEnvironment *Environment
+	var projectPreset plugins.ProjectPreset
+	var isFramework bool
+	if strings.TrimSpace(id) != "" {
+		environment, framework, err := s.resolveInitPreset(id)
 		if err != nil {
-			return err
+			return result, err
+		}
+		isFramework = framework
+		if packageName != "" {
+			if isFramework {
+				return result, fmt.Errorf("--package can only be used with a project preset")
+			}
+			if err := config.ValidatePIEExtensionPackage(packageName); err != nil {
+				return result, err
+			}
 		}
 		if docroot != "" {
 			environment.Docroot = docroot
 		}
 		if _, err := os.Stat(s.ConfigFile); err == nil {
-			return fmt.Errorf("config file %s already exists; framework init would overwrite it", s.ConfigFile)
+			return result, fmt.Errorf("config file %s already exists; framework or preset init would overwrite it", s.ConfigFile)
 		} else if !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("stat config file: %w", err)
+			return result, fmt.Errorf("stat config file: %w", err)
 		}
-		preset = &environment
+		initialEnvironment = &environment
+		if !isFramework {
+			var ok bool
+			projectPreset, ok = s.pluginRegistry().Preset(id)
+			if !ok {
+				return result, fmt.Errorf("resolve project preset %q after validation", id)
+			}
+		}
+	} else if packageName != "" {
+		return result, fmt.Errorf("--package requires a project preset")
 	}
 
 	if err := os.MkdirAll(s.EnvsDir, 0o755); err != nil {
-		return fmt.Errorf("create environment root: %w", err)
+		return result, fmt.Errorf("create environment root: %w", err)
 	}
 	if err := os.MkdirAll(s.BinDir, 0o755); err != nil {
-		return fmt.Errorf("create binary root: %w", err)
+		return result, fmt.Errorf("create binary root: %w", err)
 	}
 
 	if loadedConfig, err := s.readConfig(); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			config := s.defaultConfig()
-			if preset != nil {
-				*preset = s.withInitDefaults(*preset)
-				config.Environments[defaultEnvironmentName] = *preset
+			if initialEnvironment != nil {
+				if isFramework {
+					*initialEnvironment = s.withInitDefaults(*initialEnvironment)
+				}
+				config.Environments[defaultEnvironmentName] = *initialEnvironment
 			} else if docroot != "" {
 				environment := config.Environments[defaultEnvironmentName]
 				environment.Docroot = docroot
 				config.Environments[defaultEnvironmentName] = environment
 			}
 			if err := s.writeConfig(config); err != nil {
-				return fmt.Errorf("write config file: %w", err)
+				return result, fmt.Errorf("write config file: %w", err)
 			}
 		} else {
-			return err
+			return result, err
 		}
-	} else if preset == nil && docroot != "" {
+	} else if initialEnvironment == nil && docroot != "" {
 		environment := loadedConfig.Environments[defaultEnvironmentName]
 		environment.Docroot = docroot
 		loadedConfig.Environments[defaultEnvironmentName] = environment
 		if err := s.writeConfig(loadedConfig); err != nil {
-			return fmt.Errorf("write config file: %w", err)
+			return result, fmt.Errorf("write config file: %w", err)
+		}
+	}
+	if projectPreset != nil {
+		var err error
+		result, err = s.writePresetScaffold(projectPreset, *initialEnvironment, options)
+		if err != nil {
+			return result, err
 		}
 	}
 	if err := s.installBinaries(); err != nil {
-		return fmt.Errorf("install binaries: %w", err)
+		return result, fmt.Errorf("install binaries: %w", err)
+	}
+
+	return result, nil
+}
+
+// writePresetScaffold writes init-time files without replacing anything that
+// already exists in the project tree.
+func (s Store) writePresetScaffold(preset plugins.ProjectPreset, environment Environment, options InitOptions) (InitResult, error) {
+	var result InitResult
+	files := preset.ScaffoldFiles(plugins.ScaffoldContext{
+		ProjectDir:  s.ProjectDir,
+		PackageName: options.Package,
+		PHPVersion:  environment.PHPVersion,
+	})
+	for _, file := range files {
+		if err := validatePresetScaffoldTarget(file.Path); err != nil {
+			return result, err
+		}
+		target := filepath.Clean(filepath.Join(s.ProjectDir, filepath.FromSlash(file.Path)))
+		relative, err := filepath.Rel(s.ProjectDir, target)
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return result, fmt.Errorf("preset scaffold path %q escapes project directory", file.Path)
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return result, fmt.Errorf("create scaffold parent for %s: %w", file.Path, err)
+		}
+		handle, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if errors.Is(err, os.ErrExist) {
+			result.ScaffoldSkipped = append(result.ScaffoldSkipped, filepath.ToSlash(file.Path))
+			continue
+		}
+		if err != nil {
+			return result, fmt.Errorf("create scaffold file %s: %w", file.Path, err)
+		}
+		if _, err := handle.Write(file.Content); err != nil {
+			closeErr := handle.Close()
+			if closeErr != nil {
+				return result, fmt.Errorf("write scaffold file %s: %w", file.Path, errors.Join(err, closeErr))
+			}
+			return result, fmt.Errorf("write scaffold file %s: %w", file.Path, err)
+		}
+		if err := handle.Close(); err != nil {
+			return result, fmt.Errorf("close scaffold file %s: %w", file.Path, err)
+		}
+		result.ScaffoldWritten = append(result.ScaffoldWritten, filepath.ToSlash(file.Path))
+	}
+
+	return result, nil
+}
+
+func validatePresetScaffoldTarget(target string) error {
+	trimmed := strings.TrimSpace(target)
+	if trimmed == "" || filepath.IsAbs(trimmed) || filepath.VolumeName(trimmed) != "" || strings.Contains(trimmed, `\`) {
+		return fmt.Errorf("preset scaffold path %q must be slash-separated and relative", target)
+	}
+	for _, segment := range strings.Split(trimmed, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return fmt.Errorf("preset scaffold path %q contains an unsafe segment", target)
+		}
+	}
+	lower := strings.ToLower(trimmed)
+	if lower == configFileName || (strings.HasPrefix(lower, namedConfigPrefix) && strings.HasSuffix(lower, namedConfigSuffix)) || lower == defaultRootDirectoryName || strings.HasPrefix(lower, defaultRootDirectoryName+"/") {
+		return fmt.Errorf("preset scaffold path %q is reserved for init", target)
 	}
 
 	return nil
@@ -637,6 +813,9 @@ func (s Store) install(name string, options InstallOptions, report func(InstallP
 	if err := validateInstallEnvironment(name, environment, requests, registry); err != nil {
 		return nil, err
 	}
+	if err := s.verifyPHPBuildTools(environment); err != nil {
+		return nil, err
+	}
 
 	results, err := s.installRequests(environment, requests, options.Force, report)
 	if err != nil {
@@ -655,6 +834,35 @@ func (s Store) install(name string, options InstallOptions, report func(InstallP
 	}
 
 	return results, nil
+}
+
+// verifyPHPBuildTools checks host-provided extension build commands on Linux,
+// where Polka has no downloadable PHP development payload.
+func (s Store) verifyPHPBuildTools(environment Environment) error {
+	if !environment.PHPBuildTools || runtime.GOOS == "windows" {
+		return nil
+	}
+	if runtime.GOOS != "linux" {
+		return fmt.Errorf("PHP extension SDK provisioning is only supported on Windows and Linux")
+	}
+
+	tool, version := config.PrimaryPHPTool(environment)
+	phpPath := ""
+	if tool != "" && version != "" {
+		if installed, err := s.resolveInstalledTool(tool, version); err == nil {
+			phpPath = installed
+		}
+	}
+	if phpPath == "" {
+		resolved, err := exec.LookPath("php")
+		if err != nil {
+			return fmt.Errorf("PHP extension SDK requires php on PATH: %w", err)
+		}
+		phpPath = resolved
+	}
+
+	_, _, err := resolvePHPBuildTools(filepath.Dir(phpPath), phpPath, "PHP extension SDK")
+	return err
 }
 
 func (s Store) installEnvironment(name string) (Environment, *ToolRegistry, error) {
@@ -788,8 +996,12 @@ func (s Store) installRequestLayer(environment Environment, requests []tools.Ins
 			// installed and its executable still resolves on disk. Post-install
 			// hooks still run below so configuration changes (PHP extensions,
 			// memory limit, OPcache) are applied to the existing install.
+			cacheVersion := installCacheVersion(installEnvironment, req.Tool, req.Version)
 			skipped := false
-			if !force && state.has(req.Tool, req.Version) {
+			// php-devel shares a public version across distinct NTS and ZTS
+			// payloads. Always rematerialize it from the flavor-specific cache
+			// entry so switching runtime flavor cannot reuse the wrong headers.
+			if !force && req.Tool != toolPHPDevel && state.has(req.Tool, req.Version) {
 				if targetPath, err := s.resolveInstalledTool(req.Tool, req.Version); err == nil {
 					skipped = true
 					results[i] = InstallResult{
@@ -802,7 +1014,7 @@ func (s Store) installRequestLayer(environment Environment, requests []tools.Ins
 			}
 
 			if !skipped {
-				cachedPayloadPath, downloaded, err := s.ensureCachedTool(req.Tool, req.Version, func(stage InstallProgressStage) {
+				cachedPayloadPath, downloaded, err := s.ensureCachedTool(req.Tool, cacheVersion, func(stage InstallProgressStage) {
 					baseProgress.Stage = stage
 					safeReport(baseProgress)
 				})
@@ -813,7 +1025,7 @@ func (s Store) installRequestLayer(environment Environment, requests []tools.Ins
 
 				baseProgress.Stage = InstallProgressInstalling
 				safeReport(baseProgress)
-				targetPath, err := s.installToolFromCache(req.Tool, req.Version)
+				targetPath, err := s.installToolFromCacheVersion(req.Tool, cacheVersion, req.Version)
 				if err != nil {
 					errs[i] = err
 					return
@@ -1036,18 +1248,22 @@ func environmentWithInstallRequest(environment Environment, request tools.Instal
 }
 
 func (s Store) installToolFromCache(tool, version string) (string, error) {
-	projectInstallDir := filepath.Join(s.EnvsDir, tool, version)
+	return s.installToolFromCacheVersion(tool, version, version)
+}
+
+func (s Store) installToolFromCacheVersion(tool, cacheVersion, installVersion string) (string, error) {
+	projectInstallDir := filepath.Join(s.EnvsDir, tool, installVersion)
 
 	if err := os.MkdirAll(filepath.Dir(projectInstallDir), 0o755); err != nil {
 		return "", fmt.Errorf("create project install parent directory: %w", err)
 	}
-	stagingDir, err := os.MkdirTemp(filepath.Dir(projectInstallDir), version+"-tmp-")
+	stagingDir, err := os.MkdirTemp(filepath.Dir(projectInstallDir), installVersion+"-tmp-")
 	if err != nil {
 		return "", fmt.Errorf("create project install staging directory: %w", err)
 	}
 	defer os.RemoveAll(stagingDir)
 
-	if _, err := tools.InstallCachedToolPayload(s.CacheDir, stagingDir, tool, version); err != nil {
+	if _, err := tools.InstallCachedToolPayload(s.CacheDir, stagingDir, tool, cacheVersion); err != nil {
 		return "", fmt.Errorf("install cached tool payload: %w", err)
 	}
 	if err := os.RemoveAll(projectInstallDir); err != nil {
@@ -1057,12 +1273,26 @@ func (s Store) installToolFromCache(tool, version string) (string, error) {
 		return "", fmt.Errorf("finalize project install directory: %w", err)
 	}
 
-	targetPath, err := s.resolveInstalledTool(tool, version)
+	targetPath, err := s.resolveInstalledTool(tool, installVersion)
 	if err != nil {
 		return "", err
 	}
 
 	return targetPath, nil
+}
+
+// installCacheVersion distinguishes thread-safe php-devel payloads in the
+// machine-global cache while retaining tools.php's version as the project
+// install directory and progress label.
+func installCacheVersion(environment Environment, tool, version string) string {
+	if tool != toolPHPDevel {
+		return version
+	}
+	if strings.TrimSpace(environment.PHPZTSVersion) != "" {
+		return version + "-zts"
+	}
+
+	return version + "-nts"
 }
 
 func (s Store) ensureCachedTool(tool, version string, report func(InstallProgressStage)) (string, bool, error) {
@@ -1762,6 +1992,18 @@ func validateSettingsSchema(settings, tools map[string]any) error {
 			return fmt.Errorf("settings.%s must be a mapping", key)
 		}
 		switch key {
+		case "php":
+			if !hasConfiguredToolVersion(tools, "php") && !hasConfiguredToolVersion(tools, "php-zts") {
+				return fmt.Errorf("settings.php requires tools.php or tools.php-zts")
+			}
+			if err := validateSettingKeys("settings.php", settingMap, map[string]struct{}{"extension-sdk": {}}); err != nil {
+				return err
+			}
+			if value, ok := settingMap["extension-sdk"]; ok {
+				if _, ok := value.(bool); !ok {
+					return fmt.Errorf("settings.php.extension-sdk must be true or false")
+				}
+			}
 		case "mailpit":
 			if !hasConfiguredToolVersion(tools, "mailpit") {
 				return fmt.Errorf("settings.mailpit requires tools.mailpit")

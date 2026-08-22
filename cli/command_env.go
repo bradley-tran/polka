@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"polka/backend"
+	"polka/config"
 	"polka/service"
 )
 
@@ -52,14 +53,15 @@ func newInitCommand(ctx *commandContext) *cobra.Command {
 	var input initCommandInput
 
 	cmd := &cobra.Command{
-		Use:  "init [framework]",
-		Args: maximumArgsError("init accepts at most one framework argument", 1),
+		Use:  "init [framework|preset]",
+		Args: maximumArgsError("init accepts at most one framework or preset argument", 1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			input.Framework = ""
+			input.Preset = ""
 			if len(args) > 0 {
-				input.Framework = strings.TrimSpace(args[0])
+				input.Preset = strings.TrimSpace(args[0])
 			}
 			input.DocrootChanged = cmd.Flags().Changed("docroot")
+			input.PackageChanged = cmd.Flags().Changed("package")
 			normalizedInput, err := normalizeInitCommandInput(input)
 			if err != nil {
 				return &statusError{code: 1, err: err}
@@ -74,6 +76,7 @@ func newInitCommand(ctx *commandContext) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&input.Docroot, "docroot", "", "set docroot")
+	cmd.Flags().StringVar(&input.Package, "package", "", "set preset Composer package name (vendor/name)")
 	configureCommand(cmd, initUsage)
 
 	return cmd
@@ -278,11 +281,36 @@ func runInit(stdout io.Writer, store backend.Store, input initCommandInput) erro
 	if input.DocrootChanged {
 		options.Docroot = input.Docroot
 	}
-	if input.Framework != "" {
-		if err := store.InitWithFrameworkOptions(input.Framework, options); err != nil {
+	if input.PackageChanged {
+		options.Package = input.Package
+	}
+	if input.Preset != "" {
+		if input.PackageChanged {
+			if _, isFramework := store.FrameworkPlugin(input.Preset); isFramework {
+				return fmt.Errorf("--package can only be used with a project preset")
+			}
+		}
+		result, err := store.InitWithPresetOptions(input.Preset, options)
+		if err != nil {
 			return err
 		}
-		_, _ = fmt.Fprintf(stdout, "Initialized Polka %s project at %s with config %s\n", strings.ToLower(input.Framework), store.RootDir, store.ConfigFile)
+		if _, err := fmt.Fprintf(stdout, "Initialized Polka %s project at %s with config %s\n", strings.ToLower(input.Preset), store.RootDir, store.ConfigFile); err != nil {
+			return err
+		}
+		if input.Preset == "php-extension" {
+			if initResultContains(result.ScaffoldWritten, "composer.json") {
+				if _, err := fmt.Fprintln(stdout, "Wrote composer.json (type: php-ext) for PIE"); err != nil {
+					return err
+				}
+			} else if initResultContains(result.ScaffoldSkipped, "composer.json") {
+				if _, err := fmt.Fprintln(stdout, "Kept existing composer.json"); err != nil {
+					return err
+				}
+			}
+			if _, err := fmt.Fprintln(stdout, "Next steps: set name/description/license in composer.json, then polka install"); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 
@@ -290,18 +318,40 @@ func runInit(stdout io.Writer, store backend.Store, input initCommandInput) erro
 		return err
 	}
 
-	_, _ = fmt.Fprintf(stdout, "Initialized Polka at %s with config %s\n", store.RootDir, store.ConfigFile)
-	return nil
+	_, err := fmt.Fprintf(stdout, "Initialized Polka at %s with config %s\n", store.RootDir, store.ConfigFile)
+	return err
 }
 
 func normalizeInitCommandInput(input initCommandInput) (initCommandInput, error) {
-	input.Framework = strings.TrimSpace(input.Framework)
+	input.Preset = strings.ToLower(strings.TrimSpace(input.Preset))
 	input.Docroot = strings.TrimSpace(input.Docroot)
+	input.Package = strings.ToLower(strings.TrimSpace(input.Package))
 	if input.DocrootChanged && input.Docroot == "" {
 		return input, fmt.Errorf("--docroot requires a non-empty value")
 	}
+	if input.PackageChanged {
+		if input.Package == "" {
+			return input, fmt.Errorf("--package requires a non-empty value")
+		}
+		if input.Preset == "" {
+			return input, fmt.Errorf("--package requires a project preset")
+		}
+		if err := config.ValidatePIEExtensionPackage(input.Package); err != nil {
+			return input, err
+		}
+	}
 
 	return input, nil
+}
+
+func initResultContains(paths []string, target string) bool {
+	for _, path := range paths {
+		if path == target {
+			return true
+		}
+	}
+
+	return false
 }
 
 func runInstall(stdout, stderr io.Writer, store backend.Store, input installCommandInput) error {
@@ -602,9 +652,11 @@ type configCommandInput struct {
 }
 
 type initCommandInput struct {
-	Framework      string
+	Preset         string
 	Docroot        string
+	Package        string
 	DocrootChanged bool
+	PackageChanged bool
 }
 
 type newCommandInput struct {

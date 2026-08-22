@@ -1,0 +1,6 @@
+id: php-devel
+internal-only: true
+install-candidates:
+  windows-amd64:
+    - phpize.bat
+    - script/phpize.bat

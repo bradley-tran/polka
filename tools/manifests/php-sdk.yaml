@@ -1,0 +1,16 @@
+id: php-sdk
+internal-only: true
+install-candidates:
+  windows-amd64:
+    - phpsdk-vs17-x64.bat
+download:
+  github:
+    owner: php
+    repo: php-sdk-binary-tools
+    tag-prefix: php-sdk-
+  assets:
+    windows-amd64:
+      filename: php-sdk-binary-tools-{version}.zip
+      url: https://github.com/php/php-sdk-binary-tools/archive/refs/tags/{tag}.zip
+      checksum-algorithm: embedded-commit-id
+      archive-format: zip
