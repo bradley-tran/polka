@@ -486,10 +486,5 @@ func selectPHPWindowsVariant(release phpWindowsRelease, threadSafe bool) (phpWin
 }
 
 func phpSeries(version string) string {
-	parts := strings.Split(strings.TrimSpace(version), ".")
-	if len(parts) >= 2 {
-		return parts[0] + "." + parts[1]
-	}
-
-	return strings.TrimSpace(version)
+	return versionMajorMinor(version)
 }
