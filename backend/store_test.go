@@ -331,6 +331,7 @@ func TestPHPBuildToolPathEntries(t *testing.T) {
 	want := []string{
 		filepath.Join(store.EnvsDir, toolPHPDevel, "8.4"),
 		filepath.Join(store.EnvsDir, toolPHPSDK, tools.DefaultPHPSDKVersion),
+		filepath.Join(store.EnvsDir, toolPHPSDK, tools.DefaultPHPSDKVersion, "msys2", "usr", "bin"),
 	}
 	if !reflect.DeepEqual(paths, want) {
 		t.Fatalf("PHPBuildToolPathEntries() = %#v, want %#v", paths, want)

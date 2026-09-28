@@ -418,6 +418,7 @@ func TestPrepareShellEnvironmentAddsPHPBuildToolDirectories(t *testing.T) {
 		filepath.Join(projectDir, "vendor", "bin"),
 		filepath.Join(store.EnvsDir, "php-devel", "8.4"),
 		filepath.Join(store.EnvsDir, "php-sdk", "2.8.3"),
+		filepath.Join(store.EnvsDir, "php-sdk", "2.8.3", "msys2", "usr", "bin"),
 		"C:/Windows/System32",
 	)
 	if pathValue != want {
