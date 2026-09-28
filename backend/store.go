@@ -386,6 +386,21 @@ func (s Store) PHPBuildToolPathEntries(environment Environment) []string {
 	}
 }
 
+// PHPRuntimePrefix returns the local directory of the configured PHP runtime
+// (e.g. .polka/envs/php/8.4 or .polka/envs/php-zts/8.4) when build tools are
+// enabled on Windows. Returns empty when not on Windows, build tools are
+// disabled, or no PHP runtime is configured.
+func (s Store) PHPRuntimePrefix(environment Environment) string {
+	if !environment.PHPBuildTools || runtime.GOOS != "windows" {
+		return ""
+	}
+	tool, version := config.PrimaryPHPTool(environment)
+	if tool == "" || version == "" {
+		return ""
+	}
+	return filepath.Join(s.EnvsDir, tool, version)
+}
+
 // resolveInitPreset resolves an init argument as a framework first and then as
 // a project preset. The bool reports whether the match was a framework.
 func (s Store) resolveInitPreset(id string) (Environment, bool, error) {

@@ -2,6 +2,7 @@ package backend
 
 import (
 	"bytes"
+	"debug/pe"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -46,6 +47,7 @@ var msvcIgnoredVariables = map[string]struct{}{
 	"PROMPT":            {},
 	"POLKA_VCVARSALL":   {},
 	"POLKA_VCVARS_ARCH": {},
+	"POLKA_VCVARS_ARGS": {},
 }
 
 // MSVCToolchain is the Visual Studio developer environment captured by
@@ -88,10 +90,11 @@ type msvcInstance struct {
 // Test hooks for host Visual Studio discovery; tests replace them so they
 // never depend on the machine's Visual Studio installation.
 var (
-	msvcListInstances   = listMSVCInstances
-	msvcCaptureVCVars   = captureMSVCVCVars
-	msvcDetectPHPMajor  = detectPHPCompilerMajor
-	msvcVSWhereLocation = defaultVSWhereLocations
+	msvcListInstances    = listMSVCInstances
+	msvcCaptureVCVars    = captureMSVCVCVars
+	msvcDetectPHPMajor   = detectPHPCompilerMajor
+	msvcDetectPHPToolset = detectPHPToolset
+	msvcVSWhereLocation  = defaultVSWhereLocations
 )
 
 // MSVCToolchain returns the MSVC developer environment captured for the
@@ -148,10 +151,12 @@ func (s Store) detectMSVCToolchain(environment Environment, statePath string, fo
 	}
 
 	preferredMajor := 0
+	targetToolset := ""
 	tool, version := config.PrimaryPHPTool(environment)
 	if tool != "" && version != "" {
 		if phpPath, resolveErr := s.resolveInstalledTool(tool, version); resolveErr == nil {
 			preferredMajor = msvcDetectPHPMajor(phpPath)
+			targetToolset = msvcDetectPHPToolset(phpPath)
 		}
 	}
 	instance, ok := selectMSVCInstance(instances, preferredMajor)
@@ -164,17 +169,24 @@ func (s Store) detectMSVCToolchain(environment Environment, statePath string, fo
 		return MSVCToolchain{}, fmt.Errorf("Visual Studio at %s has no %s", instance.InstallationPath, vcvarsall)
 	}
 
+	selectedToolset := selectMSVCToolset(instance.InstallationPath, targetToolset)
+	vcvarsArgs := ""
+	if selectedToolset != "" {
+		vcvarsArgs = "-vcvars_ver=" + selectedToolset
+	}
+
 	if !force {
 		existing, readErr := readMSVCToolchain(statePath)
 		if readErr == nil && existing != nil &&
 			strings.EqualFold(existing.InstallationPath, instance.InstallationPath) &&
 			existing.InstallationVersion == instance.InstallationVersion &&
-			existing.Arch == msvcTargetArch {
+			existing.Arch == msvcTargetArch &&
+			(selectedToolset == "" || strings.HasPrefix(existing.Set["VCToolsVersion"], selectedToolset)) {
 			return *existing, nil
 		}
 	}
 
-	baseline, captured, err := msvcCaptureVCVars(vcvarsall, msvcTargetArch)
+	baseline, captured, err := msvcCaptureVCVars(vcvarsall, msvcTargetArch, vcvarsArgs)
 	if err != nil {
 		return MSVCToolchain{}, err
 	}
@@ -339,12 +351,73 @@ func detectPHPCompilerMajor(phpPath string) int {
 	return major
 }
 
+// detectPHPToolset reads the PE header of the PHP executable (or php8.dll) to determine
+// the exact MSVC linker version (e.g. "14.44") required by the PHP runtime.
+func detectPHPToolset(phpPath string) string {
+	target := strings.TrimSpace(phpPath)
+	if target == "" {
+		return ""
+	}
+	if info, err := os.Stat(target); err == nil && info.IsDir() {
+		for _, candidate := range []string{"php.exe", "php8.dll"} {
+			full := filepath.Join(target, candidate)
+			if fInfo, fErr := os.Stat(full); fErr == nil && !fInfo.IsDir() {
+				target = full
+				break
+			}
+		}
+	}
+
+	file, err := pe.Open(target)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+
+	var major, minor uint8
+	switch opt := file.OptionalHeader.(type) {
+	case *pe.OptionalHeader64:
+		major = opt.MajorLinkerVersion
+		minor = opt.MinorLinkerVersion
+	case *pe.OptionalHeader32:
+		major = opt.MajorLinkerVersion
+		minor = opt.MinorLinkerVersion
+	default:
+		return ""
+	}
+	if major == 0 && minor == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d.%d", major, minor)
+}
+
+// selectMSVCToolset checks if the target toolset (e.g. "14.44") is available
+// in the Visual Studio instance's VC\Tools\MSVC directory, returning the toolset
+// version argument for vcvarsall (e.g. "14.44"), or "" if no matching toolset exists.
+func selectMSVCToolset(installationPath, targetToolset string) string {
+	targetToolset = strings.TrimSpace(targetToolset)
+	if targetToolset == "" || installationPath == "" {
+		return ""
+	}
+	toolsDir := filepath.Join(installationPath, "VC", "Tools", "MSVC")
+	entries, err := os.ReadDir(toolsDir)
+	if err != nil {
+		return ""
+	}
+	for _, entry := range entries {
+		if entry.IsDir() && (entry.Name() == targetToolset || strings.HasPrefix(entry.Name(), targetToolset+".")) {
+			return targetToolset
+		}
+	}
+	return ""
+}
+
 // captureMSVCVCVars runs vcvarsall.bat in a fresh cmd.exe and returns the
 // environment before and after it ran. Both dumps come from the same cmd.exe
 // process so variables cmd.exe itself injects cancel out in the diff. Paths
 // travel through environment variables so the ASCII batch file never has to
 // encode a non-ASCII Visual Studio location.
-func captureMSVCVCVars(vcvarsall, arch string) ([]string, []string, error) {
+func captureMSVCVCVars(vcvarsall, arch, args string) ([]string, []string, error) {
 	tempDir, err := os.MkdirTemp("", "polka-msvc-")
 	if err != nil {
 		return nil, nil, fmt.Errorf("create MSVC capture dir: %w", err)
@@ -355,7 +428,7 @@ func captureMSVCVCVars(vcvarsall, arch string) ([]string, []string, error) {
 		"@echo off",
 		"set",
 		"echo " + msvcCaptureMarker,
-		`call "%POLKA_VCVARSALL%" %POLKA_VCVARS_ARCH% 1>&2`,
+		`call "%POLKA_VCVARSALL%" %POLKA_VCVARS_ARCH% %POLKA_VCVARS_ARGS% 1>&2`,
 		"if errorlevel 1 exit /b 1",
 		"set",
 		"",
@@ -371,6 +444,7 @@ func captureMSVCVCVars(vcvarsall, arch string) ([]string, []string, error) {
 	command.Env = append(os.Environ(),
 		"POLKA_VCVARSALL="+vcvarsall,
 		"POLKA_VCVARS_ARCH="+arch,
+		"POLKA_VCVARS_ARGS="+args,
 		"VSCMD_SKIP_SENDTELEMETRY=1",
 	)
 	var stderr bytes.Buffer

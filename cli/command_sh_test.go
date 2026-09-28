@@ -424,6 +424,14 @@ func TestPrepareShellEnvironmentAddsPHPBuildToolDirectories(t *testing.T) {
 	if pathValue != want {
 		t.Fatalf("PATH = %q, want %q", pathValue, want)
 	}
+	_, prefixValue, ok := lookupEnvValue("windows", updated, "PHP_PREFIX")
+	if !ok {
+		t.Fatalf("updated env = %#v, want PHP_PREFIX entry", updated)
+	}
+	wantPrefix := filepath.Join(store.EnvsDir, "php", "8.4")
+	if prefixValue != wantPrefix {
+		t.Fatalf("PHP_PREFIX = %q, want %q", prefixValue, wantPrefix)
+	}
 }
 
 func TestShellPromptRootReturnsAbsolutePath(t *testing.T) {

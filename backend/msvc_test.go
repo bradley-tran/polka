@@ -142,10 +142,10 @@ func stubMSVCHost(t *testing.T, instances []msvcInstance, listErr error) *int {
 	}
 
 	captures := 0
-	originalLocations, originalList, originalCapture, originalMajor := msvcVSWhereLocation, msvcListInstances, msvcCaptureVCVars, msvcDetectPHPMajor
+	originalLocations, originalList, originalCapture, originalMajor, originalToolset := msvcVSWhereLocation, msvcListInstances, msvcCaptureVCVars, msvcDetectPHPMajor, msvcDetectPHPToolset
 	msvcVSWhereLocation = func() []string { return []string{vswhere} }
 	msvcListInstances = func(string) ([]msvcInstance, error) { return instances, listErr }
-	msvcCaptureVCVars = func(vcvarsall, arch string) ([]string, []string, error) {
+	msvcCaptureVCVars = func(vcvarsall, arch, args string) ([]string, []string, error) {
 		captures++
 		return []string{`Path=C:\Windows`}, []string{
 			`Path=C:\VS\bin\Hostx64\x64;C:\Windows`,
@@ -154,8 +154,9 @@ func stubMSVCHost(t *testing.T, instances []msvcInstance, listErr error) *int {
 		}, nil
 	}
 	msvcDetectPHPMajor = func(string) int { return 0 }
+	msvcDetectPHPToolset = func(string) string { return "" }
 	t.Cleanup(func() {
-		msvcVSWhereLocation, msvcListInstances, msvcCaptureVCVars, msvcDetectPHPMajor = originalLocations, originalList, originalCapture, originalMajor
+		msvcVSWhereLocation, msvcListInstances, msvcCaptureVCVars, msvcDetectPHPMajor, msvcDetectPHPToolset = originalLocations, originalList, originalCapture, originalMajor, originalToolset
 	})
 
 	return &captures
@@ -235,5 +236,50 @@ func TestSyncMSVCToolchainWarnsWhenMissing(t *testing.T) {
 				t.Fatalf("MSVCToolchain() = %#v, %v; want stale capture removed", toolchain, err)
 			}
 		})
+	}
+}
+
+// TestSelectMSVCToolset verifies toolset directory lookup under VC\Tools\MSVC.
+func TestSelectMSVCToolset(t *testing.T) {
+	tempDir := t.TempDir()
+	msvcDir := filepath.Join(tempDir, "VC", "Tools", "MSVC")
+	if err := os.MkdirAll(filepath.Join(msvcDir, "14.44.35207"), 0o755); err != nil {
+		t.Fatalf("create toolset dir 14.44: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(msvcDir, "14.51.36231"), 0o755); err != nil {
+		t.Fatalf("create toolset dir 14.51: %v", err)
+	}
+
+	cases := []struct {
+		name          string
+		targetToolset string
+		want          string
+	}{
+		{name: "matching toolset prefix", targetToolset: "14.44", want: "14.44"},
+		{name: "exact version match", targetToolset: "14.51.36231", want: "14.51.36231"},
+		{name: "missing toolset", targetToolset: "14.38", want: ""},
+		{name: "empty toolset", targetToolset: "", want: ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := selectMSVCToolset(tempDir, tc.targetToolset)
+			if got != tc.want {
+				t.Fatalf("selectMSVCToolset(%q) = %q, want %q", tc.targetToolset, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestDetectPHPToolsetEmpty checks graceful return on missing or invalid binaries.
+func TestDetectPHPToolsetEmpty(t *testing.T) {
+	if got := detectPHPToolset(""); got != "" {
+		t.Fatalf("detectPHPToolset(\"\") = %q; want \"\"", got)
+	}
+	tempFile := filepath.Join(t.TempDir(), "not-a-pe.exe")
+	if err := os.WriteFile(tempFile, []byte("random data"), 0o644); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+	if got := detectPHPToolset(tempFile); got != "" {
+		t.Fatalf("detectPHPToolset(invalid) = %q; want \"\"", got)
 	}
 }
