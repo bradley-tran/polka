@@ -43,6 +43,9 @@ type shellSessionContext struct {
 	// Toolchain is the MSVC developer environment captured by polka install
 	// for the PHP extension SDK; its PATH entries are already in PathEntries.
 	Toolchain *backend.MSVCToolchain
+	// PHPPrefix is the directory of the configured PHP runtime when extension-sdk
+	// is enabled on Windows.
+	PHPPrefix string
 }
 
 func newShCommand(ctx *commandContext) *cobra.Command {
@@ -193,6 +196,11 @@ func buildShellExecutionEnvironment(goos string, env []string, store backend.Sto
 	resolvedPath := joinPathList(goos, pathEntries...)
 	updatedEnv := replaceEnvValue(goos, resolvedEnv, pathKey, resolvedPath)
 	updatedEnv = replaceEnvValue(goos, updatedEnv, polkaPromptEnvEnv, context.EnvironmentName)
+	if context.PHPPrefix != "" {
+		if _, _, ok := lookupEnvValue(goos, updatedEnv, "PHP_PREFIX"); !ok {
+			updatedEnv = replaceEnvValue(goos, updatedEnv, "PHP_PREFIX", context.PHPPrefix)
+		}
+	}
 
 	return replaceEnvValue(goos, updatedEnv, polkaPromptRootEnv, context.PromptRoot), nil
 }
@@ -243,6 +251,7 @@ func buildShellSessionContext(goos string, store backend.Store, workingDir, envi
 		for _, environment := range environments {
 			if environment.Name == environmentName {
 				context.PathEntries = append(context.PathEntries, store.PHPBuildToolPathEntries(environment)...)
+				context.PHPPrefix = store.PHPRuntimePrefix(environment)
 				toolchain, err := store.MSVCToolchain(environment)
 				if err != nil {
 					return shellSessionContext{}, err

@@ -338,6 +338,27 @@ func TestPHPBuildToolPathEntries(t *testing.T) {
 	}
 }
 
+// TestPHPRuntimePrefix verifies that PHPRuntimePrefix resolves the local PHP directory
+// for NTS and ZTS on Windows when extension-sdk is enabled, and returns empty otherwise.
+func TestPHPRuntimePrefix(t *testing.T) {
+	store := NewProjectStore(t.TempDir())
+	if runtime.GOOS != "windows" {
+		if prefix := store.PHPRuntimePrefix(Environment{PHPVersion: "8.4", PHPBuildTools: true}); prefix != "" {
+			t.Fatalf("PHPRuntimePrefix(non-Windows) = %q, want empty", prefix)
+		}
+		return
+	}
+	if got, want := store.PHPRuntimePrefix(Environment{PHPVersion: "8.4", PHPBuildTools: true}), filepath.Join(store.EnvsDir, toolPHP, "8.4"); got != want {
+		t.Fatalf("PHPRuntimePrefix(NTS) = %q, want %q", got, want)
+	}
+	if got, want := store.PHPRuntimePrefix(Environment{PHPZTSVersion: "8.4", PHPBuildTools: true}), filepath.Join(store.EnvsDir, toolPHPZTS, "8.4"); got != want {
+		t.Fatalf("PHPRuntimePrefix(ZTS) = %q, want %q", got, want)
+	}
+	if got := store.PHPRuntimePrefix(Environment{PHPVersion: "8.4", PHPBuildTools: false}); got != "" {
+		t.Fatalf("PHPRuntimePrefix(build tools false) = %q, want empty", got)
+	}
+}
+
 func TestProjectLocalHostnameNormalizesDirectoryName(t *testing.T) {
 	projectDir := filepath.Join(t.TempDir(), "My Demo_Project")
 
