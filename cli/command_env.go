@@ -393,6 +393,7 @@ func runInstall(stdout, stderr io.Writer, store backend.Store, input installComm
 	spinner.Start()
 
 	var results []backend.InstallResult
+	var warnings []string
 	if input.Tool != "" {
 		result, installErr := store.InstallToolWithProgress(input.Name, input.Tool, input.Version, func(progress backend.InstallProgress) {
 			spinner.Update(progress.Tool, progress.Version, progress.Stage)
@@ -402,7 +403,13 @@ func runInstall(stdout, stderr io.Writer, store backend.Store, input installComm
 			results = []backend.InstallResult{result}
 		}
 	} else {
-		results, err = store.InstallWithProgress(input.Name, backend.InstallOptions{Force: input.Force}, func(progress backend.InstallProgress) {
+		options := backend.InstallOptions{
+			Force: input.Force,
+			// Warnings print after the spinner stops so they do not tear
+			// its in-place rendering.
+			Warn: func(message string) { warnings = append(warnings, message) },
+		}
+		results, err = store.InstallWithProgress(input.Name, options, func(progress backend.InstallProgress) {
 			spinner.Update(progress.Tool, progress.Version, progress.Stage)
 		})
 	}
@@ -423,6 +430,9 @@ func runInstall(stdout, stderr io.Writer, store backend.Store, input installComm
 	}
 	writePHPCLIRuntimeWarning(stderr, environment)
 	writePHPMyAdminPostgreSQLWarning(stderr, environment)
+	for _, warning := range warnings {
+		_, _ = fmt.Fprintf(stderr, "warning: %s\n", warning)
+	}
 	if input.Tool != "" {
 		_, _ = fmt.Fprintf(stdout, "Installed %s:%s for '%s' environment\n", input.Tool, input.Version, input.Name)
 	} else {
@@ -436,6 +446,15 @@ func runInstall(stdout, stderr io.Writer, store backend.Store, input installComm
 			_, _ = fmt.Fprintf(stdout, "%s %s\n", result.Tool, result.Version)
 		default:
 			_, _ = fmt.Fprintf(stdout, "%s %s\t(cached)\n", result.Tool, result.Version)
+		}
+	}
+	if input.Tool == "" {
+		toolchain, err := store.MSVCToolchain(environment)
+		if err != nil {
+			return err
+		}
+		if toolchain != nil {
+			_, _ = fmt.Fprintf(stdout, "msvc %s\t(%s)\n", toolchain.Version, toolchain.DisplayName)
 		}
 	}
 

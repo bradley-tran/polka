@@ -116,6 +116,8 @@ After the tool installs, `backend.Store` provisions any PIE-managed `vendor/name
 
 As discouraged legacy compatibility, the backend also provisions `pecl-extensions` after PIE. It resolves official PECL metadata, installs matching Windows DLLs or builds Linux sources with target-matched PHP development tools, tracks installed artifacts beside the PHP runtime, and performs a final `php.ini` synchronization. PIE remains the preferred provider.
 
+Finally, on Windows environments with `settings.php.extension-sdk` enabled, `backend/msvc.go` locates a host MSVC toolchain through `vswhere.exe`, captures the variables `vcvarsall.bat` adds, and stores them in `.polka/envs/msvc/<environment>.json`. A missing toolchain is reported through `InstallOptions.Warn` rather than failing the install. `cli` applies the capture when composing `sh`, `exec`, and worker environments (`Store.MSVCToolchain`), before project env files so user values win.
+
 ## Internal Tools
 
 Internal tools are consumed by Polka commands rather than exposed to projects. `backend/internal_tools.go` installs them through the same cache pipeline into a machine-global tools directory (`POLKA_TOOLS_DIR`, else `<POLKA_CACHE_DIR>/internal-tools`, else `<user cache dir>/polka/tools`), which acts as the `EnvsDir` of the reserved `_internal` environment:
