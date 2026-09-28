@@ -366,7 +366,9 @@ func (s Store) PresetDefaults(id string) (Environment, error) {
 }
 
 // PHPBuildToolPathEntries returns the internal Windows SDK install directories
-// that shell-like commands append after project-local command bins.
+// that shell-like commands append after project-local command bins. The SDK's
+// bundled msys2 utilities (bison, re2c, sed, patch, ...) are included the same
+// way the SDK's own phpsdk_setvars.bat adds them.
 func (s Store) PHPBuildToolPathEntries(environment Environment) []string {
 	if !environment.PHPBuildTools || runtime.GOOS != "windows" {
 		return nil
@@ -375,10 +377,12 @@ func (s Store) PHPBuildToolPathEntries(environment Environment) []string {
 	if version == "" {
 		return nil
 	}
+	sdkDir := filepath.Join(s.EnvsDir, toolPHPSDK, tools.DefaultPHPSDKVersion)
 
 	return []string{
 		filepath.Join(s.EnvsDir, toolPHPDevel, version),
-		filepath.Join(s.EnvsDir, toolPHPSDK, tools.DefaultPHPSDKVersion),
+		sdkDir,
+		filepath.Join(sdkDir, "msys2", "usr", "bin"),
 	}
 }
 
