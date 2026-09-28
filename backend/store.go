@@ -98,8 +98,12 @@ type InstallRequest struct {
 // InstallOptions adjusts how an environment install behaves.
 type InstallOptions struct {
 	// Force reinstalls every requested tool even when the recorded install
-	// state says it is already installed at the requested version.
+	// state says it is already installed at the requested version. It also
+	// recaptures the MSVC developer environment.
 	Force bool
+	// Warn receives non-fatal install problems, such as a missing host MSVC
+	// toolchain for the PHP extension SDK. Nil discards them.
+	Warn func(string)
 }
 
 type Store struct {
@@ -830,6 +834,11 @@ func (s Store) install(name string, options InstallOptions, report func(InstallP
 		return nil, err
 	}
 	if err := s.syncPECLRuntimeConfig(environment); err != nil {
+		return nil, err
+	}
+	// Capture MSVC after the tools install so the PHP runtime can be asked
+	// which Visual Studio version built it.
+	if err := s.syncMSVCToolchain(environment, options.Force, options.Warn); err != nil {
 		return nil, err
 	}
 

@@ -40,6 +40,9 @@ type shellSessionContext struct {
 	VendorBinDir     string
 	VendorShimDir    string
 	PathEntries      []string
+	// Toolchain is the MSVC developer environment captured by polka install
+	// for the PHP extension SDK; its PATH entries are already in PathEntries.
+	Toolchain *backend.MSVCToolchain
 }
 
 func newShCommand(ctx *commandContext) *cobra.Command {
@@ -172,7 +175,9 @@ func prepareShellEnvironment(goos string, env []string, store backend.Store, wor
 }
 
 func buildShellExecutionEnvironment(goos string, env []string, store backend.Store, context shellSessionContext) ([]string, error) {
-	resolvedEnv, err := resolveRuntimeEnvironment(goos, env, store)
+	// MSVC variables apply before project env files so user-configured
+	// values such as INCLUDE or LIB still win.
+	resolvedEnv, err := resolveRuntimeEnvironment(goos, applyMSVCToolchainEnvironment(goos, env, context.Toolchain), store)
 	if err != nil {
 		return nil, err
 	}
@@ -238,12 +243,58 @@ func buildShellSessionContext(goos string, store backend.Store, workingDir, envi
 		for _, environment := range environments {
 			if environment.Name == environmentName {
 				context.PathEntries = append(context.PathEntries, store.PHPBuildToolPathEntries(environment)...)
+				toolchain, err := store.MSVCToolchain(environment)
+				if err != nil {
+					return shellSessionContext{}, err
+				}
+				if toolchain != nil {
+					context.Toolchain = toolchain
+					context.PathEntries = append(context.PathEntries, toolchain.Prepend["PATH"]...)
+				}
 				break
 			}
 		}
 	}
 
 	return context, nil
+}
+
+// applyMSVCToolchainEnvironment overlays a captured MSVC developer
+// environment: plain variables are set and list variables such as INCLUDE and
+// LIB get vcvarsall's entries prepended. PATH is excluded because shell PATH
+// composition places those entries through shellSessionContext.PathEntries.
+func applyMSVCToolchainEnvironment(goos string, env []string, toolchain *backend.MSVCToolchain) []string {
+	if toolchain == nil {
+		return env
+	}
+
+	updated := append([]string(nil), env...)
+	setKeys := make([]string, 0, len(toolchain.Set))
+	for key := range toolchain.Set {
+		setKeys = append(setKeys, key)
+	}
+	sort.Strings(setKeys)
+	for _, key := range setKeys {
+		updated = replaceEnvValue(goos, updated, key, toolchain.Set[key])
+	}
+
+	prependKeys := make([]string, 0, len(toolchain.Prepend))
+	for key := range toolchain.Prepend {
+		if !envKeysEqual(goos, key, "PATH") {
+			prependKeys = append(prependKeys, key)
+		}
+	}
+	sort.Strings(prependKeys)
+	for _, key := range prependKeys {
+		entryKey, current, _ := lookupEnvValue(goos, updated, key)
+		if entryKey == "" {
+			entryKey = key
+		}
+		entries := append(append([]string(nil), toolchain.Prepend[key]...), current)
+		updated = replaceEnvValue(goos, updated, entryKey, joinPathList(goos, entries...))
+	}
+
+	return updated
 }
 
 func discoverVendorProjectDir(workingDir, projectRoot string) (string, error) {

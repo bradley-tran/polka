@@ -524,3 +524,32 @@ func TestPrepareShellEnvironmentUsesNearestNestedVendorBin(t *testing.T) {
 		t.Fatalf("drush shim = %q, want nested vendor target", string(shimData))
 	}
 }
+
+// TestApplyMSVCToolchainEnvironment checks captured MSVC variables are set,
+// list variables are prepended to the existing value regardless of key case,
+// and PATH is left to shell PATH composition.
+func TestApplyMSVCToolchainEnvironment(t *testing.T) {
+	toolchain := &backend.MSVCToolchain{
+		Set: map[string]string{"VCToolsInstallDir": `C:\VS\Tools\`},
+		Prepend: map[string][]string{
+			"PATH":    {`C:\VS\bin`},
+			"INCLUDE": {`C:\VS\include`, `C:\SDK\ucrt`},
+			"LIB":     {`C:\VS\lib`},
+		},
+	}
+	env := []string{`Path=C:\Windows`, `Include=C:\Mine`}
+
+	got := applyMSVCToolchainEnvironment("windows", env, toolchain)
+	want := []string{
+		`Path=C:\Windows`,
+		`Include=C:\VS\include;C:\SDK\ucrt;C:\Mine`,
+		`VCToolsInstallDir=C:\VS\Tools\`,
+		`LIB=C:\VS\lib`,
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("applyMSVCToolchainEnvironment() = %#v, want %#v", got, want)
+	}
+	if unchanged := applyMSVCToolchainEnvironment("windows", env, nil); strings.Join(unchanged, "\n") != strings.Join(env, "\n") {
+		t.Fatalf("applyMSVCToolchainEnvironment(nil) = %#v, want %#v", unchanged, env)
+	}
+}
