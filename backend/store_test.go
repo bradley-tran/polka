@@ -254,6 +254,25 @@ func TestStoreInitWithPHPExtensionPresetKeepsComposer(t *testing.T) {
 	}
 }
 
+func TestStorePresetDefaults(t *testing.T) {
+	store := NewProjectStore(t.TempDir())
+
+	// Test a supported preset.
+	env, err := store.PresetDefaults("php-extension")
+	if err != nil {
+		t.Fatalf("PresetDefaults(php-extension) error = %v, want nil", err)
+	}
+	if !env.PHPBuildTools {
+		t.Fatalf("PresetDefaults(php-extension) returned Environment = %#v, want PHPBuildTools", env)
+	}
+
+	// Test an unsupported preset.
+	_, err = store.PresetDefaults("unsupported-preset-id")
+	if err == nil || !strings.Contains(err.Error(), "unsupported project preset") {
+		t.Fatalf("PresetDefaults(unsupported-preset-id) error = %v, want unsupported project preset error", err)
+	}
+}
+
 // TestStorePresetInitRejectsExistingConfigBeforeCreatingState guards the
 // config overwrite check that must run before .polka is created.
 func TestStorePresetInitRejectsExistingConfigBeforeCreatingState(t *testing.T) {
