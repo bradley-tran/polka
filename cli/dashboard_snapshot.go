@@ -129,7 +129,7 @@ func gatherDatabaseRow(store backend.Store, environment backend.Environment, sna
 
 func gatherMailpitRow(store backend.Store, environment backend.Environment, snapshot *dashboardSnapshot) dashboardServiceRow {
 	row := dashboardServiceRow{Name: "mailpit", Status: dashboardStatusUnset}
-	if environment.Mailpit == nil || strings.TrimSpace(environment.Mailpit.Version) == "" {
+	if strings.TrimSpace(environment.ToolVersion("mailpit")) == "" {
 		return row
 	}
 
@@ -152,7 +152,7 @@ func gatherMailpitRow(store backend.Store, environment backend.Environment, snap
 
 func gatherPHPMyAdminRow(store backend.Store, environment backend.Environment, snapshot *dashboardSnapshot) dashboardServiceRow {
 	row := dashboardServiceRow{Name: "phpmyadmin", Status: dashboardStatusUnset}
-	if environment.PHPMyAdmin == nil || strings.TrimSpace(environment.PHPMyAdmin.Version) == "" {
+	if strings.TrimSpace(environment.ToolVersion("phpmyadmin")) == "" {
 		return row
 	}
 
@@ -175,7 +175,7 @@ func gatherPHPMyAdminRow(store backend.Store, environment backend.Environment, s
 
 func gatherMeilisearchRow(store backend.Store, environment backend.Environment, snapshot *dashboardSnapshot) dashboardServiceRow {
 	row := dashboardServiceRow{Name: "meilisearch", Status: dashboardStatusUnset}
-	if environment.Meilisearch == nil || strings.TrimSpace(environment.Meilisearch.Version) == "" {
+	if strings.TrimSpace(environment.ToolVersion("meilisearch")) == "" {
 		return row
 	}
 
@@ -198,7 +198,7 @@ func gatherMeilisearchRow(store backend.Store, environment backend.Environment, 
 
 func gatherRedisRow(store backend.Store, environment backend.Environment, snapshot *dashboardSnapshot) dashboardServiceRow {
 	row := dashboardServiceRow{Name: "redis", Status: dashboardStatusUnset}
-	if environment.Redis == nil || strings.TrimSpace(environment.Redis.Version) == "" {
+	if strings.TrimSpace(environment.ToolVersion("redis")) == "" {
 		return row
 	}
 
@@ -221,7 +221,8 @@ func gatherRedisRow(store backend.Store, environment backend.Environment, snapsh
 
 func gatherRabbitMQRow(store backend.Store, environment backend.Environment, snapshot *dashboardSnapshot) dashboardServiceRow {
 	row := dashboardServiceRow{Name: "rabbitmq", Status: dashboardStatusUnset}
-	if environment.RabbitMQ == nil || strings.TrimSpace(environment.RabbitMQ.Version) == "" {
+	rabbitMQ := environment.RabbitMQ()
+	if rabbitMQ == nil || strings.TrimSpace(rabbitMQ.Version) == "" {
 		return row
 	}
 	row.Status = dashboardStatusStopped
@@ -234,7 +235,7 @@ func gatherRabbitMQRow(store backend.Store, environment backend.Environment, sna
 		return row
 	}
 	row.Status = dashboardStatusRunning
-	row.Detail = fmt.Sprintf("amqp=%s ui=%s", rabbitMQURLForConfig(environment.RabbitMQ), rabbitMQManagementURLForConfig(environment.RabbitMQ))
+	row.Detail = fmt.Sprintf("amqp=%s ui=%s", rabbitMQURLForConfig(rabbitMQ), rabbitMQManagementURLForConfig(rabbitMQ))
 	row.PID = state.PID
 	row.StartedAt = state.StartedAt
 	return row
@@ -242,7 +243,7 @@ func gatherRabbitMQRow(store backend.Store, environment backend.Environment, sna
 
 func gatherTraefikRow(store backend.Store, environment backend.Environment, snapshot *dashboardSnapshot) dashboardServiceRow {
 	row := dashboardServiceRow{Name: "traefik", Status: dashboardStatusUnset}
-	if environment.Traefik == nil || strings.TrimSpace(environment.Traefik.Version) == "" {
+	if strings.TrimSpace(environment.ToolVersion("traefik")) == "" {
 		return row
 	}
 

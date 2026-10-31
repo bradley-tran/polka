@@ -18,7 +18,7 @@ func testConfigFormEnvironment() backend.Environment {
 	return backend.Environment{
 		Name:          "demo",
 		Framework:     "laravel",
-		PHPVersion:    "8.4",
+		Tools:         backend.ToolsConfig{"php": "8.4", "redis": "7.4"},
 		HTTPS:         true,
 		MemoryLimit:   "256M",
 		OPcachePreset: "dev",
@@ -31,7 +31,12 @@ func testConfigFormEnvironment() backend.Environment {
 		OPcacheConfig: map[string]string{"opcache.jit": "tracing"},
 		Server:        &config.ServerConfig{Type: "NGINX", Hostname: "demo.localhost", Port: 8080},
 		Database:      &config.DatabaseConfig{Engine: "mysql", Port: 3306},
-		Redis:         &config.RedisConfig{Version: "7.4", Port: 6379, Password: "secret"},
+		Settings: backend.SettingsConfig{
+			"redis": {
+				"port":     6379,
+				"password": "secret",
+			},
+		},
 	}
 }
 

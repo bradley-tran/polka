@@ -1,4 +1,8 @@
 id: php
+exclusive-with:
+  - php-zts
+settings:
+  extension-sdk: bool
 install-candidates:
   windows-amd64:
     - bin/php.exe

@@ -16,10 +16,6 @@ const (
 	DefaultMailpitUIPort   = 8025
 )
 
-func normalizeMailpitConfig(mailpit *config.MailpitConfig) *config.MailpitConfig {
-	return config.NormalizeMailpitConfig(mailpit)
-}
-
 func validateMailpitConfig(mailpit *config.MailpitConfig) error {
 	if mailpit == nil {
 		return nil

@@ -17,7 +17,7 @@ var (
 func phpMyAdminPlugin() Plugin {
 	return newManifestPlugin(PHPMyAdmin, pluginHooks{
 		validate: func(environment config.Environment) error {
-			if err := validatePHPMyAdminConfig(environment.PHPMyAdmin); err != nil {
+			if err := validatePHPMyAdminConfig(environment.PHPMyAdmin()); err != nil {
 				return err
 			}
 

@@ -16,89 +16,20 @@ const (
 	ServerTypeFrankenPHP    = "frankenphp"
 )
 
-// ToolsConfig is the YAML shape for managed tool version labels inside an environment file.
-type ToolsConfig struct {
-	PHPVersion         string `yaml:"php,omitempty"`
-	PHPZTSVersion      string `yaml:"php-zts,omitempty"`
-	FrankenPHPVersion  string `yaml:"frankenphp,omitempty"`
-	RoadRunnerVersion  string `yaml:"roadrunner,omitempty"`
-	ComposerVersion    string `yaml:"composer,omitempty"`
-	PIEVersion         string `yaml:"pie,omitempty"`
-	NodeJSVersion      string `yaml:"nodejs,omitempty"`
-	MagoVersion        string `yaml:"mago,omitempty"`
-	NginxVersion       string `yaml:"nginx,omitempty"`
-	ApacheVersion      string `yaml:"apache,omitempty"`
-	MySQLVersion       string `yaml:"mysql,omitempty"`
-	MariaDBVersion     string `yaml:"mariadb,omitempty"`
-	PostgreSQLVersion  string `yaml:"postgresql,omitempty"`
-	SQLiteVersion      string `yaml:"sqlite,omitempty"`
-	MailpitVersion     string `yaml:"mailpit,omitempty"`
-	PHPMyAdminVersion  string `yaml:"phpmyadmin,omitempty"`
-	MeilisearchVersion string `yaml:"meilisearch,omitempty"`
-	RedisVersion       string `yaml:"redis,omitempty"`
-	RabbitMQVersion    string `yaml:"rabbitmq,omitempty"`
-	TraefikVersion     string `yaml:"traefik,omitempty"`
-}
+// ToolsConfig maps managed tool IDs to version labels inside an environment file.
+type ToolsConfig map[string]string
 
-// SettingsConfig is the YAML shape for versionless per-tool settings.
-type SettingsConfig struct {
-	PHP         *PHPSettingsConfig         `yaml:"php,omitempty"`
-	Mailpit     *MailpitSettingsConfig     `yaml:"mailpit,omitempty"`
-	PHPMyAdmin  *PHPMyAdminSettingsConfig  `yaml:"phpmyadmin,omitempty"`
-	Meilisearch *MeilisearchSettingsConfig `yaml:"meilisearch,omitempty"`
-	Redis       *RedisSettingsConfig       `yaml:"redis,omitempty"`
-	RabbitMQ    *RabbitMQSettingsConfig    `yaml:"rabbitmq,omitempty"`
-	Traefik     *TraefikSettingsConfig     `yaml:"traefik,omitempty"`
-}
-
-// PHPSettingsConfig is the YAML shape for versionless PHP runtime settings.
-type PHPSettingsConfig struct {
-	BuildTools bool `yaml:"extension-sdk,omitempty"`
-}
-
-// MailpitSettingsConfig is the YAML shape for Mailpit runtime settings.
-type MailpitSettingsConfig struct {
-	SMTPPort int `yaml:"smtp-port,omitempty"`
-	UIPort   int `yaml:"ui-port,omitempty"`
-}
-
-// PHPMyAdminSettingsConfig is the YAML shape for phpMyAdmin runtime settings.
-type PHPMyAdminSettingsConfig struct {
-	Port int `yaml:"port,omitempty"`
-}
-
-// MeilisearchSettingsConfig is the YAML shape for Meilisearch runtime settings.
-type MeilisearchSettingsConfig struct {
-	Port      int    `yaml:"port,omitempty"`
-	MasterKey string `yaml:"master-key,omitempty"`
-}
-
-// RedisSettingsConfig is the YAML shape for Redis runtime settings.
-type RedisSettingsConfig struct {
-	Port     int    `yaml:"port,omitempty"`
-	Password string `yaml:"password,omitempty"`
-}
-
-// RabbitMQSettingsConfig is the YAML shape for RabbitMQ runtime settings.
-type RabbitMQSettingsConfig struct {
-	Port           int    `yaml:"port,omitempty"`
-	ManagementPort int    `yaml:"management-port,omitempty"`
-	Username       string `yaml:"username,omitempty"`
-	Password       string `yaml:"password,omitempty"`
-}
-
-// TraefikSettingsConfig is the YAML shape for Traefik runtime settings.
-type TraefikSettingsConfig struct {
-	Port int `yaml:"port,omitempty"`
-}
+// SettingsConfig maps a settings namespace (typically a tool ID) to versionless
+// scalar settings inside an environment file.
+type SettingsConfig map[string]map[string]any
 
 // ProjectFile is the YAML shape of polka.yaml, which also defines the default environment.
 type ProjectFile struct {
 	Version        int                     `yaml:"version"`
 	Root           string                  `yaml:"root"`
 	Framework      string                  `yaml:"framework,omitempty"`
-	Tools          *ToolsConfig            `yaml:"tools,omitempty"`
-	Settings       *SettingsConfig         `yaml:"settings,omitempty"`
+	Tools          ToolsConfig             `yaml:"tools,omitempty"`
+	Settings       SettingsConfig          `yaml:"settings,omitempty"`
 	Docroot        string                  `yaml:"docroot,omitempty"`
 	HTTPS          bool                    `yaml:"https,omitempty"`
 	EnvFile        string                  `yaml:"env-file,omitempty"`
@@ -116,8 +47,8 @@ type ProjectFile struct {
 // EnvironmentFile is the YAML shape of polka.<name>.yaml.
 type EnvironmentFile struct {
 	Framework      string                  `yaml:"framework,omitempty"`
-	Tools          *ToolsConfig            `yaml:"tools,omitempty"`
-	Settings       *SettingsConfig         `yaml:"settings,omitempty"`
+	Tools          ToolsConfig             `yaml:"tools,omitempty"`
+	Settings       SettingsConfig          `yaml:"settings,omitempty"`
 	Docroot        string                  `yaml:"docroot,omitempty"`
 	HTTPS          bool                    `yaml:"https,omitempty"`
 	EnvFile        string                  `yaml:"env-file,omitempty"`
@@ -132,44 +63,28 @@ type EnvironmentFile struct {
 	Workers        map[string]WorkerConfig `yaml:"workers,omitempty"`
 }
 
+// Environment is the normalized in-memory model for a Polka environment.
+// Managed tool versions live in Tools and versionless tool options live in
+// Settings; service-specific helper methods expose typed read-only views.
 type Environment struct {
-	Name              string                         `yaml:"-"`
-	Framework         string                         `yaml:"framework,omitempty"`
-	PHPVersion        string                         `yaml:"php,omitempty"`
-	PHPZTSVersion     string                         `yaml:"php-zts,omitempty"`
-	FrankenPHPVersion string                         `yaml:"frankenphp,omitempty"`
-	RoadRunnerVersion string                         `yaml:"roadrunner,omitempty"`
-	ComposerVersion   string                         `yaml:"composer,omitempty"`
-	PIEVersion        string                         `yaml:"pie,omitempty"`
-	NodeJSVersion     string                         `yaml:"nodejs,omitempty"`
-	MagoVersion       string                         `yaml:"mago,omitempty"`
-	NginxVersion      string                         `yaml:"nginx,omitempty"`
-	ApacheVersion     string                         `yaml:"apache,omitempty"`
-	MySQLVersion      string                         `yaml:"mysql,omitempty"`
-	MariaDBVersion    string                         `yaml:"mariadb,omitempty"`
-	PostgreSQLVersion string                         `yaml:"postgresql,omitempty"`
-	SQLiteVersion     string                         `yaml:"sqlite,omitempty"`
-	Docroot           string                         `yaml:"docroot,omitempty"`
-	HTTPS             bool                           `yaml:"https,omitempty"`
-	PHPBuildTools     bool                           `yaml:"-"`
-	EnvFile           string                         `yaml:"env-file,omitempty"`
-	EnvVars           map[string]string              `yaml:"env-vars,omitempty"`
-	Database          *DatabaseConfig                `yaml:"database,omitempty"`
-	Mailpit           *MailpitConfig                 `yaml:"mailpit,omitempty"`
-	PHPMyAdmin        *PHPMyAdminConfig              `yaml:"phpmyadmin,omitempty"`
-	Meilisearch       *MeilisearchConfig             `yaml:"meilisearch,omitempty"`
-	Redis             *RedisConfig                   `yaml:"redis,omitempty"`
-	RabbitMQ          *RabbitMQConfig                `yaml:"rabbitmq,omitempty"`
-	Traefik           *TraefikConfig                 `yaml:"traefik,omitempty"`
-	MemoryLimit       string                         `yaml:"memory-limit,omitempty"`
-	PHPExtensions     map[string]bool                `yaml:"php-extensions,omitempty"`
-	PIEExtensions     map[string]string              `yaml:"-"`
-	PECLExtensions    map[string]PECLExtensionConfig `yaml:"-"`
-	ZendExtensions    map[string]bool                `yaml:"-"`
-	OPcachePreset     string                         `yaml:"opcache-preset,omitempty"`
-	OPcacheConfig     map[string]string              `yaml:"opcache-config,omitempty"`
-	Server            *ServerConfig                  `yaml:"server,omitempty"`
-	Workers           map[string]WorkerConfig        `yaml:"workers,omitempty"`
+	Name           string                         `yaml:"-"`
+	Framework      string                         `yaml:"framework,omitempty"`
+	Tools          ToolsConfig                    `yaml:"tools,omitempty"`
+	Settings       SettingsConfig                 `yaml:"settings,omitempty"`
+	Docroot        string                         `yaml:"docroot,omitempty"`
+	HTTPS          bool                           `yaml:"https,omitempty"`
+	EnvFile        string                         `yaml:"env-file,omitempty"`
+	EnvVars        map[string]string              `yaml:"env-vars,omitempty"`
+	Database       *DatabaseConfig                `yaml:"database,omitempty"`
+	MemoryLimit    string                         `yaml:"memory-limit,omitempty"`
+	PHPExtensions  map[string]bool                `yaml:"php-extensions,omitempty"`
+	PIEExtensions  map[string]string              `yaml:"-"`
+	PECLExtensions map[string]PECLExtensionConfig `yaml:"-"`
+	ZendExtensions map[string]bool                `yaml:"-"`
+	OPcachePreset  string                         `yaml:"opcache-preset,omitempty"`
+	OPcacheConfig  map[string]string              `yaml:"opcache-config,omitempty"`
+	Server         *ServerConfig                  `yaml:"server,omitempty"`
+	Workers        map[string]WorkerConfig        `yaml:"workers,omitempty"`
 }
 
 // PECLExtensionConfig describes one legacy PECL package. ConfigureOptions
@@ -185,6 +100,7 @@ type DatabaseConfig struct {
 	Port    int    `yaml:"port,omitempty"`
 }
 
+// MailpitConfig is the read-only typed view of Mailpit tool and runtime settings.
 type MailpitConfig struct {
 	Version  string `yaml:"version,omitempty"`
 	SMTPPort int    `yaml:"smtp-port,omitempty"`
@@ -192,18 +108,21 @@ type MailpitConfig struct {
 	HTTPS    bool   `yaml:"https,omitempty"`
 }
 
+// PHPMyAdminConfig is the read-only typed view of phpMyAdmin tool and runtime settings.
 type PHPMyAdminConfig struct {
 	Version string `yaml:"version,omitempty"`
 	Port    int    `yaml:"port,omitempty"`
 	HTTPS   bool   `yaml:"https,omitempty"`
 }
 
+// MeilisearchConfig is the read-only typed view of Meilisearch tool and runtime settings.
 type MeilisearchConfig struct {
 	Version   string `yaml:"version,omitempty"`
 	Port      int    `yaml:"port,omitempty"`
 	MasterKey string `yaml:"master-key,omitempty"`
 }
 
+// RedisConfig is the read-only typed view of Redis tool and runtime settings.
 type RedisConfig struct {
 	Version  string `yaml:"version,omitempty"`
 	Port     int    `yaml:"port,omitempty"`
@@ -219,6 +138,7 @@ type RabbitMQConfig struct {
 	Password       string `yaml:"password,omitempty"`
 }
 
+// TraefikConfig is the read-only typed view of Traefik tool and runtime settings.
 type TraefikConfig struct {
 	Version string `yaml:"version,omitempty"`
 	Port    int    `yaml:"port,omitempty"`
@@ -237,13 +157,305 @@ type Config struct {
 	Environments map[string]Environment `yaml:"-"`
 }
 
+// ToolVersion returns the configured version label for tool, or an empty string
+// when the tool is not configured on the environment.
+func (e Environment) ToolVersion(tool string) string {
+	if len(e.Tools) == 0 {
+		return ""
+	}
+	key := strings.ToLower(strings.TrimSpace(tool))
+	if key == "" {
+		return ""
+	}
+	if version, ok := e.Tools[key]; ok {
+		return strings.TrimSpace(version)
+	}
+	for rawKey, version := range e.Tools {
+		if strings.EqualFold(strings.TrimSpace(rawKey), key) {
+			return strings.TrimSpace(version)
+		}
+	}
+
+	return ""
+}
+
+// SetToolVersion records or clears a managed tool version on the environment.
+// An empty version removes the tool entry.
+func (e *Environment) SetToolVersion(tool, version string) {
+	if e == nil {
+		return
+	}
+	key := strings.ToLower(strings.TrimSpace(tool))
+	if key == "" {
+		return
+	}
+	trimmed := strings.TrimSpace(version)
+	if trimmed == "" {
+		if len(e.Tools) == 0 {
+			return
+		}
+		delete(e.Tools, key)
+		for rawKey := range e.Tools {
+			if strings.EqualFold(strings.TrimSpace(rawKey), key) {
+				delete(e.Tools, rawKey)
+			}
+		}
+		if len(e.Tools) == 0 {
+			e.Tools = nil
+		}
+		return
+	}
+	if e.Tools == nil {
+		e.Tools = ToolsConfig{}
+	}
+	for rawKey := range e.Tools {
+		if rawKey != key && strings.EqualFold(strings.TrimSpace(rawKey), key) {
+			delete(e.Tools, rawKey)
+		}
+	}
+	e.Tools[key] = trimmed
+}
+
+// Setting returns the raw setting value stored under settings.<namespace>.<key>.
+func (e Environment) Setting(namespace, key string) (any, bool) {
+	if len(e.Settings) == 0 {
+		return nil, false
+	}
+	ns := strings.ToLower(strings.TrimSpace(namespace))
+	k := strings.ToLower(strings.TrimSpace(key))
+	if ns == "" || k == "" {
+		return nil, false
+	}
+	if nsMap, ok := e.Settings[ns]; ok {
+		if value, ok := nsMap[k]; ok {
+			return value, true
+		}
+		for rawKey, value := range nsMap {
+			if strings.EqualFold(strings.TrimSpace(rawKey), k) {
+				return value, true
+			}
+		}
+		return nil, false
+	}
+	for rawNS, nsMap := range e.Settings {
+		if !strings.EqualFold(strings.TrimSpace(rawNS), ns) {
+			continue
+		}
+		if value, ok := nsMap[k]; ok {
+			return value, true
+		}
+		for rawKey, value := range nsMap {
+			if strings.EqualFold(strings.TrimSpace(rawKey), k) {
+				return value, true
+			}
+		}
+	}
+
+	return nil, false
+}
+
+// SettingString returns a trimmed string setting under settings.<namespace>.<key>.
+func (e Environment) SettingString(namespace, key string) string {
+	value, ok := e.Setting(namespace, key)
+	if !ok || value == nil {
+		return ""
+	}
+	if text, ok := value.(string); ok {
+		return strings.TrimSpace(text)
+	}
+
+	return strings.TrimSpace(fmt.Sprint(value))
+}
+
+// SettingInt returns an integer setting under settings.<namespace>.<key>, or 0
+// when unset or non-numeric.
+func (e Environment) SettingInt(namespace, key string) int {
+	value, ok := e.Setting(namespace, key)
+	if !ok || value == nil {
+		return 0
+	}
+	if parsed, ok := settingIntValue(value); ok {
+		return parsed
+	}
+
+	return 0
+}
+
+// SettingBool returns a boolean setting under settings.<namespace>.<key>.
+func (e Environment) SettingBool(namespace, key string) bool {
+	value, ok := e.Setting(namespace, key)
+	if !ok || value == nil {
+		return false
+	}
+	if enabled, ok := value.(bool); ok {
+		return enabled
+	}
+
+	return false
+}
+
+// SetSetting sets or clears a versionless setting under settings.<namespace>.<key>.
+// Zero values ("", 0, false, nil) remove the key and prune empty maps.
+func (e *Environment) SetSetting(namespace, key string, value any) {
+	if e == nil {
+		return
+	}
+	ns := strings.ToLower(strings.TrimSpace(namespace))
+	k := strings.ToLower(strings.TrimSpace(key))
+	if ns == "" || k == "" {
+		return
+	}
+	normalized, ok := normalizeSettingValue(value)
+	if !ok {
+		if len(e.Settings) == 0 {
+			return
+		}
+		if nsMap, exists := e.Settings[ns]; exists {
+			delete(nsMap, k)
+			for rawKey := range nsMap {
+				if strings.EqualFold(strings.TrimSpace(rawKey), k) {
+					delete(nsMap, rawKey)
+				}
+			}
+			if len(nsMap) == 0 {
+				delete(e.Settings, ns)
+			}
+		}
+		if len(e.Settings) == 0 {
+			e.Settings = nil
+		}
+		return
+	}
+	if e.Settings == nil {
+		e.Settings = SettingsConfig{}
+	}
+	if e.Settings[ns] == nil {
+		e.Settings[ns] = map[string]any{}
+	}
+	for rawKey := range e.Settings[ns] {
+		if rawKey != k && strings.EqualFold(strings.TrimSpace(rawKey), k) {
+			delete(e.Settings[ns], rawKey)
+		}
+	}
+	e.Settings[ns][k] = normalized
+}
+
+// PHPBuildTools reports whether settings.php.extension-sdk is enabled.
+func (e Environment) PHPBuildTools() bool {
+	return e.SettingBool("php", "extension-sdk")
+}
+
+// Mailpit returns the typed Mailpit view, or nil when neither tools.mailpit nor
+// settings.mailpit is configured.
+func (e Environment) Mailpit() *MailpitConfig {
+	version := e.ToolVersion("mailpit")
+	smtpPort := e.SettingInt("mailpit", "smtp-port")
+	uiPort := e.SettingInt("mailpit", "ui-port")
+	if version == "" && smtpPort == 0 && uiPort == 0 {
+		return nil
+	}
+
+	return &MailpitConfig{
+		Version:  version,
+		SMTPPort: smtpPort,
+		UIPort:   uiPort,
+		HTTPS:    e.HTTPS,
+	}
+}
+
+// PHPMyAdmin returns the typed phpMyAdmin view, or nil when neither
+// tools.phpmyadmin nor settings.phpmyadmin is configured.
+func (e Environment) PHPMyAdmin() *PHPMyAdminConfig {
+	version := e.ToolVersion("phpmyadmin")
+	port := e.SettingInt("phpmyadmin", "port")
+	if version == "" && port == 0 {
+		return nil
+	}
+
+	return &PHPMyAdminConfig{
+		Version: version,
+		Port:    port,
+		HTTPS:   e.HTTPS,
+	}
+}
+
+// Meilisearch returns the typed Meilisearch view, or nil when neither
+// tools.meilisearch nor settings.meilisearch is configured.
+func (e Environment) Meilisearch() *MeilisearchConfig {
+	version := e.ToolVersion("meilisearch")
+	port := e.SettingInt("meilisearch", "port")
+	masterKey := e.SettingString("meilisearch", "master-key")
+	if version == "" && port == 0 && masterKey == "" {
+		return nil
+	}
+
+	return &MeilisearchConfig{
+		Version:   version,
+		Port:      port,
+		MasterKey: masterKey,
+	}
+}
+
+// Redis returns the typed Redis view, or nil when neither tools.redis nor
+// settings.redis is configured.
+func (e Environment) Redis() *RedisConfig {
+	version := e.ToolVersion("redis")
+	port := e.SettingInt("redis", "port")
+	password := e.SettingString("redis", "password")
+	if version == "" && port == 0 && password == "" {
+		return nil
+	}
+
+	return &RedisConfig{
+		Version:  version,
+		Port:     port,
+		Password: password,
+	}
+}
+
+// RabbitMQ returns the typed RabbitMQ view, or nil when neither tools.rabbitmq
+// nor settings.rabbitmq is configured.
+func (e Environment) RabbitMQ() *RabbitMQConfig {
+	version := e.ToolVersion("rabbitmq")
+	port := e.SettingInt("rabbitmq", "port")
+	managementPort := e.SettingInt("rabbitmq", "management-port")
+	username := e.SettingString("rabbitmq", "username")
+	password := e.SettingString("rabbitmq", "password")
+	if version == "" && port == 0 && managementPort == 0 && username == "" && password == "" {
+		return nil
+	}
+
+	return &RabbitMQConfig{
+		Version:        version,
+		Port:           port,
+		ManagementPort: managementPort,
+		Username:       username,
+		Password:       password,
+	}
+}
+
+// Traefik returns the typed Traefik view, or nil when neither tools.traefik nor
+// settings.traefik is configured.
+func (e Environment) Traefik() *TraefikConfig {
+	version := e.ToolVersion("traefik")
+	port := e.SettingInt("traefik", "port")
+	if version == "" && port == 0 {
+		return nil
+	}
+
+	return &TraefikConfig{
+		Version: version,
+		Port:    port,
+	}
+}
+
 // PrimaryPHPTool returns the configured PHP runtime tool and version. The
-// caller must validate mutual exclusion when both runtime fields are present.
+// caller must validate mutual exclusion when both runtime entries are present.
 func PrimaryPHPTool(environment Environment) (string, string) {
-	if version := strings.TrimSpace(environment.PHPZTSVersion); version != "" {
+	if version := environment.ToolVersion("php-zts"); version != "" {
 		return "php-zts", version
 	}
-	if version := strings.TrimSpace(environment.PHPVersion); version != "" {
+	if version := environment.ToolVersion("php"); version != "" {
 		return "php", version
 	}
 
@@ -262,7 +474,7 @@ func PHPCLIProvider(environment Environment) (string, string) {
 	if tool, version := PrimaryPHPTool(environment); tool != "" {
 		return tool, version
 	}
-	if version := strings.TrimSpace(environment.FrankenPHPVersion); version != "" {
+	if version := environment.ToolVersion(ServerTypeFrankenPHP); version != "" {
 		return ServerTypeFrankenPHP, version
 	}
 
@@ -299,7 +511,7 @@ func ProjectFileToEnvironment(name string, file ProjectFile) Environment {
 
 // ProjectFileFromEnvironment converts the default environment into polka.yaml data.
 func ProjectFileFromEnvironment(version int, root string, environment Environment) ProjectFile {
-	file := ProjectFile{
+	return ProjectFile{
 		Version:        version,
 		Root:           root,
 		Framework:      strings.ToLower(strings.TrimSpace(environment.Framework)),
@@ -318,8 +530,6 @@ func ProjectFileFromEnvironment(version int, root string, environment Environmen
 		Server:         ServerConfigFromEnvironment(environment),
 		Workers:        NormalizeWorkersConfig(environment.Workers),
 	}
-
-	return file
 }
 
 // EnvironmentFileToEnvironment converts polka.<name>.yaml data into the internal environment model.
@@ -365,218 +575,15 @@ func EnvironmentFileFromEnvironment(environment Environment) EnvironmentFile {
 	}
 }
 
-// ToolsConfigFromEnvironment extracts managed tool settings from an environment.
-func ToolsConfigFromEnvironment(environment Environment) *ToolsConfig {
-	tools := &ToolsConfig{
-		PHPVersion:         environment.PHPVersion,
-		PHPZTSVersion:      environment.PHPZTSVersion,
-		FrankenPHPVersion:  environment.FrankenPHPVersion,
-		RoadRunnerVersion:  environment.RoadRunnerVersion,
-		ComposerVersion:    environment.ComposerVersion,
-		PIEVersion:         environment.PIEVersion,
-		NodeJSVersion:      environment.NodeJSVersion,
-		MagoVersion:        environment.MagoVersion,
-		NginxVersion:       environment.NginxVersion,
-		ApacheVersion:      environment.ApacheVersion,
-		MySQLVersion:       DatabaseToolVersion(environment, "mysql"),
-		MariaDBVersion:     DatabaseToolVersion(environment, "mariadb"),
-		PostgreSQLVersion:  DatabaseToolVersion(environment, "postgresql"),
-		SQLiteVersion:      environment.SQLiteVersion,
-		MailpitVersion:     ToolVersionFromMailpitConfig(environment.Mailpit),
-		PHPMyAdminVersion:  ToolVersionFromPHPMyAdminConfig(environment.PHPMyAdmin),
-		MeilisearchVersion: ToolVersionFromMeilisearchConfig(environment.Meilisearch),
-		RedisVersion:       ToolVersionFromRedisConfig(environment.Redis),
-		RabbitMQVersion:    ToolVersionFromRabbitMQConfig(environment.RabbitMQ),
-		TraefikVersion:     ToolVersionFromTraefikConfig(environment.Traefik),
-	}
-	if tools.IsZero() {
-		return nil
-	}
-
-	return tools
+// ToolsConfigFromEnvironment extracts normalized managed tool versions from an environment.
+func ToolsConfigFromEnvironment(environment Environment) ToolsConfig {
+	environment = populateDatabaseToolVersion(environment)
+	return NormalizeToolsConfig(environment.Tools)
 }
 
-// SettingsConfigFromEnvironment extracts versionless tool settings from an environment.
-func SettingsConfigFromEnvironment(environment Environment) *SettingsConfig {
-	settings := &SettingsConfig{
-		PHP:         PHPSettingsConfigFromEnvironment(environment),
-		Mailpit:     MailpitSettingsConfigFromEnvironment(environment),
-		PHPMyAdmin:  PHPMyAdminSettingsConfigFromEnvironment(environment),
-		Meilisearch: MeilisearchSettingsConfigFromEnvironment(environment),
-		Redis:       RedisSettingsConfigFromEnvironment(environment),
-		RabbitMQ:    RabbitMQSettingsConfigFromEnvironment(environment),
-		Traefik:     TraefikSettingsConfigFromEnvironment(environment),
-	}
-	if settings.IsZero() {
-		return nil
-	}
-
-	return settings
-}
-
-// PHPSettingsConfigFromEnvironment extracts versionless PHP settings.
-func PHPSettingsConfigFromEnvironment(environment Environment) *PHPSettingsConfig {
-	if !environment.PHPBuildTools {
-		return nil
-	}
-
-	return &PHPSettingsConfig{BuildTools: true}
-}
-
-// ToolVersionFromMailpitConfig extracts Mailpit's managed tool version label.
-func ToolVersionFromMailpitConfig(mailpit *MailpitConfig) string {
-	if mailpit == nil {
-		return ""
-	}
-
-	return strings.TrimSpace(mailpit.Version)
-}
-
-// ToolVersionFromPHPMyAdminConfig extracts phpMyAdmin's managed tool version label.
-func ToolVersionFromPHPMyAdminConfig(phpMyAdmin *PHPMyAdminConfig) string {
-	if phpMyAdmin == nil {
-		return ""
-	}
-
-	return strings.TrimSpace(phpMyAdmin.Version)
-}
-
-// ToolVersionFromMeilisearchConfig extracts Meilisearch's managed tool version label.
-func ToolVersionFromMeilisearchConfig(meilisearch *MeilisearchConfig) string {
-	if meilisearch == nil {
-		return ""
-	}
-
-	return strings.TrimSpace(meilisearch.Version)
-}
-
-// ToolVersionFromRedisConfig extracts Redis's managed tool version label.
-func ToolVersionFromRedisConfig(redis *RedisConfig) string {
-	if redis == nil {
-		return ""
-	}
-
-	return strings.TrimSpace(redis.Version)
-}
-
-// ToolVersionFromRabbitMQConfig extracts RabbitMQ's managed tool version label.
-func ToolVersionFromRabbitMQConfig(rabbitMQ *RabbitMQConfig) string {
-	if rabbitMQ == nil {
-		return ""
-	}
-
-	return strings.TrimSpace(rabbitMQ.Version)
-}
-
-// ToolVersionFromTraefikConfig extracts Traefik's managed tool version label.
-func ToolVersionFromTraefikConfig(traefik *TraefikConfig) string {
-	if traefik == nil {
-		return ""
-	}
-
-	return strings.TrimSpace(traefik.Version)
-}
-
-// MailpitSettingsConfigFromEnvironment extracts Mailpit settings that belong under settings.
-func MailpitSettingsConfigFromEnvironment(environment Environment) *MailpitSettingsConfig {
-	if environment.Mailpit == nil {
-		return nil
-	}
-
-	mailpit := &MailpitSettingsConfig{
-		SMTPPort: environment.Mailpit.SMTPPort,
-		UIPort:   environment.Mailpit.UIPort,
-	}
-	if mailpit.SMTPPort == 0 && mailpit.UIPort == 0 {
-		return nil
-	}
-
-	return mailpit
-}
-
-// PHPMyAdminSettingsConfigFromEnvironment extracts phpMyAdmin settings that belong under settings.
-func PHPMyAdminSettingsConfigFromEnvironment(environment Environment) *PHPMyAdminSettingsConfig {
-	if environment.PHPMyAdmin == nil {
-		return nil
-	}
-
-	phpMyAdmin := &PHPMyAdminSettingsConfig{
-		Port: environment.PHPMyAdmin.Port,
-	}
-	if phpMyAdmin.Port == 0 {
-		return nil
-	}
-
-	return phpMyAdmin
-}
-
-// MeilisearchSettingsConfigFromEnvironment extracts Meilisearch settings that belong under settings.
-func MeilisearchSettingsConfigFromEnvironment(environment Environment) *MeilisearchSettingsConfig {
-	if environment.Meilisearch == nil {
-		return nil
-	}
-
-	meilisearch := &MeilisearchSettingsConfig{
-		Port:      environment.Meilisearch.Port,
-		MasterKey: strings.TrimSpace(environment.Meilisearch.MasterKey),
-	}
-	if meilisearch.Port == 0 && meilisearch.MasterKey == "" {
-		return nil
-	}
-
-	return meilisearch
-}
-
-// RedisSettingsConfigFromEnvironment extracts Redis settings that belong under settings.
-func RedisSettingsConfigFromEnvironment(environment Environment) *RedisSettingsConfig {
-	if environment.Redis == nil {
-		return nil
-	}
-
-	redis := &RedisSettingsConfig{
-		Port:     environment.Redis.Port,
-		Password: strings.TrimSpace(environment.Redis.Password),
-	}
-	if redis.Port == 0 && redis.Password == "" {
-		return nil
-	}
-
-	return redis
-}
-
-// RabbitMQSettingsConfigFromEnvironment extracts versionless broker settings.
-func RabbitMQSettingsConfigFromEnvironment(environment Environment) *RabbitMQSettingsConfig {
-	if environment.RabbitMQ == nil {
-		return nil
-	}
-
-	rabbitMQ := &RabbitMQSettingsConfig{
-		Port:           environment.RabbitMQ.Port,
-		ManagementPort: environment.RabbitMQ.ManagementPort,
-		Username:       strings.TrimSpace(environment.RabbitMQ.Username),
-		Password:       strings.TrimSpace(environment.RabbitMQ.Password),
-	}
-	if rabbitMQ.Port == 0 && rabbitMQ.ManagementPort == 0 && rabbitMQ.Username == "" && rabbitMQ.Password == "" {
-		return nil
-	}
-
-	return rabbitMQ
-}
-
-// TraefikSettingsConfigFromEnvironment extracts Traefik settings that belong under settings.
-func TraefikSettingsConfigFromEnvironment(environment Environment) *TraefikSettingsConfig {
-	if environment.Traefik == nil {
-		return nil
-	}
-
-	traefik := &TraefikSettingsConfig{
-		Port: environment.Traefik.Port,
-	}
-	if traefik.Port == 0 {
-		return nil
-	}
-
-	return traefik
+// SettingsConfigFromEnvironment extracts normalized versionless tool settings from an environment.
+func SettingsConfigFromEnvironment(environment Environment) SettingsConfig {
+	return NormalizeSettingsConfig(environment.Settings)
 }
 
 // ServerConfigFromEnvironment extracts server settings that belong in YAML.
@@ -597,46 +604,135 @@ func ServerConfigFromEnvironment(environment Environment) *ServerConfig {
 	return server
 }
 
-// IsZero reports whether no managed tool settings are configured.
+// IsZero reports whether no managed tool versions are configured.
 func (tools ToolsConfig) IsZero() bool {
-	return strings.TrimSpace(tools.PHPVersion) == "" &&
-		strings.TrimSpace(tools.PHPZTSVersion) == "" &&
-		strings.TrimSpace(tools.FrankenPHPVersion) == "" &&
-		strings.TrimSpace(tools.RoadRunnerVersion) == "" &&
-		strings.TrimSpace(tools.ComposerVersion) == "" &&
-		strings.TrimSpace(tools.PIEVersion) == "" &&
-		strings.TrimSpace(tools.NodeJSVersion) == "" &&
-		strings.TrimSpace(tools.MagoVersion) == "" &&
-		strings.TrimSpace(tools.NginxVersion) == "" &&
-		strings.TrimSpace(tools.ApacheVersion) == "" &&
-		strings.TrimSpace(tools.MySQLVersion) == "" &&
-		strings.TrimSpace(tools.MariaDBVersion) == "" &&
-		strings.TrimSpace(tools.PostgreSQLVersion) == "" &&
-		strings.TrimSpace(tools.SQLiteVersion) == "" &&
-		strings.TrimSpace(tools.MailpitVersion) == "" &&
-		strings.TrimSpace(tools.PHPMyAdminVersion) == "" &&
-		strings.TrimSpace(tools.MeilisearchVersion) == "" &&
-		strings.TrimSpace(tools.RedisVersion) == "" &&
-		strings.TrimSpace(tools.RabbitMQVersion) == "" &&
-		strings.TrimSpace(tools.TraefikVersion) == ""
+	return len(NormalizeToolsConfig(tools)) == 0
 }
 
 // IsZero reports whether no versionless tool settings are configured.
 func (settings SettingsConfig) IsZero() bool {
-	return settings.PHP == nil &&
-		settings.Mailpit == nil &&
-		settings.PHPMyAdmin == nil &&
-		settings.Meilisearch == nil &&
-		settings.Redis == nil &&
-		settings.RabbitMQ == nil &&
-		settings.Traefik == nil
+	return len(NormalizeSettingsConfig(settings)) == 0
 }
 
-func environmentFromFileParts(name string, framework string, tools *ToolsConfig, settings *SettingsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *DatabaseConfig, memoryLimit any, phpExtensions map[string]any, peclExtensions map[string]any, opcachePreset string, opcacheConfig map[string]any, server *ServerConfig, workers map[string]WorkerConfig) Environment {
+// NormalizeToolsConfig canonicalizes tool IDs to lowercase, trims versions, and
+// removes empty entries.
+func NormalizeToolsConfig(tools ToolsConfig) ToolsConfig {
+	if len(tools) == 0 {
+		return nil
+	}
+
+	normalized := make(ToolsConfig, len(tools))
+	for rawKey, rawVersion := range tools {
+		key := strings.ToLower(strings.TrimSpace(rawKey))
+		version := strings.TrimSpace(rawVersion)
+		if key == "" || version == "" {
+			continue
+		}
+		normalized[key] = version
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+
+	return normalized
+}
+
+// NormalizeSettingsConfig canonicalizes namespaces and keys to lowercase, trims
+// strings, normalizes integer types to int, and drops zero values.
+func NormalizeSettingsConfig(settings SettingsConfig) SettingsConfig {
+	if len(settings) == 0 {
+		return nil
+	}
+
+	normalized := make(SettingsConfig, len(settings))
+	for rawNamespace, rawValues := range settings {
+		namespace := strings.ToLower(strings.TrimSpace(rawNamespace))
+		if namespace == "" || len(rawValues) == 0 {
+			continue
+		}
+		values := make(map[string]any, len(rawValues))
+		for rawKey, rawValue := range rawValues {
+			key := strings.ToLower(strings.TrimSpace(rawKey))
+			if key == "" {
+				continue
+			}
+			if value, ok := normalizeSettingValue(rawValue); ok {
+				values[key] = value
+			}
+		}
+		if len(values) > 0 {
+			normalized[namespace] = values
+		}
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+
+	return normalized
+}
+
+func normalizeSettingValue(value any) (any, bool) {
+	if value == nil {
+		return nil, false
+	}
+	switch typed := value.(type) {
+	case bool:
+		if !typed {
+			return nil, false
+		}
+		return true, true
+	case string:
+		trimmed := strings.TrimSpace(typed)
+		if trimmed == "" {
+			return nil, false
+		}
+		return trimmed, true
+	default:
+		if parsed, ok := settingIntValue(value); ok {
+			if parsed == 0 {
+				return nil, false
+			}
+			return parsed, true
+		}
+		return value, true
+	}
+}
+
+func settingIntValue(value any) (int, bool) {
+	switch typed := value.(type) {
+	case int:
+		return typed, true
+	case int8:
+		return int(typed), true
+	case int16:
+		return int(typed), true
+	case int32:
+		return int(typed), true
+	case int64:
+		return int(typed), true
+	case uint:
+		return int(typed), true
+	case uint8:
+		return int(typed), true
+	case uint16:
+		return int(typed), true
+	case uint32:
+		return int(typed), true
+	case uint64:
+		return int(typed), true
+	default:
+		return 0, false
+	}
+}
+
+func environmentFromFileParts(name string, framework string, tools ToolsConfig, settings SettingsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *DatabaseConfig, memoryLimit any, phpExtensions map[string]any, peclExtensions map[string]any, opcachePreset string, opcacheConfig map[string]any, server *ServerConfig, workers map[string]WorkerConfig) Environment {
 	bundledExtensions, pieExtensions := SplitPHPExtensionsFromYAML(phpExtensions)
+	normalizedTools := NormalizeToolsConfig(tools)
 	environment := Environment{
 		Name:           name,
 		Framework:      strings.ToLower(strings.TrimSpace(framework)),
+		Tools:          normalizedTools,
+		Settings:       NormalizeSettingsConfig(settings),
 		Docroot:        docroot,
 		HTTPS:          https,
 		EnvFile:        envFile,
@@ -651,98 +747,12 @@ func environmentFromFileParts(name string, framework string, tools *ToolsConfig,
 		Server:         server,
 		Workers:        NormalizeWorkersConfig(workers),
 	}
-	if tools != nil {
-		environment.PHPVersion = tools.PHPVersion
-		environment.PHPZTSVersion = tools.PHPZTSVersion
-		environment.FrankenPHPVersion = tools.FrankenPHPVersion
-		environment.RoadRunnerVersion = tools.RoadRunnerVersion
-		environment.ComposerVersion = tools.ComposerVersion
-		environment.PIEVersion = tools.PIEVersion
-		environment.NodeJSVersion = tools.NodeJSVersion
-		environment.MagoVersion = tools.MagoVersion
-		environment.NginxVersion = tools.NginxVersion
-		environment.ApacheVersion = tools.ApacheVersion
-		environment.MySQLVersion = tools.MySQLVersion
-		environment.MariaDBVersion = tools.MariaDBVersion
-		environment.PostgreSQLVersion = tools.PostgreSQLVersion
-		environment.SQLiteVersion = tools.SQLiteVersion
-		environment.Database = PrimaryDatabaseConfigFromTools(tools, database)
-		environment = populateDatabaseToolVersion(environment)
-		if strings.TrimSpace(tools.MailpitVersion) != "" {
-			environment.Mailpit = &MailpitConfig{Version: tools.MailpitVersion}
-		}
-		if strings.TrimSpace(tools.PHPMyAdminVersion) != "" {
-			environment.PHPMyAdmin = &PHPMyAdminConfig{Version: tools.PHPMyAdminVersion}
-		}
-		if strings.TrimSpace(tools.MeilisearchVersion) != "" {
-			environment.Meilisearch = &MeilisearchConfig{Version: tools.MeilisearchVersion}
-		}
-		if strings.TrimSpace(tools.RedisVersion) != "" {
-			environment.Redis = &RedisConfig{Version: tools.RedisVersion}
-		}
-		if strings.TrimSpace(tools.RabbitMQVersion) != "" {
-			environment.RabbitMQ = &RabbitMQConfig{Version: tools.RabbitMQVersion}
-		}
-		if strings.TrimSpace(tools.TraefikVersion) != "" {
-			environment.Traefik = &TraefikConfig{Version: tools.TraefikVersion}
-		}
+	if len(normalizedTools) > 0 {
+		environment.Database = PrimaryDatabaseConfigFromTools(normalizedTools, database)
 	}
-	environment = applySettingsConfig(environment, settings)
+	environment = populateDatabaseToolVersion(environment)
 
 	return inheritEnvironmentHTTPS(environment)
-}
-
-func applySettingsConfig(environment Environment, settings *SettingsConfig) Environment {
-	if settings == nil {
-		return environment
-	}
-	if settings.PHP != nil {
-		environment.PHPBuildTools = settings.PHP.BuildTools
-	}
-	if settings.Mailpit != nil {
-		if environment.Mailpit == nil {
-			environment.Mailpit = &MailpitConfig{}
-		}
-		environment.Mailpit.SMTPPort = settings.Mailpit.SMTPPort
-		environment.Mailpit.UIPort = settings.Mailpit.UIPort
-	}
-	if settings.PHPMyAdmin != nil {
-		if environment.PHPMyAdmin == nil {
-			environment.PHPMyAdmin = &PHPMyAdminConfig{}
-		}
-		environment.PHPMyAdmin.Port = settings.PHPMyAdmin.Port
-	}
-	if settings.Meilisearch != nil {
-		if environment.Meilisearch == nil {
-			environment.Meilisearch = &MeilisearchConfig{}
-		}
-		environment.Meilisearch.Port = settings.Meilisearch.Port
-		environment.Meilisearch.MasterKey = settings.Meilisearch.MasterKey
-	}
-	if settings.Redis != nil {
-		if environment.Redis == nil {
-			environment.Redis = &RedisConfig{}
-		}
-		environment.Redis.Port = settings.Redis.Port
-		environment.Redis.Password = settings.Redis.Password
-	}
-	if settings.RabbitMQ != nil {
-		if environment.RabbitMQ == nil {
-			environment.RabbitMQ = &RabbitMQConfig{}
-		}
-		environment.RabbitMQ.Port = settings.RabbitMQ.Port
-		environment.RabbitMQ.ManagementPort = settings.RabbitMQ.ManagementPort
-		environment.RabbitMQ.Username = settings.RabbitMQ.Username
-		environment.RabbitMQ.Password = settings.RabbitMQ.Password
-	}
-	if settings.Traefik != nil {
-		if environment.Traefik == nil {
-			environment.Traefik = &TraefikConfig{}
-		}
-		environment.Traefik.Port = settings.Traefik.Port
-	}
-
-	return environment
 }
 
 func populateDatabaseToolVersion(environment Environment) Environment {
@@ -750,18 +760,11 @@ func populateDatabaseToolVersion(environment Environment) Environment {
 		return environment
 	}
 
-	switch strings.ToLower(strings.TrimSpace(environment.Database.Engine)) {
-	case "mysql":
-		if strings.TrimSpace(environment.MySQLVersion) == "" {
-			environment.MySQLVersion = environment.Database.Version
-		}
-	case "mariadb":
-		if strings.TrimSpace(environment.MariaDBVersion) == "" {
-			environment.MariaDBVersion = environment.Database.Version
-		}
-	case "postgresql":
-		if strings.TrimSpace(environment.PostgreSQLVersion) == "" {
-			environment.PostgreSQLVersion = environment.Database.Version
+	engine := strings.ToLower(strings.TrimSpace(environment.Database.Engine))
+	switch engine {
+	case "mysql", "mariadb", "postgresql":
+		if environment.ToolVersion(engine) == "" {
+			environment.SetToolVersion(engine, environment.Database.Version)
 		}
 	}
 
@@ -770,24 +773,17 @@ func populateDatabaseToolVersion(environment Environment) Environment {
 
 // DatabaseToolVersion returns the configured database version for the requested engine.
 func DatabaseToolVersion(environment Environment, engine string) string {
-	switch strings.ToLower(strings.TrimSpace(engine)) {
-	case "mysql":
-		if strings.TrimSpace(environment.MySQLVersion) != "" {
-			return environment.MySQLVersion
-		}
-	case "mariadb":
-		if strings.TrimSpace(environment.MariaDBVersion) != "" {
-			return environment.MariaDBVersion
-		}
-	case "postgresql":
-		if strings.TrimSpace(environment.PostgreSQLVersion) != "" {
-			return environment.PostgreSQLVersion
+	normalized := strings.ToLower(strings.TrimSpace(engine))
+	switch normalized {
+	case "mysql", "mariadb", "postgresql":
+		if version := environment.ToolVersion(normalized); version != "" {
+			return version
 		}
 	default:
 		return ""
 	}
-	if environment.Database != nil && strings.EqualFold(strings.TrimSpace(environment.Database.Engine), strings.TrimSpace(engine)) {
-		return environment.Database.Version
+	if environment.Database != nil && strings.EqualFold(strings.TrimSpace(environment.Database.Engine), normalized) {
+		return strings.TrimSpace(environment.Database.Version)
 	}
 
 	return ""
@@ -811,8 +807,9 @@ func DatabaseRuntimeConfigFromEnvironment(environment Environment) *DatabaseConf
 }
 
 // PrimaryDatabaseConfigFromTools combines database runtime settings with the selected database tool.
-func PrimaryDatabaseConfigFromTools(tools *ToolsConfig, database *DatabaseConfig) *DatabaseConfig {
-	if tools == nil {
+func PrimaryDatabaseConfigFromTools(tools ToolsConfig, database *DatabaseConfig) *DatabaseConfig {
+	normalizedTools := NormalizeToolsConfig(tools)
+	if len(normalizedTools) == 0 {
 		return database
 	}
 
@@ -820,24 +817,27 @@ func PrimaryDatabaseConfigFromTools(tools *ToolsConfig, database *DatabaseConfig
 	if database != nil {
 		*merged = *database
 	}
+	mysqlVersion := normalizedTools["mysql"]
+	mariaDBVersion := normalizedTools["mariadb"]
+	postgreSQLVersion := normalizedTools["postgresql"]
 	if merged.Engine == "" {
 		switch {
-		case strings.TrimSpace(tools.MySQLVersion) != "" && strings.TrimSpace(tools.MariaDBVersion) == "" && strings.TrimSpace(tools.PostgreSQLVersion) == "":
+		case mysqlVersion != "" && mariaDBVersion == "" && postgreSQLVersion == "":
 			merged.Engine = "mysql"
-		case strings.TrimSpace(tools.MariaDBVersion) != "" && strings.TrimSpace(tools.MySQLVersion) == "" && strings.TrimSpace(tools.PostgreSQLVersion) == "":
+		case mariaDBVersion != "" && mysqlVersion == "" && postgreSQLVersion == "":
 			merged.Engine = "mariadb"
-		case strings.TrimSpace(tools.PostgreSQLVersion) != "" && strings.TrimSpace(tools.MySQLVersion) == "" && strings.TrimSpace(tools.MariaDBVersion) == "":
+		case postgreSQLVersion != "" && mysqlVersion == "" && mariaDBVersion == "":
 			merged.Engine = "postgresql"
 		}
 	}
 	if merged.Version == "" {
 		switch strings.ToLower(strings.TrimSpace(merged.Engine)) {
 		case "mysql":
-			merged.Version = tools.MySQLVersion
+			merged.Version = mysqlVersion
 		case "mariadb":
-			merged.Version = tools.MariaDBVersion
+			merged.Version = mariaDBVersion
 		case "postgresql":
-			merged.Version = tools.PostgreSQLVersion
+			merged.Version = postgreSQLVersion
 		}
 	}
 
@@ -846,43 +846,24 @@ func PrimaryDatabaseConfigFromTools(tools *ToolsConfig, database *DatabaseConfig
 
 func NormalizeEnvironment(name string, environment Environment) Environment {
 	normalized := Environment{
-		Name:              name,
-		Framework:         strings.ToLower(strings.TrimSpace(environment.Framework)),
-		PHPVersion:        strings.TrimSpace(environment.PHPVersion),
-		PHPZTSVersion:     strings.TrimSpace(environment.PHPZTSVersion),
-		FrankenPHPVersion: strings.TrimSpace(environment.FrankenPHPVersion),
-		RoadRunnerVersion: strings.TrimSpace(environment.RoadRunnerVersion),
-		ComposerVersion:   strings.TrimSpace(environment.ComposerVersion),
-		PIEVersion:        strings.TrimSpace(environment.PIEVersion),
-		NodeJSVersion:     strings.TrimSpace(environment.NodeJSVersion),
-		MagoVersion:       strings.TrimSpace(environment.MagoVersion),
-		NginxVersion:      strings.TrimSpace(environment.NginxVersion),
-		ApacheVersion:     strings.TrimSpace(environment.ApacheVersion),
-		MySQLVersion:      strings.TrimSpace(environment.MySQLVersion),
-		MariaDBVersion:    strings.TrimSpace(environment.MariaDBVersion),
-		PostgreSQLVersion: strings.TrimSpace(environment.PostgreSQLVersion),
-		SQLiteVersion:     strings.TrimSpace(environment.SQLiteVersion),
-		Docroot:           strings.TrimSpace(environment.Docroot),
-		HTTPS:             environment.HTTPS,
-		PHPBuildTools:     environment.PHPBuildTools,
-		EnvFile:           strings.TrimSpace(environment.EnvFile),
-		EnvVars:           NormalizeEnvironmentVariables(environment.EnvVars),
-		Database:          NormalizeDatabaseConfig(environment.Database),
-		Mailpit:           NormalizeMailpitConfig(environment.Mailpit),
-		PHPMyAdmin:        NormalizePHPMyAdminConfig(environment.PHPMyAdmin),
-		Meilisearch:       NormalizeMeilisearchConfig(environment.Meilisearch),
-		Redis:             NormalizeRedisConfig(environment.Redis),
-		RabbitMQ:          NormalizeRabbitMQConfig(environment.RabbitMQ),
-		Traefik:           NormalizeTraefikConfig(environment.Traefik),
-		MemoryLimit:       NormalizePHPMemoryLimit(environment.MemoryLimit),
-		PHPExtensions:     NormalizePHPExtensions(environment.PHPExtensions),
-		PIEExtensions:     NormalizePIEExtensions(environment.PIEExtensions),
-		PECLExtensions:    NormalizePECLExtensions(environment.PECLExtensions),
-		ZendExtensions:    NormalizePHPExtensions(environment.ZendExtensions),
-		OPcachePreset:     NormalizeOPcachePreset(environment.OPcachePreset),
-		OPcacheConfig:     NormalizeOPcacheConfig(environment.OPcacheConfig),
-		Server:            NormalizeServerConfig(environment.Server),
-		Workers:           NormalizeWorkersConfig(environment.Workers),
+		Name:           name,
+		Framework:      strings.ToLower(strings.TrimSpace(environment.Framework)),
+		Tools:          NormalizeToolsConfig(environment.Tools),
+		Settings:       NormalizeSettingsConfig(environment.Settings),
+		Docroot:        strings.TrimSpace(environment.Docroot),
+		HTTPS:          environment.HTTPS,
+		EnvFile:        strings.TrimSpace(environment.EnvFile),
+		EnvVars:        NormalizeEnvironmentVariables(environment.EnvVars),
+		Database:       NormalizeDatabaseConfig(environment.Database),
+		MemoryLimit:    NormalizePHPMemoryLimit(environment.MemoryLimit),
+		PHPExtensions:  NormalizePHPExtensions(environment.PHPExtensions),
+		PIEExtensions:  NormalizePIEExtensions(environment.PIEExtensions),
+		PECLExtensions: NormalizePECLExtensions(environment.PECLExtensions),
+		ZendExtensions: NormalizePHPExtensions(environment.ZendExtensions),
+		OPcachePreset:  NormalizeOPcachePreset(environment.OPcachePreset),
+		OPcacheConfig:  NormalizeOPcacheConfig(environment.OPcacheConfig),
+		Server:         NormalizeServerConfig(environment.Server),
+		Workers:        NormalizeWorkersConfig(environment.Workers),
 	}
 
 	return populateDatabaseToolVersion(inheritEnvironmentHTTPS(normalized))
@@ -897,13 +878,6 @@ func inheritEnvironmentHTTPS(environment Environment) Environment {
 		environment.Server = &ServerConfig{}
 	}
 	environment.Server.HTTPS = true
-
-	if environment.Mailpit != nil {
-		environment.Mailpit.HTTPS = true
-	}
-	if environment.PHPMyAdmin != nil {
-		environment.PHPMyAdmin.HTTPS = true
-	}
 
 	return environment
 }
@@ -956,111 +930,6 @@ func NormalizeDatabaseConfig(database *DatabaseConfig) *DatabaseConfig {
 		Port:    database.Port,
 	}
 	if normalized.Engine == "" && normalized.Version == "" && normalized.Port == 0 {
-		return nil
-	}
-
-	return normalized
-}
-
-func NormalizeMailpitConfig(mailpit *MailpitConfig) *MailpitConfig {
-	if mailpit == nil {
-		return nil
-	}
-
-	normalized := &MailpitConfig{
-		Version:  strings.TrimSpace(mailpit.Version),
-		SMTPPort: mailpit.SMTPPort,
-		UIPort:   mailpit.UIPort,
-		HTTPS:    mailpit.HTTPS,
-	}
-	if normalized.Version == "" && normalized.SMTPPort == 0 && normalized.UIPort == 0 && !normalized.HTTPS {
-		return nil
-	}
-
-	return normalized
-}
-
-func NormalizePHPMyAdminConfig(phpMyAdmin *PHPMyAdminConfig) *PHPMyAdminConfig {
-	if phpMyAdmin == nil {
-		return nil
-	}
-
-	normalized := &PHPMyAdminConfig{
-		Version: strings.TrimSpace(phpMyAdmin.Version),
-		Port:    phpMyAdmin.Port,
-		HTTPS:   phpMyAdmin.HTTPS,
-	}
-	if normalized.Version == "" && normalized.Port == 0 && !normalized.HTTPS {
-		return nil
-	}
-
-	return normalized
-}
-
-func NormalizeMeilisearchConfig(meilisearch *MeilisearchConfig) *MeilisearchConfig {
-	if meilisearch == nil {
-		return nil
-	}
-
-	normalized := &MeilisearchConfig{
-		Version:   strings.TrimSpace(meilisearch.Version),
-		Port:      meilisearch.Port,
-		MasterKey: strings.TrimSpace(meilisearch.MasterKey),
-	}
-	if normalized.Version == "" && normalized.Port == 0 && normalized.MasterKey == "" {
-		return nil
-	}
-
-	return normalized
-}
-
-func NormalizeRedisConfig(redis *RedisConfig) *RedisConfig {
-	if redis == nil {
-		return nil
-	}
-
-	normalized := &RedisConfig{
-		Version:  strings.TrimSpace(redis.Version),
-		Port:     redis.Port,
-		Password: strings.TrimSpace(redis.Password),
-	}
-	if normalized.Version == "" && normalized.Port == 0 && normalized.Password == "" {
-		return nil
-	}
-
-	return normalized
-}
-
-// NormalizeRabbitMQConfig trims scalar values and removes an empty config.
-func NormalizeRabbitMQConfig(rabbitMQ *RabbitMQConfig) *RabbitMQConfig {
-	if rabbitMQ == nil {
-		return nil
-	}
-
-	normalized := &RabbitMQConfig{
-		Version:        strings.TrimSpace(rabbitMQ.Version),
-		Port:           rabbitMQ.Port,
-		ManagementPort: rabbitMQ.ManagementPort,
-		Username:       strings.TrimSpace(rabbitMQ.Username),
-		Password:       strings.TrimSpace(rabbitMQ.Password),
-	}
-	if normalized.Version == "" && normalized.Port == 0 && normalized.ManagementPort == 0 && normalized.Username == "" && normalized.Password == "" {
-		return nil
-	}
-
-	return normalized
-}
-
-func NormalizeTraefikConfig(traefik *TraefikConfig) *TraefikConfig {
-	if traefik == nil {
-		return nil
-	}
-
-	normalized := &TraefikConfig{
-		Version: strings.TrimSpace(traefik.Version),
-		Port:    traefik.Port,
-	}
-	if normalized.Version == "" && normalized.Port == 0 {
 		return nil
 	}
 

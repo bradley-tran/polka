@@ -12,7 +12,7 @@ import (
 
 func TestFrankenPHPPluginUsesConfiguredVersionAndManifest(t *testing.T) {
 	plugin := frankenPHPPlugin()
-	if version := plugin.Version(config.Environment{FrankenPHPVersion: "1.12"}); version != "1.12" {
+	if version := plugin.Version(config.Environment{Tools: config.ToolsConfig{FrankenPHP: "1.12"}}); version != "1.12" {
 		t.Fatalf("Version() = %q, want 1.12", version)
 	}
 	if commands := plugin.DispatchCommands(); len(commands) != 2 || commands[0] != FrankenPHP || commands[1] != PHP {

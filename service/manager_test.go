@@ -14,8 +14,8 @@ import (
 
 func TestManagerStartSkipsConfiguredMailpitWithoutMatchingTool(t *testing.T) {
 	ctx, warnings := managerTestContext(t, config.Environment{
-		Name:    "demo",
-		Mailpit: &config.MailpitConfig{Version: "1.30"},
+		Name:  "demo",
+		Tools: config.ToolsConfig{"mailpit": "1.30"},
 	})
 
 	started := false
@@ -40,8 +40,8 @@ func TestManagerStartSkipsConfiguredMailpitWithoutMatchingTool(t *testing.T) {
 
 func TestManagerStartSkipsConfiguredPHPMyAdminWithoutMatchingTool(t *testing.T) {
 	ctx, warnings := managerTestContext(t, config.Environment{
-		Name:       "demo",
-		PHPMyAdmin: &config.PHPMyAdminConfig{Version: "5.2"},
+		Name:  "demo",
+		Tools: config.ToolsConfig{"phpmyadmin": "5.2"},
 	})
 
 	started := false

@@ -68,14 +68,14 @@ func TestValidatePECLConfigureOptions(t *testing.T) {
 // while rejecting boolean package versions and unknown object fields.
 func TestValidatePECLExtensionsSchema(t *testing.T) {
 	valid := []byte("pecl-extensions:\n  redis: 6.2.0\n  imagick:\n    version: 3.8.0\n    configure-options:\n      with-imagick: autodetect\n")
-	if err := validateEnvironmentFileSchema(valid); err != nil {
+	if err := validateEnvironmentFileSchema(valid, nil); err != nil {
 		t.Fatalf("validateEnvironmentFileSchema(valid PECL) error = %v", err)
 	}
 	for _, invalid := range [][]byte{
 		[]byte("pecl-extensions:\n  redis: true\n"),
 		[]byte("pecl-extensions:\n  redis:\n    version: 6.2.0\n    unknown: value\n"),
 	} {
-		if err := validateEnvironmentFileSchema(invalid); err == nil {
+		if err := validateEnvironmentFileSchema(invalid, nil); err == nil {
 			t.Fatalf("validateEnvironmentFileSchema(%q) error = nil", invalid)
 		}
 	}
@@ -97,7 +97,7 @@ func TestWithInstalledPECLExtensionsFoldsTrackedModules(t *testing.T) {
 		t.Fatal(err)
 	}
 	environment := config.Environment{
-		PHPVersion:    "8.4",
+		Tools:         config.ToolsConfig{toolPHP: "8.4"},
 		PHPExtensions: map[string]bool{"redis": false},
 		PECLExtensions: map[string]config.PECLExtensionConfig{
 			"redis":  {Version: "6.2.0"},
@@ -160,7 +160,7 @@ func TestInstallAndRemovePECLExtensionWindows(t *testing.T) {
 	root := filepath.Join(projectDir, ".polka")
 	store := NewStore(root)
 	store.Downloader = HTTPToolDownloader{Client: server.Client()}
-	environment := config.Environment{Name: "default", PHPVersion: "8.4"}
+	environment := config.Environment{Name: "default", Tools: config.ToolsConfig{toolPHP: "8.4"}}
 	if err := writeYAML(store.ConfigFile, config.ProjectFileFromEnvironment(1, ".polka", environment)); err != nil {
 		t.Fatal(err)
 	}

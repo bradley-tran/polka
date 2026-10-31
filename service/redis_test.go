@@ -64,22 +64,22 @@ func TestRedisStateMatchesEnvironmentIncludesPortAndPasswordHash(t *testing.T) {
 		PasswordHash: RedisPasswordHash("local-dev-password"),
 	}
 	environment := config.Environment{
-		Redis: &config.RedisConfig{
-			Version:  "8.8.0",
-			Port:     6380,
-			Password: "local-dev-password",
-		},
+		Tools: config.ToolsConfig{"redis": "8.8.0"},
+		Settings: config.SettingsConfig{"redis": {
+			"port":     6380,
+			"password": "local-dev-password",
+		}},
 	}
 	if !RedisStateMatchesEnvironment(state, environment) {
 		t.Fatalf("RedisStateMatchesEnvironment() = false, want true")
 	}
 
-	environment.Redis.Password = "other-password"
+	environment.SetSetting("redis", "password", "other-password")
 	if RedisStateMatchesEnvironment(state, environment) {
 		t.Fatalf("RedisStateMatchesEnvironment(other password) = true, want false")
 	}
-	environment.Redis.Password = "local-dev-password"
-	environment.Redis.Port = 6381
+	environment.SetSetting("redis", "password", "local-dev-password")
+	environment.SetSetting("redis", "port", 6381)
 	if RedisStateMatchesEnvironment(state, environment) {
 		t.Fatalf("RedisStateMatchesEnvironment(other port) = true, want false")
 	}
@@ -131,12 +131,12 @@ func TestEnsureManagedRedisStartedAndStop(t *testing.T) {
 		RootDir: rootDir,
 		EnvsDir: envsDir,
 		Environment: config.Environment{
-			Name: "demo",
-			Redis: &config.RedisConfig{
-				Version:  version,
-				Port:     6380,
-				Password: "local-dev-password",
-			},
+			Name:  "demo",
+			Tools: config.ToolsConfig{"redis": version},
+			Settings: config.SettingsConfig{"redis": {
+				"port":     6380,
+				"password": "local-dev-password",
+			}},
 		},
 	}
 	hooks := RedisRuntimeHooks{

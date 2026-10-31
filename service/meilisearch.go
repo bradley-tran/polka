@@ -68,7 +68,7 @@ type MeilisearchRuntimeHooks struct {
 func EnsureManagedMeilisearchStarted(ctx Context, hooks MeilisearchRuntimeHooks) (MeilisearchRuntimeState, bool, error) {
 	hooks = hooks.withDefaults()
 	environment := ctx.Environment
-	if environment.Meilisearch == nil || strings.TrimSpace(environment.Meilisearch.Version) == "" {
+	if environment.Meilisearch() == nil || strings.TrimSpace(environment.Meilisearch().Version) == "" {
 		return MeilisearchRuntimeState{}, true, nil
 	}
 
@@ -130,10 +130,10 @@ func StopManagedMeilisearch(ctx Context, hooks MeilisearchRuntimeHooks) (Meilise
 
 func BuildMeilisearchServerSpec(ctx Context) (MeilisearchServerSpec, error) {
 	environment := ctx.Environment
-	if environment.Meilisearch == nil {
+	if environment.Meilisearch() == nil {
 		return MeilisearchServerSpec{}, fmt.Errorf("environment %q does not define meilisearch", environment.Name)
 	}
-	version := strings.TrimSpace(environment.Meilisearch.Version)
+	version := strings.TrimSpace(environment.Meilisearch().Version)
 	if version == "" {
 		return MeilisearchServerSpec{}, fmt.Errorf("environment %q defines meilisearch but does not define a version", environment.Name)
 	}
@@ -152,8 +152,8 @@ func BuildMeilisearchServerSpec(ctx Context) (MeilisearchServerSpec, error) {
 		Target:          target,
 		DataDir:         MeilisearchDataPath(ctx.RootDir, environment.Name),
 		LogPath:         MeilisearchLogPath(ctx.RootDir, environment.Name),
-		Port:            EffectiveMeilisearchPort(environment.Meilisearch),
-		MasterKey:       strings.TrimSpace(environment.Meilisearch.MasterKey),
+		Port:            EffectiveMeilisearchPort(environment.Meilisearch()),
+		MasterKey:       strings.TrimSpace(environment.Meilisearch().MasterKey),
 		Env:             env,
 	}, nil
 }
@@ -241,8 +241,8 @@ func LoadLiveMeilisearchStateForEnvironment(rootDir string, environment config.E
 		environment.Name,
 		state.Version,
 		MeilisearchAddress(state.Port),
-		strings.TrimSpace(environment.Meilisearch.Version),
-		MeilisearchAddress(EffectiveMeilisearchPort(environment.Meilisearch)),
+		strings.TrimSpace(environment.Meilisearch().Version),
+		MeilisearchAddress(EffectiveMeilisearchPort(environment.Meilisearch())),
 	)
 }
 
@@ -344,14 +344,14 @@ func WaitForMeilisearchAddress(port int, timeout time.Duration, ping func(string
 }
 
 func MeilisearchStateMatchesEnvironment(state MeilisearchRuntimeState, environment config.Environment) bool {
-	if environment.Meilisearch == nil {
+	if environment.Meilisearch() == nil {
 		return false
 	}
 
-	return strings.TrimSpace(state.Version) == strings.TrimSpace(environment.Meilisearch.Version) &&
-		state.Port == EffectiveMeilisearchPort(environment.Meilisearch) &&
-		state.AuthEnabled == (strings.TrimSpace(environment.Meilisearch.MasterKey) != "") &&
-		strings.TrimSpace(state.MasterKeyHash) == MeilisearchMasterKeyHash(environment.Meilisearch.MasterKey)
+	return strings.TrimSpace(state.Version) == strings.TrimSpace(environment.Meilisearch().Version) &&
+		state.Port == EffectiveMeilisearchPort(environment.Meilisearch()) &&
+		state.AuthEnabled == (strings.TrimSpace(environment.Meilisearch().MasterKey) != "") &&
+		strings.TrimSpace(state.MasterKeyHash) == MeilisearchMasterKeyHash(environment.Meilisearch().MasterKey)
 }
 
 func MeilisearchStateIsLive(state MeilisearchRuntimeState, ping func(string) bool) bool {

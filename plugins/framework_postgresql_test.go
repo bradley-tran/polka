@@ -10,7 +10,7 @@ import (
 
 func postgreSQLFrameworkContext() RuntimeEnvContext {
 	return RuntimeEnvContext{
-		Environment: config.Environment{PostgreSQLVersion: "17", Database: &config.DatabaseConfig{Engine: tools.PostgreSQL, Version: "17"}},
+		Environment: config.Environment{Tools: config.ToolsConfig{tools.PostgreSQL: "17"}, Database: &config.DatabaseConfig{Engine: tools.PostgreSQL, Version: "17"}},
 		Database: &DatabaseCredentials{
 			Engine:       tools.PostgreSQL,
 			Version:      "17",

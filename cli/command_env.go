@@ -467,7 +467,7 @@ func runNew(stdout io.Writer, store backend.Store, input newCommandInput) error 
 		return err
 	}
 
-	_, _ = fmt.Fprintf(stdout, "Created %s\tphp=%s\tcomposer=%s\tnodejs=%s\tdb=%s\n", environment.Name, labelOrUnset(environment.PHPVersion), labelOrUnset(environment.ComposerVersion), labelOrUnset(environment.NodeJSVersion), labelDatabase(environment.Database))
+	_, _ = fmt.Fprintf(stdout, "Created %s\tphp=%s\tcomposer=%s\tnodejs=%s\tdb=%s\n", environment.Name, labelOrUnset(environment.ToolVersion("php")), labelOrUnset(environment.ToolVersion("composer")), labelOrUnset(environment.ToolVersion("nodejs")), labelDatabase(environment.Database))
 	return nil
 }
 
@@ -534,7 +534,7 @@ func runList(stdout io.Writer, store backend.Store) error {
 			marker = "*"
 		}
 
-		_, _ = fmt.Fprintf(stdout, "%s %s\tphp=%s\tcomposer=%s\tnodejs=%s\tdb=%s\n", marker, environment.Name, phpCLIListLabel(environment), labelOrUnset(environment.ComposerVersion), labelOrUnset(environment.NodeJSVersion), labelDatabase(environment.Database))
+		_, _ = fmt.Fprintf(stdout, "%s %s\tphp=%s\tcomposer=%s\tnodejs=%s\tdb=%s\n", marker, environment.Name, phpCLIListLabel(environment), labelOrUnset(environment.ToolVersion("composer")), labelOrUnset(environment.ToolVersion("nodejs")), labelDatabase(environment.Database))
 	}
 
 	return nil
@@ -599,7 +599,7 @@ func environmentByName(store backend.Store, name string) (backend.Environment, e
 // writePHPCLIRuntimeWarning makes an intentional split PHP runtime visible.
 func writePHPCLIRuntimeWarning(stderr io.Writer, environment backend.Environment) {
 	phpTool, phpVersion := backend.PrimaryPHPTool(environment)
-	frankenPHPVersion := strings.TrimSpace(environment.FrankenPHPVersion)
+	frankenPHPVersion := strings.TrimSpace(environment.ToolVersion("frankenphp"))
 	if phpTool == "" || frankenPHPVersion == "" {
 		return
 	}

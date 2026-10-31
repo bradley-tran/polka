@@ -92,7 +92,7 @@ func TestFrameworkDefaultsUseExpectedPresetMatrix(t *testing.T) {
 		t.Fatal("Framework(cakephp) ok = false, want true")
 	}
 	cakePHPDefaults := cakePHP.Defaults()
-	if cakePHPDefaults.Framework != CakePHP || cakePHPDefaults.Docroot != "webroot" || cakePHPDefaults.ComposerVersion != "2.8" || cakePHPDefaults.NodeJSVersion != "24" || cakePHPDefaults.Mailpit == nil {
+	if cakePHPDefaults.Framework != CakePHP || cakePHPDefaults.Docroot != "webroot" || cakePHPDefaults.ToolVersion(tools.Composer) != "2.8" || cakePHPDefaults.ToolVersion(tools.NodeJS) != "24" || cakePHPDefaults.Mailpit() == nil {
 		t.Fatalf("CakePHP defaults = %#v, want full CakePHP preset", cakePHPDefaults)
 	}
 	if cakePHPDefaults.OPcachePreset != config.OPcachePresetDev || len(cakePHPDefaults.OPcacheConfig) != 0 {
@@ -114,7 +114,7 @@ func TestFrameworkDefaultsUseExpectedPresetMatrix(t *testing.T) {
 		t.Fatal("Framework(codeigniter) ok = false, want true")
 	}
 	codeIgniterDefaults := codeIgniter.Defaults()
-	if codeIgniterDefaults.Framework != CodeIgniter || codeIgniterDefaults.Docroot != "public" || codeIgniterDefaults.ComposerVersion != "2.8" || codeIgniterDefaults.NodeJSVersion != "24" || codeIgniterDefaults.Mailpit == nil {
+	if codeIgniterDefaults.Framework != CodeIgniter || codeIgniterDefaults.Docroot != "public" || codeIgniterDefaults.ToolVersion(tools.Composer) != "2.8" || codeIgniterDefaults.ToolVersion(tools.NodeJS) != "24" || codeIgniterDefaults.Mailpit() == nil {
 		t.Fatalf("CodeIgniter defaults = %#v, want full CodeIgniter preset", codeIgniterDefaults)
 	}
 	if codeIgniterDefaults.OPcachePreset != config.OPcachePresetDev || len(codeIgniterDefaults.OPcacheConfig) != 0 {
@@ -138,7 +138,7 @@ func TestFrameworkDefaultsUseExpectedPresetMatrix(t *testing.T) {
 		t.Fatal("Framework(drupal) ok = false, want true")
 	}
 	drupalDefaults := drupal.Defaults()
-	if drupalDefaults.Framework != Drupal || drupalDefaults.Docroot != "web" || drupalDefaults.ComposerVersion != "2.8" || drupalDefaults.NodeJSVersion != "24" || drupalDefaults.Mailpit == nil {
+	if drupalDefaults.Framework != Drupal || drupalDefaults.Docroot != "web" || drupalDefaults.ToolVersion(tools.Composer) != "2.8" || drupalDefaults.ToolVersion(tools.NodeJS) != "24" || drupalDefaults.Mailpit() == nil {
 		t.Fatalf("Drupal defaults = %#v, want full Drupal preset", drupalDefaults)
 	}
 	if drupalDefaults.OPcachePreset != config.OPcachePresetDev || drupalDefaults.OPcacheConfig["opcache.save_comments"] != "1" {
@@ -170,7 +170,7 @@ func TestFrameworkDefaultsUseExpectedPresetMatrix(t *testing.T) {
 		t.Fatal("Framework(laravel) ok = false, want true")
 	}
 	laravelDefaults := laravel.Defaults()
-	if laravelDefaults.Framework != Laravel || laravelDefaults.Docroot != "public" || laravelDefaults.ComposerVersion != "2.8" || laravelDefaults.NodeJSVersion != "24" || laravelDefaults.Mailpit == nil {
+	if laravelDefaults.Framework != Laravel || laravelDefaults.Docroot != "public" || laravelDefaults.ToolVersion(tools.Composer) != "2.8" || laravelDefaults.ToolVersion(tools.NodeJS) != "24" || laravelDefaults.Mailpit() == nil {
 		t.Fatalf("Laravel defaults = %#v, want full Laravel preset", laravelDefaults)
 	}
 	if laravelDefaults.OPcachePreset != config.OPcachePresetDev || len(laravelDefaults.OPcacheConfig) != 0 {
@@ -202,7 +202,7 @@ func TestFrameworkDefaultsUseExpectedPresetMatrix(t *testing.T) {
 		t.Fatal("Framework(symfony) ok = false, want true")
 	}
 	symfonyDefaults := symfony.Defaults()
-	if symfonyDefaults.Framework != Symfony || symfonyDefaults.Docroot != "public" || symfonyDefaults.ComposerVersion != "2.8" || symfonyDefaults.NodeJSVersion != "24" || symfonyDefaults.Mailpit == nil {
+	if symfonyDefaults.Framework != Symfony || symfonyDefaults.Docroot != "public" || symfonyDefaults.ToolVersion(tools.Composer) != "2.8" || symfonyDefaults.ToolVersion(tools.NodeJS) != "24" || symfonyDefaults.Mailpit() == nil {
 		t.Fatalf("Symfony defaults = %#v, want full Symfony preset", symfonyDefaults)
 	}
 	if symfonyDefaults.OPcachePreset != config.OPcachePresetDev || len(symfonyDefaults.OPcacheConfig) != 0 {
@@ -236,10 +236,10 @@ func TestFrameworkDefaultsUseExpectedPresetMatrix(t *testing.T) {
 		t.Fatal("Framework(wordpress) ok = false, want true")
 	}
 	wordpressDefaults := wordpress.Defaults()
-	if wordpressDefaults.Framework != WordPress || wordpressDefaults.Docroot != "." || wordpressDefaults.ComposerVersion != "" || wordpressDefaults.NodeJSVersion != "" || wordpressDefaults.Mailpit != nil {
+	if wordpressDefaults.Framework != WordPress || wordpressDefaults.Docroot != "." || wordpressDefaults.ToolVersion(tools.Composer) != "" || wordpressDefaults.ToolVersion(tools.NodeJS) != "" || wordpressDefaults.Mailpit() != nil {
 		t.Fatalf("WordPress defaults = %#v, want lighter WordPress preset", wordpressDefaults)
 	}
-	if wordpressDefaults.PHPVersion != "8.4" || wordpressDefaults.NginxVersion != "1.30" || wordpressDefaults.MariaDBVersion != "11.8" || wordpressDefaults.PHPMyAdmin == nil {
+	if wordpressDefaults.ToolVersion(tools.PHP) != "8.4" || wordpressDefaults.ToolVersion(tools.Nginx) != "1.30" || wordpressDefaults.ToolVersion(tools.MariaDB) != "11.8" || wordpressDefaults.PHPMyAdmin() == nil {
 		t.Fatalf("WordPress defaults = %#v, want PHP/nginx/MariaDB/phpMyAdmin", wordpressDefaults)
 	}
 	if wordpressDefaults.OPcachePreset != config.OPcachePresetDev || len(wordpressDefaults.OPcacheConfig) != 0 {

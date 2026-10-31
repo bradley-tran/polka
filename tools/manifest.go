@@ -16,6 +16,15 @@ import (
 //go:embed manifests/*.yaml
 var builtinManifestFiles embed.FS
 
+// SettingType describes the scalar schema type of one settings.<namespace>.<key> entry.
+type SettingType string
+
+const (
+	SettingTypeString SettingType = "string"
+	SettingTypeBool   SettingType = "bool"
+	SettingTypePort   SettingType = "port"
+)
+
 type pluginHooks struct {
 	validate     func(config.Environment) error
 	download     func(DownloadContext) error
@@ -26,6 +35,9 @@ type pluginHooks struct {
 type pluginManifest struct {
 	ID                 string                           `yaml:"id"`
 	InternalOnly       bool                             `yaml:"internal-only"`
+	ExclusiveWith      []string                         `yaml:"exclusive-with"`
+	Settings           map[string]SettingType           `yaml:"settings"`
+	SettingsFrom       string                           `yaml:"settings-from"`
 	PHPExtensions      []string                         `yaml:"php-extensions"`
 	InstallCandidates  manifestPlatformPaths            `yaml:"install-candidates"`
 	DispatchCommands   []string                         `yaml:"dispatch-commands"`
@@ -103,6 +115,9 @@ func parsePluginManifest(data []byte) (pluginManifest, error) {
 		return pluginManifest{}, err
 	}
 	manifest.PHPExtensions = normalizeManifestPHPExtensions(manifest.PHPExtensions)
+	manifest.Settings = normalizeManifestSettings(manifest.Settings)
+	manifest.SettingsFrom = strings.ToLower(strings.TrimSpace(manifest.SettingsFrom))
+	manifest.ExclusiveWith = normalizeCommands(manifest.ExclusiveWith)
 
 	return manifest, nil
 }
@@ -124,10 +139,45 @@ func (m pluginManifest) validate() error {
 		return fmt.Errorf("tool manifest %q requires install-candidates", id)
 	}
 	if m.InternalOnly {
-		// Internal-only tools are never exposed through shims or dispatch, so
-		// command declarations would silently do nothing; reject them early.
+		// Internal-only tools are never exposed through shims, dispatch, or
+		// project settings, so command or settings declarations would silently
+		// do nothing; reject them early.
 		if len(m.DispatchCommands) > 0 || len(m.ActiveCommands) > 0 || len(m.CleanupCommands) > 0 || len(m.DispatchCandidates) > 0 {
 			return fmt.Errorf("tool manifest %q is internal-only and cannot define dispatch, active, or cleanup commands", id)
+		}
+		if len(m.Settings) > 0 || strings.TrimSpace(m.SettingsFrom) != "" || len(m.ExclusiveWith) > 0 {
+			return fmt.Errorf("tool manifest %q is internal-only and cannot define settings or exclusive-with", id)
+		}
+	}
+	if len(m.Settings) > 0 && strings.TrimSpace(m.SettingsFrom) != "" {
+		return fmt.Errorf("tool manifest %q cannot define both settings and settings-from", id)
+	}
+	if settingsFrom := strings.ToLower(strings.TrimSpace(m.SettingsFrom)); settingsFrom != "" {
+		if !validName.MatchString(settingsFrom) {
+			return fmt.Errorf("tool manifest %q has invalid settings-from %q", id, m.SettingsFrom)
+		}
+		if settingsFrom == id {
+			return fmt.Errorf("tool manifest %q settings-from cannot reference itself", id)
+		}
+	}
+	for key, settingType := range m.Settings {
+		normalizedKey := strings.ToLower(strings.TrimSpace(key))
+		if normalizedKey == "" || !validName.MatchString(normalizedKey) {
+			return fmt.Errorf("tool manifest %q has invalid settings key %q", id, key)
+		}
+		switch SettingType(strings.ToLower(strings.TrimSpace(string(settingType)))) {
+		case SettingTypeString, SettingTypeBool, SettingTypePort:
+		default:
+			return fmt.Errorf("tool manifest %q settings.%s has unsupported type %q", id, normalizedKey, settingType)
+		}
+	}
+	for index, peer := range m.ExclusiveWith {
+		normalizedPeer := strings.ToLower(strings.TrimSpace(peer))
+		if normalizedPeer == "" || !validName.MatchString(normalizedPeer) {
+			return fmt.Errorf("tool manifest %q exclusive-with[%d] has invalid tool id %q", id, index, peer)
+		}
+		if normalizedPeer == id {
+			return fmt.Errorf("tool manifest %q exclusive-with[%d] cannot reference itself", id, index)
 		}
 	}
 	if err := validateManifestPlatformPaths(id, "install-candidates", m.InstallCandidates); err != nil {
@@ -309,11 +359,20 @@ func (m pluginManifest) toPlugin(hooks pluginHooks) (Plugin, error) {
 		validate = internalOnlyValidateFunc(manifestID, rawVersion, hooks.validate)
 	}
 
+	settings := normalizeManifestSettings(m.Settings)
+	settingsNamespace := strings.ToLower(strings.TrimSpace(m.SettingsFrom))
+	if settingsNamespace == "" && len(settings) > 0 {
+		settingsNamespace = manifestID
+	}
+
 	return builtinPlugin{
 		id:                 manifestID,
 		version:            version,
 		internalOnly:       m.InternalOnly,
 		internalVersion:    rawVersion,
+		settings:           settings,
+		settingsNamespace:  settingsNamespace,
+		exclusiveWith:      normalizeCommands(m.ExclusiveWith),
 		phpExtensions:      manifestPHPExtensionMap(m.PHPExtensions),
 		validate:           validate,
 		installCandidates:  manifestInstallCandidatesFunc(m),
@@ -326,6 +385,26 @@ func (m pluginManifest) toPlugin(hooks pluginHooks) (Plugin, error) {
 		postInstall:        hooks.postInstall,
 		dependencies:       hooks.dependencies,
 	}, nil
+}
+
+func normalizeManifestSettings(settings map[string]SettingType) map[string]SettingType {
+	if len(settings) == 0 {
+		return nil
+	}
+
+	normalized := make(map[string]SettingType, len(settings))
+	for key, settingType := range settings {
+		normalizedKey := strings.ToLower(strings.TrimSpace(key))
+		if normalizedKey == "" {
+			continue
+		}
+		normalized[normalizedKey] = SettingType(strings.ToLower(strings.TrimSpace(string(settingType))))
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+
+	return normalized
 }
 
 // internalOnlyValidateFunc rejects project configs that pin a version for an
@@ -348,62 +427,10 @@ func manifestVersionFunc(m pluginManifest) func(config.Environment) string {
 
 	return func(environment config.Environment) string {
 		switch id {
-		case PHP:
-			return environment.PHPVersion
-		case PHPZTS:
-			return environment.PHPZTSVersion
-		case FrankenPHP:
-			return environment.FrankenPHPVersion
-		case RoadRunner:
-			return environment.RoadRunnerVersion
-		case Composer:
-			return environment.ComposerVersion
-		case PIE:
-			return environment.PIEVersion
-		case NodeJS:
-			return environment.NodeJSVersion
-		case Mago:
-			return environment.MagoVersion
-		case Nginx:
-			return environment.NginxVersion
-		case Apache:
-			return environment.ApacheVersion
-		case SQLite:
-			return environment.SQLiteVersion
-		case Mailpit:
-			if environment.Mailpit == nil {
-				return ""
-			}
-			return environment.Mailpit.Version
-		case PHPMyAdmin:
-			if environment.PHPMyAdmin == nil {
-				return ""
-			}
-			return environment.PHPMyAdmin.Version
-		case Meilisearch:
-			if environment.Meilisearch == nil {
-				return ""
-			}
-			return environment.Meilisearch.Version
-		case Redis:
-			if environment.Redis == nil {
-				return ""
-			}
-			return environment.Redis.Version
-		case RabbitMQ:
-			if environment.RabbitMQ == nil {
-				return ""
-			}
-			return environment.RabbitMQ.Version
-		case Traefik:
-			if environment.Traefik == nil {
-				return ""
-			}
-			return environment.Traefik.Version
 		case MySQL, MariaDB, PostgreSQL:
 			return config.DatabaseToolVersion(environment, id)
 		default:
-			return ""
+			return environment.ToolVersion(id)
 		}
 	}
 }
@@ -488,6 +515,9 @@ func normalizeCommands(commands []string) []string {
 		if trimmed != "" {
 			normalized = append(normalized, trimmed)
 		}
+	}
+	if len(normalized) == 0 {
+		return nil
 	}
 
 	return normalized

@@ -45,18 +45,17 @@ The `config` package contains shared YAML schema types and normalization helpers
 - `Environment`
 - `ProjectFile`
 - `EnvironmentFile`
-- `ToolsConfig`
-- `SettingsConfig`
+- `ToolsConfig` (`map[string]string`)
+- `SettingsConfig` (`map[string]map[string]any`)
 - `DatabaseConfig`
-- `MailpitConfig`
-- `PHPMyAdminConfig`
+- read-only service view types (`MailpitConfig`, `PHPMyAdminConfig`, `MeilisearchConfig`, `RedisConfig`, `RabbitMQConfig`, `TraefikConfig`)
 - `ServerConfig`
 - `WorkerConfig` under the top-level `workers` map
 - framework IDs stored as `framework` on project and environment files
 
 This package exists to avoid import cycles. Both `backend` and `tools` can depend on config types without either package importing the other.
 
-`ToolsConfig` stores only managed tool version labels. Versionless tool options, such as Mailpit ports and the phpMyAdmin UI port, live in sibling `SettingsConfig` data and are merged into the internal `Environment` model during config loading.
+`ToolsConfig` stores managed tool version labels by tool ID, and `SettingsConfig` stores versionless per-tool scalar settings by namespace and key. Both maps live directly on `Environment`, `ProjectFile`, and `EnvironmentFile`, so adding a new tool or tool setting does not require modifying `config` structs. Built-in service consumers read projected views such as `Environment.Mailpit()` or `Environment.PHPBuildTools()`, while generic callers use `Environment.ToolVersion(id)` and `Environment.SettingBool`/`SettingInt`/`SettingString`.
 
 ### `plugins`
 
@@ -85,7 +84,7 @@ The `tools` package owns managed tool behavior:
 - tool IDs such as `PHP`, `PHPZTS`, `FrankenPHP`, `Composer`, `PIE`, `NodeJS`, `Mago`, `Nginx`, `Apache`, `Mailpit`, `Meilisearch`, `Redis`, `Traefik`, `PHPMyAdmin`, `MySQL`, `MariaDB`, `PostgreSQL`, and `SQLite`
 - tool plugin interfaces and registry
 - embedded YAML manifests for built-in plugin metadata
-- PHP extension dependencies declared by tool manifests
+- PHP extension dependencies, settings schemas (`settings`, `settings-from`), and mutual-exclusion peers (`exclusive-with`) declared by tool manifests
 - install candidate paths
 - dispatch command mappings (a command without an explicit dispatch candidate falls back to the tool's install candidates)
 - download templates, release resolution, checksums, cache metadata, and archive extraction
@@ -185,10 +184,10 @@ Plugin hooks receive `tools.InstallContext`, which contains layout paths and ins
 
 To add a new managed tool:
 
-1. Add a tool ID in `tools/ids.go`.
+1. Add a tool ID in `tools/ids.go` (optional convenience constant for built-in Go callers) and create `tools/manifests/<id>.yaml`.
 2. Add a plugin constructor in `tools/plugins.go` or a new focused tool file.
-3. Implement version lookup from `config.Environment`.
-4. Implement validation if the tool has nested config.
+3. Declare any versionless settings (`settings: <key>: bool|port|string`), shared settings namespace (`settings-from`), or mutually exclusive tool peers (`exclusive-with`) in `tools/manifests/<id>.yaml`; version lookup from `config.Environment.ToolVersion(id)` and scalar settings validation are handled automatically by the manifest plugin and `tools.Registry`.
+4. Implement custom `Validate` hook logic only if the tool has cross-field invariants beyond scalar setting types.
 5. Implement install candidates. Add dispatch candidates only to override commands whose executable differs from the install candidates (for example a multi-binary tool); every dispatch command without an override resolves to the install candidates.
 6. Add embedded manifest download assets or a focused download hook if Polka should download it automatically.
 7. Add a focused per-tool Go file only for hook wiring, dynamic download logic, validation, or post-install behavior.

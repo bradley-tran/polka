@@ -75,7 +75,7 @@ type RabbitMQRuntimeHooks struct {
 // EnsureManagedRabbitMQStarted starts or reuses the configured broker.
 func EnsureManagedRabbitMQStarted(ctx Context, hooks RabbitMQRuntimeHooks) (RabbitMQRuntimeState, bool, error) {
 	hooks = hooks.withDefaults()
-	configured := ctx.Environment.RabbitMQ
+	configured := ctx.Environment.RabbitMQ()
 	if configured == nil || strings.TrimSpace(configured.Version) == "" {
 		return RabbitMQRuntimeState{}, true, nil
 	}
@@ -129,7 +129,7 @@ func BuildRabbitMQServerSpec(ctx Context) (RabbitMQServerSpec, error) {
 	if runtime.GOOS != "windows" || runtime.GOARCH != "amd64" {
 		return RabbitMQServerSpec{}, fmt.Errorf("rabbitmq is only supported on windows/amd64")
 	}
-	rabbitMQ := ctx.Environment.RabbitMQ
+	rabbitMQ := ctx.Environment.RabbitMQ()
 	if rabbitMQ == nil || strings.TrimSpace(rabbitMQ.Version) == "" {
 		return RabbitMQServerSpec{}, fmt.Errorf("environment %q does not define rabbitmq", ctx.Environment.Name)
 	}
@@ -457,7 +457,7 @@ func LoadLiveRabbitMQStateForEnvironment(root string, environment config.Environ
 
 // RabbitMQStateMatchesEnvironment compares every launch-affecting setting.
 func RabbitMQStateMatchesEnvironment(state RabbitMQRuntimeState, environment config.Environment) bool {
-	value := environment.RabbitMQ
+	value := environment.RabbitMQ()
 	return value != nil && strings.TrimSpace(state.Version) == strings.TrimSpace(value.Version) && state.Port == EffectiveRabbitMQPort(value) && state.ManagementPort == EffectiveRabbitMQManagementPort(value) && state.Username == EffectiveRabbitMQUsername(value) && state.PasswordHash == RabbitMQPasswordHash(EffectiveRabbitMQPassword(value))
 }
 

@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 
 	"polka/config"
 )
@@ -15,7 +14,7 @@ import (
 func frankenPHPPlugin() Plugin {
 	return newManifestPlugin(FrankenPHP, pluginHooks{
 		validate: func(environment config.Environment) error {
-			version := strings.TrimSpace(environment.FrankenPHPVersion)
+			version := environment.ToolVersion(FrankenPHP)
 			if version == "" {
 				return nil
 			}

@@ -64,7 +64,7 @@ type TraefikRuntimeHooks struct {
 func EnsureManagedTraefikStarted(ctx Context, hooks TraefikRuntimeHooks) (TraefikRuntimeState, bool, error) {
 	hooks = hooks.withDefaults()
 	environment := ctx.Environment
-	if environment.Traefik == nil || strings.TrimSpace(environment.Traefik.Version) == "" {
+	if environment.Traefik() == nil || strings.TrimSpace(environment.Traefik().Version) == "" {
 		return TraefikRuntimeState{}, true, nil
 	}
 
@@ -124,10 +124,10 @@ func StopManagedTraefik(ctx Context, hooks TraefikRuntimeHooks) (TraefikRuntimeS
 
 func BuildTraefikServerSpec(ctx Context) (TraefikServerSpec, error) {
 	environment := ctx.Environment
-	if environment.Traefik == nil {
+	if environment.Traefik() == nil {
 		return TraefikServerSpec{}, fmt.Errorf("environment %q does not define traefik", environment.Name)
 	}
-	version := strings.TrimSpace(environment.Traefik.Version)
+	version := strings.TrimSpace(environment.Traefik().Version)
 	if version == "" {
 		return TraefikServerSpec{}, fmt.Errorf("environment %q defines traefik but does not define a version", environment.Name)
 	}
@@ -146,7 +146,7 @@ func BuildTraefikServerSpec(ctx Context) (TraefikServerSpec, error) {
 		Target:          target,
 		ConfigDir:       TraefikConfigDir(ctx.RootDir, environment.Name),
 		LogPath:         TraefikLogPath(ctx.RootDir, environment.Name),
-		Port:            EffectiveTraefikPort(environment.Traefik),
+		Port:            EffectiveTraefikPort(environment.Traefik()),
 		Env:             env,
 	}, nil
 }
@@ -329,8 +329,8 @@ func LoadLiveTraefikStateForEnvironment(rootDir string, environment config.Envir
 		environment.Name,
 		state.Version,
 		TraefikAddress(state.Port),
-		strings.TrimSpace(environment.Traefik.Version),
-		TraefikAddress(EffectiveTraefikPort(environment.Traefik)),
+		strings.TrimSpace(environment.Traefik().Version),
+		TraefikAddress(EffectiveTraefikPort(environment.Traefik())),
 	)
 }
 
@@ -439,12 +439,12 @@ func WaitForTraefikAddress(port int, timeout time.Duration, ping func(string) bo
 }
 
 func TraefikStateMatchesEnvironment(state TraefikRuntimeState, environment config.Environment) bool {
-	if environment.Traefik == nil {
+	if environment.Traefik() == nil {
 		return false
 	}
 
-	return strings.TrimSpace(state.Version) == strings.TrimSpace(environment.Traefik.Version) &&
-		state.Port == EffectiveTraefikPort(environment.Traefik)
+	return strings.TrimSpace(state.Version) == strings.TrimSpace(environment.Traefik().Version) &&
+		state.Port == EffectiveTraefikPort(environment.Traefik())
 }
 
 func TraefikStateIsLive(state TraefikRuntimeState, ping func(string) bool) bool {

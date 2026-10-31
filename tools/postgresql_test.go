@@ -93,7 +93,7 @@ func TestPostgreSQLPluginUsesPSQLDispatch(t *testing.T) {
 		t.Fatalf("ResolveDispatchRequest(psql) = %#v, want postgresql/psql", request)
 	}
 
-	active := registry.ActiveCommandNames(&config.Environment{PostgreSQLVersion: "17"})
+	active := registry.ActiveCommandNames(&config.Environment{Tools: config.ToolsConfig{PostgreSQL: "17"}})
 	if !containsString(active, PSQL) {
 		t.Fatalf("ActiveCommandNames() = %#v, want psql", active)
 	}
@@ -125,9 +125,8 @@ func TestPostgreSQLPSQLDispatchResolvesInstallCandidates(t *testing.T) {
 
 func TestPHPMyAdminAllowsPostgreSQL(t *testing.T) {
 	environment := config.Environment{
-		PostgreSQLVersion: "17",
-		Database:          &config.DatabaseConfig{Engine: PostgreSQL, Version: "17"},
-		PHPMyAdmin:        &config.PHPMyAdminConfig{Version: "5.2"},
+		Tools:    config.ToolsConfig{PostgreSQL: "17", PHPMyAdmin: "5.2"},
+		Database: &config.DatabaseConfig{Engine: PostgreSQL, Version: "17"},
 	}
 	if err := NewDefaultRegistry().ValidateEnvironment(environment); err != nil {
 		t.Fatalf("ValidateEnvironment() error = %v, want PostgreSQL/phpMyAdmin warning-only pairing", err)

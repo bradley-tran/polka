@@ -449,8 +449,8 @@ func TestLoadLiveWorkersStatePrunesDeadReplicas(t *testing.T) {
 func TestManagerStartsWorkersEvenWhenPHPMyAdminSkipped(t *testing.T) {
 	harness := newWorkersTestHarness()
 	ctx, warnings := managerTestContext(t, config.Environment{
-		Name:       "demo",
-		PHPMyAdmin: &config.PHPMyAdminConfig{Version: "5.2"},
+		Name:  "demo",
+		Tools: config.ToolsConfig{"phpmyadmin": "5.2"},
 		Workers: map[string]config.WorkerConfig{
 			"queue": {Command: "php artisan queue:work"},
 		},

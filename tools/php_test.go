@@ -59,7 +59,7 @@ func TestPHPWindowsReleaseIndexDecodesDevelPack(t *testing.T) {
 // TestPHPBuildToolDependencies verifies the SDK signal adds internal Windows
 // build payloads for either PHP runtime flavor and remains inert otherwise.
 func TestPHPBuildToolDependencies(t *testing.T) {
-	if dependencies := phpPlugin().(ToolDependencyProvider).Dependencies(config.Environment{PHPVersion: "8.4"}); dependencies != nil {
+	if dependencies := phpPlugin().(ToolDependencyProvider).Dependencies(config.Environment{Tools: config.ToolsConfig{PHP: "8.4"}}); dependencies != nil {
 		t.Fatalf("Dependencies(flag off) = %#v, want nil", dependencies)
 	}
 
@@ -68,8 +68,8 @@ func TestPHPBuildToolDependencies(t *testing.T) {
 		plugin      Plugin
 		environment config.Environment
 	}{
-		{name: "nts", plugin: phpPlugin(), environment: config.Environment{PHPVersion: "8.4", PHPBuildTools: true}},
-		{name: "zts", plugin: phpZTSPlugin(), environment: config.Environment{PHPZTSVersion: "8.4", PHPBuildTools: true}},
+		{name: "nts", plugin: phpPlugin(), environment: config.Environment{Tools: config.ToolsConfig{PHP: "8.4"}, Settings: config.SettingsConfig{PHP: {"extension-sdk": true}}}},
+		{name: "zts", plugin: phpZTSPlugin(), environment: config.Environment{Tools: config.ToolsConfig{PHPZTS: "8.4"}, Settings: config.SettingsConfig{PHP: {"extension-sdk": true}}}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

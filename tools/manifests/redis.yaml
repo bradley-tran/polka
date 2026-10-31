@@ -1,4 +1,7 @@
 id: redis
+settings:
+  port: port
+  password: string
 install-candidates:
   windows-amd64:
     - redis-server.exe

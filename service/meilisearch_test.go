@@ -45,22 +45,22 @@ func TestMeilisearchStateMatchesEnvironmentIncludesPortAndMasterKeyHash(t *testi
 		MasterKeyHash: MeilisearchMasterKeyHash("local-dev-key"),
 	}
 	environment := config.Environment{
-		Meilisearch: &config.MeilisearchConfig{
-			Version:   "1.48",
-			Port:      7701,
-			MasterKey: "local-dev-key",
-		},
+		Tools: config.ToolsConfig{"meilisearch": "1.48"},
+		Settings: config.SettingsConfig{"meilisearch": {
+			"port":       7701,
+			"master-key": "local-dev-key",
+		}},
 	}
 	if !MeilisearchStateMatchesEnvironment(state, environment) {
 		t.Fatalf("MeilisearchStateMatchesEnvironment() = false, want true")
 	}
 
-	environment.Meilisearch.MasterKey = "other-key"
+	environment.SetSetting("meilisearch", "master-key", "other-key")
 	if MeilisearchStateMatchesEnvironment(state, environment) {
 		t.Fatalf("MeilisearchStateMatchesEnvironment(other key) = true, want false")
 	}
-	environment.Meilisearch.MasterKey = "local-dev-key"
-	environment.Meilisearch.Port = 7702
+	environment.SetSetting("meilisearch", "master-key", "local-dev-key")
+	environment.SetSetting("meilisearch", "port", 7702)
 	if MeilisearchStateMatchesEnvironment(state, environment) {
 		t.Fatalf("MeilisearchStateMatchesEnvironment(other port) = true, want false")
 	}
@@ -112,12 +112,12 @@ func TestEnsureManagedMeilisearchStartedAndStop(t *testing.T) {
 		RootDir: rootDir,
 		EnvsDir: envsDir,
 		Environment: config.Environment{
-			Name: "demo",
-			Meilisearch: &config.MeilisearchConfig{
-				Version:   version,
-				Port:      7701,
-				MasterKey: "local-dev-key",
-			},
+			Name:  "demo",
+			Tools: config.ToolsConfig{"meilisearch": version},
+			Settings: config.SettingsConfig{"meilisearch": {
+				"port":       7701,
+				"master-key": "local-dev-key",
+			}},
 		},
 	}
 	hooks := MeilisearchRuntimeHooks{

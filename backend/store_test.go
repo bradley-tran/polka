@@ -107,7 +107,7 @@ func TestStoreInitWithOptionsUpdatesExistingDocroot(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
 	config := store.defaultConfig()
-	config.Environments[defaultEnvironmentName] = Environment{Docroot: "web", PHPVersion: "8.4"}
+	config.Environments[defaultEnvironmentName] = Environment{Docroot: "web", Tools: ToolsConfig{toolPHP: "8.4"}}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
 	}
@@ -121,7 +121,7 @@ func TestStoreInitWithOptionsUpdatesExistingDocroot(t *testing.T) {
 		t.Fatalf("readConfig() error = %v", err)
 	}
 	environment := loadedConfig.Environments[defaultEnvironmentName]
-	if environment.Docroot != "public" || environment.PHPVersion != "8.4" {
+	if environment.Docroot != "public" || environment.ToolVersion(toolPHP) != "8.4" {
 		t.Fatalf("environment = %#v, want updated docroot with existing values preserved", environment)
 	}
 }
@@ -142,7 +142,7 @@ func TestStoreInitWithFrameworkOptionsOverridesDocroot(t *testing.T) {
 	if environment.Framework != "drupal" || environment.Docroot != "drupal/web" {
 		t.Fatalf("environment = %#v, want drupal framework with overridden docroot", environment)
 	}
-	if environment.ComposerVersion != "2.8" || environment.NodeJSVersion != "24" || environment.NginxVersion != "1.30" {
+	if environment.ToolVersion(toolComposer) != "2.8" || environment.ToolVersion(toolNodeJS) != "24" || environment.ToolVersion(toolNginx) != "1.30" {
 		t.Fatalf("environment = %#v, want other Drupal preset values preserved", environment)
 	}
 }
@@ -169,7 +169,7 @@ func TestStoreInitWithPHPExtensionPreset(t *testing.T) {
 		t.Fatalf("readConfig() error = %v", err)
 	}
 	environment := loadedConfig.Environments[defaultEnvironmentName]
-	if environment.PHPVersion != "8.4" || environment.ComposerVersion != "2.8" || !environment.PHPBuildTools {
+	if environment.ToolVersion(toolPHP) != "8.4" || environment.ToolVersion(toolComposer) != "2.8" || !environment.PHPBuildTools() {
 		t.Fatalf("environment = %#v, want PHP, Composer, and extension SDK", environment)
 	}
 	if environment.MemoryLimit != "-1" {
@@ -262,7 +262,7 @@ func TestStorePresetDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PresetDefaults(php-extension) error = %v, want nil", err)
 	}
-	if !env.PHPBuildTools {
+	if !env.PHPBuildTools() {
 		t.Fatalf("PresetDefaults(php-extension) returned Environment = %#v, want PHPBuildTools", env)
 	}
 
@@ -318,10 +318,10 @@ func TestStoreFrameworkInitHasNoScaffold(t *testing.T) {
 // TestInstallCacheVersionSeparatesPHPDevelFlavors prevents NTS and ZTS
 // development archives with the same PHP version from colliding globally.
 func TestInstallCacheVersionSeparatesPHPDevelFlavors(t *testing.T) {
-	if got := installCacheVersion(Environment{PHPVersion: "8.4"}, toolPHPDevel, "8.4"); got != "8.4-nts" {
+	if got := installCacheVersion(Environment{Tools: ToolsConfig{toolPHP: "8.4"}}, toolPHPDevel, "8.4"); got != "8.4-nts" {
 		t.Fatalf("installCacheVersion(NTS) = %q, want 8.4-nts", got)
 	}
-	if got := installCacheVersion(Environment{PHPZTSVersion: "8.4"}, toolPHPDevel, "8.4"); got != "8.4-zts" {
+	if got := installCacheVersion(Environment{Tools: ToolsConfig{toolPHPZTS: "8.4"}}, toolPHPDevel, "8.4"); got != "8.4-zts" {
 		t.Fatalf("installCacheVersion(ZTS) = %q, want 8.4-zts", got)
 	}
 }
@@ -340,7 +340,7 @@ func TestValidatePresetScaffoldTargetRejectsInitState(t *testing.T) {
 // composition without turning them into dispatchable tools.
 func TestPHPBuildToolPathEntries(t *testing.T) {
 	store := NewProjectStore(t.TempDir())
-	paths := store.PHPBuildToolPathEntries(Environment{PHPVersion: "8.4", PHPBuildTools: true})
+	paths := store.PHPBuildToolPathEntries(Environment{Tools: ToolsConfig{toolPHP: "8.4"}, Settings: SettingsConfig{toolPHP: {"extension-sdk": true}}})
 	if runtime.GOOS != "windows" {
 		if paths != nil {
 			t.Fatalf("PHPBuildToolPathEntries(non-Windows) = %#v, want nil", paths)
@@ -362,18 +362,18 @@ func TestPHPBuildToolPathEntries(t *testing.T) {
 func TestPHPRuntimePrefix(t *testing.T) {
 	store := NewProjectStore(t.TempDir())
 	if runtime.GOOS != "windows" {
-		if prefix := store.PHPRuntimePrefix(Environment{PHPVersion: "8.4", PHPBuildTools: true}); prefix != "" {
+		if prefix := store.PHPRuntimePrefix(Environment{Tools: ToolsConfig{toolPHP: "8.4"}, Settings: SettingsConfig{toolPHP: {"extension-sdk": true}}}); prefix != "" {
 			t.Fatalf("PHPRuntimePrefix(non-Windows) = %q, want empty", prefix)
 		}
 		return
 	}
-	if got, want := store.PHPRuntimePrefix(Environment{PHPVersion: "8.4", PHPBuildTools: true}), filepath.Join(store.EnvsDir, toolPHP, "8.4"); got != want {
+	if got, want := store.PHPRuntimePrefix(Environment{Tools: ToolsConfig{toolPHP: "8.4"}, Settings: SettingsConfig{toolPHP: {"extension-sdk": true}}}), filepath.Join(store.EnvsDir, toolPHP, "8.4"); got != want {
 		t.Fatalf("PHPRuntimePrefix(NTS) = %q, want %q", got, want)
 	}
-	if got, want := store.PHPRuntimePrefix(Environment{PHPZTSVersion: "8.4", PHPBuildTools: true}), filepath.Join(store.EnvsDir, toolPHPZTS, "8.4"); got != want {
+	if got, want := store.PHPRuntimePrefix(Environment{Tools: ToolsConfig{toolPHPZTS: "8.4"}, Settings: SettingsConfig{toolPHP: {"extension-sdk": true}}}), filepath.Join(store.EnvsDir, toolPHPZTS, "8.4"); got != want {
 		t.Fatalf("PHPRuntimePrefix(ZTS) = %q, want %q", got, want)
 	}
-	if got := store.PHPRuntimePrefix(Environment{PHPVersion: "8.4", PHPBuildTools: false}); got != "" {
+	if got := store.PHPRuntimePrefix(Environment{Tools: ToolsConfig{toolPHP: "8.4"}}); got != "" {
 		t.Fatalf("PHPRuntimePrefix(build tools false) = %q, want empty", got)
 	}
 }
@@ -503,7 +503,7 @@ func TestStoreUseDefaultClearsActiveEnvironmentOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Current() error = %v", err)
 	}
-	if current == nil || current.Name != defaultEnvironmentName || current.PHPVersion != "8.4" {
+	if current == nil || current.Name != defaultEnvironmentName || current.ToolVersion(toolPHP) != "8.4" {
 		t.Fatalf("Current() = %#v, want default php 8.4", current)
 	}
 }
@@ -528,8 +528,8 @@ func TestStoreReadsAndWritesFrameworkConfig(t *testing.T) {
 	store := NewProjectStore(projectDir)
 
 	config := store.defaultConfig()
-	config.Environments[defaultEnvironmentName] = Environment{Framework: "Drupal", PHPVersion: "8.4"}
-	config.Environments["app"] = Environment{Framework: "Laravel", PHPVersion: "8.4"}
+	config.Environments[defaultEnvironmentName] = Environment{Framework: "Drupal", Tools: ToolsConfig{toolPHP: "8.4"}}
+	config.Environments["app"] = Environment{Framework: "Laravel", Tools: ToolsConfig{toolPHP: "8.4"}}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
 	}
@@ -564,15 +564,14 @@ func TestStoreReadsAndWritesOPcacheConfig(t *testing.T) {
 
 	config := store.defaultConfig()
 	config.Environments[defaultEnvironmentName] = Environment{
-		PHPVersion:      "8.4",
-		MemoryLimit:     " 512m ",
-		OPcachePreset:   "Production",
-		OPcacheConfig:   map[string]string{" OPcache.Revalidate_Freq ": " 2 "},
-		PHPExtensions:   map[string]bool{"opcache": true},
-		ComposerVersion: "2.8",
+		Tools:         ToolsConfig{toolPHP: "8.4", toolComposer: "2.8"},
+		MemoryLimit:   " 512m ",
+		OPcachePreset: "Production",
+		OPcacheConfig: map[string]string{" OPcache.Revalidate_Freq ": " 2 "},
+		PHPExtensions: map[string]bool{"opcache": true},
 	}
 	config.Environments["app"] = Environment{
-		PHPVersion:    "8.3",
+		Tools:         ToolsConfig{toolPHP: "8.3"},
 		MemoryLimit:   " -1 ",
 		OPcachePreset: "Dev",
 		OPcacheConfig: map[string]string{" OPcache.Enable_Cli ": " true "},
@@ -713,8 +712,8 @@ func TestStoreInstallToolCopiesExplicitVersionIntoLayout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readConfig() error = %v", err)
 	}
-	if config.Environments[defaultEnvironmentName].PHPVersion != "8.4" {
-		t.Fatalf("default environment php version = %q, want 8.4", config.Environments[defaultEnvironmentName].PHPVersion)
+	if config.Environments[defaultEnvironmentName].ToolVersion(toolPHP) != "8.4" {
+		t.Fatalf("default environment php version = %q, want 8.4", config.Environments[defaultEnvironmentName].ToolVersion(toolPHP))
 	}
 }
 
@@ -761,7 +760,7 @@ func TestStoreInstallsAndConfiguresFrankenPHP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ConfigureValue(server.type) error = %v", err)
 	}
-	if environment.FrankenPHPVersion != "1.12" || environment.Server == nil || environment.Server.Type != "frankenphp" {
+	if environment.ToolVersion(toolFrankenPHP) != "1.12" || environment.Server == nil || environment.Server.Type != "frankenphp" {
 		t.Fatalf("configured environment = %#v, want FrankenPHP server", environment)
 	}
 	if _, err := store.ConfigureValue("demo", "server.type", "caddy"); err == nil || !strings.Contains(err.Error(), "unsupported server type") {
@@ -776,7 +775,7 @@ func TestStoreInstallConfiguresFrankenPHPForFrameworkWithoutStandalonePHP(t *tes
 	writeCachedTool(t, store.CacheDir, toolFrankenPHP, "1.12")
 
 	config := store.defaultConfig()
-	config.Environments["demo"] = Environment{Framework: "laravel", FrankenPHPVersion: "1.12", OPcachePreset: "dev"}
+	config.Environments["demo"] = Environment{Framework: "laravel", Tools: ToolsConfig{toolFrankenPHP: "1.12"}, OPcachePreset: "dev"}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
 	}
@@ -804,7 +803,7 @@ func TestStoreInstallToolSwitchesToPHPZTSAndResolvesPHP(t *testing.T) {
 	writeCachedTool(t, store.CacheDir, toolPHPZTS, "8.4")
 
 	config := store.defaultConfig()
-	config.Environments[defaultEnvironmentName] = Environment{PHPVersion: "8.3"}
+	config.Environments[defaultEnvironmentName] = Environment{Tools: ToolsConfig{toolPHP: "8.3"}}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
 	}
@@ -821,7 +820,7 @@ func TestStoreInstallToolSwitchesToPHPZTSAndResolvesPHP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Current() error = %v", err)
 	}
-	if environment.PHPVersion != "" || environment.PHPZTSVersion != "8.4" {
+	if environment.ToolVersion(toolPHP) != "" || environment.ToolVersion(toolPHPZTS) != "8.4" {
 		t.Fatalf("Current() = %#v, want only php-zts 8.4", environment)
 	}
 	resolved, err := store.ResolveTool("php")
@@ -871,7 +870,7 @@ func TestStoreConfigureValueSwitchesPrimaryPHPRuntime(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
 	config := store.defaultConfig()
-	config.Environments["demo"] = Environment{PHPVersion: "8.3"}
+	config.Environments["demo"] = Environment{Tools: ToolsConfig{toolPHP: "8.3"}}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
 	}
@@ -880,7 +879,7 @@ func TestStoreConfigureValueSwitchesPrimaryPHPRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ConfigureValue(tools.php-zts) error = %v", err)
 	}
-	if environment.PHPVersion != "" || environment.PHPZTSVersion != "8.4" {
+	if environment.ToolVersion(toolPHP) != "" || environment.ToolVersion(toolPHPZTS) != "8.4" {
 		t.Fatalf("environment = %#v, want php-zts to replace php", environment)
 	}
 
@@ -888,7 +887,7 @@ func TestStoreConfigureValueSwitchesPrimaryPHPRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ConfigureValue(tools.php) error = %v", err)
 	}
-	if environment.PHPVersion != "8.2" || environment.PHPZTSVersion != "" {
+	if environment.ToolVersion(toolPHP) != "8.2" || environment.ToolVersion(toolPHPZTS) != "" {
 		t.Fatalf("environment = %#v, want php to replace php-zts", environment)
 	}
 }
@@ -936,8 +935,8 @@ func TestStoreInstallToolAppliesEnvironmentPostInstallSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readConfig() error = %v", err)
 	}
-	if loadedConfig.Environments["demo"].PHPVersion != "8.4" {
-		t.Fatalf("demo environment php version = %q, want 8.4", loadedConfig.Environments["demo"].PHPVersion)
+	if loadedConfig.Environments["demo"].ToolVersion(toolPHP) != "8.4" {
+		t.Fatalf("demo environment php version = %q, want 8.4", loadedConfig.Environments["demo"].ToolVersion(toolPHP))
 	}
 }
 
@@ -992,7 +991,7 @@ func TestStoreInstallAppliesOPcachePresetFrameworkAndUserConfig(t *testing.T) {
 	config := store.defaultConfig()
 	config.Environments["demo"] = Environment{
 		Framework:     "drupal",
-		PHPVersion:    "8.4",
+		Tools:         ToolsConfig{toolPHP: "8.4"},
 		OPcachePreset: "production",
 		OPcacheConfig: map[string]string{
 			"opcache.enable_cli":          "1",
@@ -1040,8 +1039,8 @@ func TestStoreInstallAppliesFrameworkPHPExtensionsWithoutConfig(t *testing.T) {
 
 	config := store.defaultConfig()
 	config.Environments["demo"] = Environment{
-		Framework:  "drupal",
-		PHPVersion: "8.4",
+		Framework: "drupal",
+		Tools:     ToolsConfig{toolPHP: "8.4"},
 	}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
@@ -1083,8 +1082,8 @@ func TestStoreInstallFrameworkPHPExtensionsHonorUserOverrides(t *testing.T) {
 
 	config := store.defaultConfig()
 	config.Environments["demo"] = Environment{
-		Framework:  "drupal",
-		PHPVersion: "8.4",
+		Framework: "drupal",
+		Tools:     ToolsConfig{toolPHP: "8.4"},
 		PHPExtensions: map[string]bool{
 			"gd":     false,
 			"xdebug": true,
@@ -1118,8 +1117,8 @@ func TestStoreToolPHPExtensionsHonorUserOverrides(t *testing.T) {
 	store := NewProjectStore(t.TempDir())
 
 	effective := store.withPluginPHPExtensions(Environment{
-		Framework:      "drupal",
-		MariaDBVersion: "11.8",
+		Framework: "drupal",
+		Tools:     ToolsConfig{toolMariaDB: "11.8"},
 		PHPExtensions: map[string]bool{
 			"pdo_mysql": false,
 		},
@@ -1227,8 +1226,8 @@ func TestStoreConfigurePreservesExistingConfigComments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readConfig() error = %v", err)
 	}
-	if config.Environments["demo"].PHPVersion != "8.3" {
-		t.Fatalf("config.Environments[demo].PHPVersion = %q, want 8.3", config.Environments["demo"].PHPVersion)
+	if config.Environments["demo"].ToolVersion(toolPHP) != "8.3" {
+		t.Fatalf("config.Environments[demo].ToolVersion(php) = %q, want 8.3", config.Environments["demo"].ToolVersion(toolPHP))
 	}
 }
 
@@ -1253,8 +1252,8 @@ func TestStoreConfigureValuePreservesExistingConfigComments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ConfigureValue(demo) error = %v", err)
 	}
-	if environment.Mailpit == nil || environment.Mailpit.Version != "1.30" || environment.Mailpit.SMTPPort != 1125 {
-		t.Fatalf("environment.Mailpit = %#v, want version and smtp port", environment.Mailpit)
+	if environment.Mailpit() == nil || environment.Mailpit().Version != "1.30" || environment.Mailpit().SMTPPort != 1125 {
+		t.Fatalf("environment.Mailpit() = %#v, want version and smtp port", environment.Mailpit())
 	}
 
 	updatedConfig, err := os.ReadFile(store.environmentConfigFile("demo"))
@@ -1350,8 +1349,8 @@ func TestStoreConfigureValueSetsApacheToolAndServerType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ConfigureValue(tools.apache) error = %v", err)
 	}
-	if environment.ApacheVersion != "2.4" {
-		t.Fatalf("environment.ApacheVersion = %q, want 2.4", environment.ApacheVersion)
+	if environment.ToolVersion(toolApache) != "2.4" {
+		t.Fatalf("environment.ToolVersion(apache) = %q, want 2.4", environment.ToolVersion(toolApache))
 	}
 
 	environment, err = store.ConfigureValue("demo", "server.type", " Apache ")
@@ -1585,7 +1584,7 @@ func TestStoreInstallDownloadsConfiguredSQLite(t *testing.T) {
 	})
 
 	config := store.defaultConfig()
-	config.Environments["demo"] = Environment{SQLiteVersion: "3.53"}
+	config.Environments["demo"] = Environment{Tools: ToolsConfig{toolSQLite: "3.53"}}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
 	}
@@ -1625,10 +1624,8 @@ func TestStoreInstallDownloadsMultipleConfiguredDatabases(t *testing.T) {
 
 	config := store.defaultConfig()
 	config.Environments["demo"] = Environment{
-		MySQLVersion:   "8.4",
-		MariaDBVersion: "11.8",
-		NodeJSVersion:  "24",
-		Database:       &DatabaseConfig{Engine: toolMariaDB, Version: "11.8", Port: 3307},
+		Tools:    ToolsConfig{toolMySQL: "8.4", toolMariaDB: "11.8", toolNodeJS: "24"},
+		Database: &DatabaseConfig{Engine: toolMariaDB, Version: "11.8", Port: 3307},
 	}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
@@ -1662,7 +1659,7 @@ func TestStoreInstallDownloadsConfiguredNginx(t *testing.T) {
 	})
 
 	config := store.defaultConfig()
-	config.Environments["demo"] = Environment{NginxVersion: "1.30"}
+	config.Environments["demo"] = Environment{Tools: ToolsConfig{toolNginx: "1.30"}}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
 	}
@@ -1710,7 +1707,7 @@ func TestStoreInstallDownloadsConfiguredApache(t *testing.T) {
 	})
 
 	config := store.defaultConfig()
-	config.Environments["demo"] = Environment{ApacheVersion: "2.4"}
+	config.Environments["demo"] = Environment{Tools: ToolsConfig{toolApache: "2.4"}}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
 	}
@@ -1776,7 +1773,7 @@ func TestStoreInstallDownloadsApacheLoungeLayout(t *testing.T) {
 	})
 
 	config := store.defaultConfig()
-	config.Environments["demo"] = Environment{ApacheVersion: "2.4"}
+	config.Environments["demo"] = Environment{Tools: ToolsConfig{toolApache: "2.4"}}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
 	}
@@ -1823,7 +1820,7 @@ func TestStoreInstallDownloadsConfiguredMago(t *testing.T) {
 	})
 
 	config := store.defaultConfig()
-	config.Environments["demo"] = Environment{MagoVersion: "1.27"}
+	config.Environments["demo"] = Environment{Tools: ToolsConfig{toolMago: "1.27"}}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
 	}
@@ -1874,7 +1871,7 @@ func TestStoreInstallRejectsConfiguredPIE(t *testing.T) {
 	})
 
 	config := store.defaultConfig()
-	config.Environments["demo"] = Environment{PHPVersion: "8.4", PIEVersion: "1.4"}
+	config.Environments["demo"] = Environment{Tools: ToolsConfig{toolPHP: "8.4", toolPIE: "1.4"}}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
 	}
@@ -1901,7 +1898,7 @@ func TestStoreInstallDownloadsConfiguredMailpit(t *testing.T) {
 	})
 
 	config := store.defaultConfig()
-	config.Environments["demo"] = Environment{Mailpit: &MailpitConfig{Version: "1.30"}}
+	config.Environments["demo"] = Environment{Tools: ToolsConfig{toolMailpit: "1.30"}}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
 	}
@@ -1946,7 +1943,7 @@ func TestStoreInstallDownloadsConfiguredMeilisearch(t *testing.T) {
 	})
 
 	config := store.defaultConfig()
-	config.Environments["demo"] = Environment{Meilisearch: &MeilisearchConfig{Version: "1.48"}}
+	config.Environments["demo"] = Environment{Tools: ToolsConfig{toolMeilisearch: "1.48"}}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
 	}
@@ -1991,7 +1988,7 @@ func TestStoreInstallDownloadsConfiguredTraefik(t *testing.T) {
 	})
 
 	config := store.defaultConfig()
-	config.Environments["demo"] = Environment{Traefik: &TraefikConfig{Version: "3.3"}}
+	config.Environments["demo"] = Environment{Tools: ToolsConfig{toolTraefik: "3.3"}}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
 	}
@@ -2036,7 +2033,7 @@ func TestStoreInstallDownloadsConfiguredPHPMyAdmin(t *testing.T) {
 	})
 
 	config := store.defaultConfig()
-	config.Environments["demo"] = Environment{PHPMyAdmin: &PHPMyAdminConfig{Version: "5.2", Port: 8082}}
+	config.Environments["demo"] = Environment{Tools: ToolsConfig{toolPHPMyAdmin: "5.2"}, Settings: SettingsConfig{toolPHPMyAdmin: {"port": 8082}}}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
 	}
@@ -2077,7 +2074,7 @@ func TestStoreInstallCopiesConfiguredNodeJSIntoVersionedLayout(t *testing.T) {
 	writeCachedNodeJSCommand(t, store.CacheDir, "24", toolNode)
 
 	config := store.defaultConfig()
-	config.Environments["demo"] = Environment{NodeJSVersion: "24"}
+	config.Environments["demo"] = Environment{Tools: ToolsConfig{toolNodeJS: "24"}}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
 	}
@@ -2358,8 +2355,8 @@ func TestStoreInstallRejectsPHPExtensionsWithoutPHP(t *testing.T) {
 
 	config := store.defaultConfig()
 	config.Environments["demo"] = Environment{
-		ComposerVersion: "2.8",
-		PHPExtensions:   map[string]bool{"openssl": true},
+		Tools:         ToolsConfig{toolComposer: "2.8"},
+		PHPExtensions: map[string]bool{"openssl": true},
 	}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
@@ -2379,8 +2376,8 @@ func TestStoreInstallRejectsOPcacheConfigWithoutPHP(t *testing.T) {
 
 	config := store.defaultConfig()
 	config.Environments["demo"] = Environment{
-		ComposerVersion: "2.8",
-		OPcachePreset:   "dev",
+		Tools:         ToolsConfig{toolComposer: "2.8"},
+		OPcachePreset: "dev",
 	}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
@@ -2400,8 +2397,8 @@ func TestStoreInstallRejectsMemoryLimitWithoutPHP(t *testing.T) {
 
 	config := store.defaultConfig()
 	config.Environments["demo"] = Environment{
-		ComposerVersion: "2.8",
-		MemoryLimit:     "512M",
+		Tools:       ToolsConfig{toolComposer: "2.8"},
+		MemoryLimit: "512M",
 	}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
@@ -2420,8 +2417,8 @@ func TestStoreCurrentNormalizesServerConfig(t *testing.T) {
 
 	config := store.defaultConfig()
 	config.Environments["demo"] = Environment{
-		PHPVersion: "8.4",
-		HTTPS:      true,
+		Tools: ToolsConfig{toolPHP: "8.4"},
+		HTTPS: true,
 		Server: &ServerConfig{
 			Hostname: " localhost ",
 			Port:     8080,
@@ -2452,11 +2449,9 @@ func TestStoreCurrentNormalizesPHPMyAdminConfig(t *testing.T) {
 
 	config := store.defaultConfig()
 	config.Environments["demo"] = Environment{
-		HTTPS: true,
-		PHPMyAdmin: &PHPMyAdminConfig{
-			Version: " 5.2 ",
-			Port:    8082,
-		},
+		HTTPS:    true,
+		Tools:    ToolsConfig{toolPHPMyAdmin: " 5.2 "},
+		Settings: SettingsConfig{toolPHPMyAdmin: {"port": 8082}},
 	}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
@@ -2469,11 +2464,11 @@ func TestStoreCurrentNormalizesPHPMyAdminConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Current() error = %v", err)
 	}
-	if current == nil || current.PHPMyAdmin == nil {
+	if current == nil || current.PHPMyAdmin() == nil {
 		t.Fatalf("Current() = %#v, want phpmyadmin config", current)
 	}
-	if current.PHPMyAdmin.Version != "5.2" || current.PHPMyAdmin.Port != 8082 || !current.PHPMyAdmin.HTTPS {
-		t.Fatalf("Current().PHPMyAdmin = %#v, want normalized version, port, and https", current.PHPMyAdmin)
+	if current.PHPMyAdmin().Version != "5.2" || current.PHPMyAdmin().Port != 8082 || !current.PHPMyAdmin().HTTPS {
+		t.Fatalf("Current().PHPMyAdmin() = %#v, want normalized version, port, and https", current.PHPMyAdmin())
 	}
 }
 
@@ -2483,10 +2478,10 @@ func TestStoreCurrentInheritsRootHTTPS(t *testing.T) {
 
 	config := store.defaultConfig()
 	config.Environments["demo"] = Environment{
-		HTTPS:      true,
-		Server:     &ServerConfig{Hostname: "localhost", Port: 8443},
-		Mailpit:    &MailpitConfig{Version: "1.30", SMTPPort: 1125, UIPort: 8125},
-		PHPMyAdmin: &PHPMyAdminConfig{Version: "5.2", Port: 8082},
+		HTTPS:    true,
+		Server:   &ServerConfig{Hostname: "localhost", Port: 8443},
+		Tools:    ToolsConfig{toolMailpit: "1.30", toolPHPMyAdmin: "5.2"},
+		Settings: SettingsConfig{toolMailpit: {"smtp-port": 1125, "ui-port": 8125}, toolPHPMyAdmin: {"port": 8082}},
 	}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
@@ -2505,11 +2500,11 @@ func TestStoreCurrentInheritsRootHTTPS(t *testing.T) {
 	if current.Server == nil || !current.Server.HTTPS {
 		t.Fatalf("Current().Server = %#v, want inherited https", current.Server)
 	}
-	if current.Mailpit == nil || !current.Mailpit.HTTPS {
-		t.Fatalf("Current().Mailpit = %#v, want inherited https", current.Mailpit)
+	if current.Mailpit() == nil || !current.Mailpit().HTTPS {
+		t.Fatalf("Current().Mailpit() = %#v, want inherited https", current.Mailpit())
 	}
-	if current.PHPMyAdmin == nil || !current.PHPMyAdmin.HTTPS {
-		t.Fatalf("Current().PHPMyAdmin = %#v, want inherited https", current.PHPMyAdmin)
+	if current.PHPMyAdmin() == nil || !current.PHPMyAdmin().HTTPS {
+		t.Fatalf("Current().PHPMyAdmin() = %#v, want inherited https", current.PHPMyAdmin())
 	}
 }
 
@@ -2519,10 +2514,10 @@ func TestStoreWriteConfigPersistsHTTPSAtEnvironmentRoot(t *testing.T) {
 
 	config := store.defaultConfig()
 	config.Environments["demo"] = Environment{
-		HTTPS:      true,
-		Server:     &ServerConfig{Hostname: "localhost", Port: 8443, HTTPS: true},
-		Mailpit:    &MailpitConfig{Version: "1.30", SMTPPort: 1125, UIPort: 8125, HTTPS: true},
-		PHPMyAdmin: &PHPMyAdminConfig{Version: "5.2", Port: 8082, HTTPS: true},
+		HTTPS:    true,
+		Server:   &ServerConfig{Hostname: "localhost", Port: 8443, HTTPS: true},
+		Tools:    ToolsConfig{toolMailpit: "1.30", toolPHPMyAdmin: "5.2"},
+		Settings: SettingsConfig{toolMailpit: {"smtp-port": 1125, "ui-port": 8125}, toolPHPMyAdmin: {"port": 8082}},
 	}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
@@ -2547,9 +2542,16 @@ func TestStoreWritesToolSettingsSeparatelyFromVersions(t *testing.T) {
 
 	config := store.defaultConfig()
 	config.Environments["demo"] = Environment{
-		Mailpit:     &MailpitConfig{Version: "1.30", SMTPPort: 1125, UIPort: 8125},
-		PHPMyAdmin:  &PHPMyAdminConfig{Version: "5.2", Port: 8082},
-		Meilisearch: &MeilisearchConfig{Version: "1.48", Port: 7701, MasterKey: "local-dev-key"},
+		Tools: ToolsConfig{
+			toolMailpit:     "1.30",
+			toolPHPMyAdmin:  "5.2",
+			toolMeilisearch: "1.48",
+		},
+		Settings: SettingsConfig{
+			toolMailpit:     {"smtp-port": 1125, "ui-port": 8125},
+			toolPHPMyAdmin:  {"port": 8082},
+			toolMeilisearch: {"port": 7701, "master-key": "local-dev-key"},
+		},
 	}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
@@ -2560,10 +2562,10 @@ func TestStoreWritesToolSettingsSeparatelyFromVersions(t *testing.T) {
 		t.Fatalf("ReadFile(demo config) error = %v", err)
 	}
 	text := string(data)
-	if !strings.Contains(text, "tools:\n  mailpit: \"1.30\"\n  phpmyadmin: \"5.2\"\n  meilisearch: \"1.48\"") {
+	if !strings.Contains(text, "tools:\n  mailpit: \"1.30\"\n  meilisearch: \"1.48\"\n  phpmyadmin: \"5.2\"") {
 		t.Fatalf("config = %q, want managed service version labels under tools", text)
 	}
-	if !strings.Contains(text, "settings:\n  mailpit:\n    smtp-port: 1125\n    ui-port: 8125\n  phpmyadmin:\n    port: 8082\n  meilisearch:\n    port: 7701\n    master-key: local-dev-key") {
+	if !strings.Contains(text, "settings:\n  mailpit:\n    smtp-port: 1125\n    ui-port: 8125\n  meilisearch:\n    master-key: local-dev-key\n    port: 7701\n  phpmyadmin:\n    port: 8082") {
 		t.Fatalf("config = %q, want managed service settings under settings", text)
 	}
 	if strings.Contains(text, "    version:") {
@@ -2649,14 +2651,14 @@ func TestStoreReadsToolSettingsSeparatedFromVersions(t *testing.T) {
 			if !ok {
 				t.Fatalf("readEnvironment(%s) ok = false, want true", test.envName)
 			}
-			if environment.Mailpit == nil || environment.Mailpit.Version != "1.30" || environment.Mailpit.SMTPPort != 1125 || environment.Mailpit.UIPort != 8125 {
-				t.Fatalf("environment.Mailpit = %#v, want version and configured ports", environment.Mailpit)
+			if environment.Mailpit() == nil || environment.Mailpit().Version != "1.30" || environment.Mailpit().SMTPPort != 1125 || environment.Mailpit().UIPort != 8125 {
+				t.Fatalf("environment.Mailpit() = %#v, want version and configured ports", environment.Mailpit())
 			}
-			if environment.PHPMyAdmin == nil || environment.PHPMyAdmin.Version != "5.2" || environment.PHPMyAdmin.Port != 8082 {
-				t.Fatalf("environment.PHPMyAdmin = %#v, want version and configured port", environment.PHPMyAdmin)
+			if environment.PHPMyAdmin() == nil || environment.PHPMyAdmin().Version != "5.2" || environment.PHPMyAdmin().Port != 8082 {
+				t.Fatalf("environment.PHPMyAdmin() = %#v, want version and configured port", environment.PHPMyAdmin())
 			}
-			if environment.Meilisearch == nil || environment.Meilisearch.Version != "1.48" || environment.Meilisearch.Port != 7701 || environment.Meilisearch.MasterKey != "local-dev-key" {
-				t.Fatalf("environment.Meilisearch = %#v, want version and configured settings", environment.Meilisearch)
+			if environment.Meilisearch() == nil || environment.Meilisearch().Version != "1.48" || environment.Meilisearch().Port != 7701 || environment.Meilisearch().MasterKey != "local-dev-key" {
+				t.Fatalf("environment.Meilisearch() = %#v, want version and configured settings", environment.Meilisearch())
 			}
 		})
 	}
@@ -2668,8 +2670,8 @@ func TestStoreCurrentNormalizesEnvironmentVariables(t *testing.T) {
 
 	config := store.defaultConfig()
 	config.Environments["demo"] = Environment{
-		PHPVersion: "8.4",
-		EnvFile:    " .env.local ",
+		Tools:   ToolsConfig{toolPHP: "8.4"},
+		EnvFile: " .env.local ",
 		EnvVars: map[string]string{
 			" APP_ENV ":    "development",
 			"FEATURE_FLAG": "1",
@@ -2712,7 +2714,7 @@ func TestStoreCreateRejectsExistingEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create(demo) error = %v", err)
 	}
-	if environment.PHPVersion != "8.4" || environment.ComposerVersion != "2.8" {
+	if environment.ToolVersion(toolPHP) != "8.4" || environment.ToolVersion(toolComposer) != "2.8" {
 		t.Fatalf("Create(demo) = %#v, want configured versions", environment)
 	}
 
@@ -2731,7 +2733,7 @@ func TestStoreCreateRejectsExistingEnvironment(t *testing.T) {
 		t.Fatalf("readConfig() error = %v", err)
 	}
 	created := config.Environments["demo"]
-	if created.PHPVersion != "8.4" || created.ComposerVersion != "2.8" {
+	if created.ToolVersion(toolPHP) != "8.4" || created.ToolVersion(toolComposer) != "2.8" {
 		t.Fatalf("config = %q, want first create values preserved", string(configData))
 	}
 }
@@ -2781,7 +2783,7 @@ func TestStoreCreatePreservesExistingConfigComments(t *testing.T) {
 		t.Fatalf("readConfig() error = %v", err)
 	}
 	created := config.Environments["api"]
-	if created.PHPVersion != "8.3" || created.ComposerVersion != "2.7" {
+	if created.ToolVersion(toolPHP) != "8.3" || created.ToolVersion(toolComposer) != "2.7" {
 		t.Fatalf("created environment = %#v, want api php/composer versions", created)
 	}
 }
@@ -2797,7 +2799,7 @@ func TestStoreConfigureLifecycleUsesVersionLabels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Configure(api) error = %v", err)
 	}
-	if environment.PHPVersion != "8.4" || environment.ComposerVersion != "2.8" {
+	if environment.ToolVersion(toolPHP) != "8.4" || environment.ToolVersion(toolComposer) != "2.8" {
 		t.Fatalf("Configure(api) = %#v, want version labels", environment)
 	}
 
@@ -2824,7 +2826,7 @@ func TestStoreConfigureLifecycleUsesVersionLabels(t *testing.T) {
 	if environments[0].Name != "api" || environments[1].Name != defaultEnvironmentName || environments[2].Name != "web" {
 		t.Fatalf("List() names = %#v, want sorted names including default", environments)
 	}
-	if environments[0].PHPVersion != "8.4" || environments[0].ComposerVersion != "2.8" {
+	if environments[0].ToolVersion(toolPHP) != "8.4" || environments[0].ToolVersion(toolComposer) != "2.8" {
 		t.Fatalf("List() api = %#v, want configured version labels", environments[0])
 	}
 
@@ -2839,7 +2841,7 @@ func TestStoreConfigureLifecycleUsesVersionLabels(t *testing.T) {
 	if current == nil || current.Name != "api" {
 		t.Fatalf("Current() = %#v, want active environment %q", current, "api")
 	}
-	if current.PHPVersion != "8.4" || current.ComposerVersion != "2.8" {
+	if current.ToolVersion(toolPHP) != "8.4" || current.ToolVersion(toolComposer) != "2.8" {
 		t.Fatalf("Current() = %#v, want configured version labels", current)
 	}
 
@@ -2890,8 +2892,8 @@ func TestStoreConfigureLifecycleUsesVersionLabels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readConfig() error = %v", err)
 	}
-	if parsedConfig.Environments["web"].PHPVersion != "8.3" {
-		t.Fatalf("readConfig() web PHPVersion = %q, want %q", parsedConfig.Environments["web"].PHPVersion, "8.3")
+	if parsedConfig.Environments["web"].ToolVersion(toolPHP) != "8.3" {
+		t.Fatalf("readConfig() web PHPVersion = %q, want %q", parsedConfig.Environments["web"].ToolVersion(toolPHP), "8.3")
 	}
 	if strings.Contains(string(configData), phpCachePath) || strings.Contains(string(configData), composerCachePath) {
 		t.Fatalf("config after remove = %q, want version labels rather than tool paths", string(configData))
@@ -2957,8 +2959,8 @@ func TestStoreRemovePreservesRemainingConfigComments(t *testing.T) {
 	if _, ok := config.Environments["demo"]; ok {
 		t.Fatalf("config.Environments still contains demo after Remove(): %#v", config.Environments)
 	}
-	if config.Environments["web"].PHPVersion != "8.3" {
-		t.Fatalf("config.Environments[web].PHPVersion = %q, want 8.3", config.Environments["web"].PHPVersion)
+	if config.Environments["web"].ToolVersion(toolPHP) != "8.3" {
+		t.Fatalf("config.Environments[web].ToolVersion(php) = %q, want 8.3", config.Environments["web"].ToolVersion(toolPHP))
 	}
 }
 
@@ -3040,8 +3042,8 @@ func TestStoreReadsDatabaseToolVersionAndRootRuntimeConfig(t *testing.T) {
 	if environment.Database == nil || environment.Database.Engine != toolMariaDB || environment.Database.Version != "11.8" || environment.Database.Port != 3307 {
 		t.Fatalf("environment.Database = %#v, want mariadb 11.8 on port 3307", environment.Database)
 	}
-	if environment.MySQLVersion != "8.4" || environment.MariaDBVersion != "11.8" {
-		t.Fatalf("environment database tool versions = mysql:%q mariadb:%q, want mysql:8.4 mariadb:11.8", environment.MySQLVersion, environment.MariaDBVersion)
+	if environment.ToolVersion(toolMySQL) != "8.4" || environment.ToolVersion(toolMariaDB) != "11.8" {
+		t.Fatalf("environment database tool versions = mysql:%q mariadb:%q, want mysql:8.4 mariadb:11.8", environment.ToolVersion(toolMySQL), environment.ToolVersion(toolMariaDB))
 	}
 }
 
@@ -3243,7 +3245,7 @@ func TestStoreResolveToolLogsExpandsEnvironmentAndFilters(t *testing.T) {
 	store := NewProjectStore(projectDir)
 
 	config := store.defaultConfig()
-	config.Environments["demo"] = Environment{NginxVersion: "1.30"}
+	config.Environments["demo"] = Environment{Tools: ToolsConfig{toolNginx: "1.30"}}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
 	}
@@ -3270,7 +3272,7 @@ func TestStoreResolveToolLogsSupportsApache(t *testing.T) {
 	store := NewProjectStore(projectDir)
 
 	config := store.defaultConfig()
-	config.Environments["demo"] = Environment{ApacheVersion: "2.4"}
+	config.Environments["demo"] = Environment{Tools: ToolsConfig{toolApache: "2.4"}}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
 	}
@@ -3297,7 +3299,7 @@ func TestStoreResolveToolLogsRejectsInvalidRequests(t *testing.T) {
 	store := NewProjectStore(projectDir)
 
 	config := store.defaultConfig()
-	config.Environments["demo"] = Environment{PHPVersion: "8.4"}
+	config.Environments["demo"] = Environment{Tools: ToolsConfig{toolPHP: "8.4"}}
 	if err := store.writeConfig(config); err != nil {
 		t.Fatalf("writeConfig() error = %v", err)
 	}

@@ -513,14 +513,14 @@ func TestResolveEnvironmentServerTypePreservesLegacySelection(t *testing.T) {
 		want        string
 		wantErr     string
 	}{
-		{name: "legacy php", environment: backend.Environment{Name: "demo", PHPVersion: "8.4"}, want: "php"},
-		{name: "legacy php with FrankenPHP CLI", environment: backend.Environment{Name: "demo", FrankenPHPVersion: "1.12"}, want: "php"},
-		{name: "legacy nginx", environment: backend.Environment{Name: "demo", PHPVersion: "8.4", NginxVersion: "1.30", FrankenPHPVersion: "1.12"}, want: "nginx"},
-		{name: "nginx requires standalone PHP", environment: backend.Environment{Name: "demo", NginxVersion: "1.30", FrankenPHPVersion: "1.12"}, wantErr: "does not define a php or php-zts version"},
-		{name: "explicit apache", environment: backend.Environment{Name: "demo", PHPVersion: "8.4", ApacheVersion: "2.4", Server: &backend.ServerConfig{Type: "apache"}}, want: "apache"},
-		{name: "apache requires apache tool", environment: backend.Environment{Name: "demo", PHPVersion: "8.4", Server: &backend.ServerConfig{Type: "apache"}}, wantErr: "does not define an apache version"},
-		{name: "apache requires standalone PHP", environment: backend.Environment{Name: "demo", ApacheVersion: "2.4", FrankenPHPVersion: "1.12", Server: &backend.ServerConfig{Type: "apache"}}, wantErr: "does not define a php or php-zts version"},
-		{name: "explicit frankenphp", environment: backend.Environment{Name: "demo", FrankenPHPVersion: "1.12", Server: &backend.ServerConfig{Type: "frankenphp"}}, want: "frankenphp"},
+		{name: "legacy php", environment: backend.Environment{Name: "demo", Tools: backend.ToolsConfig{"php": "8.4"}}, want: "php"},
+		{name: "legacy php with FrankenPHP CLI", environment: backend.Environment{Name: "demo", Tools: backend.ToolsConfig{"frankenphp": "1.12"}}, want: "php"},
+		{name: "legacy nginx", environment: backend.Environment{Name: "demo", Tools: backend.ToolsConfig{"php": "8.4", "nginx": "1.30", "frankenphp": "1.12"}}, want: "nginx"},
+		{name: "nginx requires standalone PHP", environment: backend.Environment{Name: "demo", Tools: backend.ToolsConfig{"nginx": "1.30", "frankenphp": "1.12"}}, wantErr: "does not define a php or php-zts version"},
+		{name: "explicit apache", environment: backend.Environment{Name: "demo", Tools: backend.ToolsConfig{"php": "8.4", "apache": "2.4"}, Server: &backend.ServerConfig{Type: "apache"}}, want: "apache"},
+		{name: "apache requires apache tool", environment: backend.Environment{Name: "demo", Tools: backend.ToolsConfig{"php": "8.4"}, Server: &backend.ServerConfig{Type: "apache"}}, wantErr: "does not define an apache version"},
+		{name: "apache requires standalone PHP", environment: backend.Environment{Name: "demo", Tools: backend.ToolsConfig{"apache": "2.4", "frankenphp": "1.12"}, Server: &backend.ServerConfig{Type: "apache"}}, wantErr: "does not define a php or php-zts version"},
+		{name: "explicit frankenphp", environment: backend.Environment{Name: "demo", Tools: backend.ToolsConfig{"frankenphp": "1.12"}, Server: &backend.ServerConfig{Type: "frankenphp"}}, want: "frankenphp"},
 		{name: "missing frankenphp", environment: backend.Environment{Name: "demo", Server: &backend.ServerConfig{Type: "frankenphp"}}, wantErr: "does not define a frankenphp version"},
 		{name: "invalid type", environment: backend.Environment{Name: "demo", Server: &backend.ServerConfig{Type: "caddy"}}, wantErr: "unsupported server type"},
 	}

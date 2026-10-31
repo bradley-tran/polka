@@ -120,7 +120,7 @@ func (m Manager) Start(ctx Context, hooks RuntimeHooks) (StartResult, error) {
 		}
 	}
 
-	if ctx.Environment.Mailpit != nil && strings.TrimSpace(ctx.Environment.Mailpit.Version) != "" {
+	if ctx.Environment.Mailpit() != nil && strings.TrimSpace(ctx.Environment.Mailpit().Version) != "" {
 		if !ctx.skipMissingTool("mailpit", toolMailpit) {
 			if _, _, err := EnsureManagedMailpitStarted(ctx, hooks.Mailpit); err != nil {
 				return StartResult{}, err
@@ -129,7 +129,7 @@ func (m Manager) Start(ctx Context, hooks RuntimeHooks) (StartResult, error) {
 	}
 
 	result := StartResult{}
-	if ctx.Environment.Meilisearch != nil && strings.TrimSpace(ctx.Environment.Meilisearch.Version) != "" {
+	if ctx.Environment.Meilisearch() != nil && strings.TrimSpace(ctx.Environment.Meilisearch().Version) != "" {
 		if !ctx.skipMissingTool("meilisearch", toolMeilisearch) {
 			state, alreadyStarted, err := EnsureManagedMeilisearchStarted(ctx, hooks.Meilisearch)
 			if err != nil {
@@ -139,7 +139,7 @@ func (m Manager) Start(ctx Context, hooks RuntimeHooks) (StartResult, error) {
 		}
 	}
 
-	if ctx.Environment.Redis != nil && strings.TrimSpace(ctx.Environment.Redis.Version) != "" {
+	if ctx.Environment.Redis() != nil && strings.TrimSpace(ctx.Environment.Redis().Version) != "" {
 		if !ctx.skipMissingTool("redis", toolRedis) {
 			state, alreadyStarted, err := EnsureManagedRedisStarted(ctx, hooks.Redis)
 			if err != nil {
@@ -149,7 +149,7 @@ func (m Manager) Start(ctx Context, hooks RuntimeHooks) (StartResult, error) {
 		}
 	}
 
-	if ctx.Environment.RabbitMQ != nil && strings.TrimSpace(ctx.Environment.RabbitMQ.Version) != "" {
+	if ctx.Environment.RabbitMQ() != nil && strings.TrimSpace(ctx.Environment.RabbitMQ().Version) != "" {
 		if !ctx.skipMissingTool("rabbitmq", toolRabbitMQ) {
 			state, alreadyStarted, err := EnsureManagedRabbitMQStarted(ctx, hooks.RabbitMQ)
 			if err != nil {
@@ -159,7 +159,7 @@ func (m Manager) Start(ctx Context, hooks RuntimeHooks) (StartResult, error) {
 		}
 	}
 
-	if ctx.Environment.Traefik != nil && strings.TrimSpace(ctx.Environment.Traefik.Version) != "" {
+	if ctx.Environment.Traefik() != nil && strings.TrimSpace(ctx.Environment.Traefik().Version) != "" {
 		if !ctx.skipMissingTool("traefik", toolTraefik) {
 			state, alreadyStarted, err := EnsureManagedTraefikStarted(ctx, hooks.Traefik)
 			if err != nil {
@@ -169,7 +169,7 @@ func (m Manager) Start(ctx Context, hooks RuntimeHooks) (StartResult, error) {
 		}
 	}
 
-	if ctx.Environment.PHPMyAdmin != nil && strings.TrimSpace(ctx.Environment.PHPMyAdmin.Version) != "" {
+	if ctx.Environment.PHPMyAdmin() != nil && strings.TrimSpace(ctx.Environment.PHPMyAdmin().Version) != "" {
 		if !ctx.skipMissingTool("phpmyadmin", toolPHPMyAdmin) {
 			if ctx.Environment.Database == nil || strings.TrimSpace(ctx.Environment.Database.Engine) == "" || ctx.hasTool(ctx.Environment.Database.Engine) {
 				ensureStorage := hooks.EnsurePHPMyAdminStorage
@@ -263,25 +263,25 @@ func (m Manager) Stop(ctx Context, hooks RuntimeHooks) (StopResult, error) {
 
 func (m Manager) WarnMissingRuntimeTools(ctx Context) {
 	warnPHPMyAdminPostgreSQL(ctx, ctx.Environment)
-	if ctx.Environment.PHPMyAdmin != nil && strings.TrimSpace(ctx.Environment.PHPMyAdmin.Version) != "" {
+	if ctx.Environment.PHPMyAdmin() != nil && strings.TrimSpace(ctx.Environment.PHPMyAdmin().Version) != "" {
 		_ = ctx.skipMissingTool("phpmyadmin", toolPHPMyAdmin)
 	}
 	if ctx.Environment.Database != nil && strings.TrimSpace(ctx.Environment.Database.Engine) != "" {
 		_ = ctx.skipMissingTool("database", ctx.Environment.Database.Engine)
 	}
-	if ctx.Environment.Mailpit != nil && strings.TrimSpace(ctx.Environment.Mailpit.Version) != "" {
+	if ctx.Environment.Mailpit() != nil && strings.TrimSpace(ctx.Environment.Mailpit().Version) != "" {
 		_ = ctx.skipMissingTool("mailpit", toolMailpit)
 	}
-	if ctx.Environment.Meilisearch != nil && strings.TrimSpace(ctx.Environment.Meilisearch.Version) != "" {
+	if ctx.Environment.Meilisearch() != nil && strings.TrimSpace(ctx.Environment.Meilisearch().Version) != "" {
 		_ = ctx.skipMissingTool("meilisearch", toolMeilisearch)
 	}
-	if ctx.Environment.Redis != nil && strings.TrimSpace(ctx.Environment.Redis.Version) != "" {
+	if ctx.Environment.Redis() != nil && strings.TrimSpace(ctx.Environment.Redis().Version) != "" {
 		_ = ctx.skipMissingTool("redis", toolRedis)
 	}
-	if ctx.Environment.RabbitMQ != nil && strings.TrimSpace(ctx.Environment.RabbitMQ.Version) != "" {
+	if ctx.Environment.RabbitMQ() != nil && strings.TrimSpace(ctx.Environment.RabbitMQ().Version) != "" {
 		_ = ctx.skipMissingTool("rabbitmq", toolRabbitMQ)
 	}
-	if ctx.Environment.Traefik != nil && strings.TrimSpace(ctx.Environment.Traefik.Version) != "" {
+	if ctx.Environment.Traefik() != nil && strings.TrimSpace(ctx.Environment.Traefik().Version) != "" {
 		_ = ctx.skipMissingTool("traefik", toolTraefik)
 	}
 }

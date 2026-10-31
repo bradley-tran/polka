@@ -14,7 +14,7 @@ import (
 func traefikPlugin() Plugin {
 	return newManifestPlugin(Traefik, pluginHooks{
 		validate: func(environment config.Environment) error {
-			return validateTraefikConfig(environment.Traefik)
+			return validateTraefikConfig(environment.Traefik())
 		},
 		postInstall: chmodInstalledTraefik,
 	})

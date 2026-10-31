@@ -44,12 +44,12 @@ func TestWriteRabbitMQStateDoesNotPersistPassword(t *testing.T) {
 
 // TestRabbitMQStateMatchesEnvironmentIncludesCredentialsAndPorts detects drift.
 func TestRabbitMQStateMatchesEnvironmentIncludesCredentialsAndPorts(t *testing.T) {
-	environment := config.Environment{Name: "demo", RabbitMQ: &config.RabbitMQConfig{Version: "4.3", Port: 5673, ManagementPort: 15673, Username: "polka", Password: "secret"}}
+	environment := config.Environment{Name: "demo", Tools: config.ToolsConfig{"rabbitmq": "4.3"}, Settings: config.SettingsConfig{"rabbitmq": {"port": 5673, "management-port": 15673, "username": "polka", "password": "secret"}}}
 	state := RabbitMQRuntimeState{Version: "4.3", Port: 5673, ManagementPort: 15673, Username: "polka", PasswordHash: RabbitMQPasswordHash("secret")}
 	if !RabbitMQStateMatchesEnvironment(state, environment) {
 		t.Fatal("matching state rejected")
 	}
-	environment.RabbitMQ.Password = "changed"
+	environment.SetSetting("rabbitmq", "password", "changed")
 	if RabbitMQStateMatchesEnvironment(state, environment) {
 		t.Fatal("changed password matched")
 	}

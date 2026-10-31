@@ -9,6 +9,8 @@ import (
 type Config = config.Config
 type DatabaseConfig = config.DatabaseConfig
 type Environment = config.Environment
+type ToolsConfig = config.ToolsConfig
+type SettingsConfig = config.SettingsConfig
 type MailpitConfig = config.MailpitConfig
 type PHPMyAdminConfig = config.PHPMyAdminConfig
 type MeilisearchConfig = config.MeilisearchConfig

@@ -104,18 +104,19 @@ func TestTraefikRouterNameSanitizesEnvironment(t *testing.T) {
 func TestTraefikStateMatchesEnvironmentIncludesPort(t *testing.T) {
 	state := TraefikRuntimeState{Version: "3.3", Port: 8090}
 	environment := config.Environment{
-		Traefik: &config.TraefikConfig{Version: "3.3", Port: 8090},
+		Tools:    config.ToolsConfig{"traefik": "3.3"},
+		Settings: config.SettingsConfig{"traefik": {"port": 8090}},
 	}
 	if !TraefikStateMatchesEnvironment(state, environment) {
 		t.Fatalf("TraefikStateMatchesEnvironment() = false, want true")
 	}
 
-	environment.Traefik.Port = 8091
+	environment.SetSetting("traefik", "port", 8091)
 	if TraefikStateMatchesEnvironment(state, environment) {
 		t.Fatalf("TraefikStateMatchesEnvironment(other port) = true, want false")
 	}
-	environment.Traefik.Port = 8090
-	environment.Traefik.Version = "3.4"
+	environment.SetSetting("traefik", "port", 8090)
+	environment.SetToolVersion("traefik", "3.4")
 	if TraefikStateMatchesEnvironment(state, environment) {
 		t.Fatalf("TraefikStateMatchesEnvironment(other version) = true, want false")
 	}
@@ -147,8 +148,9 @@ func TestEnsureManagedTraefikStartedAndStop(t *testing.T) {
 		RootDir: rootDir,
 		EnvsDir: envsDir,
 		Environment: config.Environment{
-			Name:    "demo",
-			Traefik: &config.TraefikConfig{Version: version, Port: 8090},
+			Name:     "demo",
+			Tools:    config.ToolsConfig{"traefik": version},
+			Settings: config.SettingsConfig{"traefik": {"port": 8090}},
 		},
 	}
 	hooks := TraefikRuntimeHooks{

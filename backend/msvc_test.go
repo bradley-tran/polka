@@ -177,7 +177,7 @@ func TestSyncMSVCToolchainCapturesAndReuses(t *testing.T) {
 	}
 	instance.Catalog.ProductDisplayVersion = "17.14.2"
 	captures := stubMSVCHost(t, []msvcInstance{instance}, nil)
-	environment := Environment{Name: "default", PHPBuildTools: true}
+	environment := Environment{Name: "default", Settings: SettingsConfig{toolPHP: {"extension-sdk": true}}}
 
 	for _, force := range []bool{false, false, true} {
 		if err := store.syncMSVCToolchain(environment, force, func(message string) { t.Fatalf("unexpected warning: %s", message) }); err != nil {
@@ -210,7 +210,7 @@ func TestSyncMSVCToolchainWarnsWhenMissing(t *testing.T) {
 		t.Skip("MSVC detection only runs on Windows")
 	}
 	store := NewProjectStore(t.TempDir())
-	environment := Environment{Name: "default", PHPBuildTools: true}
+	environment := Environment{Name: "default", Settings: SettingsConfig{toolPHP: {"extension-sdk": true}}}
 	if err := writeMSVCToolchain(store.msvcStateFile("default"), MSVCToolchain{Version: "stale"}); err != nil {
 		t.Fatalf("write stale toolchain: %v", err)
 	}

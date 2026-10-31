@@ -17,7 +17,7 @@ func TestRabbitMQManifestAndDependency(t *testing.T) {
 	if got := plugin.DispatchCommands(); !reflect.DeepEqual(got, []string{"rabbitmq-server", "rabbitmqctl", "rabbitmq-diagnostics", "rabbitmq-plugins", "rabbitmq-queues", "rabbitmq-streams", "rabbitmq-upgrade"}) {
 		t.Fatalf("rabbitmq dispatch commands = %#v", got)
 	}
-	layers, err := NewDefaultRegistry().InstallRequestLayers(config.Environment{RabbitMQ: &config.RabbitMQConfig{Version: "4.3"}}, nil)
+	layers, err := NewDefaultRegistry().InstallRequestLayers(config.Environment{Tools: config.ToolsConfig{RabbitMQ: "4.3"}}, nil)
 	if err != nil {
 		t.Fatalf("InstallRequestLayers() error = %v", err)
 	}

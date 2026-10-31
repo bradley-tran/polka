@@ -19,10 +19,6 @@ const (
 	phpMyAdminStorageCreateTablesSQLPath = "sql/create_tables.sql"
 )
 
-func normalizePHPMyAdminConfig(phpMyAdmin *config.PHPMyAdminConfig) *config.PHPMyAdminConfig {
-	return config.NormalizePHPMyAdminConfig(phpMyAdmin)
-}
-
 func EffectivePHPMyAdminPort(phpMyAdmin *config.PHPMyAdminConfig) int {
 	if phpMyAdmin == nil || phpMyAdmin.Port == 0 {
 		return DefaultPHPMyAdminPort
@@ -55,7 +51,7 @@ func ResolvePHPMyAdminDocroot(envsDir, version string) (string, error) {
 }
 
 func EnsurePHPMyAdminStorageConfigured(ctx Context, environment config.Environment, hooks DatabaseRuntimeHooks) error {
-	if environment.PHPMyAdmin == nil || strings.TrimSpace(environment.PHPMyAdmin.Version) == "" {
+	if environment.PHPMyAdmin() == nil || strings.TrimSpace(environment.PHPMyAdmin().Version) == "" {
 		return nil
 	}
 	if environment.Database == nil || strings.TrimSpace(environment.Database.Engine) == "" {
@@ -66,7 +62,7 @@ func EnsurePHPMyAdminStorageConfigured(ctx Context, environment config.Environme
 		return nil
 	}
 
-	docroot, err := ResolvePHPMyAdminDocroot(ctx.EnvsDir, environment.PHPMyAdmin.Version)
+	docroot, err := ResolvePHPMyAdminDocroot(ctx.EnvsDir, environment.PHPMyAdmin().Version)
 	if err != nil {
 		return err
 	}
@@ -95,8 +91,8 @@ func EnsurePHPMyAdminStorageConfigured(ctx Context, environment config.Environme
 // PHPMyAdminUsesPostgreSQL reports whether an environment pairs phpMyAdmin
 // with PostgreSQL, which phpMyAdmin cannot manage directly.
 func PHPMyAdminUsesPostgreSQL(environment config.Environment) bool {
-	return environment.PHPMyAdmin != nil &&
-		strings.TrimSpace(environment.PHPMyAdmin.Version) != "" &&
+	return environment.PHPMyAdmin() != nil &&
+		strings.TrimSpace(environment.PHPMyAdmin().Version) != "" &&
 		environment.Database != nil &&
 		strings.EqualFold(strings.TrimSpace(environment.Database.Engine), toolPostgreSQL)
 }

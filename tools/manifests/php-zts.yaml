@@ -1,4 +1,7 @@
 id: php-zts
+exclusive-with:
+  - php
+settings-from: php
 install-candidates:
   windows-amd64:
     - bin/php.exe
