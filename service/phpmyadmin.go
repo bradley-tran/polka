@@ -63,7 +63,7 @@ type PHPMyAdminRuntimeHooks struct {
 func EnsureManagedPHPMyAdminStarted(ctx Context, hooks PHPMyAdminRuntimeHooks) (ServeRuntimeState, bool, error) {
 	hooks = hooks.withDefaults()
 	environment := ctx.Environment
-	if environment.PHPMyAdmin == nil || strings.TrimSpace(environment.PHPMyAdmin.Version) == "" {
+	if environment.PHPMyAdmin() == nil || strings.TrimSpace(environment.PHPMyAdmin().Version) == "" {
 		return ServeRuntimeState{}, true, nil
 	}
 
@@ -75,7 +75,7 @@ func EnsureManagedPHPMyAdminStarted(ctx Context, hooks PHPMyAdminRuntimeHooks) (
 		return *state, true, nil
 	}
 
-	version := strings.TrimSpace(environment.PHPMyAdmin.Version)
+	version := strings.TrimSpace(environment.PHPMyAdmin().Version)
 	docroot, err := ResolvePHPMyAdminDocroot(ctx.EnvsDir, version)
 	if err != nil {
 		return ServeRuntimeState{}, false, err
@@ -84,7 +84,7 @@ func EnsureManagedPHPMyAdminStarted(ctx Context, hooks PHPMyAdminRuntimeHooks) (
 	if err != nil {
 		return ServeRuntimeState{}, false, err
 	}
-	endpoint := PHPMyAdminEndpoint(environment.PHPMyAdmin)
+	endpoint := PHPMyAdminEndpoint(environment.PHPMyAdmin())
 	runtimeDir := PHPMyAdminRuntimeDir(ctx.RootDir, environment.Name)
 	startedState, err := hooks.StartServe(environment, endpoint, layout, runtimeDir)
 	if err != nil {
@@ -150,8 +150,8 @@ func LoadLivePHPMyAdminStateForEnvironment(rootDir string, environment config.En
 		environment.Name,
 		state.Version,
 		ServeStateURL(*state),
-		strings.TrimSpace(environment.PHPMyAdmin.Version),
-		EndpointURL(PHPMyAdminEndpoint(environment.PHPMyAdmin)),
+		strings.TrimSpace(environment.PHPMyAdmin().Version),
+		EndpointURL(PHPMyAdminEndpoint(environment.PHPMyAdmin())),
 	)
 }
 
@@ -205,12 +205,12 @@ func WritePHPMyAdminState(path string, state ServeRuntimeState) error {
 }
 
 func PHPMyAdminStateMatchesEnvironment(state ServeRuntimeState, environment config.Environment) bool {
-	if environment.PHPMyAdmin == nil {
+	if environment.PHPMyAdmin() == nil {
 		return false
 	}
 
-	endpoint := PHPMyAdminEndpoint(environment.PHPMyAdmin)
-	return strings.TrimSpace(state.Version) == strings.TrimSpace(environment.PHPMyAdmin.Version) &&
+	endpoint := PHPMyAdminEndpoint(environment.PHPMyAdmin())
+	return strings.TrimSpace(state.Version) == strings.TrimSpace(environment.PHPMyAdmin().Version) &&
 		strings.EqualFold(strings.TrimSpace(state.ServerKind), DesiredServeKind(endpoint.HTTPS)) &&
 		strings.EqualFold(strings.TrimSpace(state.ServerAddress), strings.TrimSpace(endpoint.Address)) &&
 		strings.EqualFold(strings.TrimSpace(state.ServerScheme), strings.TrimSpace(endpoint.Scheme))

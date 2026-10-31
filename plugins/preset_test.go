@@ -25,7 +25,7 @@ func TestBuiltinProjectPresetManifestLoads(t *testing.T) {
 
 	preset := newManifestProjectPreset(PHPExtension)
 	defaults := preset.Defaults()
-	if defaults.PHPVersion != "8.4" || defaults.ComposerVersion != "2.8" || !defaults.PHPBuildTools {
+	if defaults.ToolVersion("php") != "8.4" || defaults.ToolVersion("composer") != "2.8" || !defaults.PHPBuildTools() {
 		t.Fatalf("preset Defaults() = %#v, want PHP, Composer, and extension SDK", defaults)
 	}
 	if defaults.Docroot != "" || defaults.HTTPS || defaults.Server != nil || defaults.Database != nil {

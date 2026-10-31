@@ -1,4 +1,7 @@
 id: mailpit
+settings:
+  smtp-port: port
+  ui-port: port
 install-candidates:
   windows-amd64:
     - mailpit.exe

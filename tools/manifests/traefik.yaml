@@ -1,4 +1,6 @@
 id: traefik
+settings:
+  port: port
 install-candidates:
   windows-amd64:
     - traefik.exe

@@ -281,7 +281,7 @@ func symfonyDatabaseServerVersion(environment config.Environment) string {
 	switch engine {
 	case tools.MariaDB:
 		if version == "" {
-			version = strings.TrimSpace(environment.MariaDBVersion)
+			version = environment.ToolVersion(tools.MariaDB)
 		}
 		if version == "" {
 			version = defaultMariaDBVersion
@@ -289,7 +289,7 @@ func symfonyDatabaseServerVersion(environment config.Environment) string {
 		return "mariadb-" + symfonyMySQLCompatibleServerVersion(version)
 	case tools.MySQL:
 		if version == "" {
-			version = strings.TrimSpace(environment.MySQLVersion)
+			version = environment.ToolVersion(tools.MySQL)
 		}
 		if version == "" {
 			return "mysql"
@@ -297,7 +297,7 @@ func symfonyDatabaseServerVersion(environment config.Environment) string {
 		return version
 	case tools.PostgreSQL:
 		if version == "" {
-			version = strings.TrimSpace(environment.PostgreSQLVersion)
+			version = environment.ToolVersion(tools.PostgreSQL)
 		}
 		return version
 	default:

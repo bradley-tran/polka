@@ -15,7 +15,7 @@ import (
 func roadRunnerPlugin() Plugin {
 	return newManifestPlugin(RoadRunner, pluginHooks{
 		validate: func(environment config.Environment) error {
-			version := strings.TrimSpace(environment.RoadRunnerVersion)
+			version := environment.ToolVersion(RoadRunner)
 			if version == "" {
 				return nil
 			}

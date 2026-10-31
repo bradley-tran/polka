@@ -140,28 +140,28 @@ func buildConfigFormFields(environment backend.Environment) []*configFormField {
 		database = *environment.Database
 	}
 	var mailpit config.MailpitConfig
-	if environment.Mailpit != nil {
-		mailpit = *environment.Mailpit
+	if value := environment.Mailpit(); value != nil {
+		mailpit = *value
 	}
 	var phpMyAdmin config.PHPMyAdminConfig
-	if environment.PHPMyAdmin != nil {
-		phpMyAdmin = *environment.PHPMyAdmin
+	if value := environment.PHPMyAdmin(); value != nil {
+		phpMyAdmin = *value
 	}
 	var meilisearch config.MeilisearchConfig
-	if environment.Meilisearch != nil {
-		meilisearch = *environment.Meilisearch
+	if value := environment.Meilisearch(); value != nil {
+		meilisearch = *value
 	}
 	var redis config.RedisConfig
-	if environment.Redis != nil {
-		redis = *environment.Redis
+	if value := environment.Redis(); value != nil {
+		redis = *value
 	}
 	var rabbitMQ config.RabbitMQConfig
-	if environment.RabbitMQ != nil {
-		rabbitMQ = *environment.RabbitMQ
+	if value := environment.RabbitMQ(); value != nil {
+		rabbitMQ = *value
 	}
 	var traefik config.TraefikConfig
-	if environment.Traefik != nil {
-		traefik = *environment.Traefik
+	if value := environment.Traefik(); value != nil {
+		traefik = *value
 	}
 
 	fields := []*configFormField{
@@ -172,24 +172,24 @@ func buildConfigFormFields(environment backend.Environment) []*configFormField {
 		configInputField(configFormGroupGeneral, "memory-limit", "PHP memory limit", "e.g. 256M; empty for the default", environment.MemoryLimit),
 		configSelectField(configFormGroupGeneral, "opcache-preset", "OPcache preset", "", environment.OPcachePreset, []string{"", config.OPcachePresetNone, config.OPcachePresetDev, config.OPcachePresetProduction}),
 
-		configInputField(configFormGroupPHPRuntime, "tools.php", "PHP version", "mutually exclusive with PHP ZTS", environment.PHPVersion),
-		configInputField(configFormGroupPHPRuntime, "tools.php-zts", "PHP ZTS version", "mutually exclusive with PHP", environment.PHPZTSVersion),
-		configInputField(configFormGroupPHPRuntime, "tools.frankenphp", "FrankenPHP version", "", environment.FrankenPHPVersion),
-		configInputField(configFormGroupPHPRuntime, "tools.roadrunner", "RoadRunner version", "", environment.RoadRunnerVersion),
-		configInputField(configFormGroupPHPRuntime, "tools.composer", "Composer version", "", environment.ComposerVersion),
-		configInputField(configFormGroupPHPRuntime, "tools.nodejs", "Node.js version", "", environment.NodeJSVersion),
-		configInputField(configFormGroupPHPRuntime, "tools.mago", "Mago version", "", environment.MagoVersion),
+		configInputField(configFormGroupPHPRuntime, "tools.php", "PHP version", "mutually exclusive with PHP ZTS", environment.ToolVersion("php")),
+		configInputField(configFormGroupPHPRuntime, "tools.php-zts", "PHP ZTS version", "mutually exclusive with PHP", environment.ToolVersion("php-zts")),
+		configInputField(configFormGroupPHPRuntime, "tools.frankenphp", "FrankenPHP version", "", environment.ToolVersion("frankenphp")),
+		configInputField(configFormGroupPHPRuntime, "tools.roadrunner", "RoadRunner version", "", environment.ToolVersion("roadrunner")),
+		configInputField(configFormGroupPHPRuntime, "tools.composer", "Composer version", "", environment.ToolVersion("composer")),
+		configInputField(configFormGroupPHPRuntime, "tools.nodejs", "Node.js version", "", environment.ToolVersion("nodejs")),
+		configInputField(configFormGroupPHPRuntime, "tools.mago", "Mago version", "", environment.ToolVersion("mago")),
 
-		configInputField(configFormGroupWebServer, "tools.nginx", "nginx version", "", environment.NginxVersion),
-		configInputField(configFormGroupWebServer, "tools.apache", "Apache version", "", environment.ApacheVersion),
+		configInputField(configFormGroupWebServer, "tools.nginx", "nginx version", "", environment.ToolVersion("nginx")),
+		configInputField(configFormGroupWebServer, "tools.apache", "Apache version", "", environment.ToolVersion("apache")),
 		configSelectField(configFormGroupWebServer, "server.type", "Server type", "", serverTypeValue(server.Type), []string{"", config.ServerTypePHP, config.ServerTypeNginx, config.ServerTypeApache, config.ServerTypeFrankenPHP}),
 		configInputField(configFormGroupWebServer, "server.hostname", "Server hostname", "", server.Hostname),
 		configPortField(configFormGroupWebServer, "server.port", "Server port", "", server.Port),
 
-		configInputField(configFormGroupDatabase, "tools.mysql", "MySQL version", "", environment.MySQLVersion),
-		configInputField(configFormGroupDatabase, "tools.mariadb", "MariaDB version", "", environment.MariaDBVersion),
-		configInputField(configFormGroupDatabase, "tools.postgresql", "PostgreSQL version", "", environment.PostgreSQLVersion),
-		configInputField(configFormGroupDatabase, "tools.sqlite", "SQLite version", "", environment.SQLiteVersion),
+		configInputField(configFormGroupDatabase, "tools.mysql", "MySQL version", "", environment.ToolVersion("mysql")),
+		configInputField(configFormGroupDatabase, "tools.mariadb", "MariaDB version", "", environment.ToolVersion("mariadb")),
+		configInputField(configFormGroupDatabase, "tools.postgresql", "PostgreSQL version", "", environment.ToolVersion("postgresql")),
+		configInputField(configFormGroupDatabase, "tools.sqlite", "SQLite version", "", environment.ToolVersion("sqlite")),
 		configSelectField(configFormGroupDatabase, "database.engine", "Database engine", "", database.Engine, []string{"", "mysql", "mariadb", "postgresql"}),
 		configPortField(configFormGroupDatabase, "database.port", "Database port", "", database.Port),
 

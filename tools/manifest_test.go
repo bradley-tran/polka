@@ -152,16 +152,12 @@ func TestBuiltinToolPHPExtensions(t *testing.T) {
 
 func TestRegistryPHPExtensionsUsesConfiguredTools(t *testing.T) {
 	registry := NewDefaultRegistry()
-	if extensions := registry.PHPExtensions(config.Environment{PHPVersion: "8.4"}); extensions != nil {
+	if extensions := registry.PHPExtensions(config.Environment{Tools: config.ToolsConfig{PHP: "8.4"}}); extensions != nil {
 		t.Fatalf("PHPExtensions(unconfigured) = %#v, want nil", extensions)
 	}
 
 	extensions := registry.PHPExtensions(config.Environment{
-		ComposerVersion:   "2.8",
-		MySQLVersion:      "8.4",
-		MariaDBVersion:    "11.8",
-		PostgreSQLVersion: "17",
-		SQLiteVersion:     "3.50",
+		Tools: config.ToolsConfig{Composer: "2.8", MySQL: "8.4", MariaDB: "11.8", PostgreSQL: "17", SQLite: "3.50"},
 	})
 	for _, extension := range []string{"openssl", "zip", "mysqli", "pdo_mysql", "pgsql", "pdo_pgsql", "pdo_sqlite", "sqlite3"} {
 		if !extensions[extension] {
@@ -328,7 +324,7 @@ dispatch-candidates:
 	if err != nil {
 		t.Fatalf("toPlugin() error = %v", err)
 	}
-	if version := plugin.Version(config.Environment{PHPVersion: "8.4"}); version != "8.4" {
+	if version := plugin.Version(config.Environment{Tools: config.ToolsConfig{PHP: "8.4"}}); version != "8.4" {
 		t.Fatalf("Version() = %q, want 8.4", version)
 	}
 
@@ -392,8 +388,8 @@ install-candidates:
 		t.Fatalf("toPlugin() error = %v", err)
 	}
 	version := plugin.Version(config.Environment{
-		MariaDBVersion: "11.8",
-		Database:       &config.DatabaseConfig{Engine: MariaDB, Version: "11.8"},
+		Tools:    config.ToolsConfig{MariaDB: "11.8"},
+		Database: &config.DatabaseConfig{Engine: MariaDB, Version: "11.8"},
 	})
 	if version != "11.8" {
 		t.Fatalf("Version() = %q, want 11.8", version)
@@ -428,5 +424,84 @@ download:
 	}
 	if asset.URL != "https://example.test/v1.2.3/demo-1.2.3.zip" || asset.ChecksumURL != "https://example.test/v1.2.3/checksums.txt" {
 		t.Fatalf("asset URLs = (%q, %q), want rendered template URLs", asset.URL, asset.ChecksumURL)
+	}
+}
+
+func TestParsePluginManifestValidatesSettingsAndExclusiveWith(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr string
+	}{
+		{
+			name: "unsupported setting type",
+			yaml: `
+id: demo
+settings:
+  port: integer
+install-candidates:
+  all:
+    - bin/demo
+`,
+			wantErr: "unsupported type",
+		},
+		{
+			name: "both settings and settings-from",
+			yaml: `
+id: demo
+settings:
+  port: port
+settings-from: other
+install-candidates:
+  all:
+    - bin/demo
+`,
+			wantErr: "cannot define both settings and settings-from",
+		},
+		{
+			name: "self settings-from",
+			yaml: `
+id: demo
+settings-from: demo
+install-candidates:
+  all:
+    - bin/demo
+`,
+			wantErr: "settings-from cannot reference itself",
+		},
+		{
+			name: "self exclusive-with",
+			yaml: `
+id: demo
+exclusive-with:
+  - demo
+install-candidates:
+  all:
+    - bin/demo
+`,
+			wantErr: "exclusive-with[0] cannot reference itself",
+		},
+		{
+			name: "internal-only with settings",
+			yaml: `
+id: demo
+internal-only: true
+settings:
+  port: port
+install-candidates:
+  all:
+    - bin/demo
+`,
+			wantErr: "internal-only and cannot define settings",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := parsePluginManifest([]byte(test.yaml))
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("parsePluginManifest() error = %v, want %q", err, test.wantErr)
+			}
+		})
 	}
 }

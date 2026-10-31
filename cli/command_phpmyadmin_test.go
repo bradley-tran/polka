@@ -48,10 +48,9 @@ func TestStartPHPMyAdminServeUsesSelectedFrankenPHPForHTTPS(t *testing.T) {
 	state, err := startPHPMyAdminServe(
 		backend.Store{},
 		backend.Environment{
-			Name:              "demo",
-			FrankenPHPVersion: "1.12",
-			NginxVersion:      "1.30",
-			Server:            &backend.ServerConfig{Type: "frankenphp"},
+			Name:   "demo",
+			Tools:  backend.ToolsConfig{"frankenphp": "1.12", "nginx": "1.30"},
+			Server: &backend.ServerConfig{Type: "frankenphp"},
 		},
 		serverEndpoint{Scheme: "https", Address: "127.0.0.1:8082", HTTPS: true},
 		serveAppLayout{Docroot: "phpmyadmin"},
@@ -104,11 +103,9 @@ func TestStartPHPMyAdminServeUsesSelectedApacheForHTTPS(t *testing.T) {
 	state, err := startPHPMyAdminServe(
 		backend.Store{},
 		backend.Environment{
-			Name:          "demo",
-			PHPVersion:    "8.4",
-			ApacheVersion: "2.4",
-			NginxVersion:  "1.30",
-			Server:        &backend.ServerConfig{Type: "apache"},
+			Name:   "demo",
+			Tools:  backend.ToolsConfig{"php": "8.4", "apache": "2.4", "nginx": "1.30"},
+			Server: &backend.ServerConfig{Type: "apache"},
 		},
 		serverEndpoint{Scheme: "https", Address: "127.0.0.1:8082", HTTPS: true},
 		serveAppLayout{Docroot: "phpmyadmin"},
@@ -143,10 +140,9 @@ func TestStartPHPMyAdminServeUsesRuntimeTLSKeyForEncryptedGlobalKey(t *testing.T
 		CacheDir: filepath.Join(root, "cache"),
 	}
 	environment := backend.Environment{
-		Name:         "demo",
-		PHPVersion:   "8.4",
-		NginxVersion: "1.30",
-		Server:       &backend.ServerConfig{Type: "nginx"},
+		Name:   "demo",
+		Tools:  backend.ToolsConfig{"php": "8.4", "nginx": "1.30"},
+		Server: &backend.ServerConfig{Type: "nginx"},
 	}
 	endpoint := serverEndpoint{Scheme: "https", Address: "127.0.0.1:8082", HTTPS: true}
 	layout, err := resolveServeAppLayout(docroot)

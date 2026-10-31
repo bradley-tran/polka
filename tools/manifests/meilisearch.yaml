@@ -1,4 +1,7 @@
 id: meilisearch
+settings:
+  port: port
+  master-key: string
 install-candidates:
   windows-amd64:
     - meilisearch.exe

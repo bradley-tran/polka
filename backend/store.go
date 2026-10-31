@@ -370,7 +370,7 @@ func (s Store) PresetDefaults(id string) (Environment, error) {
 // bundled msys2 utilities (bison, re2c, sed, patch, ...) are included the same
 // way the SDK's own phpsdk_setvars.bat adds them.
 func (s Store) PHPBuildToolPathEntries(environment Environment) []string {
-	if !environment.PHPBuildTools || runtime.GOOS != "windows" {
+	if !environment.PHPBuildTools() || runtime.GOOS != "windows" {
 		return nil
 	}
 	version := strings.TrimSpace(config.PrimaryPHPVersion(environment))
@@ -391,7 +391,7 @@ func (s Store) PHPBuildToolPathEntries(environment Environment) []string {
 // enabled on Windows. Returns empty when not on Windows, build tools are
 // disabled, or no PHP runtime is configured.
 func (s Store) PHPRuntimePrefix(environment Environment) string {
-	if !environment.PHPBuildTools || runtime.GOOS != "windows" {
+	if !environment.PHPBuildTools() || runtime.GOOS != "windows" {
 		return ""
 	}
 	tool, version := config.PrimaryPHPTool(environment)
@@ -568,7 +568,7 @@ func (s Store) writePresetScaffold(preset plugins.ProjectPreset, environment Env
 	files := preset.ScaffoldFiles(plugins.ScaffoldContext{
 		ProjectDir:  s.ProjectDir,
 		PackageName: options.Package,
-		PHPVersion:  environment.PHPVersion,
+		PHPVersion:  environment.ToolVersion(toolPHP),
 	})
 	for _, file := range files {
 		if err := validatePresetScaffoldTarget(file.Path); err != nil {
@@ -690,19 +690,19 @@ func (s Store) writeEnvironment(name, phpVersion, composerVersion, nodeJSVersion
 
 	environment := s.normalizeEnvironment(name, storedEnvironment)
 	if phpVersion != "" {
-		environment.PHPVersion = phpVersion
+		environment.SetToolVersion(toolPHP, phpVersion)
 	}
 	if composerVersion != "" {
-		environment.ComposerVersion = composerVersion
+		environment.SetToolVersion(toolComposer, composerVersion)
 	}
 	if nodeJSVersion != "" {
-		environment.NodeJSVersion = nodeJSVersion
+		environment.SetToolVersion(toolNodeJS, nodeJSVersion)
 	}
 	if database != nil {
 		environment.Database = mergeDatabaseConfig(environment.Database, database)
 		environment = setDatabaseToolVersion(environment, database)
 	}
-	if environment.PHPVersion == "" && environment.PHPZTSVersion == "" && environment.FrankenPHPVersion == "" && environment.RoadRunnerVersion == "" && environment.ComposerVersion == "" && environment.PIEVersion == "" && environment.NodeJSVersion == "" && environment.MagoVersion == "" && environment.NginxVersion == "" && environment.ApacheVersion == "" && environment.MySQLVersion == "" && environment.MariaDBVersion == "" && environment.PostgreSQLVersion == "" && environment.SQLiteVersion == "" && environment.PHPMyAdmin == nil && environment.Database == nil && environment.Mailpit == nil && environment.Meilisearch == nil && environment.Redis == nil && environment.RabbitMQ == nil && environment.Traefik == nil {
+	if len(environment.Tools) == 0 && environment.Database == nil {
 		return Environment{}, fmt.Errorf("environment requires at least one of php, php-zts, frankenphp, roadrunner, composer, nodejs, mago, nginx, apache, mysql, mariadb, postgresql, sqlite, phpmyadmin, database, mailpit, meilisearch, redis, rabbitmq, or traefik")
 	}
 	if err := s.toolRegistry().ValidateEnvironment(environment); err != nil {
@@ -749,7 +749,7 @@ func (s Store) InstallToolWithProgress(name, tool, version string, report func(I
 	if err != nil {
 		return InstallResult{}, err
 	}
-	environment = environmentWithInstallRequest(environment, request)
+	environment = environmentWithInstallRequest(registry, environment, request)
 	if err := validateInstallEnvironment(name, environment, []tools.InstallRequest{request}, registry); err != nil {
 		return InstallResult{}, err
 	}
@@ -867,7 +867,7 @@ func (s Store) install(name string, options InstallOptions, report func(InstallP
 // verifyPHPBuildTools checks host-provided extension build commands on Linux,
 // where Polka has no downloadable PHP development payload.
 func (s Store) verifyPHPBuildTools(environment Environment) error {
-	if !environment.PHPBuildTools || runtime.GOOS == "windows" {
+	if !environment.PHPBuildTools() || runtime.GOOS == "windows" {
 		return nil
 	}
 	if runtime.GOOS != "linux" {
@@ -1201,75 +1201,18 @@ func normalizeInstallRequest(registry *ToolRegistry, tool, version string) (tool
 	return tools.InstallRequest{Tool: normalizedTool, Version: normalizedVersion}, nil
 }
 
-func environmentWithInstallRequest(environment Environment, request tools.InstallRequest) Environment {
-	switch request.Tool {
-	case toolPHP:
-		environment.PHPVersion = request.Version
-		environment.PHPZTSVersion = ""
-	case toolPHPZTS:
-		environment.PHPZTSVersion = request.Version
-		environment.PHPVersion = ""
-	case toolFrankenPHP:
-		environment.FrankenPHPVersion = request.Version
-	case toolRoadRunner:
-		environment.RoadRunnerVersion = request.Version
-	case toolComposer:
-		environment.ComposerVersion = request.Version
-	case toolNodeJS:
-		environment.NodeJSVersion = request.Version
-	case toolMago:
-		environment.MagoVersion = request.Version
-	case toolNginx:
-		environment.NginxVersion = request.Version
-	case toolApache:
-		environment.ApacheVersion = request.Version
-	case toolMySQL:
-		environment.MySQLVersion = request.Version
-		if environment.Database != nil && strings.EqualFold(strings.TrimSpace(environment.Database.Engine), toolMySQL) {
-			environment.Database.Version = request.Version
+func environmentWithInstallRequest(registry *ToolRegistry, environment Environment, request tools.InstallRequest) Environment {
+	if registry == nil {
+		registry = NewDefaultToolRegistry()
+	}
+	environment.SetToolVersion(request.Tool, request.Version)
+	if strings.TrimSpace(request.Version) != "" {
+		for _, peer := range registry.ExclusivePeers(request.Tool) {
+			environment.SetToolVersion(peer, "")
 		}
-	case toolMariaDB:
-		environment.MariaDBVersion = request.Version
-		if environment.Database != nil && strings.EqualFold(strings.TrimSpace(environment.Database.Engine), toolMariaDB) {
-			environment.Database.Version = request.Version
-		}
-	case toolPostgreSQL:
-		environment.PostgreSQLVersion = request.Version
-		if environment.Database != nil && strings.EqualFold(strings.TrimSpace(environment.Database.Engine), toolPostgreSQL) {
-			environment.Database.Version = request.Version
-		}
-	case toolSQLite:
-		environment.SQLiteVersion = request.Version
-	case toolMailpit:
-		if environment.Mailpit == nil {
-			environment.Mailpit = &MailpitConfig{}
-		}
-		environment.Mailpit.Version = request.Version
-	case toolPHPMyAdmin:
-		if environment.PHPMyAdmin == nil {
-			environment.PHPMyAdmin = &PHPMyAdminConfig{}
-		}
-		environment.PHPMyAdmin.Version = request.Version
-	case toolMeilisearch:
-		if environment.Meilisearch == nil {
-			environment.Meilisearch = &MeilisearchConfig{}
-		}
-		environment.Meilisearch.Version = request.Version
-	case toolRedis:
-		if environment.Redis == nil {
-			environment.Redis = &RedisConfig{}
-		}
-		environment.Redis.Version = request.Version
-	case toolRabbitMQ:
-		if environment.RabbitMQ == nil {
-			environment.RabbitMQ = &RabbitMQConfig{}
-		}
-		environment.RabbitMQ.Version = request.Version
-	case toolTraefik:
-		if environment.Traefik == nil {
-			environment.Traefik = &TraefikConfig{}
-		}
-		environment.Traefik.Version = request.Version
+	}
+	if environment.Database != nil && strings.EqualFold(strings.TrimSpace(environment.Database.Engine), request.Tool) {
+		environment.Database.Version = request.Version
 	}
 
 	return environment
@@ -1316,7 +1259,7 @@ func installCacheVersion(environment Environment, tool, version string) string {
 	if tool != toolPHPDevel {
 		return version
 	}
-	if strings.TrimSpace(environment.PHPZTSVersion) != "" {
+	if strings.TrimSpace(environment.ToolVersion(toolPHPZTS)) != "" {
 		return version + "-zts"
 	}
 
@@ -1683,7 +1626,7 @@ func (s Store) readProjectFile() (config.ProjectFile, Environment, error) {
 	if hasLegacyEnvironments {
 		return config.ProjectFile{}, Environment{}, legacyConfigError(s.ConfigFile)
 	}
-	if err := validateEnvironmentFileSchema(data); err != nil {
+	if err := validateEnvironmentFileSchema(data, s.toolRegistry()); err != nil {
 		return config.ProjectFile{}, Environment{}, fmt.Errorf("decode config file: %w", err)
 	}
 
@@ -1718,7 +1661,7 @@ func (s Store) readNamedEnvironmentFile(name string) (Environment, error) {
 	if hasLegacyEnvironments {
 		return Environment{}, legacyConfigError(path)
 	}
-	if err := validateEnvironmentFileSchema(data); err != nil {
+	if err := validateEnvironmentFileSchema(data, s.toolRegistry()); err != nil {
 		return Environment{}, fmt.Errorf("decode config file %s: %w", path, err)
 	}
 
@@ -1845,18 +1788,21 @@ func yamlHasTopLevelKey(data []byte, key string) (bool, error) {
 	return ok, nil
 }
 
-func validateEnvironmentFileSchema(data []byte) error {
+func validateEnvironmentFileSchema(data []byte, registry *ToolRegistry) error {
+	if registry == nil {
+		registry = NewDefaultToolRegistry()
+	}
 	var raw map[string]any
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return err
 	}
 
-	tools, hasTools, err := rawMapForKey(raw, "tools")
+	toolsMap, hasTools, err := rawMapForKey(raw, "tools")
 	if err != nil {
 		return err
 	}
 	if hasTools {
-		if err := validateToolsSchema(tools); err != nil {
+		if err := validateToolsSchema(toolsMap, registry); err != nil {
 			return err
 		}
 	}
@@ -1866,7 +1812,7 @@ func validateEnvironmentFileSchema(data []byte) error {
 		return err
 	}
 	if hasSettings {
-		if err := validateSettingsSchema(settings, tools); err != nil {
+		if err := validateSettingsSchema(settings, toolsMap, registry); err != nil {
 			return err
 		}
 	}
@@ -1997,12 +1943,14 @@ func yamlVersionScalarString(value any) string {
 	return strings.TrimSpace(fmt.Sprint(value))
 }
 
-func validateToolsSchema(tools map[string]any) error {
-	for key, value := range tools {
+// validateToolsSchema checks that every key in tools is a registered tool plugin
+// with a scalar version label.
+func validateToolsSchema(toolsMap map[string]any, registry *ToolRegistry) error {
+	for key, value := range toolsMap {
 		if key == "database" {
 			return fmt.Errorf("tools.database is no longer supported; use tools.mysql or tools.mariadb for versions and root database for runtime settings")
 		}
-		if !knownToolVersionKey(key) {
+		if _, ok := registry.Plugin(key); !ok {
 			return fmt.Errorf("unsupported tools.%s key", key)
 		}
 		if !isYAMLVersionScalar(value) {
@@ -2013,69 +1961,41 @@ func validateToolsSchema(tools map[string]any) error {
 	return nil
 }
 
-func validateSettingsSchema(settings, tools map[string]any) error {
+// validateSettingsSchema validates settings.<namespace>.<key> against the
+// schemas declared by tool manifests in registry.
+func validateSettingsSchema(settings, toolsMap map[string]any, registry *ToolRegistry) error {
 	for key, value := range settings {
 		settingMap, ok := asYAMLStringMap(value)
 		if !ok {
 			return fmt.Errorf("settings.%s must be a mapping", key)
 		}
-		switch key {
-		case "php":
-			if !hasConfiguredToolVersion(tools, "php") && !hasConfiguredToolVersion(tools, "php-zts") {
-				return fmt.Errorf("settings.php requires tools.php or tools.php-zts")
+		schema, owners, ok := registry.SettingsSchema(key)
+		if !ok {
+			return fmt.Errorf("unsupported settings.%s key", key)
+		}
+		hasOwner := false
+		for _, owner := range owners {
+			if hasConfiguredToolVersion(toolsMap, owner) {
+				hasOwner = true
+				break
 			}
-			if err := validateSettingKeys("settings.php", settingMap, map[string]struct{}{"extension-sdk": {}}); err != nil {
-				return err
+		}
+		if !hasOwner {
+			return fmt.Errorf("settings.%s requires tools.%s", key, strings.Join(owners, " or tools."))
+		}
+		for settingKey, settingVal := range settingMap {
+			settingType, ok := schema[settingKey]
+			if !ok {
+				return fmt.Errorf("unsupported settings.%s.%s key", key, settingKey)
 			}
-			if value, ok := settingMap["extension-sdk"]; ok {
-				if _, ok := value.(bool); !ok {
-					return fmt.Errorf("settings.php.extension-sdk must be true or false")
+			if !isYAMLSettingScalar(settingVal) {
+				return fmt.Errorf("settings.%s.%s must be a scalar value", key, settingKey)
+			}
+			if settingType == tools.SettingTypeBool {
+				if _, ok := settingVal.(bool); !ok {
+					return fmt.Errorf("settings.%s.%s must be true or false", key, settingKey)
 				}
 			}
-		case "mailpit":
-			if !hasConfiguredToolVersion(tools, "mailpit") {
-				return fmt.Errorf("settings.mailpit requires tools.mailpit")
-			}
-			if err := validateSettingKeys("settings.mailpit", settingMap, map[string]struct{}{"smtp-port": {}, "ui-port": {}}); err != nil {
-				return err
-			}
-		case "phpmyadmin":
-			if !hasConfiguredToolVersion(tools, "phpmyadmin") {
-				return fmt.Errorf("settings.phpmyadmin requires tools.phpmyadmin")
-			}
-			if err := validateSettingKeys("settings.phpmyadmin", settingMap, map[string]struct{}{"port": {}}); err != nil {
-				return err
-			}
-		case "meilisearch":
-			if !hasConfiguredToolVersion(tools, "meilisearch") {
-				return fmt.Errorf("settings.meilisearch requires tools.meilisearch")
-			}
-			if err := validateSettingKeys("settings.meilisearch", settingMap, map[string]struct{}{"port": {}, "master-key": {}}); err != nil {
-				return err
-			}
-		case "redis":
-			if !hasConfiguredToolVersion(tools, "redis") {
-				return fmt.Errorf("settings.redis requires tools.redis")
-			}
-			if err := validateSettingKeys("settings.redis", settingMap, map[string]struct{}{"port": {}, "password": {}}); err != nil {
-				return err
-			}
-		case "rabbitmq":
-			if !hasConfiguredToolVersion(tools, "rabbitmq") {
-				return fmt.Errorf("settings.rabbitmq requires tools.rabbitmq")
-			}
-			if err := validateSettingKeys("settings.rabbitmq", settingMap, map[string]struct{}{"port": {}, "management-port": {}, "username": {}, "password": {}}); err != nil {
-				return err
-			}
-		case "traefik":
-			if !hasConfiguredToolVersion(tools, "traefik") {
-				return fmt.Errorf("settings.traefik requires tools.traefik")
-			}
-			if err := validateSettingKeys("settings.traefik", settingMap, map[string]struct{}{"port": {}}); err != nil {
-				return err
-			}
-		default:
-			return fmt.Errorf("unsupported settings.%s key", key)
 		}
 	}
 
@@ -2148,19 +2068,6 @@ func isPositiveYAMLInteger(value any) bool {
 	default:
 		return false
 	}
-}
-
-func validateSettingKeys(prefix string, settings map[string]any, allowed map[string]struct{}) error {
-	for key, value := range settings {
-		if _, ok := allowed[key]; !ok {
-			return fmt.Errorf("unsupported %s.%s key", prefix, key)
-		}
-		if !isYAMLSettingScalar(value) {
-			return fmt.Errorf("%s.%s must be a scalar value", prefix, key)
-		}
-	}
-
-	return nil
 }
 
 func validateOPcachePresetSchema(value any) error {
@@ -2247,15 +2154,6 @@ func asYAMLStringMap(value any) (map[string]any, bool) {
 		return result, true
 	default:
 		return nil, false
-	}
-}
-
-func knownToolVersionKey(key string) bool {
-	switch key {
-	case toolPHP, toolPHPZTS, toolFrankenPHP, toolRoadRunner, toolComposer, toolPIE, toolNodeJS, toolMago, toolNginx, toolApache, toolMySQL, toolMariaDB, toolPostgreSQL, toolSQLite, toolMailpit, toolPHPMyAdmin, toolMeilisearch, toolRedis, toolRabbitMQ, toolTraefik:
-		return true
-	default:
-		return false
 	}
 }
 

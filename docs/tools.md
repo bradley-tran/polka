@@ -4,7 +4,7 @@ This page describes Polka's managed tool model, command shims, per-tool behavior
 
 ## Tool Config And Shims
 
-Managed tool version labels live under `tools` in `polka.yaml` or `polka.<name>.yaml`. Versionless options, such as Mailpit ports and the phpMyAdmin UI port, live under `settings`.
+Managed tool version labels live under `tools` (`map[string]string`) in `polka.yaml` or `polka.<name>.yaml`. Versionless options, such as Mailpit ports and the phpMyAdmin UI port, live under `settings.<tool>.<key>`. Each tool's manifest (`tools/manifests/<id>.yaml`) declares its accepted settings schema (`bool`, `port`, or `string`), any shared settings namespace (`settings-from`, such as `php-zts` sharing `settings.php`), and mutually exclusive tool peers (`exclusive-with`, such as `php` and `php-zts`).
 
 `polka install [tool:version] [--env name]` installs one explicit tool version, or every configured tool version for an environment when no `tool:version` argument is provided. Polka first checks the global cache metadata and payload checksum, downloads missing or invalid versions into that cache, and materializes the cached payload into the project-local `.polka/envs` layout.
 

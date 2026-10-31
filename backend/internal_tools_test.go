@@ -55,8 +55,8 @@ func TestEnsureInternalToolInstallsAndRecords(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readInternalEnvironment() error = %v", err)
 	}
-	if environment.PIEVersion != DefaultPIEVersion {
-		t.Fatalf("internal environment pie version = %q, want default %q", environment.PIEVersion, DefaultPIEVersion)
+	if environment.ToolVersion(toolPIE) != DefaultPIEVersion {
+		t.Fatalf("internal environment pie version = %q, want default %q", environment.ToolVersion(toolPIE), DefaultPIEVersion)
 	}
 
 	// Install state marks the version installed inside the tools dir.
@@ -158,7 +158,7 @@ func TestEnsureInternalToolHonorsConfiguredVersion(t *testing.T) {
 	writeCachedTool(t, cacheDir, toolPIE, "2.5")
 
 	configPath := filepath.Join(toolsDir, internalConfigFileName)
-	if err := writeInternalEnvironment(configPath, Environment{Name: internalEnvironmentName, PIEVersion: "2.5"}); err != nil {
+	if err := writeInternalEnvironment(configPath, Environment{Name: internalEnvironmentName, Tools: ToolsConfig{toolPIE: "2.5"}}); err != nil {
 		t.Fatalf("writeInternalEnvironment() error = %v", err)
 	}
 
@@ -194,8 +194,8 @@ func TestEnsureInternalToolRecordsExplicitVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readInternalEnvironment() error = %v", err)
 	}
-	if environment.ComposerVersion != "2.9" {
-		t.Fatalf("internal environment composer version = %q, want 2.9", environment.ComposerVersion)
+	if environment.ToolVersion(toolComposer) != "2.9" {
+		t.Fatalf("internal environment composer version = %q, want 2.9", environment.ToolVersion(toolComposer))
 	}
 }
 
@@ -230,7 +230,7 @@ func TestReadInternalEnvironmentMissingFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readInternalEnvironment(missing) error = %v", err)
 	}
-	if environment.Name != internalEnvironmentName || environment.PIEVersion != "" {
+	if environment.Name != internalEnvironmentName || environment.ToolVersion(toolPIE) != "" {
 		t.Fatalf("readInternalEnvironment(missing) = %#v, want empty _internal environment", environment)
 	}
 	if _, err := os.Stat(filepath.Join(t.TempDir(), internalConfigFileName)); !os.IsNotExist(err) {

@@ -64,7 +64,7 @@ type MailpitRuntimeHooks struct {
 func EnsureManagedMailpitStarted(ctx Context, hooks MailpitRuntimeHooks) (MailpitRuntimeState, bool, error) {
 	hooks = hooks.withDefaults()
 	environment := ctx.Environment
-	if environment.Mailpit == nil || strings.TrimSpace(environment.Mailpit.Version) == "" {
+	if environment.Mailpit() == nil || strings.TrimSpace(environment.Mailpit().Version) == "" {
 		return MailpitRuntimeState{}, true, nil
 	}
 
@@ -127,10 +127,10 @@ func StopManagedMailpit(ctx Context, hooks MailpitRuntimeHooks) (MailpitRuntimeS
 
 func BuildMailpitServerSpec(ctx Context) (MailpitServerSpec, error) {
 	environment := ctx.Environment
-	if environment.Mailpit == nil {
+	if environment.Mailpit() == nil {
 		return MailpitServerSpec{}, fmt.Errorf("environment %q does not define mailpit", environment.Name)
 	}
-	version := strings.TrimSpace(environment.Mailpit.Version)
+	version := strings.TrimSpace(environment.Mailpit().Version)
 	if version == "" {
 		return MailpitServerSpec{}, fmt.Errorf("environment %q defines mailpit but does not define a version", environment.Name)
 	}
@@ -143,7 +143,7 @@ func BuildMailpitServerSpec(ctx Context) (MailpitServerSpec, error) {
 		return MailpitServerSpec{}, err
 	}
 	certPath, keyPath := "", ""
-	if environment.Mailpit.HTTPS {
+	if environment.Mailpit().HTTPS {
 		certPath, keyPath, err = ctx.tlsCertificate(MailpitListenHost)
 		if err != nil {
 			return MailpitServerSpec{}, err
@@ -154,9 +154,9 @@ func BuildMailpitServerSpec(ctx Context) (MailpitServerSpec, error) {
 		EnvironmentName: environment.Name,
 		Version:         version,
 		Target:          target,
-		SMTPPort:        EffectiveMailpitSMTPPort(environment.Mailpit),
-		UIPort:          EffectiveMailpitUIPort(environment.Mailpit),
-		HTTPS:           environment.Mailpit.HTTPS,
+		SMTPPort:        EffectiveMailpitSMTPPort(environment.Mailpit()),
+		UIPort:          EffectiveMailpitUIPort(environment.Mailpit()),
+		HTTPS:           environment.Mailpit().HTTPS,
 		TLSCertPath:     certPath,
 		TLSKeyPath:      keyPath,
 		LogPath:         MailpitLogPath(ctx.RootDir, environment.Name),
@@ -252,7 +252,7 @@ func LoadLiveMailpitStateForEnvironment(rootDir string, environment config.Envir
 		state.Version,
 		MailpitAddress(state.SMTPPort),
 		MailpitAddress(state.UIPort),
-		strings.TrimSpace(environment.Mailpit.Version),
+		strings.TrimSpace(environment.Mailpit().Version),
 	)
 }
 
@@ -349,14 +349,14 @@ func WaitForMailpitAddresses(smtpPort, uiPort int, timeout time.Duration, ping f
 }
 
 func MailpitStateMatchesEnvironment(state MailpitRuntimeState, environment config.Environment) bool {
-	if environment.Mailpit == nil {
+	if environment.Mailpit() == nil {
 		return false
 	}
 
-	return strings.TrimSpace(state.Version) == strings.TrimSpace(environment.Mailpit.Version) &&
-		state.SMTPPort == EffectiveMailpitSMTPPort(environment.Mailpit) &&
-		state.UIPort == EffectiveMailpitUIPort(environment.Mailpit) &&
-		MailpitStateHTTPS(state) == environment.Mailpit.HTTPS
+	return strings.TrimSpace(state.Version) == strings.TrimSpace(environment.Mailpit().Version) &&
+		state.SMTPPort == EffectiveMailpitSMTPPort(environment.Mailpit()) &&
+		state.UIPort == EffectiveMailpitUIPort(environment.Mailpit()) &&
+		MailpitStateHTTPS(state) == environment.Mailpit().HTTPS
 }
 
 func MailpitStateHTTPS(state MailpitRuntimeState) bool {

@@ -175,7 +175,7 @@ type traefikServeProxy struct {
 // webserver. It is a no-op when the environment does not configure Traefik or
 // when Traefik is not installed and running, so serving still works without it.
 func prepareTraefikServeProxy(store backend.Store, environment backend.Environment, endpoint serverEndpoint) (traefikServeProxy, error) {
-	if environment.Traefik == nil || strings.TrimSpace(environment.Traefik.Version) == "" {
+	if strings.TrimSpace(environment.ToolVersion("traefik")) == "" {
 		return traefikServeProxy{}, nil
 	}
 
@@ -226,7 +226,7 @@ func resolveEnvironmentServerType(environment backend.Environment) (string, erro
 		serverType = strings.ToLower(strings.TrimSpace(environment.Server.Type))
 	}
 	if serverType == "" {
-		if strings.TrimSpace(environment.NginxVersion) != "" {
+		if strings.TrimSpace(environment.ToolVersion("nginx")) != "" {
 			serverType = config.ServerTypeNginx
 		} else {
 			serverType = config.ServerTypePHP
@@ -239,21 +239,21 @@ func resolveEnvironmentServerType(environment backend.Environment) (string, erro
 			return "", fmt.Errorf("environment %q selects the PHP webserver but does not define a PHP CLI provider", environment.Name)
 		}
 	case config.ServerTypeNginx:
-		if strings.TrimSpace(environment.NginxVersion) == "" {
+		if strings.TrimSpace(environment.ToolVersion("nginx")) == "" {
 			return "", fmt.Errorf("environment %q selects nginx but does not define an nginx version", environment.Name)
 		}
 		if backend.PrimaryPHPVersion(environment) == "" {
 			return "", fmt.Errorf("environment %q selects nginx but does not define a php or php-zts version", environment.Name)
 		}
 	case config.ServerTypeApache:
-		if strings.TrimSpace(environment.ApacheVersion) == "" {
+		if strings.TrimSpace(environment.ToolVersion("apache")) == "" {
 			return "", fmt.Errorf("environment %q selects apache but does not define an apache version", environment.Name)
 		}
 		if backend.PrimaryPHPVersion(environment) == "" {
 			return "", fmt.Errorf("environment %q selects apache but does not define a php or php-zts version", environment.Name)
 		}
 	case config.ServerTypeFrankenPHP:
-		if strings.TrimSpace(environment.FrankenPHPVersion) == "" {
+		if strings.TrimSpace(environment.ToolVersion("frankenphp")) == "" {
 			return "", fmt.Errorf("environment %q selects frankenphp but does not define a frankenphp version", environment.Name)
 		}
 	default:

@@ -1,4 +1,6 @@
 id: phpmyadmin
+settings:
+  port: port
 install-candidates:
   all:
     - index.php

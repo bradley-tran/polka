@@ -1,4 +1,9 @@
 id: rabbitmq
+settings:
+  port: port
+  management-port: port
+  username: string
+  password: string
 install-candidates:
   windows-amd64:
     - sbin/rabbitmq-server.bat

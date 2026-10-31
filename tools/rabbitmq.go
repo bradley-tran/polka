@@ -21,7 +21,7 @@ func erlangPlugin() Plugin {
 func rabbitMQPlugin() Plugin {
 	return newManifestPlugin(RabbitMQ, pluginHooks{
 		validate: func(environment config.Environment) error {
-			return validateRabbitMQConfig(environment.RabbitMQ)
+			return validateRabbitMQConfig(environment.RabbitMQ())
 		},
 		download: func(ctx DownloadContext) error {
 			if runtime.GOOS != "windows" || runtime.GOARCH != "amd64" {
@@ -30,7 +30,7 @@ func rabbitMQPlugin() Plugin {
 			return downloadRabbitMQGitHubAsset(ctx.Client, ctx.CacheDir, RabbitMQ, ctx.Version)
 		},
 		dependencies: func(environment config.Environment) []InstallRequest {
-			if environment.RabbitMQ == nil || strings.TrimSpace(environment.RabbitMQ.Version) == "" {
+			if environment.ToolVersion(RabbitMQ) == "" {
 				return nil
 			}
 			return []InstallRequest{{Tool: Erlang, Version: "27"}}

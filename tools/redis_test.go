@@ -17,7 +17,7 @@ import (
 // its log.
 func TestRedisPluginUsesConfiguredVersionAndManifest(t *testing.T) {
 	plugin := redisPlugin()
-	if version := plugin.Version(config.Environment{Redis: &config.RedisConfig{Version: "8.8.0"}}); version != "8.8.0" {
+	if version := plugin.Version(config.Environment{Tools: config.ToolsConfig{Redis: "8.8.0"}}); version != "8.8.0" {
 		t.Fatalf("Version() = %q, want 8.8.0", version)
 	}
 	if commands := plugin.DispatchCommands(); !reflect.DeepEqual(commands, []string{"redis-server", "redis-cli"}) {
@@ -83,10 +83,10 @@ func TestRedisPluginValidatesVersion(t *testing.T) {
 	if err := plugin.Validate(config.Environment{}); err != nil {
 		t.Fatalf("Validate(empty) error = %v, want nil", err)
 	}
-	if err := plugin.Validate(config.Environment{Redis: &config.RedisConfig{Version: "bad version"}}); err == nil {
+	if err := plugin.Validate(config.Environment{Tools: config.ToolsConfig{Redis: "bad version"}}); err == nil {
 		t.Fatal("Validate(invalid version) error = nil, want error")
 	}
-	if err := plugin.Validate(config.Environment{Redis: &config.RedisConfig{Version: "8.8.0", Port: 70000}}); err == nil {
+	if err := plugin.Validate(config.Environment{Tools: config.ToolsConfig{Redis: "8.8.0"}, Settings: config.SettingsConfig{Redis: {"port": 70000}}}); err == nil {
 		t.Fatal("Validate(invalid port) error = nil, want error")
 	}
 }

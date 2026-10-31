@@ -13,7 +13,7 @@ import (
 func meilisearchPlugin() Plugin {
 	return newManifestPlugin(Meilisearch, pluginHooks{
 		validate: func(environment config.Environment) error {
-			return validateMeilisearchConfig(environment.Meilisearch)
+			return validateMeilisearchConfig(environment.Meilisearch())
 		},
 		postInstall: chmodInstalledMeilisearch,
 	})

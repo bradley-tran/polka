@@ -14,23 +14,31 @@ func TestDefaultRegistryInstallRequestsUseConfiguredToolOrder(t *testing.T) {
 	// PIE is internal-only: a configured pie version never yields a project
 	// install request (it would also fail validation; see manifest tests).
 	environment := config.Environment{
-		PHPVersion:        "8.4",
-		FrankenPHPVersion: "1.12",
-		ComposerVersion:   "2.8",
-		PIEVersion:        "1.4",
-		NodeJSVersion:     "24",
-		MagoVersion:       "1.27",
-		NginxVersion:      "1.30",
-		ApacheVersion:     "2.4",
-		PHPMyAdmin:        &config.PHPMyAdminConfig{Version: "5.2", Port: 8081, HTTPS: true},
-		Mailpit:           &config.MailpitConfig{Version: "1.30"},
-		Meilisearch:       &config.MeilisearchConfig{Version: "1.48", Port: 7701, MasterKey: "dev-key"},
-		Redis:             &config.RedisConfig{Version: "8.8.0", Port: 6380, Password: "dev-password"},
-		MySQLVersion:      "8.4",
-		MariaDBVersion:    "11.8",
-		PostgreSQLVersion: "17",
-		SQLiteVersion:     "3.53",
-		Database:          &config.DatabaseConfig{Engine: MariaDB, Version: "11.8"},
+		HTTPS: true,
+		Tools: config.ToolsConfig{
+			PHP:         "8.4",
+			FrankenPHP:  "1.12",
+			Composer:    "2.8",
+			PIE:         "1.4",
+			NodeJS:      "24",
+			Mago:        "1.27",
+			Nginx:       "1.30",
+			Apache:      "2.4",
+			PHPMyAdmin:  "5.2",
+			Mailpit:     "1.30",
+			Meilisearch: "1.48",
+			Redis:       "8.8.0",
+			MySQL:       "8.4",
+			MariaDB:     "11.8",
+			PostgreSQL:  "17",
+			SQLite:      "3.53",
+		},
+		Settings: config.SettingsConfig{
+			PHPMyAdmin:  {"port": 8081},
+			Meilisearch: {"port": 7701, "master-key": "dev-key"},
+			Redis:       {"port": 6380, "password": "dev-password"},
+		},
+		Database: &config.DatabaseConfig{Engine: MariaDB, Version: "11.8"},
 	}
 
 	requests := registry.InstallRequests(environment)
@@ -90,7 +98,7 @@ func TestDefaultRegistryKeepsNodeJSConfigOnly(t *testing.T) {
 		t.Fatal("ResolveDispatchRequest(nodejs) error = nil, want unsupported tool error")
 	}
 
-	environment := config.Environment{NodeJSVersion: "24"}
+	environment := config.Environment{Tools: config.ToolsConfig{NodeJS: "24"}}
 	active := registry.ActiveCommandNames(&environment)
 	if !reflect.DeepEqual(active, []string{Node, NPM, NPX, Yarn}) {
 		t.Fatalf("ActiveCommandNames(nodejs env) = %#v, want node/npm/npx/yarn", active)
@@ -104,7 +112,7 @@ func TestDefaultRegistryKeepsNodeJSConfigOnly(t *testing.T) {
 
 func TestDefaultRegistryResolvesApacheDispatchCommands(t *testing.T) {
 	registry := NewDefaultRegistry()
-	environment := config.Environment{ApacheVersion: "2.4"}
+	environment := config.Environment{Tools: config.ToolsConfig{Apache: "2.4"}}
 
 	for _, command := range []string{Apache, "httpd"} {
 		request, err := registry.ResolveDispatchRequestForEnvironment(command, environment)
@@ -124,11 +132,11 @@ func TestDefaultRegistrySelectsConfiguredPHPProvider(t *testing.T) {
 		environment config.Environment
 		wantTool    string
 	}{
-		{name: "NTS", environment: config.Environment{PHPVersion: "8.4"}, wantTool: PHP},
-		{name: "ZTS", environment: config.Environment{PHPZTSVersion: "8.4"}, wantTool: PHPZTS},
-		{name: "FrankenPHP fallback", environment: config.Environment{FrankenPHPVersion: "1.12"}, wantTool: FrankenPHP},
-		{name: "NTS before FrankenPHP", environment: config.Environment{PHPVersion: "8.4", FrankenPHPVersion: "1.12"}, wantTool: PHP},
-		{name: "ZTS before FrankenPHP", environment: config.Environment{PHPZTSVersion: "8.4", FrankenPHPVersion: "1.12"}, wantTool: PHPZTS},
+		{name: "NTS", environment: config.Environment{Tools: config.ToolsConfig{PHP: "8.4"}}, wantTool: PHP},
+		{name: "ZTS", environment: config.Environment{Tools: config.ToolsConfig{PHPZTS: "8.4"}}, wantTool: PHPZTS},
+		{name: "FrankenPHP fallback", environment: config.Environment{Tools: config.ToolsConfig{FrankenPHP: "1.12"}}, wantTool: FrankenPHP},
+		{name: "NTS before FrankenPHP", environment: config.Environment{Tools: config.ToolsConfig{PHP: "8.4", FrankenPHP: "1.12"}}, wantTool: PHP},
+		{name: "ZTS before FrankenPHP", environment: config.Environment{Tools: config.ToolsConfig{PHPZTS: "8.4", FrankenPHP: "1.12"}}, wantTool: PHPZTS},
 	}
 
 	for _, test := range tests {
@@ -146,7 +154,7 @@ func TestDefaultRegistrySelectsConfiguredPHPProvider(t *testing.T) {
 
 func TestDefaultRegistryRejectsMultiplePHPRuntimes(t *testing.T) {
 	registry := NewDefaultRegistry()
-	err := registry.ValidateEnvironment(config.Environment{PHPVersion: "8.4", PHPZTSVersion: "8.4"})
+	err := registry.ValidateEnvironment(config.Environment{Tools: config.ToolsConfig{PHP: "8.4", PHPZTS: "8.4"}})
 	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
 		t.Fatalf("ValidateEnvironment() error = %v, want mutually exclusive error", err)
 	}
@@ -155,10 +163,10 @@ func TestDefaultRegistryRejectsMultiplePHPRuntimes(t *testing.T) {
 func TestDefaultRegistryValidatesPHPMyAdminConfig(t *testing.T) {
 	registry := NewDefaultRegistry()
 
-	if err := registry.ValidateEnvironment(config.Environment{PHPMyAdmin: &config.PHPMyAdminConfig{Version: "5.2", Port: 70000}}); err == nil {
+	if err := registry.ValidateEnvironment(config.Environment{Tools: config.ToolsConfig{PHPMyAdmin: "5.2"}, Settings: config.SettingsConfig{PHPMyAdmin: {"port": 70000}}}); err == nil {
 		t.Fatal("ValidateEnvironment(phpmyadmin invalid port) error = nil, want port validation error")
 	}
-	if err := registry.ValidateEnvironment(config.Environment{PHPMyAdmin: &config.PHPMyAdminConfig{Port: 8081}}); err == nil {
+	if err := registry.ValidateEnvironment(config.Environment{Settings: config.SettingsConfig{PHPMyAdmin: {"port": 8081}}}); err == nil {
 		t.Fatal("ValidateEnvironment(phpmyadmin without version) error = nil, want version validation error")
 	}
 }
@@ -166,14 +174,14 @@ func TestDefaultRegistryValidatesPHPMyAdminConfig(t *testing.T) {
 func TestDefaultRegistryValidatesMeilisearchConfig(t *testing.T) {
 	registry := NewDefaultRegistry()
 
-	if err := registry.ValidateEnvironment(config.Environment{Meilisearch: &config.MeilisearchConfig{Version: "1.48", Port: 70000}}); err == nil {
+	if err := registry.ValidateEnvironment(config.Environment{Tools: config.ToolsConfig{Meilisearch: "1.48"}, Settings: config.SettingsConfig{Meilisearch: {"port": 70000}}}); err == nil {
 		t.Fatal("ValidateEnvironment(meilisearch invalid port) error = nil, want port validation error")
 	}
-	if err := registry.ValidateEnvironment(config.Environment{Meilisearch: &config.MeilisearchConfig{Port: 7700}}); err == nil {
+	if err := registry.ValidateEnvironment(config.Environment{Settings: config.SettingsConfig{Meilisearch: {"port": 7700}}}); err == nil {
 		t.Fatal("ValidateEnvironment(meilisearch without version) error = nil, want version validation error")
 	}
 
-	environment := config.Environment{Meilisearch: &config.MeilisearchConfig{Version: "1.48"}}
+	environment := config.Environment{Tools: config.ToolsConfig{Meilisearch: "1.48"}}
 	active := registry.ActiveCommandNames(&environment)
 	if !reflect.DeepEqual(active, []string{Meilisearch}) {
 		t.Fatalf("ActiveCommandNames(meilisearch env) = %#v, want meilisearch", active)
@@ -183,15 +191,15 @@ func TestDefaultRegistryValidatesMeilisearchConfig(t *testing.T) {
 func TestDefaultRegistryValidatesRedisConfig(t *testing.T) {
 	registry := NewDefaultRegistry()
 
-	if err := registry.ValidateEnvironment(config.Environment{Redis: &config.RedisConfig{Version: "8.8.0", Port: 70000}}); err == nil {
+	if err := registry.ValidateEnvironment(config.Environment{Tools: config.ToolsConfig{Redis: "8.8.0"}, Settings: config.SettingsConfig{Redis: {"port": 70000}}}); err == nil {
 		t.Fatal("ValidateEnvironment(redis invalid port) error = nil, want port validation error")
 	}
-	if err := registry.ValidateEnvironment(config.Environment{Redis: &config.RedisConfig{Port: 6379}}); err == nil {
+	if err := registry.ValidateEnvironment(config.Environment{Settings: config.SettingsConfig{Redis: {"port": 6379}}}); err == nil {
 		t.Fatal("ValidateEnvironment(redis without version) error = nil, want version validation error")
 	}
 
 	// Redis ships two managed binaries, so it exposes both dispatch commands.
-	environment := config.Environment{Redis: &config.RedisConfig{Version: "8.8.0"}}
+	environment := config.Environment{Tools: config.ToolsConfig{Redis: "8.8.0"}}
 	active := registry.ActiveCommandNames(&environment)
 	if !reflect.DeepEqual(active, []string{"redis-server", "redis-cli"}) {
 		t.Fatalf("ActiveCommandNames(redis env) = %#v, want redis-server and redis-cli", active)
@@ -201,11 +209,49 @@ func TestDefaultRegistryValidatesRedisConfig(t *testing.T) {
 func TestDefaultRegistryValidatesOPcacheConfig(t *testing.T) {
 	registry := NewDefaultRegistry()
 
-	if err := registry.ValidateEnvironment(config.Environment{PHPVersion: "8.4", OPcachePreset: "staging"}); err == nil {
+	if err := registry.ValidateEnvironment(config.Environment{Tools: config.ToolsConfig{PHP: "8.4"}, OPcachePreset: "staging"}); err == nil {
 		t.Fatal("ValidateEnvironment(opcache invalid preset) error = nil, want preset validation error")
 	}
-	if err := registry.ValidateEnvironment(config.Environment{PHPVersion: "8.4", OPcacheConfig: map[string]string{"zend_extension": "opcache"}}); err == nil {
+	if err := registry.ValidateEnvironment(config.Environment{Tools: config.ToolsConfig{PHP: "8.4"}, OPcacheConfig: map[string]string{"zend_extension": "opcache"}}); err == nil {
 		t.Fatal("ValidateEnvironment(opcache invalid directive) error = nil, want directive validation error")
+	}
+}
+
+// TestDefaultRegistrySettingsSchemasAndExclusivePeers verifies that manifest
+// settings schemas, shared settings-from namespaces, and exclusive-with peers
+// are exposed through the registry.
+func TestDefaultRegistrySettingsSchemasAndExclusivePeers(t *testing.T) {
+	registry := NewDefaultRegistry()
+
+	phpSchema, phpOwners, ok := registry.SettingsSchema(PHP)
+	if !ok {
+		t.Fatal("SettingsSchema(php) ok = false, want true")
+	}
+	if !reflect.DeepEqual(phpSchema, map[string]SettingType{"extension-sdk": SettingTypeBool}) {
+		t.Fatalf("SettingsSchema(php) = %#v, want extension-sdk: bool", phpSchema)
+	}
+	if !reflect.DeepEqual(phpOwners, []string{PHP, PHPZTS}) {
+		t.Fatalf("SettingsSchema(php) owners = %#v, want [php php-zts]", phpOwners)
+	}
+
+	redisSchema, redisOwners, ok := registry.SettingsSchema(Redis)
+	if !ok {
+		t.Fatal("SettingsSchema(redis) ok = false, want true")
+	}
+	wantRedis := map[string]SettingType{"port": SettingTypePort, "password": SettingTypeString}
+	if !reflect.DeepEqual(redisSchema, wantRedis) || !reflect.DeepEqual(redisOwners, []string{Redis}) {
+		t.Fatalf("SettingsSchema(redis) = (%#v, %#v), want (%#v, [redis])", redisSchema, redisOwners, wantRedis)
+	}
+
+	if _, _, ok := registry.SettingsSchema(Composer); ok {
+		t.Fatal("SettingsSchema(composer) ok = true, want false for tool without settings")
+	}
+
+	if peers := registry.ExclusivePeers(PHP); !reflect.DeepEqual(peers, []string{PHPZTS}) {
+		t.Fatalf("ExclusivePeers(php) = %#v, want [php-zts]", peers)
+	}
+	if peers := registry.ExclusivePeers(PHPZTS); !reflect.DeepEqual(peers, []string{PHP}) {
+		t.Fatalf("ExclusivePeers(php-zts) = %#v, want [php]", peers)
 	}
 }
 

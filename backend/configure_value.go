@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"polka/config"
+	"polka/tools"
 )
 
 // ConfigureValue creates or updates a single schema-aware config value for an
@@ -28,15 +29,16 @@ func (s Store) ConfigureValue(name, key, value string) (Environment, error) {
 		return Environment{}, err
 	}
 
+	registry := s.toolRegistry()
 	environment := s.normalizeEnvironment(name, storedEnvironment)
-	if err := applyConfigValue(&environment, path, value); err != nil {
+	if err := applyConfigValue(registry, &environment, path, value); err != nil {
 		return Environment{}, err
 	}
 	environment = normalizeConfigValueEnvironment(environment)
 	if err := s.validateEnvironmentFramework(environment); err != nil {
 		return Environment{}, err
 	}
-	if err := s.toolRegistry().ValidateEnvironment(environment); err != nil {
+	if err := registry.ValidateEnvironment(environment); err != nil {
 		return Environment{}, err
 	}
 
@@ -96,20 +98,20 @@ func parseConfigValuePath(key string) ([]string, error) {
 	return path, nil
 }
 
-func applyConfigValue(environment *Environment, path []string, value string) error {
+func applyConfigValue(registry *ToolRegistry, environment *Environment, path []string, value string) error {
 	if len(path) == 1 {
 		return applyTopLevelConfigValue(environment, path[0], value)
 	}
 
 	switch path[0] {
 	case "tools":
-		return applyToolConfigValue(environment, path, value)
+		return applyToolConfigValue(registry, environment, path, value)
 	case "database":
 		return applyDatabaseConfigValue(environment, path, value)
 	case "server":
 		return applyServerConfigValue(environment, path, value)
 	case "settings":
-		return applySettingsConfigValue(environment, path, value)
+		return applySettingsConfigValue(registry, environment, path, value)
 	case "env-vars":
 		return applyEnvVarConfigValue(environment, path, value)
 	case "php-extensions":
@@ -224,79 +226,34 @@ func applyTopLevelConfigValue(environment *Environment, key, value string) error
 	return nil
 }
 
-func applyToolConfigValue(environment *Environment, path []string, value string) error {
+// applyToolConfigValue updates a tool version in environment.Tools using the
+// tool registry to validate the tool key, reject internal-only tools, and
+// clear mutually exclusive peers.
+func applyToolConfigValue(registry *ToolRegistry, environment *Environment, path []string, value string) error {
 	if len(path) != 2 {
 		return unsupportedConfigKey(path)
 	}
+	if registry == nil {
+		registry = NewDefaultToolRegistry()
+	}
+
+	tool := strings.ToLower(strings.TrimSpace(path[1]))
+	if tool == toolPIE {
+		return fmt.Errorf("pie is managed internally by polka and cannot be configured in a project environment; use 'polka ext' to manage PHP extensions")
+	}
+	if _, ok := registry.Plugin(tool); !ok {
+		return unsupportedConfigKey(path)
+	}
+	if registry.InternalOnly(tool) {
+		return fmt.Errorf("%s is managed internally by polka and cannot be configured in a project environment", tool)
+	}
 
 	version := strings.TrimSpace(value)
-	switch path[1] {
-	case toolPHP:
-		environment.PHPVersion = version
-		if version != "" {
-			environment.PHPZTSVersion = ""
+	environment.SetToolVersion(tool, version)
+	if version != "" {
+		for _, peer := range registry.ExclusivePeers(tool) {
+			environment.SetToolVersion(peer, "")
 		}
-	case toolPHPZTS:
-		environment.PHPZTSVersion = version
-		if version != "" {
-			environment.PHPVersion = ""
-		}
-	case toolFrankenPHP:
-		environment.FrankenPHPVersion = version
-	case toolRoadRunner:
-		environment.RoadRunnerVersion = version
-	case toolComposer:
-		environment.ComposerVersion = version
-	case toolPIE:
-		return fmt.Errorf("pie is managed internally by polka and cannot be configured in a project environment; use 'polka ext' to manage PHP extensions")
-	case toolNodeJS:
-		environment.NodeJSVersion = version
-	case toolMago:
-		environment.MagoVersion = version
-	case toolNginx:
-		environment.NginxVersion = version
-	case toolApache:
-		environment.ApacheVersion = version
-	case toolMySQL:
-		environment.MySQLVersion = version
-	case toolMariaDB:
-		environment.MariaDBVersion = version
-	case toolPostgreSQL:
-		environment.PostgreSQLVersion = version
-	case toolSQLite:
-		environment.SQLiteVersion = version
-	case toolMailpit:
-		if environment.Mailpit == nil {
-			environment.Mailpit = &MailpitConfig{}
-		}
-		environment.Mailpit.Version = version
-	case toolPHPMyAdmin:
-		if environment.PHPMyAdmin == nil {
-			environment.PHPMyAdmin = &PHPMyAdminConfig{}
-		}
-		environment.PHPMyAdmin.Version = version
-	case toolMeilisearch:
-		if environment.Meilisearch == nil {
-			environment.Meilisearch = &MeilisearchConfig{}
-		}
-		environment.Meilisearch.Version = version
-	case toolRedis:
-		if environment.Redis == nil {
-			environment.Redis = &RedisConfig{}
-		}
-		environment.Redis.Version = version
-	case toolRabbitMQ:
-		if environment.RabbitMQ == nil {
-			environment.RabbitMQ = &RabbitMQConfig{}
-		}
-		environment.RabbitMQ.Version = version
-	case toolTraefik:
-		if environment.Traefik == nil {
-			environment.Traefik = &TraefikConfig{}
-		}
-		environment.Traefik.Version = version
-	default:
-		return unsupportedConfigKey(path)
 	}
 
 	return nil
@@ -358,121 +315,42 @@ func applyServerConfigValue(environment *Environment, path []string, value strin
 	return nil
 }
 
-func applySettingsConfigValue(environment *Environment, path []string, value string) error {
+// applySettingsConfigValue validates and applies a setting under settings.<namespace>.<key>
+// using the tool registry's declared settings schema.
+func applySettingsConfigValue(registry *ToolRegistry, environment *Environment, path []string, value string) error {
 	if len(path) != 3 {
 		return unsupportedConfigKey(path)
 	}
+	if registry == nil {
+		registry = NewDefaultToolRegistry()
+	}
 
-	switch path[1] {
-	case toolPHP:
-		if path[2] != "extension-sdk" {
-			return unsupportedConfigKey(path)
-		}
+	namespace := strings.ToLower(strings.TrimSpace(path[1]))
+	settingKey := strings.ToLower(strings.TrimSpace(path[2]))
+	schema, _, ok := registry.SettingsSchema(namespace)
+	if !ok {
+		return unsupportedConfigKey(path)
+	}
+	settingType, ok := schema[settingKey]
+	if !ok {
+		return unsupportedConfigKey(path)
+	}
+
+	switch settingType {
+	case tools.SettingTypeBool:
 		enabled, err := parseConfigBoolValue(strings.Join(path, "."), value)
 		if err != nil {
 			return err
 		}
-		environment.PHPBuildTools = enabled
-	case toolMailpit:
-		if environment.Mailpit == nil {
-			environment.Mailpit = &MailpitConfig{}
-		}
-		switch path[2] {
-		case "smtp-port":
-			port, err := parseConfigPortValue(strings.Join(path, "."), value)
-			if err != nil {
-				return err
-			}
-			environment.Mailpit.SMTPPort = port
-		case "ui-port":
-			port, err := parseConfigPortValue(strings.Join(path, "."), value)
-			if err != nil {
-				return err
-			}
-			environment.Mailpit.UIPort = port
-		default:
-			return unsupportedConfigKey(path)
-		}
-	case toolPHPMyAdmin:
-		if environment.PHPMyAdmin == nil {
-			environment.PHPMyAdmin = &PHPMyAdminConfig{}
-		}
-		if path[2] != "port" {
-			return unsupportedConfigKey(path)
-		}
+		environment.SetSetting(namespace, settingKey, enabled)
+	case tools.SettingTypePort:
 		port, err := parseConfigPortValue(strings.Join(path, "."), value)
 		if err != nil {
 			return err
 		}
-		environment.PHPMyAdmin.Port = port
-	case toolMeilisearch:
-		if environment.Meilisearch == nil {
-			environment.Meilisearch = &MeilisearchConfig{}
-		}
-		switch path[2] {
-		case "port":
-			port, err := parseConfigPortValue(strings.Join(path, "."), value)
-			if err != nil {
-				return err
-			}
-			environment.Meilisearch.Port = port
-		case "master-key":
-			environment.Meilisearch.MasterKey = strings.TrimSpace(value)
-		default:
-			return unsupportedConfigKey(path)
-		}
-	case toolRedis:
-		if environment.Redis == nil {
-			environment.Redis = &RedisConfig{}
-		}
-		switch path[2] {
-		case "port":
-			port, err := parseConfigPortValue(strings.Join(path, "."), value)
-			if err != nil {
-				return err
-			}
-			environment.Redis.Port = port
-		case "password":
-			environment.Redis.Password = strings.TrimSpace(value)
-		default:
-			return unsupportedConfigKey(path)
-		}
-	case toolRabbitMQ:
-		if environment.RabbitMQ == nil {
-			environment.RabbitMQ = &RabbitMQConfig{}
-		}
-		switch path[2] {
-		case "port":
-			port, err := parseConfigPortValue(strings.Join(path, "."), value)
-			if err != nil {
-				return err
-			}
-			environment.RabbitMQ.Port = port
-		case "management-port":
-			port, err := parseConfigPortValue(strings.Join(path, "."), value)
-			if err != nil {
-				return err
-			}
-			environment.RabbitMQ.ManagementPort = port
-		case "username":
-			environment.RabbitMQ.Username = strings.TrimSpace(value)
-		case "password":
-			environment.RabbitMQ.Password = strings.TrimSpace(value)
-		default:
-			return unsupportedConfigKey(path)
-		}
-	case toolTraefik:
-		if environment.Traefik == nil {
-			environment.Traefik = &TraefikConfig{}
-		}
-		if path[2] != "port" {
-			return unsupportedConfigKey(path)
-		}
-		port, err := parseConfigPortValue(strings.Join(path, "."), value)
-		if err != nil {
-			return err
-		}
-		environment.Traefik.Port = port
+		environment.SetSetting(namespace, settingKey, port)
+	case tools.SettingTypeString:
+		environment.SetSetting(namespace, settingKey, strings.TrimSpace(value))
 	default:
 		return unsupportedConfigKey(path)
 	}
@@ -562,26 +440,30 @@ func normalizeConfigValueEnvironment(environment Environment) Environment {
 		return environment
 	}
 
+	mysqlVersion := strings.TrimSpace(environment.ToolVersion(toolMySQL))
+	mariaDBVersion := strings.TrimSpace(environment.ToolVersion(toolMariaDB))
+	postgreSQLVersion := strings.TrimSpace(environment.ToolVersion(toolPostgreSQL))
+
 	database := *environment.Database
 	switch strings.ToLower(strings.TrimSpace(database.Engine)) {
 	case "":
 		switch {
-		case strings.TrimSpace(environment.MySQLVersion) != "" && strings.TrimSpace(environment.MariaDBVersion) == "" && strings.TrimSpace(environment.PostgreSQLVersion) == "":
+		case mysqlVersion != "" && mariaDBVersion == "" && postgreSQLVersion == "":
 			database.Engine = toolMySQL
-			database.Version = strings.TrimSpace(environment.MySQLVersion)
-		case strings.TrimSpace(environment.MariaDBVersion) != "" && strings.TrimSpace(environment.MySQLVersion) == "" && strings.TrimSpace(environment.PostgreSQLVersion) == "":
+			database.Version = mysqlVersion
+		case mariaDBVersion != "" && mysqlVersion == "" && postgreSQLVersion == "":
 			database.Engine = toolMariaDB
-			database.Version = strings.TrimSpace(environment.MariaDBVersion)
-		case strings.TrimSpace(environment.PostgreSQLVersion) != "" && strings.TrimSpace(environment.MySQLVersion) == "" && strings.TrimSpace(environment.MariaDBVersion) == "":
+			database.Version = mariaDBVersion
+		case postgreSQLVersion != "" && mysqlVersion == "" && mariaDBVersion == "":
 			database.Engine = toolPostgreSQL
-			database.Version = strings.TrimSpace(environment.PostgreSQLVersion)
+			database.Version = postgreSQLVersion
 		}
 	case toolMySQL:
-		database.Version = strings.TrimSpace(environment.MySQLVersion)
+		database.Version = mysqlVersion
 	case toolMariaDB:
-		database.Version = strings.TrimSpace(environment.MariaDBVersion)
+		database.Version = mariaDBVersion
 	case toolPostgreSQL:
-		database.Version = strings.TrimSpace(environment.PostgreSQLVersion)
+		database.Version = postgreSQLVersion
 	}
 	environment.Database = config.NormalizeDatabaseConfig(&database)
 

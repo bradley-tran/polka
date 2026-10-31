@@ -68,7 +68,7 @@ type RedisRuntimeHooks struct {
 func EnsureManagedRedisStarted(ctx Context, hooks RedisRuntimeHooks) (RedisRuntimeState, bool, error) {
 	hooks = hooks.withDefaults()
 	environment := ctx.Environment
-	if environment.Redis == nil || strings.TrimSpace(environment.Redis.Version) == "" {
+	if environment.Redis() == nil || strings.TrimSpace(environment.Redis().Version) == "" {
 		return RedisRuntimeState{}, true, nil
 	}
 
@@ -130,10 +130,10 @@ func StopManagedRedis(ctx Context, hooks RedisRuntimeHooks) (RedisRuntimeState, 
 
 func BuildRedisServerSpec(ctx Context) (RedisServerSpec, error) {
 	environment := ctx.Environment
-	if environment.Redis == nil {
+	if environment.Redis() == nil {
 		return RedisServerSpec{}, fmt.Errorf("environment %q does not define redis", environment.Name)
 	}
-	version := strings.TrimSpace(environment.Redis.Version)
+	version := strings.TrimSpace(environment.Redis().Version)
 	if version == "" {
 		return RedisServerSpec{}, fmt.Errorf("environment %q defines redis but does not define a version", environment.Name)
 	}
@@ -152,8 +152,8 @@ func BuildRedisServerSpec(ctx Context) (RedisServerSpec, error) {
 		Target:          target,
 		DataDir:         RedisDataPath(ctx.RootDir, environment.Name),
 		LogPath:         RedisLogPath(ctx.RootDir, environment.Name),
-		Port:            EffectiveRedisPort(environment.Redis),
-		Password:        strings.TrimSpace(environment.Redis.Password),
+		Port:            EffectiveRedisPort(environment.Redis()),
+		Password:        strings.TrimSpace(environment.Redis().Password),
 		Env:             env,
 	}, nil
 }
@@ -243,8 +243,8 @@ func LoadLiveRedisStateForEnvironment(rootDir string, environment config.Environ
 		environment.Name,
 		state.Version,
 		RedisAddress(state.Port),
-		strings.TrimSpace(environment.Redis.Version),
-		RedisAddress(EffectiveRedisPort(environment.Redis)),
+		strings.TrimSpace(environment.Redis().Version),
+		RedisAddress(EffectiveRedisPort(environment.Redis())),
 	)
 }
 
@@ -346,14 +346,14 @@ func WaitForRedisAddress(port int, timeout time.Duration, ping func(string) bool
 }
 
 func RedisStateMatchesEnvironment(state RedisRuntimeState, environment config.Environment) bool {
-	if environment.Redis == nil {
+	if environment.Redis() == nil {
 		return false
 	}
 
-	return strings.TrimSpace(state.Version) == strings.TrimSpace(environment.Redis.Version) &&
-		state.Port == EffectiveRedisPort(environment.Redis) &&
-		state.AuthEnabled == (strings.TrimSpace(environment.Redis.Password) != "") &&
-		strings.TrimSpace(state.PasswordHash) == RedisPasswordHash(environment.Redis.Password)
+	return strings.TrimSpace(state.Version) == strings.TrimSpace(environment.Redis().Version) &&
+		state.Port == EffectiveRedisPort(environment.Redis()) &&
+		state.AuthEnabled == (strings.TrimSpace(environment.Redis().Password) != "") &&
+		strings.TrimSpace(state.PasswordHash) == RedisPasswordHash(environment.Redis().Password)
 }
 
 func RedisStateIsLive(state RedisRuntimeState, ping func(string) bool) bool {

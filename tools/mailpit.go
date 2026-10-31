@@ -11,7 +11,7 @@ import (
 func mailpitPlugin() Plugin {
 	return newManifestPlugin(Mailpit, pluginHooks{
 		validate: func(environment config.Environment) error {
-			return validateMailpitConfig(environment.Mailpit)
+			return validateMailpitConfig(environment.Mailpit())
 		},
 	})
 }

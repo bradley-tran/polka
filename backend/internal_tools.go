@@ -74,7 +74,7 @@ func readInternalEnvironment(path string) (Environment, error) {
 
 	var environmentFile config.EnvironmentFile
 	if len(data) > 0 {
-		if err := validateEnvironmentFileSchema(data); err != nil {
+		if err := validateEnvironmentFileSchema(data, nil); err != nil {
 			return Environment{}, fmt.Errorf("decode internal tools config %s: %w", path, err)
 		}
 		if err := yaml.Unmarshal(data, &environmentFile); err != nil {
@@ -101,11 +101,11 @@ func writeInternalEnvironment(path string, environment Environment) error {
 // environmentWithInstallRequest deliberately rejects internal-only tools.
 func environmentWithInternalToolVersion(environment Environment, tool, version string) Environment {
 	if tool == toolPIE {
-		environment.PIEVersion = version
+		environment.SetToolVersion(toolPIE, version)
 		return environment
 	}
 
-	return environmentWithInstallRequest(environment, tools.InstallRequest{Tool: tool, Version: version})
+	return environmentWithInstallRequest(nil, environment, tools.InstallRequest{Tool: tool, Version: version})
 }
 
 // internalPHPEnvironment is the synthetic environment used to configure an
@@ -118,11 +118,7 @@ func internalPHPEnvironment(tool, version, installDir string) Environment {
 		Name:          internalEnvironmentName,
 		PHPExtensions: tools.InternalPHPExtensions(installDir),
 	}
-	if tool == toolPHPZTS {
-		environment.PHPZTSVersion = version
-	} else {
-		environment.PHPVersion = version
-	}
+	environment.SetToolVersion(tool, version)
 
 	return environment
 }

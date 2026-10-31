@@ -71,7 +71,7 @@ func phpZTSPlugin() Plugin {
 func phpRuntimePlugin(tool string, threadSafe bool) Plugin {
 	return newManifestPlugin(tool, pluginHooks{
 		validate: func(environment config.Environment) error {
-			if strings.TrimSpace(environment.PHPVersion) != "" && strings.TrimSpace(environment.PHPZTSVersion) != "" {
+			if environment.ToolVersion(PHP) != "" && environment.ToolVersion(PHPZTS) != "" {
 				return fmt.Errorf("php and php-zts versions are mutually exclusive")
 			}
 			if version := strings.TrimSpace(pluginPHPVersion(tool, environment)); version != "" {
@@ -121,7 +121,7 @@ func phpRuntimePlugin(tool string, threadSafe bool) Plugin {
 			return SyncInstalledPHPRuntimeConfig(ctx.EnvsDir, ctx.Result.Tool, ctx.Result.Version, ctx.Environment)
 		},
 		dependencies: func(environment config.Environment) []InstallRequest {
-			if !environment.PHPBuildTools {
+			if !environment.PHPBuildTools() {
 				return nil
 			}
 			version := strings.TrimSpace(pluginPHPVersion(tool, environment))
@@ -175,10 +175,10 @@ func syncInstalledPHPRuntimeConfig(envsDir, tool, version string, environment co
 
 func pluginPHPVersion(tool string, environment config.Environment) string {
 	if tool == PHPZTS {
-		return environment.PHPZTSVersion
+		return environment.ToolVersion(PHPZTS)
 	}
 
-	return environment.PHPVersion
+	return environment.ToolVersion(PHP)
 }
 
 func phpConfigNeedsCABundle(config PHPInstallConfig) bool {

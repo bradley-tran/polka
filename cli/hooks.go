@@ -240,7 +240,7 @@ func writeManagedServiceStopSummary(ctx stopHookContext, result service.StopResu
 
 	if result.PHPMyAdmin != nil {
 		if result.PHPMyAdmin.AlreadyStopped {
-			if ctx.Environment.PHPMyAdmin != nil && strings.TrimSpace(ctx.Environment.PHPMyAdmin.Version) != "" {
+			if strings.TrimSpace(ctx.Environment.ToolVersion("phpmyadmin")) != "" {
 				fmt.Fprintf(ctx.Stdout, "phpMyAdmin for environment %q is already stopped.\n", ctx.Environment.Name)
 			}
 		} else {
@@ -250,7 +250,7 @@ func writeManagedServiceStopSummary(ctx stopHookContext, result service.StopResu
 
 	if result.Meilisearch != nil {
 		if result.Meilisearch.AlreadyStopped {
-			if ctx.Environment.Meilisearch != nil && strings.TrimSpace(ctx.Environment.Meilisearch.Version) != "" {
+			if strings.TrimSpace(ctx.Environment.ToolVersion("meilisearch")) != "" {
 				fmt.Fprintf(ctx.Stdout, "Meilisearch for environment %q is already stopped.\n", ctx.Environment.Name)
 			}
 		} else {
@@ -260,7 +260,7 @@ func writeManagedServiceStopSummary(ctx stopHookContext, result service.StopResu
 
 	if result.Redis != nil {
 		if result.Redis.AlreadyStopped {
-			if ctx.Environment.Redis != nil && strings.TrimSpace(ctx.Environment.Redis.Version) != "" {
+			if strings.TrimSpace(ctx.Environment.ToolVersion("redis")) != "" {
 				fmt.Fprintf(ctx.Stdout, "Redis for environment %q is already stopped.\n", ctx.Environment.Name)
 			}
 		} else {
@@ -269,7 +269,7 @@ func writeManagedServiceStopSummary(ctx stopHookContext, result service.StopResu
 	}
 	if result.RabbitMQ != nil {
 		if result.RabbitMQ.AlreadyStopped {
-			if ctx.Environment.RabbitMQ != nil && strings.TrimSpace(ctx.Environment.RabbitMQ.Version) != "" {
+			if strings.TrimSpace(ctx.Environment.ToolVersion("rabbitmq")) != "" {
 				fmt.Fprintf(ctx.Stdout, "RabbitMQ for environment %q is already stopped.\n", ctx.Environment.Name)
 			}
 		} else {
@@ -279,7 +279,7 @@ func writeManagedServiceStopSummary(ctx stopHookContext, result service.StopResu
 
 	if result.Traefik != nil {
 		if result.Traefik.AlreadyStopped {
-			if ctx.Environment.Traefik != nil && strings.TrimSpace(ctx.Environment.Traefik.Version) != "" {
+			if strings.TrimSpace(ctx.Environment.ToolVersion("traefik")) != "" {
 				fmt.Fprintf(ctx.Stdout, "Traefik for environment %q is already stopped.\n", ctx.Environment.Name)
 			}
 		} else {
@@ -299,7 +299,7 @@ func writeManagedServiceStopSummary(ctx stopHookContext, result service.StopResu
 
 	if result.Mailpit != nil {
 		if result.Mailpit.AlreadyStopped {
-			if ctx.Environment.Mailpit != nil && strings.TrimSpace(ctx.Environment.Mailpit.Version) != "" {
+			if strings.TrimSpace(ctx.Environment.ToolVersion("mailpit")) != "" {
 				fmt.Fprintf(ctx.Stdout, "Mailpit for environment %q is already stopped.\n", ctx.Environment.Name)
 			}
 		} else {
@@ -319,7 +319,7 @@ func startDatabaseServiceHook(ctx startHookContext) error {
 }
 
 func startMailpitServiceHook(ctx startHookContext) error {
-	if ctx.Environment.Mailpit == nil || strings.TrimSpace(ctx.Environment.Mailpit.Version) == "" {
+	if strings.TrimSpace(ctx.Environment.ToolVersion("mailpit")) == "" {
 		return nil
 	}
 
@@ -328,7 +328,7 @@ func startMailpitServiceHook(ctx startHookContext) error {
 }
 
 func startMeilisearchServiceHook(ctx startHookContext) error {
-	if ctx.Environment.Meilisearch == nil || strings.TrimSpace(ctx.Environment.Meilisearch.Version) == "" {
+	if strings.TrimSpace(ctx.Environment.ToolVersion("meilisearch")) == "" {
 		return nil
 	}
 
@@ -337,7 +337,7 @@ func startMeilisearchServiceHook(ctx startHookContext) error {
 }
 
 func startRedisServiceHook(ctx startHookContext) error {
-	if ctx.Environment.Redis == nil || strings.TrimSpace(ctx.Environment.Redis.Version) == "" {
+	if strings.TrimSpace(ctx.Environment.ToolVersion("redis")) == "" {
 		return nil
 	}
 
@@ -346,7 +346,7 @@ func startRedisServiceHook(ctx startHookContext) error {
 }
 
 func startRabbitMQServiceHook(ctx startHookContext) error {
-	if ctx.Environment.RabbitMQ == nil || strings.TrimSpace(ctx.Environment.RabbitMQ.Version) == "" {
+	if strings.TrimSpace(ctx.Environment.ToolVersion("rabbitmq")) == "" {
 		return nil
 	}
 	_, _, err := ensureManagedRabbitMQStarted(ctx.Store, ctx.Environment)
@@ -354,7 +354,7 @@ func startRabbitMQServiceHook(ctx startHookContext) error {
 }
 
 func startTraefikServiceHook(ctx startHookContext) error {
-	if ctx.Environment.Traefik == nil || strings.TrimSpace(ctx.Environment.Traefik.Version) == "" {
+	if strings.TrimSpace(ctx.Environment.ToolVersion("traefik")) == "" {
 		return nil
 	}
 
@@ -363,7 +363,7 @@ func startTraefikServiceHook(ctx startHookContext) error {
 }
 
 func startPHPMyAdminServiceHook(ctx startHookContext) error {
-	if ctx.Environment.PHPMyAdmin == nil || strings.TrimSpace(ctx.Environment.PHPMyAdmin.Version) == "" {
+	if strings.TrimSpace(ctx.Environment.ToolVersion("phpmyadmin")) == "" {
 		return nil
 	}
 
@@ -526,7 +526,7 @@ func stopDatabaseServiceHook(ctx stopHookContext) error {
 }
 
 func stopMailpitServiceHook(ctx stopHookContext) error {
-	if ctx.Environment.Mailpit == nil || strings.TrimSpace(ctx.Environment.Mailpit.Version) == "" {
+	if strings.TrimSpace(ctx.Environment.ToolVersion("mailpit")) == "" {
 		return nil
 	}
 
@@ -544,7 +544,7 @@ func stopMailpitServiceHook(ctx stopHookContext) error {
 }
 
 func stopMeilisearchServiceHook(ctx stopHookContext) error {
-	if ctx.Environment.Meilisearch == nil || strings.TrimSpace(ctx.Environment.Meilisearch.Version) == "" {
+	if strings.TrimSpace(ctx.Environment.ToolVersion("meilisearch")) == "" {
 		return nil
 	}
 
@@ -562,7 +562,7 @@ func stopMeilisearchServiceHook(ctx stopHookContext) error {
 }
 
 func stopRedisServiceHook(ctx stopHookContext) error {
-	if ctx.Environment.Redis == nil || strings.TrimSpace(ctx.Environment.Redis.Version) == "" {
+	if strings.TrimSpace(ctx.Environment.ToolVersion("redis")) == "" {
 		return nil
 	}
 
@@ -580,7 +580,7 @@ func stopRedisServiceHook(ctx stopHookContext) error {
 }
 
 func stopRabbitMQServiceHook(ctx stopHookContext) error {
-	if ctx.Environment.RabbitMQ == nil || strings.TrimSpace(ctx.Environment.RabbitMQ.Version) == "" {
+	if strings.TrimSpace(ctx.Environment.ToolVersion("rabbitmq")) == "" {
 		return nil
 	}
 	_, alreadyStopped, err := stopManagedRabbitMQ(ctx.Store, ctx.Environment.Name)
@@ -596,7 +596,7 @@ func stopRabbitMQServiceHook(ctx stopHookContext) error {
 }
 
 func stopTraefikServiceHook(ctx stopHookContext) error {
-	if ctx.Environment.Traefik == nil || strings.TrimSpace(ctx.Environment.Traefik.Version) == "" {
+	if strings.TrimSpace(ctx.Environment.ToolVersion("traefik")) == "" {
 		return nil
 	}
 
@@ -614,7 +614,7 @@ func stopTraefikServiceHook(ctx stopHookContext) error {
 }
 
 func stopPHPMyAdminServiceHook(ctx stopHookContext) error {
-	if ctx.Environment.PHPMyAdmin == nil || strings.TrimSpace(ctx.Environment.PHPMyAdmin.Version) == "" {
+	if strings.TrimSpace(ctx.Environment.ToolVersion("phpmyadmin")) == "" {
 		return nil
 	}
 
@@ -709,72 +709,72 @@ func statusPHPConfigHook(ctx statusHookContext) error {
 }
 
 func statusComposerConfigHook(ctx statusHookContext) error {
-	_, _ = fmt.Fprintf(ctx.Stdout, "composer %s\n", labelOrUnset(ctx.Environment.ComposerVersion))
+	_, _ = fmt.Fprintf(ctx.Stdout, "composer %s\n", labelOrUnset(ctx.Environment.ToolVersion("composer")))
 	return nil
 }
 
 func statusPIEConfigHook(ctx statusHookContext) error {
-	_, _ = fmt.Fprintf(ctx.Stdout, "pie %s\n", labelOrUnset(ctx.Environment.PIEVersion))
+	_, _ = fmt.Fprintf(ctx.Stdout, "pie %s\n", labelOrUnset(ctx.Environment.ToolVersion("pie")))
 	return nil
 }
 
 func statusNodeJSConfigHook(ctx statusHookContext) error {
-	_, _ = fmt.Fprintf(ctx.Stdout, "nodejs %s\n", labelOrUnset(ctx.Environment.NodeJSVersion))
+	_, _ = fmt.Fprintf(ctx.Stdout, "nodejs %s\n", labelOrUnset(ctx.Environment.ToolVersion("nodejs")))
 	return nil
 }
 
 func statusMagoConfigHook(ctx statusHookContext) error {
-	_, _ = fmt.Fprintf(ctx.Stdout, "mago %s\n", labelOrUnset(ctx.Environment.MagoVersion))
+	_, _ = fmt.Fprintf(ctx.Stdout, "mago %s\n", labelOrUnset(ctx.Environment.ToolVersion("mago")))
 	return nil
 }
 
 func statusNginxConfigHook(ctx statusHookContext) error {
-	_, _ = fmt.Fprintf(ctx.Stdout, "nginx %s\n", labelOrUnset(ctx.Environment.NginxVersion))
+	_, _ = fmt.Fprintf(ctx.Stdout, "nginx %s\n", labelOrUnset(ctx.Environment.ToolVersion("nginx")))
 	return nil
 }
 
 func statusApacheConfigHook(ctx statusHookContext) error {
-	_, _ = fmt.Fprintf(ctx.Stdout, "apache %s\n", labelOrUnset(ctx.Environment.ApacheVersion))
+	_, _ = fmt.Fprintf(ctx.Stdout, "apache %s\n", labelOrUnset(ctx.Environment.ToolVersion("apache")))
 	return nil
 }
 
 func statusFrankenPHPConfigHook(ctx statusHookContext) error {
-	_, _ = fmt.Fprintf(ctx.Stdout, "frankenphp %s\n", labelOrUnset(ctx.Environment.FrankenPHPVersion))
+	_, _ = fmt.Fprintf(ctx.Stdout, "frankenphp %s\n", labelOrUnset(ctx.Environment.ToolVersion("frankenphp")))
 	return nil
 }
 
 func statusRoadRunnerConfigHook(ctx statusHookContext) error {
-	_, _ = fmt.Fprintf(ctx.Stdout, "roadrunner %s\n", labelOrUnset(ctx.Environment.RoadRunnerVersion))
+	_, _ = fmt.Fprintf(ctx.Stdout, "roadrunner %s\n", labelOrUnset(ctx.Environment.ToolVersion("roadrunner")))
 	return nil
 }
 
 func statusSQLiteConfigHook(ctx statusHookContext) error {
-	_, _ = fmt.Fprintf(ctx.Stdout, "sqlite %s\n", labelOrUnset(ctx.Environment.SQLiteVersion))
+	_, _ = fmt.Fprintf(ctx.Stdout, "sqlite %s\n", labelOrUnset(ctx.Environment.ToolVersion("sqlite")))
 	return nil
 }
 
 func statusMeilisearchConfigHook(ctx statusHookContext) error {
-	_, _ = fmt.Fprintf(ctx.Stdout, "meilisearch %s\n", labelMeilisearch(ctx.Environment.Meilisearch))
+	_, _ = fmt.Fprintf(ctx.Stdout, "meilisearch %s\n", labelMeilisearch(ctx.Environment.Meilisearch()))
 	return nil
 }
 
 func statusRedisConfigHook(ctx statusHookContext) error {
-	_, _ = fmt.Fprintf(ctx.Stdout, "redis %s\n", labelRedis(ctx.Environment.Redis))
+	_, _ = fmt.Fprintf(ctx.Stdout, "redis %s\n", labelRedis(ctx.Environment.Redis()))
 	return nil
 }
 
 func statusRabbitMQConfigHook(ctx statusHookContext) error {
-	_, _ = fmt.Fprintf(ctx.Stdout, "rabbitmq %s\n", labelRabbitMQ(ctx.Environment.RabbitMQ))
+	_, _ = fmt.Fprintf(ctx.Stdout, "rabbitmq %s\n", labelRabbitMQ(ctx.Environment.RabbitMQ()))
 	return nil
 }
 
 func statusTraefikConfigHook(ctx statusHookContext) error {
-	_, _ = fmt.Fprintf(ctx.Stdout, "traefik %s\n", labelTraefik(ctx.Environment.Traefik))
+	_, _ = fmt.Fprintf(ctx.Stdout, "traefik %s\n", labelTraefik(ctx.Environment.Traefik()))
 	return nil
 }
 
 func statusPHPMyAdminConfigHook(ctx statusHookContext) error {
-	_, _ = fmt.Fprintf(ctx.Stdout, "phpmyadmin %s\n", labelPHPMyAdmin(ctx.Environment.PHPMyAdmin))
+	_, _ = fmt.Fprintf(ctx.Stdout, "phpmyadmin %s\n", labelPHPMyAdmin(ctx.Environment.PHPMyAdmin()))
 	return nil
 }
 
@@ -784,7 +784,7 @@ func statusDatabaseConfigHook(ctx statusHookContext) error {
 }
 
 func statusMailpitConfigHook(ctx statusHookContext) error {
-	_, _ = fmt.Fprintf(ctx.Stdout, "mailpit %s\n", labelMailpit(ctx.Environment.Mailpit))
+	_, _ = fmt.Fprintf(ctx.Stdout, "mailpit %s\n", labelMailpit(ctx.Environment.Mailpit()))
 	return nil
 }
 
@@ -822,7 +822,7 @@ func statusDatabaseRuntimeHook(ctx statusHookContext) error {
 }
 
 func statusPHPMyAdminRuntimeHook(ctx statusHookContext) error {
-	if ctx.Environment.PHPMyAdmin == nil || strings.TrimSpace(ctx.Environment.PHPMyAdmin.Version) == "" {
+	if strings.TrimSpace(ctx.Environment.ToolVersion("phpmyadmin")) == "" {
 		_, _ = fmt.Fprintln(ctx.Stdout, "phpmyadmin-server unset")
 		return nil
 	}
@@ -841,7 +841,7 @@ func statusPHPMyAdminRuntimeHook(ctx statusHookContext) error {
 }
 
 func statusMeilisearchRuntimeHook(ctx statusHookContext) error {
-	if ctx.Environment.Meilisearch == nil || strings.TrimSpace(ctx.Environment.Meilisearch.Version) == "" {
+	if strings.TrimSpace(ctx.Environment.ToolVersion("meilisearch")) == "" {
 		_, _ = fmt.Fprintln(ctx.Stdout, "meilisearch-server unset")
 		return nil
 	}
@@ -860,7 +860,7 @@ func statusMeilisearchRuntimeHook(ctx statusHookContext) error {
 }
 
 func statusRedisRuntimeHook(ctx statusHookContext) error {
-	if ctx.Environment.Redis == nil || strings.TrimSpace(ctx.Environment.Redis.Version) == "" {
+	if strings.TrimSpace(ctx.Environment.ToolVersion("redis")) == "" {
 		_, _ = fmt.Fprintln(ctx.Stdout, "redis-server unset")
 		return nil
 	}
@@ -879,7 +879,8 @@ func statusRedisRuntimeHook(ctx statusHookContext) error {
 }
 
 func statusRabbitMQRuntimeHook(ctx statusHookContext) error {
-	if ctx.Environment.RabbitMQ == nil || strings.TrimSpace(ctx.Environment.RabbitMQ.Version) == "" {
+	rabbitMQ := ctx.Environment.RabbitMQ()
+	if rabbitMQ == nil || strings.TrimSpace(rabbitMQ.Version) == "" {
 		_, _ = fmt.Fprintln(ctx.Stdout, "rabbitmq-server unset")
 		return nil
 	}
@@ -891,12 +892,12 @@ func statusRabbitMQRuntimeHook(ctx statusHookContext) error {
 		_, _ = fmt.Fprintln(ctx.Stdout, "rabbitmq-server stopped")
 		return nil
 	}
-	_, _ = fmt.Fprintf(ctx.Stdout, "rabbitmq-server running amqp=%s management=%s\n", rabbitMQURLForConfig(ctx.Environment.RabbitMQ), rabbitMQManagementURLForConfig(ctx.Environment.RabbitMQ))
+	_, _ = fmt.Fprintf(ctx.Stdout, "rabbitmq-server running amqp=%s management=%s\n", rabbitMQURLForConfig(rabbitMQ), rabbitMQManagementURLForConfig(rabbitMQ))
 	return nil
 }
 
 func statusTraefikRuntimeHook(ctx statusHookContext) error {
-	if ctx.Environment.Traefik == nil || strings.TrimSpace(ctx.Environment.Traefik.Version) == "" {
+	if strings.TrimSpace(ctx.Environment.ToolVersion("traefik")) == "" {
 		_, _ = fmt.Fprintln(ctx.Stdout, "traefik-server unset")
 		return nil
 	}
@@ -915,7 +916,7 @@ func statusTraefikRuntimeHook(ctx statusHookContext) error {
 }
 
 func statusMailpitRuntimeHook(ctx statusHookContext) error {
-	if ctx.Environment.Mailpit == nil || strings.TrimSpace(ctx.Environment.Mailpit.Version) == "" {
+	if strings.TrimSpace(ctx.Environment.ToolVersion("mailpit")) == "" {
 		_, _ = fmt.Fprintln(ctx.Stdout, "mailpit-server unset")
 		return nil
 	}

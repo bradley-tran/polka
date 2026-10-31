@@ -75,7 +75,7 @@ func TestPIEManifestIsInternalOnly(t *testing.T) {
 	if len(plugin.DispatchCommands()) != 0 {
 		t.Fatalf("DispatchCommands() = %v, want none for internal-only pie", plugin.DispatchCommands())
 	}
-	environment := config.Environment{PIEVersion: "1.4"}
+	environment := config.Environment{Tools: config.ToolsConfig{PIE: "1.4"}}
 	if version := plugin.Version(environment); version != "" {
 		t.Fatalf("Version() = %q, want empty for internal-only pie", version)
 	}
@@ -106,7 +106,7 @@ func TestRegistryInternalToolAccessors(t *testing.T) {
 		t.Fatal("InternalOnly(unknown) = true, want false")
 	}
 
-	environment := config.Environment{PIEVersion: "1.4", ComposerVersion: "2.9", PHPVersion: "8.5"}
+	environment := config.Environment{Tools: config.ToolsConfig{PIE: "1.4", Composer: "2.9", PHP: "8.5"}}
 	if got := registry.InternalVersion(PIE, environment); got != "1.4" {
 		t.Fatalf("InternalVersion(pie) = %q, want raw configured version 1.4", got)
 	}

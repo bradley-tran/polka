@@ -43,12 +43,8 @@ func setDatabaseToolVersion(environment Environment, database *DatabaseConfig) E
 	}
 
 	switch strings.ToLower(strings.TrimSpace(database.Engine)) {
-	case toolMySQL:
-		environment.MySQLVersion = strings.TrimSpace(database.Version)
-	case toolMariaDB:
-		environment.MariaDBVersion = strings.TrimSpace(database.Version)
-	case toolPostgreSQL:
-		environment.PostgreSQLVersion = strings.TrimSpace(database.Version)
+	case toolMySQL, toolMariaDB, toolPostgreSQL:
+		environment.SetToolVersion(strings.ToLower(strings.TrimSpace(database.Engine)), strings.TrimSpace(database.Version))
 	}
 
 	return environment

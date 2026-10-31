@@ -14,7 +14,7 @@ import (
 func redisPlugin() Plugin {
 	return newManifestPlugin(Redis, pluginHooks{
 		validate: func(environment config.Environment) error {
-			return validateRedisConfig(environment.Redis)
+			return validateRedisConfig(environment.Redis())
 		},
 		download: func(ctx DownloadContext) error {
 			return downloadRedis(ctx.Client, ctx.CacheDir, ctx.Version)

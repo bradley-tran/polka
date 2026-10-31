@@ -159,4 +159,3 @@ func TestPatchPHPDevelExecutableFilePath(t *testing.T) {
 		t.Fatalf("postInstallPHPDevel(ctx) error = %v", err)
 	}
 }
-

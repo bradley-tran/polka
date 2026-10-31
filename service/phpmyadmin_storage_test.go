@@ -17,9 +17,9 @@ func TestEnsurePHPMyAdminStorageConfiguredImportsCreateTablesSQL(t *testing.T) {
 	rootDir := filepath.Join(projectDir, ".polka")
 	envsDir := filepath.Join(rootDir, "envs")
 	environment := config.Environment{
-		Name:       "demo",
-		Database:   &config.DatabaseConfig{Engine: toolMySQL, Version: "8.4", Port: 3307},
-		PHPMyAdmin: &config.PHPMyAdminConfig{Version: "5.2"},
+		Name:     "demo",
+		Database: &config.DatabaseConfig{Engine: toolMySQL, Version: "8.4", Port: 3307},
+		Tools:    config.ToolsConfig{"phpmyadmin": "5.2"},
 	}
 	ctx := Context{
 		ProjectDir:  projectDir,
@@ -96,9 +96,9 @@ func TestEnsurePHPMyAdminStorageConfiguredImportsCreateTablesSQL(t *testing.T) {
 
 func TestEnsurePHPMyAdminStorageConfiguredWarnsAndSkipsPostgreSQL(t *testing.T) {
 	environment := config.Environment{
-		Name:       "demo",
-		Database:   &config.DatabaseConfig{Engine: toolPostgreSQL, Version: "17", Port: 5432},
-		PHPMyAdmin: &config.PHPMyAdminConfig{Version: "5.2"},
+		Name:     "demo",
+		Database: &config.DatabaseConfig{Engine: toolPostgreSQL, Version: "17", Port: 5432},
+		Tools:    config.ToolsConfig{"phpmyadmin": "5.2"},
 	}
 	warnings := &strings.Builder{}
 	ctx := Context{

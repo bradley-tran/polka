@@ -78,6 +78,14 @@ type ToolDependencyProvider interface {
 	Dependencies(config.Environment) []InstallRequest
 }
 
+// ToolSettingsProvider is an optional interface implemented by ToolPlugins that
+// declare versionless settings or mutual-exclusion peers.
+type ToolSettingsProvider interface {
+	Settings() map[string]SettingType
+	SettingsNamespace() string
+	ExclusiveWith() []string
+}
+
 // Plugin is kept as a compatibility alias for older backend-facing tests and helpers.
 type Plugin = ToolPlugin
 
@@ -161,12 +169,113 @@ func (r *Registry) Plugin(id string) (ToolPlugin, bool) {
 	return plugin, ok
 }
 
+// SettingsSchema returns the scalar settings schema declared for namespace and
+// the ordered list of tool IDs that may satisfy the tool version requirement
+// for that namespace (for example "php" -> ["php", "php-zts"]).
+func (r *Registry) SettingsSchema(namespace string) (map[string]SettingType, []string, bool) {
+	if r == nil {
+		return nil, nil, false
+	}
+	target := strings.ToLower(strings.TrimSpace(namespace))
+	if target == "" {
+		return nil, nil, false
+	}
+
+	var schema map[string]SettingType
+	owners := []string{}
+	seenOwners := map[string]bool{}
+	for _, plugin := range r.plugins {
+		if r.InternalOnly(plugin.ID()) {
+			continue
+		}
+		provider, ok := plugin.(ToolSettingsProvider)
+		if !ok {
+			continue
+		}
+		pluginID := strings.ToLower(strings.TrimSpace(plugin.ID()))
+		pluginSettings := normalizeManifestSettings(provider.Settings())
+		pluginNamespace := strings.ToLower(strings.TrimSpace(provider.SettingsNamespace()))
+		if pluginNamespace == "" && len(pluginSettings) > 0 {
+			pluginNamespace = pluginID
+		}
+		if pluginNamespace != target {
+			continue
+		}
+		if len(pluginSettings) > 0 && len(schema) == 0 {
+			schema = pluginSettings
+		}
+		if !seenOwners[pluginID] {
+			seenOwners[pluginID] = true
+			owners = append(owners, pluginID)
+		}
+	}
+	if len(schema) == 0 {
+		return nil, nil, false
+	}
+
+	return copySettingTypes(schema), owners, true
+}
+
+// ExclusivePeers returns the tool IDs that cannot be configured alongside id.
+func (r *Registry) ExclusivePeers(id string) []string {
+	if r == nil {
+		return nil
+	}
+	target := strings.ToLower(strings.TrimSpace(id))
+	if target == "" {
+		return nil
+	}
+
+	peers := []string{}
+	seen := map[string]bool{}
+	addPeer := func(peer string) {
+		normalized := strings.ToLower(strings.TrimSpace(peer))
+		if normalized == "" || normalized == target || seen[normalized] {
+			return
+		}
+		seen[normalized] = true
+		peers = append(peers, normalized)
+	}
+
+	if plugin, ok := r.Plugin(target); ok {
+		if provider, ok := plugin.(ToolSettingsProvider); ok {
+			for _, peer := range provider.ExclusiveWith() {
+				addPeer(peer)
+			}
+		}
+	}
+	for _, plugin := range r.plugins {
+		provider, ok := plugin.(ToolSettingsProvider)
+		if !ok {
+			continue
+		}
+		pluginID := strings.ToLower(strings.TrimSpace(plugin.ID()))
+		for _, peer := range provider.ExclusiveWith() {
+			if strings.EqualFold(strings.TrimSpace(peer), target) {
+				addPeer(pluginID)
+			}
+		}
+	}
+	if len(peers) == 0 {
+		return nil
+	}
+
+	return peers
+}
+
 func (r *Registry) ValidateEnvironment(environment config.Environment) error {
 	if r == nil {
 		return fmt.Errorf("tool registry is not configured")
 	}
 
 	for _, plugin := range r.plugins {
+		if strings.TrimSpace(plugin.Version(environment)) != "" {
+			for _, peerID := range r.ExclusivePeers(plugin.ID()) {
+				if peer, ok := r.Plugin(peerID); ok && strings.TrimSpace(peer.Version(environment)) != "" {
+					return fmt.Errorf("%s and %s versions are mutually exclusive", plugin.ID(), peer.ID())
+				}
+			}
+		}
 		if err := plugin.Validate(environment); err != nil {
 			return err
 		}
@@ -484,6 +593,9 @@ type builtinPlugin struct {
 	version            func(config.Environment) string
 	internalOnly       bool
 	internalVersion    func(config.Environment) string
+	settings           map[string]SettingType
+	settingsNamespace  string
+	exclusiveWith      []string
 	phpExtensions      map[string]bool
 	validate           func(config.Environment) error
 	installCandidates  func(root, version string) []string
@@ -524,6 +636,22 @@ func (p builtinPlugin) InternalVersion(environment config.Environment) string {
 	}
 
 	return strings.TrimSpace(p.internalVersion(environment))
+}
+
+// Settings returns a defensive copy of the manifest-declared settings schema.
+func (p builtinPlugin) Settings() map[string]SettingType {
+	return copySettingTypes(p.settings)
+}
+
+// SettingsNamespace returns the settings.<namespace> key owned or shared by
+// this plugin.
+func (p builtinPlugin) SettingsNamespace() string {
+	return p.settingsNamespace
+}
+
+// ExclusiveWith returns a defensive copy of mutually exclusive tool IDs.
+func (p builtinPlugin) ExclusiveWith() []string {
+	return copyStrings(p.exclusiveWith)
 }
 
 func (p builtinPlugin) Version(environment config.Environment) string {
@@ -620,6 +748,19 @@ func (p builtinPlugin) PostInstall(ctx InstallContext) error {
 	}
 
 	return p.postInstall(ctx)
+}
+
+func copySettingTypes(values map[string]SettingType) map[string]SettingType {
+	if len(values) == 0 {
+		return nil
+	}
+
+	copied := make(map[string]SettingType, len(values))
+	for key, value := range values {
+		copied[key] = value
+	}
+
+	return copied
 }
 
 func copyStrings(values []string) []string {

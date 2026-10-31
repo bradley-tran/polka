@@ -13,7 +13,7 @@ import (
 // plugin reads its version from the environment and exposes the rr shim and log.
 func TestRoadRunnerPluginUsesConfiguredVersionAndManifest(t *testing.T) {
 	plugin := roadRunnerPlugin()
-	if version := plugin.Version(config.Environment{RoadRunnerVersion: "2024.1.5"}); version != "2024.1.5" {
+	if version := plugin.Version(config.Environment{Tools: config.ToolsConfig{RoadRunner: "2024.1.5"}}); version != "2024.1.5" {
 		t.Fatalf("Version() = %q, want 2024.1.5", version)
 	}
 	if commands := plugin.DispatchCommands(); len(commands) != 1 || commands[0] != "rr" {
@@ -56,7 +56,7 @@ func TestRoadRunnerPluginValidatesVersion(t *testing.T) {
 	if err := plugin.Validate(config.Environment{}); err != nil {
 		t.Fatalf("Validate(empty) error = %v, want nil", err)
 	}
-	if err := plugin.Validate(config.Environment{RoadRunnerVersion: "bad version"}); err == nil {
+	if err := plugin.Validate(config.Environment{Tools: config.ToolsConfig{RoadRunner: "bad version"}}); err == nil {
 		t.Fatal("Validate(invalid) error = nil, want error")
 	}
 }

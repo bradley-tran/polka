@@ -101,7 +101,7 @@ var (
 // environment by `polka install`, or nil when none was recorded or the
 // environment does not enable the PHP extension SDK on Windows.
 func (s Store) MSVCToolchain(environment Environment) (*MSVCToolchain, error) {
-	if !environment.PHPBuildTools || runtime.GOOS != "windows" {
+	if !environment.PHPBuildTools() || runtime.GOOS != "windows" {
 		return nil, nil
 	}
 
@@ -118,7 +118,7 @@ func (s Store) msvcStateFile(environmentName string) string {
 // fatal because MSVC is a host prerequisite only needed for native builds;
 // the reason is reported through warn and any stale capture is removed.
 func (s Store) syncMSVCToolchain(environment Environment, force bool, warn func(string)) error {
-	if !environment.PHPBuildTools || runtime.GOOS != "windows" {
+	if !environment.PHPBuildTools() || runtime.GOOS != "windows" {
 		return nil
 	}
 	statePath := s.msvcStateFile(environment.Name)

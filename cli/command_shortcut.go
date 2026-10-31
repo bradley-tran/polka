@@ -12,8 +12,8 @@ type shortcutSpec struct {
 	use    string   // cobra Use, e.g. "php [args...]"
 	short  string   // one-line help summary
 	prefix []string // args prepended before the user's args, e.g. {"exec", "php"}
-	hidden bool      // keep out of the help listing
-	usage  string    // detailed help text (optional; falls back to the target's help)
+	hidden bool     // keep out of the help listing
+	usage  string   // detailed help text (optional; falls back to the target's help)
 }
 
 // newShortcutCommand builds a cobra command that expands to the command path in
