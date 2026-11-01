@@ -111,10 +111,10 @@ Each of these is also available as a top-level shortcut, so "polka install" and 
 const createProjectUsage = `Usage:
   polka create-project <package> [directory] [composer-args...]
 
-Scaffold a new application with Polka's internal composer, then initialize polka in the created directory.
+Scaffold a new application, initialize Polka, and install its managed tools before running Composer hooks.
 Polka provisions an internal PHP runtime and composer into the global tools directory on first use; project configs never reference them.
-Remaining arguments pass through to composer create-project unchanged, so options such as --stability work as usual.
-After scaffolding, Polka detects the framework (cakephp, codeigniter, drupal, wordpress, laravel, or symfony) from the package name or marker files and writes the matching polka.yaml preset; run polka install inside the new directory to provision its tools.
+Composer options such as --stability, --no-scripts, and --no-install are supported.
+After downloading the scaffold, Polka detects the framework (cakephp, codeigniter, drupal, wordpress, laravel, or symfony), writes its polka.yaml preset, and installs its tools. Polka configures the framework's database settings and starts its managed database before Composer installs dependencies and runs hooks. --no-scripts skips database startup. Unrecognized packages use a plain config and internal PHP/composer.
 `
 
 const extUsage = `Usage:
