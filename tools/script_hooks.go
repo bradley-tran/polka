@@ -9,6 +9,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -21,9 +22,15 @@ import (
 
 // Hook names a manifest script may implement.
 const (
-	scriptHookResolve  = "resolve"
-	scriptHookValidate = "validate"
+	scriptHookResolve      = "resolve"
+	scriptHookValidate     = "validate"
+	scriptHookDependencies = "dependencies"
+	scriptHookPostInstall  = "post_install"
 )
+
+// scriptLibraryDir holds script code shared through load(), relative to the
+// manifest directory. load() names resolve inside it.
+const scriptLibraryDir = "scripts/lib"
 
 // downloadTemplateKey matches names usable as {placeholder} template values.
 var downloadTemplateKey = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
@@ -95,7 +102,7 @@ func (s manifestScript) normalized() manifestScript {
 }
 
 // validate checks the script block against the rest of the manifest.
-func (s manifestScript) validate(id string, download manifestDownload) error {
+func (s manifestScript) validate(id string, download manifestDownload, dependencies []manifestDependency) error {
 	if s.isZero() {
 		return nil
 	}
@@ -121,7 +128,7 @@ func (s manifestScript) validate(id string, download manifestDownload) error {
 	for index, rawHook := range s.Hooks {
 		hook := strings.ToLower(strings.TrimSpace(rawHook))
 		switch hook {
-		case scriptHookResolve, scriptHookValidate:
+		case scriptHookResolve, scriptHookValidate, scriptHookDependencies, scriptHookPostInstall:
 		default:
 			return fmt.Errorf("tool manifest %q script.hooks[%d] has unsupported hook %q", id, index, rawHook)
 		}
@@ -143,6 +150,9 @@ func (s manifestScript) validate(id string, download manifestDownload) error {
 		if download.hasGitHub() || download.hasReleaseIndex() {
 			return fmt.Errorf("tool manifest %q script hook resolve cannot be combined with download.github or download.release-index", id)
 		}
+	}
+	if seen[scriptHookDependencies] && len(dependencies) > 0 {
+		return fmt.Errorf("tool manifest %q script hook dependencies cannot be combined with manifest dependencies", id)
 	}
 
 	return nil
@@ -180,7 +190,7 @@ func builtinScriptModuleLoader(tool string, spec manifestScript, candidate scrip
 // loadToolScript loads a tool script and checks that its public functions
 // match the hooks declared in the manifest.
 func loadToolScript(fsys fs.FS, tool string, spec manifestScript) (*script.Module, error) {
-	module, err := script.Load(fsys, spec.File, script.Options{Predeclared: toolScriptModules()})
+	module, err := script.Load(fsys, spec.File, script.Options{Predeclared: toolScriptModules(), LoadDir: scriptLibraryDir})
 	if err != nil {
 		return nil, fmt.Errorf("%s script: %w", tool, err)
 	}
@@ -193,7 +203,7 @@ func loadToolScript(fsys fs.FS, tool string, spec manifestScript) (*script.Modul
 			continue
 		}
 		switch name {
-		case scriptHookResolve, scriptHookValidate:
+		case scriptHookResolve, scriptHookValidate, scriptHookDependencies, scriptHookPostInstall:
 			if !spec.hasHook(name) {
 				return nil, fmt.Errorf("%s script %s defines hook %q that is not declared in script.hooks", tool, spec.File, name)
 			}
@@ -360,6 +370,13 @@ func (p scriptResolvePlan) toRequestPlan(tool string, m pluginManifest, requeste
 	if err != nil {
 		return manifestRequestPlan{}, err
 	}
+	// Plan values often come from upstream metadata and these names become
+	// staging paths, so they must stay plain file names.
+	for _, name := range []string{asset.FileName, asset.Unwrap.FileName} {
+		if strings.ContainsAny(name, `/\`) || name == ".." {
+			return manifestRequestPlan{}, fmt.Errorf("%s script resolve rendered invalid file name %q", tool, name)
+		}
+	}
 	if p.URL != "" {
 		if err := validateScriptURL(p.URL); err != nil {
 			return manifestRequestPlan{}, fmt.Errorf("%s script resolve url: %w", tool, err)
@@ -428,7 +445,7 @@ func scriptValidateFunc(m pluginManifest, settingsNamespace string, settings map
 			return err
 		}
 
-		env := newScriptEnvironment(tool, version, settingsNamespace, settings, environment)
+		env := newScriptEnvironment(m, tool, version, settingsNamespace, settings, runtime.GOOS, runtime.GOARCH, environment)
 		result, err := module.Call(scriptHookValidate, nil, env)
 		if err != nil {
 			return scriptHookError(tool, m.Script.File, err)
@@ -441,8 +458,87 @@ func scriptValidateFunc(m pluginManifest, settingsNamespace string, settings map
 	}
 }
 
-// newScriptEnvironment builds the read-only env value passed to validate.
-func newScriptEnvironment(tool, version, settingsNamespace string, settings map[string]SettingType, environment config.Environment) starlark.Value {
+// scriptDependenciesFunc adapts the manifest's dependencies hook. The hook only
+// runs for a tool with a configured version, so commands that never touch the
+// tool do not compile its script.
+func scriptDependenciesFunc(m pluginManifest, settingsNamespace string, settings map[string]SettingType, rawVersion func(config.Environment) string, goos, goarch string) func(config.Environment) ([]InstallRequest, error) {
+	tool := strings.ToLower(strings.TrimSpace(m.ID))
+
+	return func(environment config.Environment) ([]InstallRequest, error) {
+		version := strings.TrimSpace(rawVersion(environment))
+		if version == "" {
+			return nil, nil
+		}
+		module, err := m.scriptModule()
+		if err != nil {
+			return nil, err
+		}
+
+		env := newScriptEnvironment(m, tool, version, settingsNamespace, settings, goos, goarch, environment)
+		result, err := module.Call(scriptHookDependencies, nil, env)
+		if err != nil {
+			return nil, scriptHookError(tool, m.Script.File, err)
+		}
+		requests, err := parseScriptDependencies(tool, result)
+		if err != nil {
+			return nil, fmt.Errorf("%s script %s dependencies: %w", tool, m.Script.File, err)
+		}
+
+		return requests, nil
+	}
+}
+
+// parseScriptDependencies converts a dependencies hook result, a list of
+// {"tool": ..., "version": ...} dicts, into install requests.
+func parseScriptDependencies(tool string, result starlark.Value) ([]InstallRequest, error) {
+	list, ok := result.(*starlark.List)
+	if !ok {
+		return nil, fmt.Errorf("result must be a list, got %s", result.Type())
+	}
+
+	var requests []InstallRequest
+	for index := range list.Len() {
+		dict, ok := list.Index(index).(*starlark.Dict)
+		if !ok {
+			return nil, fmt.Errorf("result[%d] must be a dict, got %s", index, list.Index(index).Type())
+		}
+		request := InstallRequest{}
+		for _, item := range dict.Items() {
+			// A non-string key reads as "" and is rejected by the default case.
+			key, _ := starlark.AsString(item[0])
+			text, isString := starlark.AsString(item[1])
+			switch key {
+			case "tool", "version":
+				if !isString {
+					return nil, fmt.Errorf("result[%d] %s must be a string, got %s", index, key, item[1].Type())
+				}
+				if key == "tool" {
+					request.Tool = strings.ToLower(strings.TrimSpace(text))
+				} else {
+					request.Version = strings.TrimSpace(text)
+				}
+			default:
+				return nil, fmt.Errorf("result[%d] has unsupported key %s", index, item[0])
+			}
+		}
+		if !validName.MatchString(request.Tool) {
+			return nil, fmt.Errorf("result[%d] has invalid tool %q", index, request.Tool)
+		}
+		if request.Tool == tool {
+			return nil, fmt.Errorf("result[%d] cannot depend on %s itself", index, tool)
+		}
+		if err := validateVersion(request.Tool, request.Version); err != nil {
+			return nil, fmt.Errorf("result[%d]: %w", index, err)
+		}
+		requests = append(requests, request)
+	}
+
+	return requests, nil
+}
+
+// newScriptEnvironment builds the read-only env value passed to the validate
+// and dependencies hooks.
+func newScriptEnvironment(m pluginManifest, tool, version, settingsNamespace string, settings map[string]SettingType, goos, goarch string, environment config.Environment) starlark.Value {
 	toolVersion := starlark.NewBuiltin("env.tool_version", func(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 		var id string
 		if err := starlark.UnpackPositionalArgs(b.Name(), args, kwargs, 1, &id); err != nil {
@@ -476,6 +572,10 @@ func newScriptEnvironment(tool, version, settingsNamespace string, settings map[
 
 	return script.NewStruct("env", starlark.StringDict{
 		"version":      starlark.String(version),
+		"os":           starlark.String(goos),
+		"arch":         starlark.String(goarch),
+		"platform":     starlark.String(platformKey(goos, goarch)),
+		"vars":         script.StringMap(m.Script.Vars),
 		"tool_version": toolVersion,
 		"setting":      setting,
 	})

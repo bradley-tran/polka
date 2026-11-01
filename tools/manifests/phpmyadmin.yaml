@@ -23,3 +23,6 @@ download:
       checksum-url: https://files.phpmyadmin.net/phpMyAdmin/{version}/phpMyAdmin-{version}-all-languages.zip.sha256
       checksum-algorithm: sha256
       archive-format: zip
+script:
+  file: scripts/phpmyadmin.star
+  hooks: [post_install]

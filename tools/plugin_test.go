@@ -47,21 +47,22 @@ func TestDefaultRegistryInstallRequestsUseConfiguredToolOrder(t *testing.T) {
 		got = append(got, request.Tool+":"+request.Version)
 	}
 
+	// Registration order: dispatch-priority first, then alphabetical by ID.
 	want := []string{
 		"php:8.4",
-		"frankenphp:1.12",
-		"composer:2.8",
-		"nodejs:24",
-		"mago:1.27",
-		"nginx:1.30",
 		"apache:2.4",
+		"composer:2.8",
+		"frankenphp:1.12",
+		"mago:1.27",
 		"mailpit:1.30",
-		"meilisearch:1.48",
-		"redis:8.8.0",
-		"phpmyadmin:5.2",
-		"mysql:8.4",
 		"mariadb:11.8",
+		"meilisearch:1.48",
+		"mysql:8.4",
+		"nginx:1.30",
+		"nodejs:24",
+		"phpmyadmin:5.2",
 		"postgresql:17",
+		"redis:8.8.0",
 		"sqlite:3.53",
 	}
 	if !reflect.DeepEqual(got, want) {

@@ -17,8 +17,8 @@ func TestRabbitMQManifestAndDependency(t *testing.T) {
 	if got := plugin.DispatchCommands(); !reflect.DeepEqual(got, []string{"rabbitmq-server", "rabbitmqctl", "rabbitmq-diagnostics", "rabbitmq-plugins", "rabbitmq-queues", "rabbitmq-streams", "rabbitmq-upgrade"}) {
 		t.Fatalf("rabbitmq dispatch commands = %#v", got)
 	}
-	if deps := plugin.(ToolDependencyProvider).Dependencies(config.Environment{}); len(deps) != 0 {
-		t.Fatalf("Dependencies(unconfigured) = %#v, want none", deps)
+	if deps, err := plugin.(ToolDependencyProvider).Dependencies(config.Environment{}); err != nil || len(deps) != 0 {
+		t.Fatalf("Dependencies(unconfigured) = %#v, %v, want none", deps, err)
 	}
 	layers, err := NewDefaultRegistry().InstallRequestLayers(config.Environment{Tools: config.ToolsConfig{RabbitMQ: "4.3"}}, nil)
 	if err != nil {
@@ -32,7 +32,7 @@ func TestRabbitMQManifestAndDependency(t *testing.T) {
 // TestValidateRabbitMQConfig covers manifest version constraints, port ranges,
 // and broker-specific cross-field validation rules.
 func TestValidateRabbitMQConfig(t *testing.T) {
-	plugin := rabbitMQPlugin()
+	plugin := builtinTestPlugin(t, RabbitMQ)
 	for _, test := range []struct {
 		name string
 		env  config.Environment
@@ -113,8 +113,8 @@ type dependencyPlugin struct {
 	dependencies []InstallRequest
 }
 
-func (plugin dependencyPlugin) Dependencies(config.Environment) []InstallRequest {
-	return plugin.dependencies
+func (plugin dependencyPlugin) Dependencies(config.Environment) ([]InstallRequest, error) {
+	return plugin.dependencies, nil
 }
 
 // TestInstallRequestLayersRejectCycles verifies dependency graph validation.

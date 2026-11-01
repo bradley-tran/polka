@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,8 +16,6 @@ import (
 )
 
 const (
-	phpWindowsReleaseURL = "https://windows.php.net/downloads/releases/releases.json"
-	phpWindowsBaseURL    = "https://windows.php.net/downloads/releases"
 	phpCABundlePath      = "extras/ssl/cacert.pem"
 	phpOpenSSLConfigPath = "extras/ssl/openssl.cnf"
 )
@@ -43,33 +39,11 @@ var systemCABundleCandidates = []string{
 	"/etc/ssl/cert.pem",
 }
 
-type phpWindowsReleaseIndex map[string]phpWindowsRelease
-
-type phpWindowsRelease struct {
-	Version  string
-	Variants map[string]phpWindowsVariant
-}
-
-type phpWindowsVariant struct {
-	Zip       phpWindowsAsset `json:"zip"`
-	DevelPack phpWindowsAsset `json:"devel_pack"`
-}
-
-type phpWindowsAsset struct {
-	Path   string `json:"path"`
-	SHA256 string `json:"sha256"`
-}
-
-func phpPlugin() Plugin {
-	return phpRuntimePlugin(PHP, false)
-}
-
-func phpZTSPlugin() Plugin {
-	return phpRuntimePlugin(PHPZTS, true)
-}
-
-func phpRuntimePlugin(tool string, threadSafe bool) Plugin {
-	return newManifestPlugin(tool, pluginHooks{
+// phpRuntimeHooks returns the Go hooks shared by the php and php-zts runtimes.
+// Validation stays in Go because it runs on every command dispatch, and
+// post-install generates php.ini by running the installed binary.
+func phpRuntimeHooks(tool string) pluginHooks {
+	return pluginHooks{
 		validate: func(environment config.Environment) error {
 			if environment.ToolVersion(PHP) != "" && environment.ToolVersion(PHPZTS) != "" {
 				return fmt.Errorf("php and php-zts versions are mutually exclusive")
@@ -114,27 +88,10 @@ func phpRuntimePlugin(tool string, threadSafe bool) Plugin {
 
 			return nil
 		},
-		download: func(ctx DownloadContext) error {
-			return downloadPHP(ctx.Client, ctx.CacheDir, tool, ctx.Version, threadSafe)
-		},
 		postInstall: func(ctx InstallContext) error {
 			return SyncInstalledPHPRuntimeConfig(ctx.EnvsDir, ctx.Result.Tool, ctx.Result.Version, ctx.Environment)
 		},
-		dependencies: func(environment config.Environment) []InstallRequest {
-			if !environment.PHPBuildTools() {
-				return nil
-			}
-			version := strings.TrimSpace(pluginPHPVersion(tool, environment))
-			if version == "" || runtime.GOOS != "windows" {
-				return nil
-			}
-
-			return []InstallRequest{
-				{Tool: PHPDevel, Version: version},
-				{Tool: PHPSDK, Version: DefaultPHPSDKVersion},
-			}
-		},
-	})
+	}
 }
 
 // SyncInstalledPHPRuntimeConfig regenerates the php.ini and supporting
@@ -349,142 +306,4 @@ func validateOPcachePreset(preset string) error {
 	default:
 		return fmt.Errorf("unsupported opcache-preset %q: use none, dev, or production", preset)
 	}
-}
-
-func downloadPHP(client *http.Client, cacheDir, tool, version string, threadSafe bool) error {
-	if runtime.GOOS != "windows" {
-		return fmt.Errorf("automatic php download is only implemented on Windows")
-	}
-	if err := os.MkdirAll(filepath.Join(cacheDir, tool), 0o755); err != nil {
-		return fmt.Errorf("create php cache dir: %w", err)
-	}
-
-	index, err := fetchPHPWindowsReleaseIndex(client)
-	if err != nil {
-		return err
-	}
-
-	series := phpSeries(version)
-	release, ok := index[series]
-	if !ok {
-		return fmt.Errorf("php version %q is not available in the Windows release index", version)
-	}
-
-	variant, err := selectPHPWindowsVariant(release, threadSafe)
-	if err != nil {
-		return err
-	}
-	asset := variant.Zip
-
-	stagingDir, err := os.MkdirTemp(filepath.Join(cacheDir, tool), version+"-tmp-")
-	if err != nil {
-		return fmt.Errorf("create php staging dir: %w", err)
-	}
-	defer os.RemoveAll(stagingDir)
-
-	archivePath := filepath.Join(stagingDir, filepath.Base(asset.Path))
-	archiveURL := fmt.Sprintf("%s/%s", phpWindowsBaseURL, asset.Path)
-	if err := downloadFile(client, archiveURL, archivePath); err != nil {
-		return err
-	}
-	if err := verifyChecksum(asset.SHA256, archivePath); err != nil {
-		return err
-	}
-
-	_, err = cacheArchivePayload(cacheDir, tool, version, release.Version, downloadAsset{
-		FileName:          filepath.Base(asset.Path),
-		URL:               archiveURL,
-		Checksum:          asset.SHA256,
-		ChecksumAlgorithm: checksumAlgorithmSHA256,
-		ArchiveFormat:     archiveFormatZip,
-	}, archivePath)
-	return err
-}
-
-func fetchPHPWindowsReleaseIndex(client *http.Client) (phpWindowsReleaseIndex, error) {
-	response, err := client.Get(phpWindowsReleaseURL)
-	if err != nil {
-		return nil, fmt.Errorf("download php release index: %w", err)
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("download php release index: unexpected status %s", response.Status)
-	}
-
-	var index phpWindowsReleaseIndex
-	if err := json.NewDecoder(response.Body).Decode(&index); err != nil {
-		return nil, fmt.Errorf("decode php release index: %w", err)
-	}
-
-	return index, nil
-}
-
-func (r *phpWindowsRelease) UnmarshalJSON(data []byte) error {
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-
-	r.Variants = map[string]phpWindowsVariant{}
-	for key, value := range raw {
-		switch key {
-		case "version":
-			if err := json.Unmarshal(value, &r.Version); err != nil {
-				return err
-			}
-		case "source", "test_pack":
-			continue
-		default:
-			var variant phpWindowsVariant
-			if err := json.Unmarshal(value, &variant); err != nil {
-				continue
-			}
-			if variant.Zip.Path != "" {
-				r.Variants[key] = variant
-			}
-		}
-	}
-
-	return nil
-}
-
-func selectPHPWindowsAsset(release phpWindowsRelease, threadSafe bool) (phpWindowsAsset, error) {
-	variant, err := selectPHPWindowsVariant(release, threadSafe)
-	if err != nil {
-		return phpWindowsAsset{}, err
-	}
-
-	return variant.Zip, nil
-}
-
-// selectPHPWindowsVariant chooses the runtime/devel-pack pair matching the
-// requested thread-safety flavor, compiler, and host architecture.
-func selectPHPWindowsVariant(release phpWindowsRelease, threadSafe bool) (phpWindowsVariant, error) {
-	architecture := "x64"
-	if runtime.GOARCH == "386" {
-		architecture = "x86"
-	}
-
-	flavor := "nts"
-	if threadSafe {
-		flavor = "ts"
-	}
-	preferences := []string{
-		flavor + "-vs17-" + architecture,
-		flavor + "-vs16-" + architecture,
-		flavor + "-vc15-" + architecture,
-	}
-
-	for _, key := range preferences {
-		if variant, ok := release.Variants[key]; ok && variant.Zip.Path != "" {
-			return variant, nil
-		}
-	}
-
-	return phpWindowsVariant{}, fmt.Errorf("no compatible Windows PHP %s binary found for %s on %s", strings.ToUpper(flavor), release.Version, architecture)
-}
-
-func phpSeries(version string) string {
-	return versionMajorMinor(version)
 }

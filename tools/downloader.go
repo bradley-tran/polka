@@ -95,20 +95,6 @@ type manifestRequestPlan struct {
 	Commit          string
 }
 
-func downloadBuiltinManifestToolResolved(client *http.Client, cacheDir, tool, requestedVersion, resolvedVersion string, values map[string]string) error {
-	manifest, err := loadBuiltinManifest(tool)
-	if err != nil {
-		return err
-	}
-
-	asset, err := resolveManifestDownloadAsset(tool, manifest.Download.Assets, requestedVersion, resolvedVersion, resolvedVersion, runtime.GOOS, runtime.GOARCH, values)
-	if err != nil {
-		return err
-	}
-
-	return downloadManifestAsset(client, cacheDir, tool, requestedVersion, resolvedVersion, asset)
-}
-
 func resolveManifestRequest(client *http.Client, m pluginManifest, requestedVersion, goos, goarch string) (manifestRequestPlan, error) {
 	if m.Script.hasHook(scriptHookResolve) {
 		return resolveScriptRequest(client, m, requestedVersion, goos, goarch)
@@ -323,6 +309,10 @@ func renderDownloadAsset(asset downloadAsset, requestedVersion, resolvedVersion,
 		return downloadAsset{}, err
 	}
 	asset.InstallPath, err = renderDownloadTemplate("install-path", asset.InstallPath, templateValues)
+	if err != nil {
+		return downloadAsset{}, err
+	}
+	asset.Unwrap.FileName, err = renderDownloadTemplate("unwrap.filename", asset.Unwrap.FileName, templateValues)
 	if err != nil {
 		return downloadAsset{}, err
 	}
@@ -608,9 +598,42 @@ func downloadManifestAsset(client *http.Client, cacheDir, tool, requestedVersion
 		_, err = cacheFilePayload(cacheDir, tool, requestedVersion, downloadedVersion, asset.FileName, asset.URL, asset.InstallPath, asset.ChecksumAlgorithm, asset.Checksum, archivePath)
 		return err
 	}
+	if !asset.Unwrap.isZero() {
+		archivePath, asset, err = unwrapDownloadedAsset(tool, archivePath, stagingDir, asset)
+		if err != nil {
+			return err
+		}
+	}
 
 	_, err = cacheArchivePayload(cacheDir, tool, requestedVersion, downloadedVersion, asset, archivePath)
 	return err
+}
+
+// unwrapDownloadedAsset extracts a verified outer archive and returns the path
+// of the nested archive plus the asset describing it. The outer checksum does
+// not apply to the nested file, so it is cleared and the cache records the
+// nested file's own checksum instead.
+func unwrapDownloadedAsset(tool, archivePath, stagingDir string, asset downloadAsset) (string, downloadAsset, error) {
+	extractDir := filepath.Join(stagingDir, "unwrapped")
+	if err := extractArchive(archivePath, extractDir, asset.ArchiveFormat); err != nil {
+		return "", downloadAsset{}, fmt.Errorf("extract %s archive: %w", tool, err)
+	}
+	payloadPath := filepath.Join(extractDir, filepath.FromSlash(asset.Unwrap.Path))
+	// Lstat keeps a symlink in the archive from standing in for the payload.
+	info, err := os.Lstat(payloadPath)
+	if err != nil {
+		return "", downloadAsset{}, fmt.Errorf("locate %s nested archive: %w", tool, err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", downloadAsset{}, fmt.Errorf("locate %s nested archive: %s is not a regular file", tool, asset.Unwrap.Path)
+	}
+
+	asset.FileName = asset.Unwrap.FileName
+	asset.ArchiveFormat = asset.Unwrap.ArchiveFormat
+	asset.Checksum = ""
+	asset.ChecksumAlgorithm = checksumAlgorithmNone
+
+	return payloadPath, asset, nil
 }
 
 func extractArchive(archivePath, targetDir string, format archiveFormat) error {
@@ -1116,10 +1139,6 @@ func validateChecksumValue(algorithm checksumAlgorithm, checksum string) (string
 	}
 
 	return checksum, checksumSize, nil
-}
-
-func verifyChecksum(expected, filePath string) error {
-	return verifyFileChecksum(checksumAlgorithmSHA256, expected, filePath)
 }
 
 func verifyFileChecksum(algorithm checksumAlgorithm, expected, filePath string) error {

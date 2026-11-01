@@ -1,4 +1,5 @@
 id: php-zts
+dispatch-priority: 10
 exclusive-with:
   - php
 settings-from: php
@@ -15,3 +16,17 @@ install-candidates:
     - php
 dispatch-commands:
   - php
+download:
+  assets:
+    windows-amd64:
+      filename: "{php_filename}"
+      url: https://windows.php.net/downloads/releases/{php_filename}
+      checksum-algorithm: sha256
+      archive-format: zip
+script:
+  file: scripts/php.star
+  hooks: [resolve, dependencies]
+  vars:
+    release-index: https://windows.php.net/downloads/releases/releases.json
+    flavor: zts
+    php-sdk-version: 2.8.3

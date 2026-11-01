@@ -79,6 +79,83 @@ func TestLoadStatementIsRejected(t *testing.T) {
 	}
 }
 
+// TestLoadFromLibraryDir verifies load() resolves names under LoadDir, that
+// loaded functions run from hooks, and that loaded names stay file-local.
+func TestLoadFromLibraryDir(t *testing.T) {
+	fsys := fstest.MapFS{
+		"main.star":       {Data: []byte("load(\"helper.star\", \"twice\")\n\ndef hook(x):\n    return twice(x)\n")},
+		"lib/helper.star": {Data: []byte("load(\"base.star\", \"FACTOR\")\n\ndef twice(x):\n    return x * FACTOR\n")},
+		"lib/base.star":   {Data: []byte("FACTOR = 2\n")},
+	}
+
+	module, err := Load(fsys, "main.star", Options{LoadDir: "lib"})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	result, err := module.Call("hook", nil, starlark.MakeInt(21))
+	if err != nil {
+		t.Fatalf("Call() error = %v", err)
+	}
+	if result.String() != "42" {
+		t.Fatalf("Call() = %s, want 42", result)
+	}
+	if got := module.Names(); len(got) != 1 || got[0] != "hook" {
+		t.Fatalf("Names() = %#v, want only [hook]", got)
+	}
+}
+
+// TestLoadRejectsUnsafeLibraryNames verifies load() cannot leave LoadDir and
+// reports missing libraries and cycles instead of hanging or succeeding.
+func TestLoadRejectsUnsafeLibraryNames(t *testing.T) {
+	tests := []struct {
+		name   string
+		module string
+		want   string
+	}{
+		{name: "parent escape", module: "../outside.star", want: "must be a .star path"},
+		{name: "nested escape", module: "sub/../../outside.star", want: "must be a .star path"},
+		{name: "rooted", module: "/outside.star", want: "must be a .star path"},
+		{name: "backslash", module: `..\\outside.star`, want: "must be a .star path"},
+		{name: "not a script", module: "data.txt", want: "must be a .star path"},
+		{name: "missing", module: "missing.star", want: "load script lib/missing.star"},
+		{name: "cycle", module: "cycle_a.star", want: "load cycle"},
+		{name: "self", module: "cycle_self.star", want: "load cycle"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fsys := fstest.MapFS{
+				"main.star":           {Data: []byte("load(\"" + test.module + "\", \"x\")\n")},
+				"outside.star":        {Data: []byte("x = 1\n")},
+				"lib/data.txt":        {Data: []byte("x = 1\n")},
+				"lib/cycle_a.star":    {Data: []byte("load(\"cycle_b.star\", \"x\")\n")},
+				"lib/cycle_b.star":    {Data: []byte("load(\"cycle_a.star\", \"x\")\n")},
+				"lib/cycle_self.star": {Data: []byte("load(\"cycle_self.star\", \"x\")\n")},
+			}
+			_, err := Load(fsys, "main.star", Options{LoadDir: "lib"})
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Load() error = %v, want containing %q", err, test.want)
+			}
+		})
+	}
+}
+
+// TestLoadedGlobalsAreFrozen verifies a script cannot mutate a library it
+// loads, so hooks cannot keep state between calls through one.
+func TestLoadedGlobalsAreFrozen(t *testing.T) {
+	fsys := fstest.MapFS{
+		"main.star":      {Data: []byte("load(\"state.star\", \"STATE\")\n\ndef hook():\n    STATE.append(1)\n")},
+		"lib/state.star": {Data: []byte("STATE = []\n")},
+	}
+
+	module, err := Load(fsys, "main.star", Options{LoadDir: "lib"})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if _, err := module.Call("hook", nil); err == nil || !strings.Contains(err.Error(), "frozen") {
+		t.Fatalf("Call() error = %v, want frozen list error", err)
+	}
+}
+
 // TestCallEnforcesStepBudget verifies runaway hooks are cancelled.
 func TestCallEnforcesStepBudget(t *testing.T) {
 	module := loadTestModule(t, "def spin():\n    total = 0\n    for i in range(1000000):\n        total += i\n    return total\n", Options{MaxSteps: 1000})

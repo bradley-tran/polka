@@ -7,13 +7,6 @@ import (
 	"path/filepath"
 )
 
-// frankenPHPPlugin installs the official server and exposes its bundled PHP CLI.
-func frankenPHPPlugin() Plugin {
-	return newManifestPlugin(FrankenPHP, pluginHooks{
-		postInstall: configureInstalledFrankenPHP,
-	})
-}
-
 // configureInstalledFrankenPHP applies PHP settings to the bundled CLI and server runtime.
 func configureInstalledFrankenPHP(ctx InstallContext) error {
 	installDir := filepath.Dir(ctx.Result.TargetPath)

@@ -1,0 +1,28 @@
+var PHP_PREFIX="C:\\php"
+var PHP_ZTS="No"
+var VC_VERSION=1944
+var PHP_VERSION=8
+var PHP_MINOR_VERSION=4
+var FSO = WScript.CreateObject("Scripting.FileSystemObject");
+re = /\\script/i;
+var PHP_DIR=FSO.GetParentFolderName(WScript.ScriptFullName).replace(re,"");
+// Polka auto-patch: dynamically resolve PHP_PREFIX to the matching Polka PHP runtime
+(function() {
+	try {
+		var envShell = WScript.CreateObject("WScript.Shell");
+		var envPrefix = envShell.Environment("Process").Item("PHP_PREFIX");
+		if (envPrefix && FSO.FileExists(FSO.BuildPath(envPrefix, "php.exe"))) {
+			PHP_PREFIX = envPrefix;
+			return;
+		}
+		var polkaEnvsDir = FSO.GetParentFolderName(FSO.GetParentFolderName(PHP_DIR));
+		var polkaFlavor = (typeof(PHP_ZTS) == "string" && PHP_ZTS.toLowerCase() == "yes") ? "php-zts" : "php";
+		var polkaCandidate = FSO.BuildPath(FSO.BuildPath(polkaEnvsDir, polkaFlavor), PHP_VERSION + "." + PHP_MINOR_VERSION);
+		if (FSO.FileExists(FSO.BuildPath(polkaCandidate, "php.exe"))) {
+			PHP_PREFIX = polkaCandidate;
+		}
+	} catch (e) {}
+})();
+
+var modules = "";
+C.WriteLine("var PHP_PREFIX = " + '"' + PHP_PREFIX.replace(new RegExp('(["\\\\])', "g"), '\\$1') + '"');

@@ -4,3 +4,15 @@ install-candidates:
   windows-amd64:
     - phpize.bat
     - script/phpize.bat
+download:
+  assets:
+    windows-amd64:
+      filename: "{php_filename}"
+      url: https://windows.php.net/downloads/releases/{php_filename}
+      checksum-algorithm: sha256
+      archive-format: zip
+script:
+  file: scripts/php_devel.star
+  hooks: [resolve, post_install]
+  vars:
+    release-index: https://windows.php.net/downloads/releases/releases.json

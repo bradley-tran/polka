@@ -16,7 +16,7 @@ import (
 // reads its version from the environment and exposes both managed binaries and
 // its log.
 func TestRedisPluginUsesConfiguredVersionAndManifest(t *testing.T) {
-	plugin := redisPlugin()
+	plugin := builtinTestPlugin(t, Redis)
 	if version := plugin.Version(config.Environment{Tools: config.ToolsConfig{Redis: "8.8.0"}}); version != "8.8.0" {
 		t.Fatalf("Version() = %q, want 8.8.0", version)
 	}
@@ -61,7 +61,7 @@ func TestRedisManifestResolvesWindowsSourceArchive(t *testing.T) {
 // the install candidate while redis-cli resolves its dedicated dispatch
 // candidate.
 func TestRedisManifestDispatchCandidatesResolveCLI(t *testing.T) {
-	plugin := redisPlugin()
+	plugin := builtinTestPlugin(t, Redis)
 
 	install := plugin.InstallCandidates("root", "8.8.0")
 	wantInstall := []string{filepath.Join("root", "redis", "8.8.0", redisServerBinary())}
@@ -79,7 +79,7 @@ func TestRedisManifestDispatchCandidatesResolveCLI(t *testing.T) {
 // TestRedisPluginValidatesVersion checks that an empty version is accepted while
 // a malformed version and an out-of-range port are rejected.
 func TestRedisPluginValidatesVersion(t *testing.T) {
-	plugin := redisPlugin()
+	plugin := builtinTestPlugin(t, Redis)
 	if err := plugin.Validate(config.Environment{}); err != nil {
 		t.Fatalf("Validate(empty) error = %v, want nil", err)
 	}
@@ -107,7 +107,7 @@ func TestRedisPostInstallMakesBothBinariesExecutable(t *testing.T) {
 		}
 	}
 
-	plugin := redisPlugin()
+	plugin := builtinTestPlugin(t, Redis)
 	if err := plugin.PostInstall(InstallContext{Result: InstallResult{TargetPath: server}}); err != nil {
 		t.Fatalf("PostInstall() error = %v", err)
 	}

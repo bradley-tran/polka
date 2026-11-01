@@ -2,16 +2,18 @@
 // scripts. It knows nothing about Polka plugins: callers supply domain modules
 // through Options.Predeclared and decide which global functions are hooks.
 //
-// Scripts run with a step budget, cannot load other files, and have no access
-// to the filesystem, environment, or processes unless a predeclared module
-// grants it. Loaded modules are frozen, so one Module may be called from many
-// goroutines at once.
+// Scripts run with a step budget and have no access to the filesystem,
+// environment, or processes unless a predeclared module grants it. They cannot
+// load other files unless Options.LoadDir names a shared library directory.
+// Loaded modules are frozen, so one Module may be called from many goroutines
+// at once.
 package script
 
 import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"path"
 	"sort"
 	"strings"
 
@@ -32,6 +34,10 @@ type Options struct {
 	MaxSteps uint64
 	// Print receives print() output. Nil discards it.
 	Print func(msg string)
+	// LoadDir enables load() for library scripts in this slash-separated
+	// directory of the script's filesystem. load() names are relative to it
+	// and cannot leave it. Empty rejects every load() statement.
+	LoadDir string
 }
 
 // Module is a loaded, frozen Starlark script.
@@ -72,37 +78,98 @@ func Describe(err error) string {
 	return err.Error()
 }
 
-// Load reads, compiles, and executes the script at path within fsys, then
-// freezes its globals. The path uses fs.FS slash-separated syntax.
-func Load(fsys fs.FS, path string, opts Options) (*Module, error) {
+// Load reads, compiles, and executes the script at file within fsys, then
+// freezes its globals. The file uses fs.FS slash-separated syntax.
+func Load(fsys fs.FS, file string, opts Options) (*Module, error) {
 	if fsys == nil {
-		return nil, fmt.Errorf("load script %s: no filesystem", path)
+		return nil, fmt.Errorf("load script %s: no filesystem", file)
 	}
-	if !fs.ValidPath(path) {
-		return nil, fmt.Errorf("load script %s: invalid path", path)
-	}
-	source, err := fs.ReadFile(fsys, path)
-	if err != nil {
-		return nil, fmt.Errorf("load script %s: %w", path, err)
+	if !fs.ValidPath(file) {
+		return nil, fmt.Errorf("load script %s: invalid path", file)
 	}
 
-	predeclared := predeclaredValues(opts)
+	loader := &moduleLoader{
+		fsys:        fsys,
+		opts:        opts,
+		predeclared: predeclaredValues(opts),
+		// Seeding the entry script makes a library that loads it a cycle.
+		loaded: map[string]starlark.StringDict{file: nil},
+	}
+	globals, err := loader.execute(file)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Module{path: file, globals: globals, opts: opts}, nil
+}
+
+// moduleLoader executes one entry script and the libraries it loads. Each
+// library runs at most once per entry script, with its own step budget.
+type moduleLoader struct {
+	fsys        fs.FS
+	opts        Options
+	predeclared starlark.StringDict
+	// loaded maps script paths to frozen globals. A nil value marks a script
+	// that is still executing, which identifies load cycles.
+	loaded map[string]starlark.StringDict
+}
+
+// execute compiles and runs the script at file and freezes its globals.
+func (l *moduleLoader) execute(file string) (starlark.StringDict, error) {
+	source, err := fs.ReadFile(l.fsys, file)
+	if err != nil {
+		return nil, fmt.Errorf("load script %s: %w", file, err)
+	}
+
 	// The zero FileOptions keep the conservative dialect: no while loops, no
-	// recursion, no top-level control flow, and no global reassignment.
-	_, program, err := starlark.SourceProgramOptions(&syntax.FileOptions{}, path, source, predeclared.Has)
+	// recursion, no top-level control flow, and no global reassignment. They
+	// also keep load() bindings file-local, so a script's globals never
+	// include what it loaded.
+	_, program, err := starlark.SourceProgramOptions(&syntax.FileOptions{}, file, source, l.predeclared.Has)
 	if err != nil {
-		return nil, fmt.Errorf("compile script %s: %w", path, err)
+		return nil, fmt.Errorf("compile script %s: %w", file, err)
 	}
 
-	module := &Module{path: path, opts: opts}
-	globals, err := program.Init(module.newThread(path, nil), predeclared)
+	module := &Module{path: file, opts: l.opts}
+	thread := module.newThread(file, nil)
+	thread.Load = l.load
+	globals, err := program.Init(thread, l.predeclared)
 	if err != nil {
-		return nil, fmt.Errorf("execute script %s: %s", path, Describe(err))
+		return nil, fmt.Errorf("execute script %s: %s", file, Describe(err))
 	}
 	globals.Freeze()
-	module.globals = globals
 
-	return module, nil
+	return globals, nil
+}
+
+// load implements the load() statement for scripts run by this loader.
+func (l *moduleLoader) load(_ *starlark.Thread, name string) (starlark.StringDict, error) {
+	if l.opts.LoadDir == "" {
+		return nil, fmt.Errorf("load(%q) is not supported in plugin scripts", name)
+	}
+	// fs.ValidPath rejects "..", rooted paths, and empty elements, so a valid
+	// name joined under LoadDir cannot leave it. Backslashes are not separators
+	// in fs.FS paths but could be on an OS-backed filesystem.
+	if !fs.ValidPath(name) || strings.Contains(name, `\`) || path.Ext(name) != ".star" {
+		return nil, fmt.Errorf("load(%q): name must be a .star path inside the script library", name)
+	}
+
+	file := path.Join(l.opts.LoadDir, name)
+	if globals, seen := l.loaded[file]; seen {
+		if globals == nil {
+			return nil, fmt.Errorf("load(%q): load cycle through %s", name, file)
+		}
+
+		return globals, nil
+	}
+	l.loaded[file] = nil
+	globals, err := l.execute(file)
+	if err != nil {
+		return nil, err
+	}
+	l.loaded[file] = globals
+
+	return globals, nil
 }
 
 // Path returns the script path the module was loaded from.
@@ -151,6 +218,8 @@ func (m *Module) newThread(name string, locals map[string]any) *starlark.Thread 
 				m.opts.Print(msg)
 			}
 		},
+		// load() is only legal at the top level, which moduleLoader handles,
+		// so a hook call cannot reach this.
 		Load: func(_ *starlark.Thread, module string) (starlark.StringDict, error) {
 			return nil, fmt.Errorf("load(%q) is not supported in plugin scripts", module)
 		},

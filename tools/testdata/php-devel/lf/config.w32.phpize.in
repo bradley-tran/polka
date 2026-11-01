@@ -1,0 +1,8 @@
+// configure script header
+if (PHP_PREFIX == '') {
+	PHP_PREFIX = "C:\\php";
+	if (PHP_DEBUG == "yes")
+		PHP_PREFIX += "\\debug";
+}
+DEFINE('PHP_PREFIX', PHP_PREFIX);
+DEFINE("BASE_INCLUDES", "/I " + PHP_DIR + "/include");

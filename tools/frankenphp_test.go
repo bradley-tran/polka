@@ -11,7 +11,7 @@ import (
 )
 
 func TestFrankenPHPPluginUsesConfiguredVersionAndManifest(t *testing.T) {
-	plugin := frankenPHPPlugin()
+	plugin := builtinTestPlugin(t, FrankenPHP)
 	if version := plugin.Version(config.Environment{Tools: config.ToolsConfig{FrankenPHP: "1.12"}}); version != "1.12" {
 		t.Fatalf("Version() = %q, want 1.12", version)
 	}
@@ -88,7 +88,7 @@ func TestFrankenPHPPostInstallMakesBinaryExecutable(t *testing.T) {
 	if err := os.WriteFile(target, []byte("binary"), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
-	plugin := frankenPHPPlugin()
+	plugin := builtinTestPlugin(t, FrankenPHP)
 	if err := plugin.PostInstall(InstallContext{Result: InstallResult{TargetPath: target}}); err != nil {
 		t.Fatalf("PostInstall() error = %v", err)
 	}

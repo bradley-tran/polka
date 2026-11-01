@@ -98,8 +98,10 @@ The `tools` package owns managed tool behavior:
 - install candidate paths and automatic Unix executable permission bits (`0755`) for installed binaries and generated wrappers
 - dispatch command mappings (a command without an explicit dispatch candidate falls back to the tool's install candidates)
 - declarative download resolution (`download.github` in `releases` or `tag` mode, and `download.release-index` with `{requested}` URL templates), built-in version template placeholders (`{version}`, `{requested}`, `{tag}`, `{major}`, `{minor}`, `{major_minor}`), required checksum verification (`md5`, `sha256`, `sha3-256`, and `embedded-commit-id`), cache metadata, and archive extraction
-- embedded Starlark tool scripts (`script` in the manifest, `tools/manifests/scripts/*.star`) implementing `resolve` hooks for non-standard version discovery (sqlite, apache) and `validate` hooks for cross-field rules (rabbitmq); see [tool-scripts.md](tool-scripts.md)
-- optional per-tool Go hooks for downloads that need more than a resolved asset plan (php, php-devel, postgresql), dependency rules, or custom post-install behavior
+- nested archive payloads (`unwrap` on a download asset), used by postgresql on Linux
+- embedded Starlark tool scripts (`script` in the manifest, `tools/manifests/scripts/*.star`, with shared code in `scripts/lib/`) implementing `resolve` hooks for non-standard version discovery (sqlite, apache, postgresql, php, php-zts, php-devel), `validate` hooks for cross-field rules (rabbitmq), `dependencies` hooks for conditional dependencies (php, php-zts), and `post_install` hooks that generate or patch files in the install directory (phpmyadmin, php-devel); see [tool-scripts.md](tool-scripts.md)
+- optional per-tool Go hooks, listed in `goToolHooks`, for work a script plan cannot describe: php and php-zts validation (it runs on every dispatch) and php, php-zts, and frankenphp post-install (it runs the installed binary and host tools)
+- tool discovery: every `tools/manifests/*.yaml` becomes a plugin, ordered by `dispatch-priority` and then ID, which decides the provider of a command several tools share
 - PHP extension post-install config generation
 
 The current plugin system is internal and compile-time only. Built-in tool metadata and scripts live in `tools/manifests/`, built-in framework metadata lives in `plugins/manifests/*.yaml`, and both are embedded into the binary; Polka does not load third-party plugins from disk or from `polka.yaml`. The manifest parsers accept bytes and the tool manifest loader (`loadManifest`) reads manifests and their scripts through an `fs.FS`, so future external loading can reuse the schemas and the sandboxed script runtime, but that loading behavior is intentionally not implemented yet.
@@ -197,16 +199,15 @@ Plugin hooks receive `tools.InstallContext`, which contains layout paths and ins
 
 To add a new managed tool:
 
-1. Add a tool ID in `tools/ids.go` (optional convenience constant for built-in Go callers) and create `tools/manifests/<id>.yaml`.
-2. Add a plugin constructor in `tools/plugins.go` (or a focused tool file if the tool needs custom Go hooks).
+1. Create `tools/manifests/<id>.yaml`, with an `id` matching the file name. Discovery registers it automatically. Add a tool ID in `tools/ids.go` only as a convenience constant for built-in Go callers.
+2. If the tool shares a dispatch command with another tool, set `dispatch-priority` so the provider is a deliberate choice. Higher values win when no configured tool decides it.
 3. Declare any versionless settings (`settings: <key>: bool|port|string`), shared settings namespace (`settings-from`), mutually exclusive tool peers (`exclusive-with`), version bounds (`version-constraint`), install-time dependencies (`dependencies`), or generated command wrappers (`wrappers`) in `tools/manifests/<id>.yaml`; version lookup from `config.Environment.ToolVersion(id)`, version-constraint checks, port range checks, and `<id> configuration requires version` checks are handled automatically by the manifest plugin and `tools.Registry`.
 4. If the tool has cross-field invariants beyond scalar setting types and version bounds (for example distinct port pairs or single-line credentials), implement a `validate` hook in a manifest script (`script.hooks: [validate]`). Use a Go `Validate` hook only when the rule needs data a script cannot reach.
-5. Declare `install.candidates` in the manifest. Add `dispatch.candidates` only to override commands whose executable differs from the install candidates (for example a multi-binary tool); every dispatch command without an override resolves to the install candidates. Unix executable permission bits (`0755`) are applied automatically during post-install.
-6. Declare `download` (`github` or `release-index` plus `assets`) in the manifest so the default manifest downloader handles release resolution, checksum verification, and caching automatically. When upstream discovery needs custom parsing, keep `download.assets` and add a script `resolve` hook that returns the resolved version, template values, and checksum. Add a custom Go `download` hook only when the payload needs processing a resolved asset plan cannot describe, such as unwrapping a nested archive.
-7. Add a focused per-tool Go file only when the tool requires custom Go download, dependency, or post-install hooks. See [tool-scripts.md](tool-scripts.md) for the script contract.
-8. Register the plugin in `tools.DefaultPlugins`.
-9. Add tests in `tools` for registry, manifest, candidate, and downloader behavior.
-10. Add backend or CLI tests only when the new tool changes project state, shims, command output, or runtime behavior.
+5. Declare `install-candidates` in the manifest. Add `dispatch-candidates` only to override commands whose executable differs from the install candidates (for example a multi-binary tool); every dispatch command without an override resolves to the install candidates. Unix executable permission bits (`0755`) are applied automatically during post-install.
+6. Declare `download` (`github` or `release-index` plus `assets`) in the manifest so the default manifest downloader handles release resolution, checksum verification, and caching automatically. When upstream discovery needs custom parsing, keep `download.assets` and add a script `resolve` hook that returns the resolved version, template values, and checksum. Declare `unwrap` on an asset whose payload is an archive nested inside the download. Add a custom Go `download` hook only when the payload needs processing neither can describe.
+7. For conditional dependencies or generated files, implement a script `dependencies` or `post_install` hook. Add a Go hook to `goToolHooks` in `tools/plugins.go` only when the work needs to run a binary or use host tools. See [tool-scripts.md](tool-scripts.md) for the script contract.
+8. Add tests in `tools` for registry, manifest, candidate, and downloader behavior.
+9. Add backend or CLI tests only when the new tool changes project state, shims, command output, or runtime behavior.
 
 Do not add runtime plugin loading without a separate design. That would need config schema, trust/security rules, loading behavior, versioning, and error reporting.
 

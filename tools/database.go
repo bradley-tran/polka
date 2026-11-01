@@ -2,7 +2,6 @@ package tools
 
 import (
 	"fmt"
-	"net/http"
 	"strings"
 
 	"polka/config"
@@ -40,27 +39,4 @@ func normalizeDatabaseEngine(engine string) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported database engine %q", engine)
 	}
-}
-
-func resolveDatabaseDownloadAsset(client *http.Client, tool, requestedVersion, goos, goarch string) (string, databaseDownloadAsset, error) {
-	if tool != PostgreSQL {
-		return "", databaseDownloadAsset{}, fmt.Errorf("unsupported database tool %q", tool)
-	}
-	resolvedVersion, err := resolvePostgreSQLReleaseVersion(client, requestedVersion)
-	if err != nil {
-		return "", databaseDownloadAsset{}, err
-	}
-
-	manifest, err := loadBuiltinManifest(tool)
-	if err != nil {
-		return "", databaseDownloadAsset{}, err
-	}
-	asset, err := resolveManifestDownloadAsset(tool, manifest.Download.Assets, requestedVersion, resolvedVersion, resolvedVersion, goos, goarch, map[string]string{
-		"maven_version": postgreSQLMavenVersion(resolvedVersion),
-	})
-	if err != nil {
-		return "", databaseDownloadAsset{}, err
-	}
-
-	return resolvedVersion, asset, nil
 }

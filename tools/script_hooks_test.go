@@ -391,6 +391,131 @@ func TestBuiltinToolScriptsLoad(t *testing.T) {
 			t.Fatalf("embedded script %s is not referenced by any manifest", file)
 		}
 	}
+
+	// Library files are never named by a manifest, so an unused one can only
+	// be found by looking for a load() of it in another script.
+	libraries, err := fs.Glob(fsys, scriptLibraryDir+"/*.star")
+	if err != nil {
+		t.Fatalf("fs.Glob(libraries) error = %v", err)
+	}
+	for _, library := range libraries {
+		statement := "load(\"" + path.Base(library) + "\""
+		used := false
+		for _, file := range append(append([]string{}, scripts...), libraries...) {
+			data, err := fs.ReadFile(fsys, file)
+			if err != nil {
+				t.Fatalf("ReadFile(%s) error = %v", file, err)
+			}
+			if file != library && strings.Contains(string(data), statement) {
+				used = true
+			}
+		}
+		if !used {
+			t.Fatalf("embedded library %s is not loaded by any script", library)
+		}
+	}
+}
+
+// TestScriptLoadResolvesInsideLibraryDir verifies tool scripts can share code
+// from the library directory but cannot load other scripts.
+func TestScriptLoadResolvesInsideLibraryDir(t *testing.T) {
+	manifest := "id: demo\ninstall-candidates:\n  all:\n    - demo\nscript:\n  file: scripts/demo.star\n  hooks: [validate]\n"
+	tests := []struct {
+		name    string
+		module  string
+		wantErr string
+	}{
+		{name: "library", module: "shared.star"},
+		{name: "sibling escape", module: "../other.star", wantErr: "must be a .star path"},
+		{name: "not in library", module: "other.star", wantErr: "load script scripts/lib/other.star"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fsys := fstest.MapFS{
+				"demo.yaml":               {Data: []byte(manifest)},
+				"scripts/demo.star":       {Data: []byte("load(\"" + test.module + "\", \"check\")\n\ndef validate(env):\n    check()\n")},
+				"scripts/other.star":      {Data: []byte("def check():\n    pass\n")},
+				"scripts/lib/shared.star": {Data: []byte("def check():\n    pass\n")},
+			}
+			loaded, err := loadManifest(fsys, "demo")
+			if err != nil {
+				t.Fatalf("loadManifest() error = %v", err)
+			}
+			_, err = loaded.scriptModule()
+			if test.wantErr == "" {
+				if err != nil {
+					t.Fatalf("scriptModule() error = %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("scriptModule() error = %v, want containing %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
+// TestManifestRejectsUnknownKeys verifies a misspelled key fails instead of
+// silently disabling what it was meant to configure.
+func TestManifestRejectsUnknownKeys(t *testing.T) {
+	data := []byte("id: demo\ninstall-candidates:\n  all:\n    - demo\nscirpt:\n  file: scripts/demo.star\n")
+	if _, err := parsePluginManifest(data); err == nil || !strings.Contains(err.Error(), "scirpt") {
+		t.Fatalf("parsePluginManifest() error = %v, want unknown key error", err)
+	}
+}
+
+// TestValidateHookReadsSharedSettings verifies a settings-from tool's hook can
+// read the namespace it shares, using the referenced manifest's schema.
+func TestValidateHookReadsSharedSettings(t *testing.T) {
+	fsys := fstest.MapFS{
+		"base.yaml":         {Data: []byte("id: base\nsettings:\n  flag: bool\ninstall-candidates:\n  all:\n    - base\n")},
+		"demo.yaml":         {Data: []byte("id: demo\nsettings-from: base\ninstall-candidates:\n  all:\n    - demo\nscript:\n  file: scripts/demo.star\n  hooks: [validate]\n")},
+		"scripts/demo.star": {Data: []byte("def validate(env):\n    if env.setting(\"flag\"):\n        fail(\"flag is on\")\n")},
+	}
+	loaded, err := loadManifest(fsys, "demo")
+	if err != nil {
+		t.Fatalf("loadManifest() error = %v", err)
+	}
+	plugin, err := loaded.toPlugin(pluginHooks{})
+	if err != nil {
+		t.Fatalf("toPlugin() error = %v", err)
+	}
+
+	environment := config.Environment{
+		Tools:    config.ToolsConfig{"demo": "1"},
+		Settings: config.SettingsConfig{"base": {"flag": true}},
+	}
+	if err := plugin.Validate(environment); err == nil || err.Error() != "flag is on" {
+		t.Fatalf("Validate() error = %v, want the script to read the shared setting", err)
+	}
+}
+
+// TestLoadManifestRejectsBadSharedSettings verifies a script tool's settings-from
+// must name a manifest that exists and declares settings.
+func TestLoadManifestRejectsBadSharedSettings(t *testing.T) {
+	manifest := "id: demo\nsettings-from: base\ninstall-candidates:\n  all:\n    - demo\nscript:\n  file: scripts/demo.star\n  hooks: [validate]\n"
+	tests := []struct {
+		name string
+		base string
+		want string
+	}{
+		{name: "missing", want: "settings-from"},
+		{name: "no settings", base: "id: base\ninstall-candidates:\n  all:\n    - base\n", want: "declares no settings"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fsys := fstest.MapFS{
+				"demo.yaml":         {Data: []byte(manifest)},
+				"scripts/demo.star": {Data: []byte("def validate(env):\n    pass\n")},
+			}
+			if test.base != "" {
+				fsys["base.yaml"] = &fstest.MapFile{Data: []byte(test.base)}
+			}
+			if _, err := loadManifest(fsys, "demo"); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("loadManifest() error = %v, want containing %q", err, test.want)
+			}
+		})
+	}
 }
 
 // TestBuiltinScriptModuleIsShared verifies repeated registry construction

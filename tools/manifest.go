@@ -15,7 +15,7 @@ import (
 	"polka/config"
 )
 
-//go:embed manifests/*.yaml manifests/scripts/*.star
+//go:embed manifests/*.yaml manifests/scripts/*.star manifests/scripts/lib/*.star
 var builtinManifestFiles embed.FS
 
 // builtinManifestFS returns the embedded manifest directory as an fs.FS whose
@@ -44,13 +44,14 @@ type pluginHooks struct {
 	validate     func(config.Environment) error
 	download     func(DownloadContext) error
 	postInstall  func(InstallContext) error
-	dependencies func(config.Environment) []InstallRequest
+	dependencies func(config.Environment) ([]InstallRequest, error)
 }
 
 type pluginManifest struct {
 	ID                 string                           `yaml:"id"`
 	InternalOnly       bool                             `yaml:"internal-only"`
 	ExclusiveWith      []string                         `yaml:"exclusive-with"`
+	DispatchPriority   int                              `yaml:"dispatch-priority"`
 	VersionConstraint  manifestVersionConstraint        `yaml:"version-constraint"`
 	Dependencies       []manifestDependency             `yaml:"dependencies"`
 	Wrappers           map[string]manifestWrapper       `yaml:"wrappers"`
@@ -70,6 +71,10 @@ type pluginManifest struct {
 	// from. It is nil when the manifest declares no script or was parsed
 	// from bytes alone.
 	loadScript scriptModuleLoader
+	// sharedSettings is the settings-from manifest's schema, so script hooks
+	// can read a shared namespace. It is nil unless both a script and
+	// settings-from are declared.
+	sharedSettings map[string]SettingType
 }
 
 type manifestPlatformPaths map[string][]string
@@ -104,22 +109,24 @@ type downloadAsset struct {
 	ChecksumURL       string            `yaml:"checksum-url"`
 	ChecksumAlgorithm checksumAlgorithm `yaml:"checksum-algorithm"`
 	ArchiveFormat     archiveFormat     `yaml:"archive-format"`
+	Unwrap            downloadUnwrap    `yaml:"unwrap"`
+}
+
+// downloadUnwrap declares an archive nested inside a downloaded asset. The
+// asset's checksum and archive format describe the outer download; the inner
+// file named by Path is what gets cached and installed.
+type downloadUnwrap struct {
+	Path          string        `yaml:"path"`
+	FileName      string        `yaml:"filename"`
+	ArchiveFormat archiveFormat `yaml:"archive-format"`
+}
+
+// isZero reports whether the asset declares no nested archive.
+func (u downloadUnwrap) isZero() bool {
+	return u == downloadUnwrap{}
 }
 
 type databaseDownloadAsset = downloadAsset
-
-func newManifestPlugin(name string, hooks pluginHooks) Plugin {
-	manifest, err := loadBuiltinManifest(name)
-	if err != nil {
-		panic(err)
-	}
-	plugin, err := manifest.toPlugin(hooks)
-	if err != nil {
-		panic(err)
-	}
-
-	return plugin
-}
 
 // loadBuiltinManifest loads an embedded tool manifest. Built-in scripts share
 // one lazily compiled module per process.
@@ -153,14 +160,40 @@ func loadManifest(fsys fs.FS, name string) (pluginManifest, error) {
 			return pluginManifest{}, err
 		}
 		manifest.loadScript = loader
+		if manifest.SettingsFrom != "" {
+			manifest.sharedSettings, err = loadSharedSettings(fsys, manifest.ID, manifest.SettingsFrom)
+			if err != nil {
+				return pluginManifest{}, err
+			}
+		}
 	}
 
 	return manifest, nil
 }
 
+// loadSharedSettings reads the settings schema of the manifest a settings-from
+// tool shares its namespace with.
+func loadSharedSettings(fsys fs.FS, tool, name string) (map[string]SettingType, error) {
+	data, err := fs.ReadFile(fsys, name+".yaml")
+	if err != nil {
+		return nil, fmt.Errorf("tool manifest %q settings-from: %w", tool, err)
+	}
+	manifest, err := parsePluginManifest(data)
+	if err != nil {
+		return nil, fmt.Errorf("tool manifest %q settings-from: %w", tool, err)
+	}
+	if len(manifest.Settings) == 0 {
+		return nil, fmt.Errorf("tool manifest %q settings-from %q declares no settings", tool, name)
+	}
+
+	return manifest.Settings, nil
+}
+
 func parsePluginManifest(data []byte) (pluginManifest, error) {
 	var manifest pluginManifest
-	if err := yaml.Unmarshal(data, &manifest); err != nil {
+	// Strict parsing keeps a misspelled key, such as a script block, from being
+	// silently dropped.
+	if err := yaml.UnmarshalWithOptions(data, &manifest, yaml.Strict()); err != nil {
 		return pluginManifest{}, fmt.Errorf("parse tool manifest: %w", err)
 	}
 	if err := manifest.validate(); err != nil {
@@ -365,7 +398,7 @@ func (m pluginManifest) validate() error {
 			}
 		}
 	}
-	if err := m.Script.validate(id, m.Download); err != nil {
+	if err := m.Script.validate(id, m.Download, m.Dependencies); err != nil {
 		return err
 	}
 
@@ -451,6 +484,39 @@ func validateDownloadAsset(tool, platform string, asset downloadAsset) error {
 	if strings.TrimSpace(asset.Checksum) != "" {
 		return fmt.Errorf("tool manifest %q download assets %s uses deprecated checksum; use checksum-url or resolver-provided checksum", tool, platform)
 	}
+	if !asset.Unwrap.isZero() {
+		if err := validateDownloadUnwrap(asset); err != nil {
+			return fmt.Errorf("tool manifest %q download assets %s unwrap: %w", tool, platform, err)
+		}
+	}
+
+	return nil
+}
+
+// validateDownloadUnwrap checks an asset's nested archive declaration.
+func validateDownloadUnwrap(asset downloadAsset) error {
+	if strings.TrimSpace(asset.InstallPath) != "" {
+		return fmt.Errorf("cannot be combined with install-path")
+	}
+	if asset.ChecksumAlgorithm == checksumAlgorithmEmbeddedCommitID {
+		return fmt.Errorf("cannot be combined with %s", checksumAlgorithmEmbeddedCommitID)
+	}
+	if err := validateManifestContainedPath(asset.Unwrap.Path, "path", "archive"); err != nil {
+		return err
+	}
+	// filepath.IsAbs misses rooted paths such as /x on Windows, so also require
+	// a valid fs.FS path, which rejects any leading slash.
+	if !fs.ValidPath(filepath.ToSlash(filepath.Clean(filepath.FromSlash(asset.Unwrap.Path)))) {
+		return fmt.Errorf("path %q must be relative to the archive", asset.Unwrap.Path)
+	}
+	if strings.TrimSpace(asset.Unwrap.FileName) == "" {
+		return fmt.Errorf("requires filename")
+	}
+	switch asset.Unwrap.ArchiveFormat {
+	case archiveFormatZip, archiveFormatTarGz, archiveFormatTarXz:
+	default:
+		return fmt.Errorf("has unsupported archive format %q", asset.Unwrap.ArchiveFormat)
+	}
 
 	return nil
 }
@@ -475,6 +541,12 @@ func (m pluginManifest) toPlugin(hooks pluginHooks) (Plugin, error) {
 	if m.Script.hasHook(scriptHookValidate) && hooks.validate != nil {
 		return nil, fmt.Errorf("tool %q cannot define both a Go validate hook and a script validate hook", manifestID)
 	}
+	if m.Script.hasHook(scriptHookDependencies) && hooks.dependencies != nil {
+		return nil, fmt.Errorf("tool %q cannot define both a Go dependencies hook and a script dependencies hook", manifestID)
+	}
+	if m.Script.hasHook(scriptHookPostInstall) && hooks.postInstall != nil {
+		return nil, fmt.Errorf("tool %q cannot define both a Go post-install hook and a script post_install hook", manifestID)
+	}
 
 	download := hooks.download
 	if download == nil && len(m.Download.Assets) > 0 {
@@ -495,8 +567,14 @@ func (m pluginManifest) toPlugin(hooks pluginHooks) (Plugin, error) {
 	rawVersion := manifestVersionFunc(m)
 	version := rawVersion
 	validate := hooks.validate
+	// A settings-from tool has no schema of its own, so its hooks read the
+	// shared namespace through the referenced manifest's schema.
+	scriptSettings := settings
+	if len(scriptSettings) == 0 {
+		scriptSettings = m.sharedSettings
+	}
 	if m.Script.hasHook(scriptHookValidate) {
-		validate = scriptValidateFunc(m, settingsNamespace, settings, rawVersion)
+		validate = scriptValidateFunc(m, settingsNamespace, scriptSettings, rawVersion)
 	}
 	if m.InternalOnly {
 		// Internal-only tools must never appear in project installs, shims, or
@@ -514,12 +592,20 @@ func (m pluginManifest) toPlugin(hooks pluginHooks) (Plugin, error) {
 				Version: strings.TrimSpace(dep.Version),
 			})
 		}
-		dependencies = func(environment config.Environment) []InstallRequest {
+		dependencies = func(environment config.Environment) ([]InstallRequest, error) {
 			if strings.TrimSpace(rawVersion(environment)) == "" {
-				return nil
+				return nil, nil
 			}
-			return append([]InstallRequest(nil), declaredDeps...)
+			return append([]InstallRequest(nil), declaredDeps...), nil
 		}
+	}
+	if m.Script.hasHook(scriptHookDependencies) {
+		dependencies = scriptDependenciesFunc(m, settingsNamespace, scriptSettings, rawVersion, runtime.GOOS, runtime.GOARCH)
+	}
+
+	postInstall := hooks.postInstall
+	if m.Script.hasHook(scriptHookPostInstall) {
+		postInstall = scriptPostInstallFunc(m, runtime.GOOS, runtime.GOARCH)
 	}
 
 	return builtinPlugin{
@@ -542,7 +628,7 @@ func (m pluginManifest) toPlugin(hooks pluginHooks) (Plugin, error) {
 		dispatchCandidates: manifestDispatchCandidatesFunc(m),
 		logs:               normalizeLogEntries(m.Logs),
 		download:           download,
-		postInstall:        hooks.postInstall,
+		postInstall:        postInstall,
 		dependencies:       dependencies,
 	}, nil
 }

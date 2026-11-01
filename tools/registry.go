@@ -76,7 +76,7 @@ type ToolPlugin interface {
 // ToolDependencyProvider is implemented by tools that require other managed
 // payloads to be installed before they can be used.
 type ToolDependencyProvider interface {
-	Dependencies(config.Environment) []InstallRequest
+	Dependencies(config.Environment) ([]InstallRequest, error)
 }
 
 // ToolSettingsProvider is an optional interface implemented by ToolPlugins that
@@ -354,7 +354,11 @@ func (r *Registry) InstallRequestLayers(environment config.Environment, roots []
 		}
 		visiting[id] = true
 		if provider, ok := plugin.(ToolDependencyProvider); ok {
-			for _, dependency := range provider.Dependencies(environment) {
+			requests, err := provider.Dependencies(environment)
+			if err != nil {
+				return err
+			}
+			for _, dependency := range requests {
 				dependencyID := strings.ToLower(strings.TrimSpace(dependency.Tool))
 				dependencies[id] = append(dependencies[id], dependencyID)
 				if err := visit(dependency); err != nil {
@@ -610,15 +614,20 @@ type builtinPlugin struct {
 	logs               []LogEntry
 	download           func(DownloadContext) error
 	postInstall        func(InstallContext) error
-	dependencies       func(config.Environment) []InstallRequest
+	dependencies       func(config.Environment) ([]InstallRequest, error)
 }
 
 // Dependencies returns managed payloads that must precede this tool.
-func (p builtinPlugin) Dependencies(environment config.Environment) []InstallRequest {
+func (p builtinPlugin) Dependencies(environment config.Environment) ([]InstallRequest, error) {
 	if p.dependencies == nil {
-		return nil
+		return nil, nil
 	}
-	return append([]InstallRequest(nil), p.dependencies(environment)...)
+	requests, err := p.dependencies(environment)
+	if err != nil {
+		return nil, err
+	}
+
+	return append([]InstallRequest(nil), requests...), nil
 }
 
 func (p builtinPlugin) ID() string {

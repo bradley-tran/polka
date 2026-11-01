@@ -29,7 +29,9 @@ type scriptHTTPAccess struct {
 // scripts in addition to the generic script modules.
 func toolScriptModules() starlark.StringDict {
 	return starlark.StringDict{
+		"crypto":  scriptCryptoModule,
 		"http":    scriptHTTPModule,
+		"path":    scriptPathModule,
 		"version": scriptVersionModule,
 	}
 }
@@ -122,7 +124,8 @@ func scriptHTTPGetJSON(thread *starlark.Thread, b *starlark.Builtin, args starla
 	}
 	decoded, err := starlark.Call(thread, starlarkjson.Module.Members["decode"], starlark.Tuple{starlark.String(text)}, nil)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", b.Name(), err)
+		// Malformed upstream metadata is an expected failure, not a script bug.
+		return nil, script.Fail(fmt.Errorf("%s: %w", b.Name(), err))
 	}
 
 	return decoded, nil

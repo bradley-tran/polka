@@ -24,3 +24,12 @@ download:
       filename: embedded-postgres-binaries-linux-amd64-{maven_version}.jar
       url: https://repo1.maven.org/maven2/io/zonky/test/postgres/embedded-postgres-binaries-linux-amd64/{maven_version}/embedded-postgres-binaries-linux-amd64-{maven_version}.jar
       archive-format: zip
+      unwrap:
+        path: postgres-linux-x86_64.txz
+        filename: postgresql-{version}-linux-amd64.tar.xz
+        archive-format: tar.xz
+script:
+  file: scripts/postgresql.star
+  hooks: [resolve]
+  vars:
+    versions-index: https://www.postgresql.org/versions.json

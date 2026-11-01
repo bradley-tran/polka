@@ -1643,7 +1643,7 @@ func TestStoreInstallDownloadsMultipleConfiguredDatabases(t *testing.T) {
 		results[1].Tool + ":" + results[1].Version,
 		results[2].Tool + ":" + results[2].Version,
 	}
-	want := []string{"nodejs:24", "mysql:8.4", "mariadb:11.8"}
+	want := []string{"mariadb:11.8", "mysql:8.4", "nodejs:24"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Install(demo) results = %#v, want %#v", got, want)
 	}
