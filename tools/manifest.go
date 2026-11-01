@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 
 	"github.com/goccy/go-yaml"
@@ -36,6 +37,9 @@ type pluginManifest struct {
 	ID                 string                           `yaml:"id"`
 	InternalOnly       bool                             `yaml:"internal-only"`
 	ExclusiveWith      []string                         `yaml:"exclusive-with"`
+	VersionConstraint  manifestVersionConstraint        `yaml:"version-constraint"`
+	Dependencies       []manifestDependency             `yaml:"dependencies"`
+	Wrappers           map[string]manifestWrapper       `yaml:"wrappers"`
 	Settings           map[string]SettingType           `yaml:"settings"`
 	SettingsFrom       string                           `yaml:"settings-from"`
 	PHPExtensions      []string                         `yaml:"php-extensions"`
@@ -63,6 +67,7 @@ type manifestGitHubDownload struct {
 	Owner     string `yaml:"owner"`
 	Repo      string `yaml:"repo"`
 	TagPrefix string `yaml:"tag-prefix"`
+	Mode      string `yaml:"mode"`
 }
 
 type manifestReleaseIndexDownload struct {
@@ -118,6 +123,13 @@ func parsePluginManifest(data []byte) (pluginManifest, error) {
 	manifest.Settings = normalizeManifestSettings(manifest.Settings)
 	manifest.SettingsFrom = strings.ToLower(strings.TrimSpace(manifest.SettingsFrom))
 	manifest.ExclusiveWith = normalizeCommands(manifest.ExclusiveWith)
+	manifest.VersionConstraint = manifestVersionConstraint{
+		Min:   strings.TrimSpace(manifest.VersionConstraint.Min),
+		Below: strings.TrimSpace(manifest.VersionConstraint.Below),
+	}
+	manifest.Dependencies = normalizeManifestDependencies(manifest.Dependencies)
+	manifest.Wrappers = normalizeManifestWrappers(manifest.Wrappers)
+	manifest.Download.GitHub.Mode = strings.ToLower(strings.TrimSpace(manifest.Download.GitHub.Mode))
 
 	return manifest, nil
 }
@@ -180,6 +192,52 @@ func (m pluginManifest) validate() error {
 			return fmt.Errorf("tool manifest %q exclusive-with[%d] cannot reference itself", id, index)
 		}
 	}
+	if !m.VersionConstraint.isZero() {
+		min := strings.TrimSpace(m.VersionConstraint.Min)
+		below := strings.TrimSpace(m.VersionConstraint.Below)
+		if min != "" {
+			if err := validateVersion(id, min); err != nil {
+				return fmt.Errorf("tool manifest %q version-constraint.min: %w", id, err)
+			}
+		}
+		if below != "" {
+			if err := validateVersion(id, below); err != nil {
+				return fmt.Errorf("tool manifest %q version-constraint.below: %w", id, err)
+			}
+		}
+		if min != "" && below != "" && compareVersions(min, below) >= 0 {
+			return fmt.Errorf("tool manifest %q version-constraint min %q must be lower than below %q", id, min, below)
+		}
+	}
+	for index, dep := range m.Dependencies {
+		depTool := strings.ToLower(strings.TrimSpace(dep.Tool))
+		if depTool == "" || !validName.MatchString(depTool) {
+			return fmt.Errorf("tool manifest %q dependencies[%d] has invalid tool id %q", id, index, dep.Tool)
+		}
+		if depTool == id {
+			return fmt.Errorf("tool manifest %q dependencies[%d] cannot reference itself", id, index)
+		}
+		if err := validateVersion(depTool, dep.Version); err != nil {
+			return fmt.Errorf("tool manifest %q dependencies[%d]: %w", id, index, err)
+		}
+	}
+	for rawName, wrapper := range m.Wrappers {
+		name := strings.ToLower(strings.TrimSpace(rawName))
+		if name == "" || !validName.MatchString(name) {
+			return fmt.Errorf("tool manifest %q has invalid wrappers key %q", id, rawName)
+		}
+		if len(wrapper.Target) == 0 {
+			return fmt.Errorf("tool manifest %q wrappers.%s requires target", id, name)
+		}
+		if err := validateManifestPlatformPaths(id, "wrappers."+name+".target", wrapper.Target); err != nil {
+			return err
+		}
+		for index, arg := range wrapper.Args {
+			if !validWrapperArg.MatchString(strings.TrimSpace(arg)) {
+				return fmt.Errorf("tool manifest %q wrappers.%s.args[%d] has invalid argument %q", id, name, index, arg)
+			}
+		}
+	}
 	if err := validateManifestPlatformPaths(id, "install-candidates", m.InstallCandidates); err != nil {
 		return err
 	}
@@ -221,10 +279,20 @@ func (m pluginManifest) validate() error {
 		if strings.TrimSpace(m.Download.GitHub.Repo) == "" {
 			return fmt.Errorf("tool manifest %q download.github requires repo", id)
 		}
+		switch strings.ToLower(strings.TrimSpace(m.Download.GitHub.Mode)) {
+		case "", "releases", "tag":
+		default:
+			return fmt.Errorf("tool manifest %q download.github has unsupported mode %q", id, m.Download.GitHub.Mode)
+		}
+	} else if strings.TrimSpace(m.Download.GitHub.Mode) != "" {
+		return fmt.Errorf("tool manifest %q download.github.mode requires owner and repo", id)
 	}
 	if m.Download.hasReleaseIndex() {
 		if strings.TrimSpace(m.Download.ReleaseIndex.URL) == "" {
 			return fmt.Errorf("tool manifest %q download.release-index requires url", id)
+		}
+		if _, err := renderDownloadTemplate("download.release-index.url", m.Download.ReleaseIndex.URL, map[string]string{"requested": "1.0"}); err != nil {
+			return fmt.Errorf("tool manifest %q %w", id, err)
 		}
 		if strings.TrimSpace(m.Download.ReleaseIndex.Pattern) == "" {
 			return fmt.Errorf("tool manifest %q download.release-index requires pattern", id)
@@ -239,6 +307,14 @@ func (m pluginManifest) validate() error {
 		}
 		if err := validateDownloadAsset(id, platform, asset); err != nil {
 			return err
+		}
+		if asset.ChecksumAlgorithm == checksumAlgorithmEmbeddedCommitID {
+			if !m.Download.hasGitHub() {
+				return fmt.Errorf("tool manifest %q download assets %s with %s requires download.github", id, platform, checksumAlgorithmEmbeddedCommitID)
+			}
+			if asset.ArchiveFormat != archiveFormatZip {
+				return fmt.Errorf("tool manifest %q download assets %s with %s requires archive-format %s", id, platform, checksumAlgorithmEmbeddedCommitID, archiveFormatZip)
+			}
 		}
 	}
 
@@ -342,7 +418,7 @@ func (m pluginManifest) toPlugin(hooks pluginHooks) (Plugin, error) {
 	download := hooks.download
 	if download == nil && len(m.Download.Assets) > 0 {
 		download = func(ctx DownloadContext) error {
-			return downloadManifestAssetForRequest(ctx.Client, ctx.CacheDir, manifestID, ctx.Version, m.Download, runtime.GOOS, runtime.GOARCH)
+			return downloadManifestRequest(ctx, m)
 		}
 	}
 
@@ -359,6 +435,23 @@ func (m pluginManifest) toPlugin(hooks pluginHooks) (Plugin, error) {
 		validate = internalOnlyValidateFunc(manifestID, rawVersion, hooks.validate)
 	}
 
+	dependencies := hooks.dependencies
+	if dependencies == nil && len(m.Dependencies) > 0 {
+		declaredDeps := make([]InstallRequest, 0, len(m.Dependencies))
+		for _, dep := range m.Dependencies {
+			declaredDeps = append(declaredDeps, InstallRequest{
+				Tool:    strings.ToLower(strings.TrimSpace(dep.Tool)),
+				Version: strings.TrimSpace(dep.Version),
+			})
+		}
+		dependencies = func(environment config.Environment) []InstallRequest {
+			if strings.TrimSpace(rawVersion(environment)) == "" {
+				return nil
+			}
+			return append([]InstallRequest(nil), declaredDeps...)
+		}
+	}
+
 	settings := normalizeManifestSettings(m.Settings)
 	settingsNamespace := strings.ToLower(strings.TrimSpace(m.SettingsFrom))
 	if settingsNamespace == "" && len(settings) > 0 {
@@ -370,6 +463,9 @@ func (m pluginManifest) toPlugin(hooks pluginHooks) (Plugin, error) {
 		version:            version,
 		internalOnly:       m.InternalOnly,
 		internalVersion:    rawVersion,
+		versionConstraint:  m.VersionConstraint,
+		wrappers:           normalizeManifestWrappers(m.Wrappers),
+		executablePaths:    manifestExecutablePathsFunc(m),
 		settings:           settings,
 		settingsNamespace:  settingsNamespace,
 		exclusiveWith:      normalizeCommands(m.ExclusiveWith),
@@ -383,8 +479,77 @@ func (m pluginManifest) toPlugin(hooks pluginHooks) (Plugin, error) {
 		logs:               normalizeLogEntries(m.Logs),
 		download:           download,
 		postInstall:        hooks.postInstall,
-		dependencies:       hooks.dependencies,
+		dependencies:       dependencies,
 	}, nil
+}
+
+func normalizeManifestDependencies(dependencies []manifestDependency) []manifestDependency {
+	if len(dependencies) == 0 {
+		return nil
+	}
+
+	normalized := make([]manifestDependency, 0, len(dependencies))
+	for _, dep := range dependencies {
+		normalized = append(normalized, manifestDependency{
+			Tool:    strings.ToLower(strings.TrimSpace(dep.Tool)),
+			Version: strings.TrimSpace(dep.Version),
+		})
+	}
+
+	return normalized
+}
+
+func normalizeManifestWrappers(wrappers map[string]manifestWrapper) map[string]manifestWrapper {
+	if len(wrappers) == 0 {
+		return nil
+	}
+
+	normalized := make(map[string]manifestWrapper, len(wrappers))
+	for rawName, wrapper := range wrappers {
+		name := strings.ToLower(strings.TrimSpace(rawName))
+		if name == "" {
+			continue
+		}
+		args := make([]string, 0, len(wrapper.Args))
+		for _, arg := range wrapper.Args {
+			trimmed := strings.TrimSpace(arg)
+			if trimmed != "" {
+				args = append(args, trimmed)
+			}
+		}
+		normalized[name] = manifestWrapper{
+			Target:       wrapper.Target,
+			Args:         args,
+			SkipIfExists: wrapper.SkipIfExists,
+		}
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+
+	return normalized
+}
+
+func manifestExecutablePathsFunc(m pluginManifest) func(installDir string) []string {
+	installPaths := m.InstallCandidates
+	dispatchCommands := make([]string, 0, len(m.DispatchCandidates))
+	for command := range m.DispatchCandidates {
+		dispatchCommands = append(dispatchCommands, command)
+	}
+	sort.Strings(dispatchCommands)
+	dispatchCandidates := m.DispatchCandidates
+
+	return func(installDir string) []string {
+		if strings.TrimSpace(installDir) == "" {
+			return nil
+		}
+		paths := manifestCandidatePaths(installDir, installPaths, runtime.GOOS, runtime.GOARCH)
+		for _, command := range dispatchCommands {
+			paths = append(paths, manifestCandidatePaths(installDir, dispatchCandidates[command], runtime.GOOS, runtime.GOARCH)...)
+		}
+
+		return paths
+	}
 }
 
 func normalizeManifestSettings(settings map[string]SettingType) map[string]SettingType {

@@ -23,10 +23,19 @@ func TestFrankenPHPPluginUsesConfiguredVersionAndManifest(t *testing.T) {
 	}
 }
 
-func TestWriteFrankenPHPPHPCLIWrapperUsesPHPCLISubcommand(t *testing.T) {
+// TestFrankenPHPManifestWrapperUsesPHPCLISubcommand verifies the Linux php
+// wrapper declared by frankenphp.yaml forwards to frankenphp php-cli.
+func TestFrankenPHPManifestWrapperUsesPHPCLISubcommand(t *testing.T) {
 	installDir := t.TempDir()
-	if err := writeFrankenPHPPHPCLIWrapper(installDir); err != nil {
-		t.Fatalf("writeFrankenPHPPHPCLIWrapper() error = %v", err)
+	if err := os.WriteFile(filepath.Join(installDir, FrankenPHP), []byte("binary"), 0o755); err != nil {
+		t.Fatalf("WriteFile(frankenphp) error = %v", err)
+	}
+	manifest, err := loadBuiltinManifest(FrankenPHP)
+	if err != nil {
+		t.Fatalf("loadBuiltinManifest(frankenphp) error = %v", err)
+	}
+	if _, err := writeManifestWrappers(installDir, manifest.Wrappers, "linux", "amd64"); err != nil {
+		t.Fatalf("writeManifestWrappers() error = %v", err)
 	}
 	path := filepath.Join(installDir, PHP)
 	data, err := os.ReadFile(path)

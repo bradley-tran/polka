@@ -17,6 +17,9 @@ func TestRabbitMQManifestAndDependency(t *testing.T) {
 	if got := plugin.DispatchCommands(); !reflect.DeepEqual(got, []string{"rabbitmq-server", "rabbitmqctl", "rabbitmq-diagnostics", "rabbitmq-plugins", "rabbitmq-queues", "rabbitmq-streams", "rabbitmq-upgrade"}) {
 		t.Fatalf("rabbitmq dispatch commands = %#v", got)
 	}
+	if deps := plugin.(ToolDependencyProvider).Dependencies(config.Environment{}); len(deps) != 0 {
+		t.Fatalf("Dependencies(unconfigured) = %#v, want none", deps)
+	}
 	layers, err := NewDefaultRegistry().InstallRequestLayers(config.Environment{Tools: config.ToolsConfig{RabbitMQ: "4.3"}}, nil)
 	if err != nil {
 		t.Fatalf("InstallRequestLayers() error = %v", err)
@@ -26,25 +29,62 @@ func TestRabbitMQManifestAndDependency(t *testing.T) {
 	}
 }
 
-// TestValidateRabbitMQConfig covers broker-specific validation rules.
+// TestValidateRabbitMQConfig covers manifest version constraints, port ranges,
+// and broker-specific cross-field validation rules.
 func TestValidateRabbitMQConfig(t *testing.T) {
+	plugin := rabbitMQPlugin()
 	for _, test := range []struct {
-		name  string
-		value *config.RabbitMQConfig
-		want  string
+		name string
+		env  config.Environment
+		want string
 	}{
-		{name: "valid", value: &config.RabbitMQConfig{Version: "4.3"}},
-		{name: "same ports", value: &config.RabbitMQConfig{Version: "4.3", Port: 5672, ManagementPort: 5672}, want: "must be different"},
-		{name: "unsupported major", value: &config.RabbitMQConfig{Version: "3.13"}, want: "4.x"},
-		{name: "username with default password", value: &config.RabbitMQConfig{Version: "4.3", Username: "demo"}},
+		{
+			name: "valid",
+			env:  config.Environment{Tools: config.ToolsConfig{RabbitMQ: "4.3"}},
+		},
+		{
+			name: "same ports",
+			env: config.Environment{
+				Tools:    config.ToolsConfig{RabbitMQ: "4.3"},
+				Settings: config.SettingsConfig{RabbitMQ: {"port": 5672, "management-port": 5672}},
+			},
+			want: "must be different",
+		},
+		{
+			name: "unsupported major",
+			env:  config.Environment{Tools: config.ToolsConfig{RabbitMQ: "3.13"}},
+			want: "requires >= 4.0.4 and < 5",
+		},
+		{
+			name: "username with default password",
+			env: config.Environment{
+				Tools:    config.ToolsConfig{RabbitMQ: "4.3"},
+				Settings: config.SettingsConfig{RabbitMQ: {"username": "demo"}},
+			},
+		},
+		{
+			name: "multiline credentials",
+			env: config.Environment{
+				Tools:    config.ToolsConfig{RabbitMQ: "4.3"},
+				Settings: config.SettingsConfig{RabbitMQ: {"username": "demo\ninjected"}},
+			},
+			want: "single-line",
+		},
+		{
+			name: "settings without version",
+			env: config.Environment{
+				Settings: config.SettingsConfig{RabbitMQ: {"port": 5672}},
+			},
+			want: "rabbitmq configuration requires version",
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			err := validateRabbitMQConfig(test.value)
+			err := plugin.Validate(test.env)
 			if test.want == "" && err != nil {
-				t.Fatalf("validateRabbitMQConfig() error = %v", err)
+				t.Fatalf("plugin.Validate() error = %v", err)
 			}
 			if test.want != "" && (err == nil || !strings.Contains(err.Error(), test.want)) {
-				t.Fatalf("validateRabbitMQConfig() error = %v, want %q", err, test.want)
+				t.Fatalf("plugin.Validate() error = %v, want %q", err, test.want)
 			}
 		})
 	}

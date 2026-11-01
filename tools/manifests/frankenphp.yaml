@@ -16,6 +16,13 @@ dispatch-candidates:
       - php
     linux-amd64:
       - php
+wrappers:
+  php:
+    target:
+      linux-amd64:
+        - frankenphp
+    args:
+      - php-cli
 logs:
   debug:
     - serve.log

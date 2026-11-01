@@ -1,4 +1,10 @@
 id: rabbitmq
+version-constraint:
+  min: 4.0.4
+  below: "5"
+dependencies:
+  - tool: erlang
+    version: "27"
 settings:
   port: port
   management-port: port

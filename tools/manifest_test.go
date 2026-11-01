@@ -11,7 +11,7 @@ import (
 )
 
 func TestBuiltinManifestsLoad(t *testing.T) {
-	for _, tool := range []string{PHP, PHPZTS, PHPDevel, PHPSDK, FrankenPHP, Composer, PIE, NodeJS, Mago, Nginx, Apache, Mailpit, Meilisearch, PHPMyAdmin, MySQL, MariaDB, PostgreSQL, SQLite} {
+	for _, tool := range []string{PHP, PHPZTS, PHPDevel, PHPSDK, FrankenPHP, Composer, PIE, NodeJS, Mago, Nginx, Apache, Mailpit, Meilisearch, Redis, Erlang, RabbitMQ, Traefik, RoadRunner, PHPMyAdmin, MySQL, MariaDB, PostgreSQL, SQLite} {
 		t.Run(tool, func(t *testing.T) {
 			manifest, err := loadBuiltinManifest(tool)
 			if err != nil {
@@ -493,6 +493,163 @@ install-candidates:
     - bin/demo
 `,
 			wantErr: "internal-only and cannot define settings",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := parsePluginManifest([]byte(test.yaml))
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("parsePluginManifest() error = %v, want %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
+// TestParsePluginManifestValidatesNewDeclarativeFields checks validation for
+// version-constraint, dependencies, wrappers, github.mode, release-index URL
+// templates, and embedded-commit-id assets.
+func TestParsePluginManifestValidatesNewDeclarativeFields(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr string
+	}{
+		{
+			name: "version-constraint min not below upper bound",
+			yaml: `
+id: demo
+version-constraint:
+  min: "5.0"
+  below: "4.0"
+install-candidates:
+  all:
+    - bin/demo
+`,
+			wantErr: "version-constraint min",
+		},
+		{
+			name: "self dependency",
+			yaml: `
+id: demo
+dependencies:
+  - tool: demo
+    version: "1.0"
+install-candidates:
+  all:
+    - bin/demo
+`,
+			wantErr: "dependencies[0] cannot reference itself",
+		},
+		{
+			name: "dependency without version",
+			yaml: `
+id: demo
+dependencies:
+  - tool: helper
+install-candidates:
+  all:
+    - bin/demo
+`,
+			wantErr: "dependencies[0]: helper version cannot be empty",
+		},
+		{
+			name: "wrapper argument with spaces",
+			yaml: `
+id: demo
+wrappers:
+  cli:
+    target:
+      all:
+        - bin/demo
+    args:
+      - "sub command"
+install-candidates:
+  all:
+    - bin/demo
+`,
+			wantErr: "wrappers.cli.args[0] has invalid argument",
+		},
+		{
+			name: "wrapper target escapes install dir",
+			yaml: `
+id: demo
+wrappers:
+  cli:
+    target:
+      all:
+        - ../outside
+install-candidates:
+  all:
+    - bin/demo
+`,
+			wantErr: "wrappers.cli.target",
+		},
+		{
+			name: "unsupported github mode",
+			yaml: `
+id: demo
+install-candidates:
+  all:
+    - bin/demo
+download:
+  github:
+    owner: acme
+    repo: demo
+    mode: branches
+`,
+			wantErr: "unsupported mode",
+		},
+		{
+			name: "release-index url references unknown placeholder",
+			yaml: `
+id: demo
+install-candidates:
+  all:
+    - bin/demo
+download:
+  release-index:
+    url: https://example.test/{version}/index.html
+    pattern: 'demo-([0-9]+\.[0-9]+\.[0-9]+)'
+`,
+			wantErr: "unknown template value \"version\"",
+		},
+		{
+			name: "embedded-commit-id without github",
+			yaml: `
+id: demo
+install-candidates:
+  all:
+    - bin/demo
+download:
+  assets:
+    windows-amd64:
+      filename: demo.zip
+      url: https://example.test/demo.zip
+      checksum-algorithm: embedded-commit-id
+      archive-format: zip
+`,
+			wantErr: "requires download.github",
+		},
+		{
+			name: "embedded-commit-id with non-zip archive",
+			yaml: `
+id: demo
+install-candidates:
+  all:
+    - bin/demo
+download:
+  github:
+    owner: acme
+    repo: demo
+  assets:
+    linux-amd64:
+      filename: demo.tar.gz
+      url: https://example.test/demo.tar.gz
+      checksum-algorithm: embedded-commit-id
+      archive-format: tar.gz
+`,
+			wantErr: "requires archive-format zip",
 		},
 	}
 

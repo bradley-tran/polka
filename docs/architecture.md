@@ -84,11 +84,11 @@ The `tools` package owns managed tool behavior:
 - tool IDs such as `PHP`, `PHPZTS`, `FrankenPHP`, `Composer`, `PIE`, `NodeJS`, `Mago`, `Nginx`, `Apache`, `Mailpit`, `Meilisearch`, `Redis`, `Traefik`, `PHPMyAdmin`, `MySQL`, `MariaDB`, `PostgreSQL`, and `SQLite`
 - tool plugin interfaces and registry
 - embedded YAML manifests for built-in plugin metadata
-- PHP extension dependencies, settings schemas (`settings`, `settings-from`), and mutual-exclusion peers (`exclusive-with`) declared by tool manifests
-- install candidate paths
+- PHP extension dependencies, settings schemas (`settings`, `settings-from`), mutual-exclusion peers (`exclusive-with`), version range constraints (`version-constraint`), tool dependencies (`dependencies`), and generated command wrappers (`wrappers`) declared by tool manifests
+- install candidate paths and automatic Unix executable permission bits (`0755`) for installed binaries and generated wrappers
 - dispatch command mappings (a command without an explicit dispatch candidate falls back to the tool's install candidates)
-- download templates, release resolution, checksums, cache metadata, and archive extraction
-- per-tool Go hooks for dynamic downloads or post-install behavior
+- declarative download resolution (`download.github` in `releases` or `tag` mode, and `download.release-index` with `{requested}` URL templates), built-in version template placeholders (`{version}`, `{requested}`, `{tag}`, `{major}`, `{minor}`, `{major_minor}`), required checksum verification (`md5`, `sha256`, `sha3-256`, and `embedded-commit-id`), cache metadata, and archive extraction
+- optional per-tool Go hooks for custom multi-field validation, non-standard download discovery, or custom post-install behavior
 - PHP extension post-install config generation
 
 The current plugin system is internal and compile-time only. Built-in tool metadata lives in `tools/manifests/*.yaml`, built-in framework metadata lives in `plugins/manifests/*.yaml`, and both are embedded into the binary; Polka does not load third-party plugins from disk or from `polka.yaml`. The manifest parsers accept bytes so future external loading can reuse the schemas, but that loading behavior is intentionally not implemented yet.
@@ -185,12 +185,12 @@ Plugin hooks receive `tools.InstallContext`, which contains layout paths and ins
 To add a new managed tool:
 
 1. Add a tool ID in `tools/ids.go` (optional convenience constant for built-in Go callers) and create `tools/manifests/<id>.yaml`.
-2. Add a plugin constructor in `tools/plugins.go` or a new focused tool file.
-3. Declare any versionless settings (`settings: <key>: bool|port|string`), shared settings namespace (`settings-from`), or mutually exclusive tool peers (`exclusive-with`) in `tools/manifests/<id>.yaml`; version lookup from `config.Environment.ToolVersion(id)` and scalar settings validation are handled automatically by the manifest plugin and `tools.Registry`.
-4. Implement custom `Validate` hook logic only if the tool has cross-field invariants beyond scalar setting types.
-5. Implement install candidates. Add dispatch candidates only to override commands whose executable differs from the install candidates (for example a multi-binary tool); every dispatch command without an override resolves to the install candidates.
-6. Add embedded manifest download assets or a focused download hook if Polka should download it automatically.
-7. Add a focused per-tool Go file only for hook wiring, dynamic download logic, validation, or post-install behavior.
+2. Add a plugin constructor in `tools/plugins.go` (or a focused tool file if the tool needs custom Go hooks).
+3. Declare any versionless settings (`settings: <key>: bool|port|string`), shared settings namespace (`settings-from`), mutually exclusive tool peers (`exclusive-with`), version bounds (`version-constraint`), install-time dependencies (`dependencies`), or generated command wrappers (`wrappers`) in `tools/manifests/<id>.yaml`; version lookup from `config.Environment.ToolVersion(id)`, version-constraint checks, port range checks, and `<id> configuration requires version` checks are handled automatically by the manifest plugin and `tools.Registry`.
+4. Implement a custom `Validate` hook only if the tool has cross-field invariants beyond scalar setting types and version bounds (for example distinct port pairs or non-whitespace credentials).
+5. Declare `install.candidates` in the manifest. Add `dispatch.candidates` only to override commands whose executable differs from the install candidates (for example a multi-binary tool); every dispatch command without an override resolves to the install candidates. Unix executable permission bits (`0755`) are applied automatically during post-install.
+6. Declare `download` (`github` or `release-index` plus `assets`) in the manifest so the default manifest downloader handles release resolution, checksum verification, and caching automatically; add a custom Go `download` hook only when upstream discovery requires custom parsing beyond `github` and `release-index`.
+7. Add a focused per-tool Go file only when the tool requires custom validation, download, dependency, or post-install hooks.
 8. Register the plugin in `tools.DefaultPlugins`.
 9. Add tests in `tools` for registry, manifest, candidate, and downloader behavior.
 10. Add backend or CLI tests only when the new tool changes project state, shims, command output, or runtime behavior.

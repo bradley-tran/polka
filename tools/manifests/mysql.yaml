@@ -19,6 +19,9 @@ logs:
   error:
     - server.log
 download:
+  release-index:
+    url: https://dev.mysql.com/downloads/mysql/{requested}.html
+    pattern: '(?:mysql-|MySQL Community Server )([0-9]+\.[0-9]+\.[0-9]+)'
   assets:
     windows-amd64:
       filename: mysql-{version}-winx64.zip

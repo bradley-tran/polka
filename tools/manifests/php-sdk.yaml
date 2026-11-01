@@ -8,6 +8,7 @@ download:
     owner: php
     repo: php-sdk-binary-tools
     tag-prefix: php-sdk-
+    mode: tag
   assets:
     windows-amd64:
       filename: php-sdk-binary-tools-{version}.zip

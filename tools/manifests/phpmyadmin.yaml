@@ -13,6 +13,9 @@ logs:
     - serve.log
     - php.log
 download:
+  release-index:
+    url: https://www.phpmyadmin.net/downloads/
+    pattern: 'phpMyAdmin-([0-9]+\.[0-9]+\.[0-9]+)-all-languages\.zip'
   assets:
     all:
       filename: phpMyAdmin-{version}-all-languages.zip

@@ -59,7 +59,24 @@ dispatch-candidates:
     linux-amd64:
       - bin/yarn
       - yarn
+wrappers:
+  yarn:
+    target:
+      windows-amd64:
+        - corepack.cmd
+        - corepack
+        - bin/corepack.cmd
+        - bin/corepack
+      linux-amd64:
+        - bin/corepack
+        - corepack
+    args:
+      - yarn
+    skip-if-exists: true
 download:
+  release-index:
+    url: https://nodejs.org/download/release/index.json
+    pattern: '"version"\s*:\s*"v([0-9]+\.[0-9]+\.[0-9]+)"'
   assets:
     windows-amd64:
       filename: node-v{version}-win-x64.zip

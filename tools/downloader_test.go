@@ -107,6 +107,18 @@ func TestDownloadTextRetriesTransientStatus(t *testing.T) {
 	}
 }
 
+// loadManifestWithReleaseIndexURL loads a built-in tool manifest and overrides
+// its release-index URL for offline httptest verification.
+func loadManifestWithReleaseIndexURL(t *testing.T, tool, indexURL string) pluginManifest {
+	t.Helper()
+	manifest, err := loadBuiltinManifest(tool)
+	if err != nil {
+		t.Fatalf("loadBuiltinManifest(%s) error = %v", tool, err)
+	}
+	manifest.Download.ReleaseIndex.URL = indexURL
+	return manifest
+}
+
 func TestResolveDatabaseDownloadAssetSupportsSeriesLabels(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -127,8 +139,10 @@ func TestResolveDatabaseDownloadAssetSupportsSeriesLabels(t *testing.T) {
 	}))
 	defer server.Close()
 
-	withTemporaryString(t, &mysqlDownloadPageURLPattern, server.URL+"/mysql/%s.html")
-	withTemporaryString(t, &mariaDBArchiveIndexURL, server.URL+"/mariadb/")
+	manifests := map[string]pluginManifest{
+		MySQL:   loadManifestWithReleaseIndexURL(t, MySQL, server.URL+"/mysql/{requested}.html"),
+		MariaDB: loadManifestWithReleaseIndexURL(t, MariaDB, server.URL+"/mariadb/"),
+	}
 
 	tests := []struct {
 		name                string
@@ -204,18 +218,18 @@ func TestResolveDatabaseDownloadAssetSupportsSeriesLabels(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			resolvedVersion, asset, err := resolveDatabaseDownloadAsset(server.Client(), test.tool, test.version, test.goos, test.goarch)
+			plan, err := resolveManifestRequest(server.Client(), manifests[test.tool], test.version, test.goos, test.goarch)
 			if err != nil {
-				t.Fatalf("resolveDatabaseDownloadAsset(%s, %s) error = %v", test.tool, test.version, err)
+				t.Fatalf("resolveManifestRequest(%s, %s) error = %v", test.tool, test.version, err)
 			}
-			if resolvedVersion != test.wantResolvedVersion {
-				t.Fatalf("resolveDatabaseDownloadAsset(%s, %s) resolved version = %q, want %q", test.tool, test.version, resolvedVersion, test.wantResolvedVersion)
+			if plan.ResolvedVersion != test.wantResolvedVersion {
+				t.Fatalf("resolveManifestRequest(%s, %s) resolved version = %q, want %q", test.tool, test.version, plan.ResolvedVersion, test.wantResolvedVersion)
 			}
-			if asset.FileName != test.wantFileName {
-				t.Fatalf("resolveDatabaseDownloadAsset(%s, %s) file = %q, want %q", test.tool, test.version, asset.FileName, test.wantFileName)
+			if plan.Asset.FileName != test.wantFileName {
+				t.Fatalf("resolveManifestRequest(%s, %s) file = %q, want %q", test.tool, test.version, plan.Asset.FileName, test.wantFileName)
 			}
-			if asset.ChecksumAlgorithm != test.wantAlgorithm {
-				t.Fatalf("resolveDatabaseDownloadAsset(%s, %s) checksum algorithm = %q, want %q", test.tool, test.version, asset.ChecksumAlgorithm, test.wantAlgorithm)
+			if plan.Asset.ChecksumAlgorithm != test.wantAlgorithm {
+				t.Fatalf("resolveManifestRequest(%s, %s) checksum algorithm = %q, want %q", test.tool, test.version, plan.Asset.ChecksumAlgorithm, test.wantAlgorithm)
 			}
 		})
 	}
@@ -287,7 +301,7 @@ func TestResolveNginxDownloadAssetSupportsSeriesLabels(t *testing.T) {
 	}))
 	defer server.Close()
 
-	withTemporaryString(t, &nginxDownloadIndexURL, server.URL)
+	manifest := loadManifestWithReleaseIndexURL(t, Nginx, server.URL)
 
 	tests := []struct {
 		name                string
@@ -311,18 +325,18 @@ func TestResolveNginxDownloadAssetSupportsSeriesLabels(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			resolvedVersion, asset, err := resolveNginxDownloadAsset(server.Client(), test.version, "windows", "amd64")
+			plan, err := resolveManifestRequest(server.Client(), manifest, test.version, "windows", "amd64")
 			if err != nil {
-				t.Fatalf("resolveNginxDownloadAsset(%s) error = %v", test.version, err)
+				t.Fatalf("resolveManifestRequest(%s) error = %v", test.version, err)
 			}
-			if resolvedVersion != test.wantResolvedVersion {
-				t.Fatalf("resolveNginxDownloadAsset(%s) resolved version = %q, want %q", test.version, resolvedVersion, test.wantResolvedVersion)
+			if plan.ResolvedVersion != test.wantResolvedVersion {
+				t.Fatalf("resolveManifestRequest(%s) resolved version = %q, want %q", test.version, plan.ResolvedVersion, test.wantResolvedVersion)
 			}
-			if asset.FileName != test.wantFileName {
-				t.Fatalf("resolveNginxDownloadAsset(%s) file = %q, want %q", test.version, asset.FileName, test.wantFileName)
+			if plan.Asset.FileName != test.wantFileName {
+				t.Fatalf("resolveManifestRequest(%s) file = %q, want %q", test.version, plan.Asset.FileName, test.wantFileName)
 			}
-			if asset.ChecksumAlgorithm != checksumAlgorithmNone {
-				t.Fatalf("resolveNginxDownloadAsset(%s) checksum algorithm = %q, want none", test.version, asset.ChecksumAlgorithm)
+			if plan.Asset.ChecksumAlgorithm != checksumAlgorithmNone {
+				t.Fatalf("resolveManifestRequest(%s) checksum algorithm = %q, want none", test.version, plan.Asset.ChecksumAlgorithm)
 			}
 		})
 	}
@@ -376,7 +390,7 @@ func TestResolveNodeJSDownloadAssetSupportsSeriesLabels(t *testing.T) {
 	}))
 	defer server.Close()
 
-	withTemporaryString(t, &nodeJSReleaseIndexURL, server.URL)
+	manifest := loadManifestWithReleaseIndexURL(t, NodeJS, server.URL)
 
 	tests := []struct {
 		name                string
@@ -418,22 +432,30 @@ func TestResolveNodeJSDownloadAssetSupportsSeriesLabels(t *testing.T) {
 			wantResolvedVersion: "22.22.3",
 			wantFileName:        "node-v22.22.3-linux-x64.tar.xz",
 		},
+		{
+			name:                "prefixed exact version",
+			version:             "v22.22.3",
+			goos:                "windows",
+			goarch:              "amd64",
+			wantResolvedVersion: "22.22.3",
+			wantFileName:        "node-v22.22.3-win-x64.zip",
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			resolvedVersion, asset, err := resolveNodeJSDownloadAsset(server.Client(), test.version, test.goos, test.goarch)
+			plan, err := resolveManifestRequest(server.Client(), manifest, test.version, test.goos, test.goarch)
 			if err != nil {
-				t.Fatalf("resolveNodeJSDownloadAsset(%s) error = %v", test.version, err)
+				t.Fatalf("resolveManifestRequest(%s) error = %v", test.version, err)
 			}
-			if resolvedVersion != test.wantResolvedVersion {
-				t.Fatalf("resolveNodeJSDownloadAsset(%s) resolved version = %q, want %q", test.version, resolvedVersion, test.wantResolvedVersion)
+			if plan.ResolvedVersion != test.wantResolvedVersion {
+				t.Fatalf("resolveManifestRequest(%s) resolved version = %q, want %q", test.version, plan.ResolvedVersion, test.wantResolvedVersion)
 			}
-			if asset.FileName != test.wantFileName {
-				t.Fatalf("resolveNodeJSDownloadAsset(%s) file = %q, want %q", test.version, asset.FileName, test.wantFileName)
+			if plan.Asset.FileName != test.wantFileName {
+				t.Fatalf("resolveManifestRequest(%s) file = %q, want %q", test.version, plan.Asset.FileName, test.wantFileName)
 			}
-			if asset.ChecksumAlgorithm != checksumAlgorithmSHA256 {
-				t.Fatalf("resolveNodeJSDownloadAsset(%s) checksum algorithm = %q, want %q", test.version, asset.ChecksumAlgorithm, checksumAlgorithmSHA256)
+			if plan.Asset.ChecksumAlgorithm != checksumAlgorithmSHA256 {
+				t.Fatalf("resolveManifestRequest(%s) checksum algorithm = %q, want %q", test.version, plan.Asset.ChecksumAlgorithm, checksumAlgorithmSHA256)
 			}
 		})
 	}
@@ -455,6 +477,10 @@ func TestResolveMailpitDownloadAssetSupportsSeriesLabels(t *testing.T) {
 	defer server.Close()
 
 	withTemporaryString(t, &githubAPIBaseURL, server.URL)
+	manifest, err := loadBuiltinManifest(Mailpit)
+	if err != nil {
+		t.Fatalf("loadBuiltinManifest(mailpit) error = %v", err)
+	}
 
 	tests := []struct {
 		name                string
@@ -487,21 +513,21 @@ func TestResolveMailpitDownloadAssetSupportsSeriesLabels(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			resolvedVersion, asset, err := resolveMailpitDownloadAsset(server.Client(), test.version, test.goos, test.goarch)
+			plan, err := resolveManifestRequest(server.Client(), manifest, test.version, test.goos, test.goarch)
 			if err != nil {
-				t.Fatalf("resolveMailpitDownloadAsset(%s) error = %v", test.version, err)
+				t.Fatalf("resolveManifestRequest(%s) error = %v", test.version, err)
 			}
-			if resolvedVersion != test.wantResolvedVersion {
-				t.Fatalf("resolveMailpitDownloadAsset(%s) resolved version = %q, want %q", test.version, resolvedVersion, test.wantResolvedVersion)
+			if plan.ResolvedVersion != test.wantResolvedVersion {
+				t.Fatalf("resolveManifestRequest(%s) resolved version = %q, want %q", test.version, plan.ResolvedVersion, test.wantResolvedVersion)
 			}
-			if asset.FileName != test.wantFileName {
-				t.Fatalf("resolveMailpitDownloadAsset(%s) file = %q, want %q", test.version, asset.FileName, test.wantFileName)
+			if plan.Asset.FileName != test.wantFileName {
+				t.Fatalf("resolveManifestRequest(%s) file = %q, want %q", test.version, plan.Asset.FileName, test.wantFileName)
 			}
-			if asset.ArchiveFormat != test.wantFormat {
-				t.Fatalf("resolveMailpitDownloadAsset(%s) archive format = %q, want %q", test.version, asset.ArchiveFormat, test.wantFormat)
+			if plan.Asset.ArchiveFormat != test.wantFormat {
+				t.Fatalf("resolveManifestRequest(%s) archive format = %q, want %q", test.version, plan.Asset.ArchiveFormat, test.wantFormat)
 			}
-			if asset.ChecksumAlgorithm != checksumAlgorithmSHA256 || asset.Checksum == "" {
-				t.Fatalf("resolveMailpitDownloadAsset(%s) checksum = (%q, %q), want github sha256 digest", test.version, asset.ChecksumAlgorithm, asset.Checksum)
+			if plan.Asset.ChecksumAlgorithm != checksumAlgorithmSHA256 || plan.Asset.Checksum == "" {
+				t.Fatalf("resolveManifestRequest(%s) checksum = (%q, %q), want github sha256 digest", test.version, plan.Asset.ChecksumAlgorithm, plan.Asset.Checksum)
 			}
 		})
 	}
@@ -523,6 +549,10 @@ func TestResolveTraefikDownloadAssetSupportsSeriesLabels(t *testing.T) {
 	defer server.Close()
 
 	withTemporaryString(t, &githubAPIBaseURL, server.URL)
+	manifest, err := loadBuiltinManifest(Traefik)
+	if err != nil {
+		t.Fatalf("loadBuiltinManifest(traefik) error = %v", err)
+	}
 
 	tests := []struct {
 		name                string
@@ -555,21 +585,21 @@ func TestResolveTraefikDownloadAssetSupportsSeriesLabels(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			resolvedVersion, asset, err := resolveTraefikDownloadAsset(server.Client(), test.version, test.goos, test.goarch)
+			plan, err := resolveManifestRequest(server.Client(), manifest, test.version, test.goos, test.goarch)
 			if err != nil {
-				t.Fatalf("resolveTraefikDownloadAsset(%s) error = %v", test.version, err)
+				t.Fatalf("resolveManifestRequest(%s) error = %v", test.version, err)
 			}
-			if resolvedVersion != test.wantResolvedVersion {
-				t.Fatalf("resolveTraefikDownloadAsset(%s) resolved version = %q, want %q", test.version, resolvedVersion, test.wantResolvedVersion)
+			if plan.ResolvedVersion != test.wantResolvedVersion {
+				t.Fatalf("resolveManifestRequest(%s) resolved version = %q, want %q", test.version, plan.ResolvedVersion, test.wantResolvedVersion)
 			}
-			if asset.FileName != test.wantFileName {
-				t.Fatalf("resolveTraefikDownloadAsset(%s) file = %q, want %q", test.version, asset.FileName, test.wantFileName)
+			if plan.Asset.FileName != test.wantFileName {
+				t.Fatalf("resolveManifestRequest(%s) file = %q, want %q", test.version, plan.Asset.FileName, test.wantFileName)
 			}
-			if asset.ArchiveFormat != test.wantFormat {
-				t.Fatalf("resolveTraefikDownloadAsset(%s) archive format = %q, want %q", test.version, asset.ArchiveFormat, test.wantFormat)
+			if plan.Asset.ArchiveFormat != test.wantFormat {
+				t.Fatalf("resolveManifestRequest(%s) archive format = %q, want %q", test.version, plan.Asset.ArchiveFormat, test.wantFormat)
 			}
-			if asset.ChecksumAlgorithm != checksumAlgorithmSHA256 || asset.Checksum == "" {
-				t.Fatalf("resolveTraefikDownloadAsset(%s) checksum = (%q, %q), want github sha256 digest", test.version, asset.ChecksumAlgorithm, asset.Checksum)
+			if plan.Asset.ChecksumAlgorithm != checksumAlgorithmSHA256 || plan.Asset.Checksum == "" {
+				t.Fatalf("resolveManifestRequest(%s) checksum = (%q, %q), want github sha256 digest", test.version, plan.Asset.ChecksumAlgorithm, plan.Asset.Checksum)
 			}
 		})
 	}
@@ -590,6 +620,10 @@ func TestResolveMeilisearchDownloadAssetSupportsDirectBinaries(t *testing.T) {
 	defer server.Close()
 
 	withTemporaryString(t, &githubAPIBaseURL, server.URL)
+	manifest, err := loadBuiltinManifest(Meilisearch)
+	if err != nil {
+		t.Fatalf("loadBuiltinManifest(meilisearch) error = %v", err)
+	}
 
 	tests := []struct {
 		name        string
@@ -604,21 +638,21 @@ func TestResolveMeilisearchDownloadAssetSupportsDirectBinaries(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			resolvedVersion, asset, err := resolveMeilisearchDownloadAsset(server.Client(), "1.48", test.goos, test.goarch)
+			plan, err := resolveManifestRequest(server.Client(), manifest, "1.48", test.goos, test.goarch)
 			if err != nil {
-				t.Fatalf("resolveMeilisearchDownloadAsset() error = %v", err)
+				t.Fatalf("resolveManifestRequest() error = %v", err)
 			}
-			if resolvedVersion != "1.48.3" {
-				t.Fatalf("resolved version = %q, want 1.48.3", resolvedVersion)
+			if plan.ResolvedVersion != "1.48.3" {
+				t.Fatalf("resolved version = %q, want 1.48.3", plan.ResolvedVersion)
 			}
-			if asset.FileName != test.wantFile || asset.InstallPath != test.wantInstall {
-				t.Fatalf("asset = %#v, want file %q install %q", asset, test.wantFile, test.wantInstall)
+			if plan.Asset.FileName != test.wantFile || plan.Asset.InstallPath != test.wantInstall {
+				t.Fatalf("asset = %#v, want file %q install %q", plan.Asset, test.wantFile, test.wantInstall)
 			}
-			if asset.ArchiveFormat != "" {
-				t.Fatalf("archive format = %q, want direct file", asset.ArchiveFormat)
+			if plan.Asset.ArchiveFormat != "" {
+				t.Fatalf("archive format = %q, want direct file", plan.Asset.ArchiveFormat)
 			}
-			if asset.ChecksumAlgorithm != checksumAlgorithmSHA256 || asset.Checksum == "" {
-				t.Fatalf("checksum = (%q, %q), want github sha256 digest", asset.ChecksumAlgorithm, asset.Checksum)
+			if plan.Asset.ChecksumAlgorithm != checksumAlgorithmSHA256 || plan.Asset.Checksum == "" {
+				t.Fatalf("checksum = (%q, %q), want github sha256 digest", plan.Asset.ChecksumAlgorithm, plan.Asset.Checksum)
 			}
 		})
 	}
@@ -640,6 +674,10 @@ func TestResolveMagoDownloadAssetSupportsSeriesLabels(t *testing.T) {
 	defer server.Close()
 
 	withTemporaryString(t, &githubAPIBaseURL, server.URL)
+	manifest, err := loadBuiltinManifest(Mago)
+	if err != nil {
+		t.Fatalf("loadBuiltinManifest(mago) error = %v", err)
+	}
 
 	tests := []struct {
 		name                string
@@ -672,21 +710,21 @@ func TestResolveMagoDownloadAssetSupportsSeriesLabels(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			resolvedVersion, asset, err := resolveMagoDownloadAsset(server.Client(), test.version, test.goos, test.goarch)
+			plan, err := resolveManifestRequest(server.Client(), manifest, test.version, test.goos, test.goarch)
 			if err != nil {
-				t.Fatalf("resolveMagoDownloadAsset(%s) error = %v", test.version, err)
+				t.Fatalf("resolveManifestRequest(%s) error = %v", test.version, err)
 			}
-			if resolvedVersion != test.wantResolvedVersion {
-				t.Fatalf("resolveMagoDownloadAsset(%s) resolved version = %q, want %q", test.version, resolvedVersion, test.wantResolvedVersion)
+			if plan.ResolvedVersion != test.wantResolvedVersion {
+				t.Fatalf("resolveManifestRequest(%s) resolved version = %q, want %q", test.version, plan.ResolvedVersion, test.wantResolvedVersion)
 			}
-			if asset.FileName != test.wantFileName {
-				t.Fatalf("resolveMagoDownloadAsset(%s) file = %q, want %q", test.version, asset.FileName, test.wantFileName)
+			if plan.Asset.FileName != test.wantFileName {
+				t.Fatalf("resolveManifestRequest(%s) file = %q, want %q", test.version, plan.Asset.FileName, test.wantFileName)
 			}
-			if asset.ArchiveFormat != test.wantFormat {
-				t.Fatalf("resolveMagoDownloadAsset(%s) archive format = %q, want %q", test.version, asset.ArchiveFormat, test.wantFormat)
+			if plan.Asset.ArchiveFormat != test.wantFormat {
+				t.Fatalf("resolveManifestRequest(%s) archive format = %q, want %q", test.version, plan.Asset.ArchiveFormat, test.wantFormat)
 			}
-			if asset.ChecksumAlgorithm != checksumAlgorithmSHA256 {
-				t.Fatalf("resolveMagoDownloadAsset(%s) checksum algorithm = %q, want %q", test.version, asset.ChecksumAlgorithm, checksumAlgorithmSHA256)
+			if plan.Asset.ChecksumAlgorithm != checksumAlgorithmSHA256 {
+				t.Fatalf("resolveManifestRequest(%s) checksum algorithm = %q, want %q", test.version, plan.Asset.ChecksumAlgorithm, checksumAlgorithmSHA256)
 			}
 		})
 	}
@@ -712,20 +750,29 @@ func TestDownloadManifestFileAssetSupportsSeriesLabelsAndVerifiesDigest(t *testi
 
 	withTemporaryString(t, &githubAPIBaseURL, server.URL)
 
-	download := manifestDownload{
-		GitHub: manifestGitHubDownload{Owner: "php", Repo: "pie"},
-		Assets: map[string]downloadAsset{
-			"all": {
-				FileName:          "pie.phar",
-				URL:               server.URL + "/downloads/{tag}/pie.phar",
-				InstallPath:       "bin/pie.phar",
-				ChecksumAlgorithm: checksumAlgorithmSHA256,
+	manifest := pluginManifest{
+		ID: PIE,
+		Download: manifestDownload{
+			GitHub: manifestGitHubDownload{Owner: "php", Repo: "pie"},
+			Assets: map[string]downloadAsset{
+				"all": {
+					FileName:          "pie.phar",
+					URL:               server.URL + "/downloads/{tag}/pie.phar",
+					InstallPath:       "bin/pie.phar",
+					ChecksumAlgorithm: checksumAlgorithmSHA256,
+				},
 			},
 		},
 	}
 	cacheDir := t.TempDir()
-	if err := downloadManifestAssetForRequest(server.Client(), cacheDir, PIE, "1.4", download, "windows", "amd64"); err != nil {
-		t.Fatalf("downloadManifestAssetForRequest() error = %v", err)
+	ctx := DownloadContext{
+		Client:   server.Client(),
+		CacheDir: cacheDir,
+		Tool:     PIE,
+		Version:  "1.4",
+	}
+	if err := downloadManifestRequest(ctx, manifest); err != nil {
+		t.Fatalf("downloadManifestRequest() error = %v", err)
 	}
 
 	cachedPayload, err := CachedToolPayload(cacheDir, PIE, "1.4")
@@ -782,23 +829,180 @@ func TestResolvePHPMyAdminDownloadAssetSupportsSeriesLabels(t *testing.T) {
 	}))
 	defer server.Close()
 
-	withTemporaryString(t, &phpMyAdminDownloadsURL, server.URL)
+	manifest := loadManifestWithReleaseIndexURL(t, PHPMyAdmin, server.URL)
 
-	resolvedVersion, asset, err := resolvePHPMyAdminDownloadAsset(server.Client(), "5.2")
+	plan, err := resolveManifestRequest(server.Client(), manifest, "5.2", "windows", "amd64")
 	if err != nil {
-		t.Fatalf("resolvePHPMyAdminDownloadAsset(5.2) error = %v", err)
+		t.Fatalf("resolveManifestRequest(5.2) error = %v", err)
 	}
-	if resolvedVersion != "5.2.3" {
-		t.Fatalf("resolvePHPMyAdminDownloadAsset(5.2) resolved version = %q, want %q", resolvedVersion, "5.2.3")
+	if plan.ResolvedVersion != "5.2.3" {
+		t.Fatalf("resolveManifestRequest(5.2) resolved version = %q, want %q", plan.ResolvedVersion, "5.2.3")
 	}
-	if asset.FileName != "phpMyAdmin-5.2.3-all-languages.zip" {
-		t.Fatalf("resolvePHPMyAdminDownloadAsset(5.2) file = %q, want phpMyAdmin archive", asset.FileName)
+	if plan.Asset.FileName != "phpMyAdmin-5.2.3-all-languages.zip" {
+		t.Fatalf("resolveManifestRequest(5.2) file = %q, want phpMyAdmin archive", plan.Asset.FileName)
 	}
-	if asset.ArchiveFormat != archiveFormatZip {
-		t.Fatalf("resolvePHPMyAdminDownloadAsset(5.2) archive format = %q, want %q", asset.ArchiveFormat, archiveFormatZip)
+	if plan.Asset.ArchiveFormat != archiveFormatZip {
+		t.Fatalf("resolveManifestRequest(5.2) archive format = %q, want %q", plan.Asset.ArchiveFormat, archiveFormatZip)
 	}
-	if asset.ChecksumAlgorithm != checksumAlgorithmSHA256 {
-		t.Fatalf("resolvePHPMyAdminDownloadAsset(5.2) checksum algorithm = %q, want %q", asset.ChecksumAlgorithm, checksumAlgorithmSHA256)
+	if plan.Asset.ChecksumAlgorithm != checksumAlgorithmSHA256 {
+		t.Fatalf("resolveManifestRequest(5.2) checksum algorithm = %q, want %q", plan.Asset.ChecksumAlgorithm, checksumAlgorithmSHA256)
+	}
+}
+
+// TestResolveManifestRequestGitHubTagModeSkipsReleasesEndpoint verifies that
+// github.mode: tag composes the tag directly and authenticates via the commit
+// endpoint without calling /releases.
+func TestResolveManifestRequestGitHubTagModeSkipsReleasesEndpoint(t *testing.T) {
+	commit := "0123456789abcdef0123456789abcdef01234567"
+	releasesCalled := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/php/php-sdk-binary-tools/releases":
+			releasesCalled = true
+			http.Error(w, "releases should not be called", http.StatusInternalServerError)
+		case "/repos/php/php-sdk-binary-tools/commits/php-sdk-2.8.3":
+			_, _ = w.Write([]byte(`{"sha":"` + commit + `"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	withTemporaryString(t, &githubAPIBaseURL, server.URL)
+	manifest, err := loadBuiltinManifest(PHPSDK)
+	if err != nil {
+		t.Fatalf("loadBuiltinManifest(php-sdk) error = %v", err)
+	}
+
+	plan, err := resolveManifestRequest(server.Client(), manifest, DefaultPHPSDKVersion, "windows", "amd64")
+	if err != nil {
+		t.Fatalf("resolveManifestRequest(php-sdk) error = %v", err)
+	}
+	if releasesCalled {
+		t.Fatal("GitHub /releases endpoint was called in tag mode")
+	}
+	if plan.ResolvedVersion != DefaultPHPSDKVersion || plan.Tag != "php-sdk-"+DefaultPHPSDKVersion || plan.Commit != commit {
+		t.Fatalf("plan = %#v, want tag mode plan with commit", plan)
+	}
+}
+
+// TestResolveManifestRequestEnforcesVersionConstraintAfterResolution checks
+// that a version label allowed at config time is rejected if it resolves to an
+// unsupported patch release.
+func TestResolveManifestRequestEnforcesVersionConstraintAfterResolution(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[
+			{"tag_name":"v4.0.2","assets":[{"name":"rabbitmq-server-windows-4.0.2.zip","digest":"sha256:` + strings.Repeat("a", 64) + `"}]}
+		]`))
+	}))
+	defer server.Close()
+
+	withTemporaryString(t, &githubAPIBaseURL, server.URL)
+	manifest, err := loadBuiltinManifest(RabbitMQ)
+	if err != nil {
+		t.Fatalf("loadBuiltinManifest(rabbitmq) error = %v", err)
+	}
+
+	_, err = resolveManifestRequest(server.Client(), manifest, "4.0", "windows", "amd64")
+	if err == nil || !strings.Contains(err.Error(), "requires >= 4.0.4 and < 5") {
+		t.Fatalf("resolveManifestRequest(rabbitmq 4.0 -> 4.0.2) error = %v, want constraint error", err)
+	}
+}
+
+// TestDownloadManifestAssetRequiresDeclaredChecksumAndUsesChecksumURLFallback
+// verifies that declaring a checksum algorithm fails when no digest or
+// checksum-url is available, and succeeds when checksum-url supplies the hash.
+func TestDownloadManifestAssetRequiresDeclaredChecksumAndUsesChecksumURLFallback(t *testing.T) {
+	payload := []byte("verified binary\n")
+	sum := checksumForBytes(t, checksumAlgorithmSHA256, payload)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/tool.bin":
+			_, _ = w.Write(payload)
+		case "/SHASUMS256.txt":
+			_, _ = w.Write([]byte(sum + "  tool.bin\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	missingChecksumAsset := downloadAsset{
+		FileName:          "tool.bin",
+		SourceFileName:    "tool.bin",
+		URL:               server.URL + "/tool.bin",
+		InstallPath:       "bin/tool",
+		ChecksumAlgorithm: checksumAlgorithmSHA256,
+	}
+	err := downloadManifestAsset(server.Client(), t.TempDir(), "demo", "1.0", "1.0.0", missingChecksumAsset)
+	if err == nil || !strings.Contains(err.Error(), "declares sha256 checksum but none was published") {
+		t.Fatalf("downloadManifestAsset(no checksum) error = %v, want missing checksum error", err)
+	}
+
+	fallbackAsset := missingChecksumAsset
+	fallbackAsset.ChecksumURL = server.URL + "/SHASUMS256.txt"
+	if err := downloadManifestAsset(server.Client(), t.TempDir(), "demo", "1.0", "1.0.0", fallbackAsset); err != nil {
+		t.Fatalf("downloadManifestAsset(checksum-url fallback) error = %v", err)
+	}
+}
+
+// TestDownloadManifestRequestVerifiesEmbeddedCommitID checks that the generic
+// manifest downloader resolves a tag commit SHA, verifies the downloaded zip's
+// embedded archive comment, and rejects a mismatched commit.
+func TestDownloadManifestRequestVerifiesEmbeddedCommitID(t *testing.T) {
+	commit := "0123456789abcdef0123456789abcdef01234567"
+	matchingZip := buildZipArchiveWithComment(t, "php-sdk-binary-tools-php-sdk-2.8.3", "phpsdk-starter.bat", []byte("@echo off\r\n"), commit)
+	mismatchedZip := buildZipArchiveWithComment(t, "php-sdk-binary-tools-php-sdk-2.8.3", "phpsdk-starter.bat", []byte("@echo off\r\n"), strings.Repeat("f", 40))
+
+	serveMismatch := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/php/php-sdk-binary-tools/commits/php-sdk-2.8.3":
+			_, _ = w.Write([]byte(`{"sha":"` + commit + `"}`))
+		case "/archive/php-sdk-2.8.3.zip":
+			if serveMismatch {
+				_, _ = w.Write(mismatchedZip)
+				return
+			}
+			_, _ = w.Write(matchingZip)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	withTemporaryString(t, &githubAPIBaseURL, server.URL)
+	manifest, err := loadBuiltinManifest(PHPSDK)
+	if err != nil {
+		t.Fatalf("loadBuiltinManifest(php-sdk) error = %v", err)
+	}
+	asset := manifest.Download.Assets["windows-amd64"]
+	asset.URL = server.URL + "/archive/{tag}.zip"
+	manifest.Download.Assets = map[string]downloadAsset{"all": asset}
+
+	cacheDir := t.TempDir()
+	ctx := DownloadContext{
+		Client:   server.Client(),
+		CacheDir: cacheDir,
+		Tool:     PHPSDK,
+		Version:  "2.8.3",
+	}
+	if err := downloadManifestRequest(ctx, manifest); err != nil {
+		t.Fatalf("downloadManifestRequest(matching commit) error = %v", err)
+	}
+	payload, err := CachedToolPayload(cacheDir, PHPSDK, "2.8.3")
+	if err != nil {
+		t.Fatalf("CachedToolPayload(php-sdk 2.8.3) error = %v", err)
+	}
+	if payload.DownloadedVersion != "2.8.3" {
+		t.Fatalf("CachedToolPayload().DownloadedVersion = %q, want 2.8.3", payload.DownloadedVersion)
+	}
+
+	serveMismatch = true
+	ctx.CacheDir = t.TempDir()
+	err = downloadManifestRequest(ctx, manifest)
+	if err == nil || !strings.Contains(err.Error(), "archive commit") {
+		t.Fatalf("downloadManifestRequest(mismatched commit) error = %v, want archive commit mismatch error", err)
 	}
 }
 
@@ -933,8 +1137,19 @@ func TestDownloadDatabaseAssetMetadataTracksMultipleVersions(t *testing.T) {
 func buildZipArchive(t *testing.T, rootDir, filePath string, contents []byte) []byte {
 	t.Helper()
 
+	return buildZipArchiveWithComment(t, rootDir, filePath, contents, "")
+}
+
+func buildZipArchiveWithComment(t *testing.T, rootDir, filePath string, contents []byte, comment string) []byte {
+	t.Helper()
+
 	buffer := &bytes.Buffer{}
 	writer := zip.NewWriter(buffer)
+	if comment != "" {
+		if err := writer.SetComment(comment); err != nil {
+			t.Fatalf("SetComment(zip) error = %v", err)
+		}
+	}
 	fileWriter, err := writer.Create(filepath.ToSlash(filepath.Join(rootDir, filePath)))
 	if err != nil {
 		t.Fatalf("Create(zip entry) error = %v", err)

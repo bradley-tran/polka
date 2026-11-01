@@ -3,6 +3,7 @@ package tools
 import (
 	"fmt"
 	"net/http"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -593,6 +594,9 @@ type builtinPlugin struct {
 	version            func(config.Environment) string
 	internalOnly       bool
 	internalVersion    func(config.Environment) string
+	versionConstraint  manifestVersionConstraint
+	wrappers           map[string]manifestWrapper
+	executablePaths    func(installDir string) []string
 	settings           map[string]SettingType
 	settingsNamespace  string
 	exclusiveWith      []string
@@ -676,16 +680,85 @@ func (p builtinPlugin) PHPExtensions() map[string]bool {
 }
 
 func (p builtinPlugin) Validate(environment config.Environment) error {
+	if err := p.validateManifestRules(environment); err != nil {
+		return err
+	}
 	if p.validate != nil {
 		return p.validate(environment)
 	}
 
+	return nil
+}
+
+func (p builtinPlugin) validateManifestRules(environment config.Environment) error {
 	version := p.Version(environment)
-	if version == "" {
+	hasSettings := p.hasConfiguredSettings(environment)
+	if version == "" && !hasSettings {
 		return nil
 	}
+	if version == "" && !p.hasExclusivePeerVersion(environment) {
+		return fmt.Errorf("%s configuration requires version", p.id)
+	}
+	if version != "" {
+		if err := validateVersion(p.id, version); err != nil {
+			return err
+		}
+		if !p.versionConstraint.allowsLabel(version) {
+			return p.versionConstraint.error(p.id, version)
+		}
+	}
+	if len(p.settings) > 0 && p.settingsNamespace != "" {
+		keys := make([]string, 0, len(p.settings))
+		for key := range p.settings {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			if p.settings[key] != SettingTypePort {
+				continue
+			}
+			port := environment.SettingInt(p.settingsNamespace, key)
+			if port != 0 && !validPort(port) {
+				return fmt.Errorf("%s %s must be between 1 and 65535", p.settingsNamespace, key)
+			}
+		}
+	}
 
-	return validateVersion(p.id, version)
+	return nil
+}
+
+func (p builtinPlugin) hasConfiguredSettings(environment config.Environment) bool {
+	if len(p.settings) == 0 || p.settingsNamespace == "" {
+		return false
+	}
+	for key, settingType := range p.settings {
+		switch settingType {
+		case SettingTypePort:
+			if environment.SettingInt(p.settingsNamespace, key) != 0 {
+				return true
+			}
+		case SettingTypeString:
+			if environment.SettingString(p.settingsNamespace, key) != "" {
+				return true
+			}
+		case SettingTypeBool:
+			if environment.SettingBool(p.settingsNamespace, key) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func (p builtinPlugin) hasExclusivePeerVersion(environment config.Environment) bool {
+	for _, peer := range p.exclusiveWith {
+		if strings.TrimSpace(environment.ToolVersion(peer)) != "" {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (p builtinPlugin) InstallCandidates(root, version string) []string {
@@ -743,6 +816,21 @@ func (p builtinPlugin) Download(ctx DownloadContext) error {
 }
 
 func (p builtinPlugin) PostInstall(ctx InstallContext) error {
+	installDir := resolvePostInstallDir(p.id, ctx)
+	writtenWrappers, err := writeManifestWrappers(installDir, p.wrappers, runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		return err
+	}
+
+	execPaths := []string{ctx.Result.TargetPath}
+	if p.executablePaths != nil && installDir != "" {
+		execPaths = append(execPaths, p.executablePaths(installDir)...)
+	}
+	execPaths = append(execPaths, writtenWrappers...)
+	if err := ensureInstalledExecutables(execPaths); err != nil {
+		return err
+	}
+
 	if p.postInstall == nil {
 		return nil
 	}

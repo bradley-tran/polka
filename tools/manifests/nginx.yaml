@@ -17,6 +17,9 @@ logs:
     - serve.log
     - php.log
 download:
+  release-index:
+    url: https://nginx.org/download/
+    pattern: 'nginx-([0-9]+\.[0-9]+\.[0-9]+)\.zip'
   assets:
     windows-amd64:
       filename: nginx-{version}.zip

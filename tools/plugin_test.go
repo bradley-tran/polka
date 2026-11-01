@@ -294,6 +294,45 @@ func TestHTTPDownloaderReturnsPluginDownloadError(t *testing.T) {
 	}
 }
 
+// TestBuiltinPluginValidateChainsManifestRulesAndCustomHook verifies that
+// builtinPlugin.Validate enforces declarative manifest rules before calling the
+// custom Go validate hook.
+func TestBuiltinPluginValidateChainsManifestRulesAndCustomHook(t *testing.T) {
+	hookCalled := false
+	customErr := errors.New("custom validate error")
+	plugin := builtinPlugin{
+		id: "demo",
+		version: func(environment config.Environment) string {
+			return environment.ToolVersion("demo")
+		},
+		settings: map[string]SettingType{
+			"port": SettingTypePort,
+		},
+		versionConstraint: manifestVersionConstraint{
+			Min: "2.0.0",
+		},
+		validate: func(config.Environment) error {
+			hookCalled = true
+			return customErr
+		},
+	}
+
+	// Declarative rule failure must short-circuit before the custom hook runs.
+	err := plugin.Validate(config.Environment{Tools: config.ToolsConfig{"demo": "1.5"}})
+	if err == nil || !strings.Contains(err.Error(), "requires >= 2.0.0") {
+		t.Fatalf("Validate(constraint failure) error = %v, want constraint error", err)
+	}
+	if hookCalled {
+		t.Fatal("custom validate hook was called when declarative manifest rules failed")
+	}
+
+	// When declarative rules pass, the custom hook runs.
+	err = plugin.Validate(config.Environment{Tools: config.ToolsConfig{"demo": "2.1"}})
+	if !errors.Is(err, customErr) || !hookCalled {
+		t.Fatalf("Validate(valid manifest rules) = (%v, hookCalled=%v), want (%v, true)", err, hookCalled, customErr)
+	}
+}
+
 type testPlugin struct {
 	id       string
 	download func(DownloadContext) error

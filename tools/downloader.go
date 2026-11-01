@@ -86,26 +86,22 @@ func (d HTTPDownloader) Download(cacheDir, tool, version string) error {
 	})
 }
 
-func downloadBuiltinManifestTool(client *http.Client, cacheDir, tool, version string) error {
-	manifest, err := loadBuiltinManifest(tool)
-	if err != nil {
-		return err
-	}
-
-	return downloadManifestAssetForRequest(client, cacheDir, tool, version, manifest.Download, runtime.GOOS, runtime.GOARCH)
+// manifestRequestPlan holds the resolved version, tag, asset, and optional
+// commit SHA produced before downloading a manifest-declared tool.
+type manifestRequestPlan struct {
+	ResolvedVersion string
+	Tag             string
+	Asset           downloadAsset
+	Commit          string
 }
 
 func downloadBuiltinManifestToolResolved(client *http.Client, cacheDir, tool, requestedVersion, resolvedVersion string, values map[string]string) error {
-	return downloadBuiltinManifestToolResolvedWithTag(client, cacheDir, tool, requestedVersion, resolvedVersion, resolvedVersion, values)
-}
-
-func downloadBuiltinManifestToolResolvedWithTag(client *http.Client, cacheDir, tool, requestedVersion, resolvedVersion, tag string, values map[string]string) error {
 	manifest, err := loadBuiltinManifest(tool)
 	if err != nil {
 		return err
 	}
 
-	asset, err := resolveManifestDownloadAsset(tool, manifest.Download.Assets, requestedVersion, resolvedVersion, tag, runtime.GOOS, runtime.GOARCH, values)
+	asset, err := resolveManifestDownloadAsset(tool, manifest.Download.Assets, requestedVersion, resolvedVersion, resolvedVersion, runtime.GOOS, runtime.GOARCH, values)
 	if err != nil {
 		return err
 	}
@@ -113,35 +109,51 @@ func downloadBuiltinManifestToolResolvedWithTag(client *http.Client, cacheDir, t
 	return downloadManifestAsset(client, cacheDir, tool, requestedVersion, resolvedVersion, asset)
 }
 
-func resolveBuiltinManifestDownloadAsset(tool, requestedVersion, goos, goarch string) (string, databaseDownloadAsset, error) {
-	manifest, err := loadBuiltinManifest(tool)
+func resolveManifestRequest(client *http.Client, m pluginManifest, requestedVersion, goos, goarch string) (manifestRequestPlan, error) {
+	tool := strings.ToLower(strings.TrimSpace(m.ID))
+	resolvedVersion, tag, githubAssets, err := resolveManifestDownloadVersion(client, tool, requestedVersion, m.Download)
 	if err != nil {
-		return "", databaseDownloadAsset{}, err
+		return manifestRequestPlan{}, err
+	}
+	if !m.VersionConstraint.allowsResolved(resolvedVersion) {
+		return manifestRequestPlan{}, m.VersionConstraint.error(tool, resolvedVersion)
 	}
 
-	asset, err := resolveManifestDownloadAsset(tool, manifest.Download.Assets, requestedVersion, requestedVersion, requestedVersion, goos, goarch, nil)
+	asset, err := resolveManifestDownloadAsset(tool, m.Download.Assets, requestedVersion, resolvedVersion, tag, goos, goarch, nil)
 	if err != nil {
-		return "", databaseDownloadAsset{}, err
-	}
-
-	return requestedVersion, asset, nil
-}
-
-func downloadManifestAssetForRequest(client *http.Client, cacheDir, tool, requestedVersion string, download manifestDownload, goos, goarch string) error {
-	resolvedVersion, tag, githubAssets, err := resolveManifestDownloadVersion(client, tool, requestedVersion, download)
-	if err != nil {
-		return err
-	}
-
-	asset, err := resolveManifestDownloadAsset(tool, download.Assets, requestedVersion, resolvedVersion, tag, goos, goarch, nil)
-	if err != nil {
-		return err
+		return manifestRequestPlan{}, err
 	}
 	if len(githubAssets) > 0 {
 		applyGitHubAssetDigest(&asset, githubAssets)
 	}
 
-	return downloadManifestAsset(client, cacheDir, tool, requestedVersion, resolvedVersion, asset)
+	plan := manifestRequestPlan{
+		ResolvedVersion: resolvedVersion,
+		Tag:             tag,
+		Asset:           asset,
+	}
+	if asset.ChecksumAlgorithm == checksumAlgorithmEmbeddedCommitID {
+		commit, err := resolveGitHubTagCommit(client, tool, m.Download.GitHub, tag)
+		if err != nil {
+			return manifestRequestPlan{}, err
+		}
+		plan.Commit = commit
+	}
+
+	return plan, nil
+}
+
+func downloadManifestRequest(ctx DownloadContext, m pluginManifest) error {
+	tool := strings.ToLower(strings.TrimSpace(m.ID))
+	plan, err := resolveManifestRequest(ctx.Client, m, ctx.Version, runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		return err
+	}
+	if plan.Asset.ChecksumAlgorithm == checksumAlgorithmEmbeddedCommitID {
+		return downloadGitHubSourceArchive(ctx.Client, ctx.CacheDir, tool, ctx.Version, plan.ResolvedVersion, plan.Asset, plan.Commit)
+	}
+
+	return downloadManifestAsset(ctx.Client, ctx.CacheDir, tool, ctx.Version, plan.ResolvedVersion, plan.Asset)
 }
 
 func resolveManifestDownloadVersion(client *http.Client, tool, requestedVersion string, download manifestDownload) (string, string, []githubReleaseAsset, error) {
@@ -150,8 +162,12 @@ func resolveManifestDownloadVersion(client *http.Client, tool, requestedVersion 
 		return "", "", nil, fmt.Errorf("%s version cannot be empty", tool)
 	}
 	if !download.hasGitHub() {
-		if download.hasReleaseIndex() && versionNeedsResolution(requestedVersion) {
-			version, err := resolveReleaseIndexVersion(client, download.ReleaseIndex, requestedVersion)
+		if download.hasReleaseIndex() {
+			normalizedRequested := strings.TrimPrefix(requestedVersion, "v")
+			if !versionNeedsResolution(normalizedRequested) {
+				return normalizedRequested, normalizedRequested, nil, nil
+			}
+			version, err := resolveReleaseIndexVersion(client, download.ReleaseIndex, normalizedRequested)
 			if err != nil {
 				return "", "", nil, fmt.Errorf("resolve %s version %q: %w", tool, requestedVersion, err)
 			}
@@ -160,6 +176,19 @@ func resolveManifestDownloadVersion(client *http.Client, tool, requestedVersion 
 		}
 
 		return requestedVersion, requestedVersion, nil, nil
+	}
+
+	if strings.EqualFold(strings.TrimSpace(download.GitHub.Mode), "tag") {
+		prefix := strings.TrimSpace(download.GitHub.TagPrefix)
+		resolvedVersion := strings.TrimPrefix(requestedVersion, prefix)
+		if resolvedVersion == "" {
+			return "", "", nil, fmt.Errorf("%s version cannot be empty", tool)
+		}
+		if err := validateVersion(tool, resolvedVersion); err != nil {
+			return "", "", nil, err
+		}
+
+		return resolvedVersion, prefix + resolvedVersion, nil, nil
 	}
 
 	version, tag, assets, err := resolveGitHubReleaseVersion(client, download.GitHub, requestedVersion)
@@ -171,7 +200,13 @@ func resolveManifestDownloadVersion(client *http.Client, tool, requestedVersion 
 }
 
 func resolveReleaseIndexVersion(client *http.Client, config manifestReleaseIndexDownload, requested string) (string, error) {
-	page, err := downloadText(client, config.URL, "release index")
+	indexURL, err := renderDownloadTemplate("download.release-index.url", config.URL, map[string]string{
+		"requested": strings.TrimSpace(requested),
+	})
+	if err != nil {
+		return "", err
+	}
+	page, err := downloadText(client, indexURL, "release index")
 	if err != nil {
 		return "", err
 	}
@@ -256,11 +291,10 @@ func platformKey(goos, goarch string) string {
 }
 
 func renderDownloadAsset(asset downloadAsset, requestedVersion, resolvedVersion, tag string, values map[string]string) (downloadAsset, error) {
-	templateValues := map[string]string{
-		"requested": strings.TrimSpace(requestedVersion),
-		"version":   strings.TrimSpace(resolvedVersion),
-		"tag":       strings.TrimSpace(tag),
-	}
+	templateValues := derivedTemplateValues(resolvedVersion)
+	templateValues["requested"] = strings.TrimSpace(requestedVersion)
+	templateValues["version"] = strings.TrimSpace(resolvedVersion)
+	templateValues["tag"] = strings.TrimSpace(tag)
 	if templateValues["tag"] == "" {
 		templateValues["tag"] = templateValues["version"]
 	}
@@ -553,6 +587,12 @@ func downloadManifestAsset(client *http.Client, cacheDir, tool, requestedVersion
 		checksum, err = downloadChecksumValue(client, asset.ChecksumURL, asset.ChecksumAlgorithm, asset.SourceFileName)
 		if err != nil {
 			return err
+		}
+	}
+	switch asset.ChecksumAlgorithm {
+	case checksumAlgorithmMD5, checksumAlgorithmSHA256, checksumAlgorithmSHA3_256:
+		if checksum == "" {
+			return fmt.Errorf("%s asset %q declares %s checksum but none was published", tool, asset.SourceFileName, asset.ChecksumAlgorithm)
 		}
 	}
 	if checksum != "" {
