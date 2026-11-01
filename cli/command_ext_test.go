@@ -75,7 +75,7 @@ func setupExtTestProject(t *testing.T, phpScript []byte) (projectDir, root, capt
 	writeCachedPIE(t, cacheDir, "1", []byte("pie phar\n"))
 
 	writeTestConfigFile(t, projectDir, testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {PHP: "8.4"},
@@ -226,7 +226,7 @@ func TestRunExtRequiresStandalonePHP(t *testing.T) {
 	stderr := &bytes.Buffer{}
 
 	writeTestConfigFile(t, projectDir, testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {FrankenPHP: "1.12"},

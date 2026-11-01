@@ -61,7 +61,7 @@ func TestPHPExtensionsFileValueRoundTrip(t *testing.T) {
 		t.Fatalf("environment.PIEExtensions = %#v, want xdebug entry", environment.PIEExtensions)
 	}
 
-	file := ProjectFileFromEnvironment(1, ".polka", environment)
+	file := ProjectFileFromEnvironment("0.2", ".polka", environment)
 	if !reflect.DeepEqual(file.PHPExtensions, want) {
 		t.Fatalf("round-tripped php-extensions = %#v, want %#v", file.PHPExtensions, want)
 	}

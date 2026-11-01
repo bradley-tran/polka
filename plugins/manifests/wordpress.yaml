@@ -37,11 +37,60 @@ php-extensions:
   - xsl
   - zip
   - zlib
+detection:
+  package-prefixes:
+    - "roots/"
+  markers:
+    - "wp-load.php"
+    - "wp-config-sample.php"
+  priority: 30
+  package-substrings:
+    - "wordpress"
+app-root:
+  public-dir: "."
+  markers:
+    - "wp-config.php"
+    - "wp-config-sample.php"
+    - "wp-load.php"
+    - "composer.json"
 runtime-env:
-  database:
-    keys: standard
+  requires-database: true
+  values:
+    DB_HOST:
+      from: "database.host"
+    DB_PORT:
+      from: "database.port"
+    DB_DATABASE:
+      from: "database.name"
+    DB_USERNAME:
+      from: "database.user"
+    DB_PASSWORD:
+      from: "database.password"
 post-composer:
-  strategy: wordpress-config
-  app-root:
-    public-dir: .
-    framework: wordpress
+  requires-database: true
+  actions:
+    - type: "php-constants"
+      path: "wp-config.php"
+      fallback: "wp-config-sample.php"
+      fallback-template-file: "wordpress-config.php"
+      insert-before: "DB_CHARSET"
+      values:
+        DB_NAME:
+          from: "database.name"
+        DB_USER:
+          from: "database.user"
+        DB_PASSWORD:
+          from: "database.password"
+        DB_HOST:
+          format:
+            kind: "host-port"
+            host:
+              from: "database.host"
+            port:
+              from: "database.port"
+            omit-port: "3306"
+      order:
+        - "DB_NAME"
+        - "DB_USER"
+        - "DB_PASSWORD"
+        - "DB_HOST"

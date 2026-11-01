@@ -8,6 +8,10 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"polka/backend"
+	"polka/config"
+	"polka/plugins"
 )
 
 // setupCreateProjectCache seeds the cache with a fake internal PHP host that
@@ -21,6 +25,54 @@ func setupCreateProjectCache(t *testing.T, workingDir string, exitCode int) {
 	writeCachedPHP(t, cacheDir, "8.4", fakeCakePHPCreateProjectComposerScriptWithExit(exitCode))
 	writeCachedComposer(t, cacheDir, "2.8", []byte("composer phar\n"))
 	t.Setenv("POLKA_TEST_CREATE_PROJECT_DIR", filepath.Join(workingDir, "demo"))
+}
+
+// createProjectRegistryFramework overrides only registry metadata. Delegated
+// behavior makes losing the active registry during target init observable.
+type createProjectRegistryFramework struct{ plugins.FrameworkPlugin }
+
+func (createProjectRegistryFramework) ID() string { return "custom" }
+func (p createProjectRegistryFramework) Defaults() config.Environment {
+	defaults := p.FrameworkPlugin.Defaults()
+	defaults.Framework = p.ID()
+	return defaults
+}
+func (createProjectRegistryFramework) Detection() plugins.FrameworkDetection {
+	return plugins.FrameworkDetection{PackagePrefixes: []string{"custom/"}}
+}
+
+// TestCreateProjectKeepsActiveRegistry checks detection, initialization and the
+// post-hook all use the caller's framework registry instead of built-in globals.
+func TestCreateProjectKeepsActiveRegistry(t *testing.T) {
+	dir := t.TempDir()
+	setupCreateProjectCache(t, dir, 0)
+	chdirTest(t, dir)
+	cake, ok := plugins.NewDefaultRegistry().Framework(plugins.CakePHP)
+	if !ok {
+		t.Fatal("missing built-in fixture")
+	}
+	registry, err := plugins.NewRegistry(nil, createProjectRegistryFramework{cake})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := backend.NewProjectStore(dir)
+	store.Registry = registry
+	store.Plugins = registry.ToolRegistry()
+	var stdout, stderr bytes.Buffer
+	if err := runCreateProject(&stdout, &stderr, store, []string{"custom/app", "demo"}); err != nil {
+		t.Fatalf("create project: %v, %s", err, &stderr)
+	}
+	file := readTestConfigFile(t, filepath.Join(dir, "demo"))
+	if file.Version != "0.2" || file.Environments[defaultEnvironmentName].Framework != "custom" {
+		t.Fatalf("target config = %#v", file)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "demo", "config", "app_local.php"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "'username' => 'polka'") {
+		t.Fatalf("target post-hook did not run: %s", data)
+	}
 }
 
 // TestRunCreateProjectScaffoldsAndInitializesPolka verifies the happy path:

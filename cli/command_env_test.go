@@ -69,7 +69,7 @@ func TestRunInitUsesCurrentDirectoryWithoutParentDiscovery(t *testing.T) {
 	if err := os.MkdirAll(projectDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(project) error = %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(parentDir, "polka.yaml"), []byte("version: 1\nroot: .polka\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(parentDir, "polka.yaml"), []byte("version: 0.2\nroot: .polka\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(parent config) error = %v", err)
 	}
 	chdirTest(t, projectDir)
@@ -391,7 +391,7 @@ func TestRunInitWithFrameworkRejectsExistingConfigBeforeMutation(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
 	chdirTest(t, projectDir)
-	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), []byte("version: 1\nroot: .polka\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), []byte("version: 0.2\nroot: .polka\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
 	stdout := &bytes.Buffer{}
@@ -470,7 +470,7 @@ func TestRunInstallUsesConfiguredNestedRootFromProjectConfig(t *testing.T) {
 	writeCachedPHP(t, cacheDir, "8.4", fakePHPScript())
 
 	writeTestConfigFile(t, projectDir, testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    "test-site/.polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {PHP: "8.4"},
@@ -516,7 +516,7 @@ func TestRunInstallUsesConfiguredNestedRootFromExplicitRoot(t *testing.T) {
 	writeCachedPHP(t, cacheDir, "8.4", fakePHPScript())
 
 	writeTestConfigFile(t, projectDir, testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    "test-site/.polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {PHP: "8.4"},
@@ -1057,7 +1057,7 @@ func TestRunStatusShowsToolsEachOnOwnLine(t *testing.T) {
 	stderr := &bytes.Buffer{}
 
 	config := testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
@@ -1120,7 +1120,7 @@ func TestRunInfoAliasShowsStatus(t *testing.T) {
 	stderr := &bytes.Buffer{}
 
 	config := testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
@@ -1204,7 +1204,7 @@ func TestRunStatusShowsRunningWebserverAndDatabase(t *testing.T) {
 	stderr := &bytes.Buffer{}
 
 	config := testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
@@ -1268,7 +1268,7 @@ func TestRunStatusShowsMailpitUIURL(t *testing.T) {
 	stderr := &bytes.Buffer{}
 
 	config := testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
@@ -1318,7 +1318,7 @@ func TestRunStatusShowsMeilisearchURL(t *testing.T) {
 	stderr := &bytes.Buffer{}
 
 	writeTestConfigFile(t, projectDir, testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {

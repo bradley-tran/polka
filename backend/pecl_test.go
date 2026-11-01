@@ -161,7 +161,7 @@ func TestInstallAndRemovePECLExtensionWindows(t *testing.T) {
 	store := NewStore(root)
 	store.Downloader = HTTPToolDownloader{Client: server.Client()}
 	environment := config.Environment{Name: "default", Tools: config.ToolsConfig{toolPHP: "8.4"}}
-	if err := writeYAML(store.ConfigFile, config.ProjectFileFromEnvironment(1, ".polka", environment)); err != nil {
+	if err := writeYAML(store.ConfigFile, config.ProjectFileFromEnvironment("0.2", ".polka", environment)); err != nil {
 		t.Fatal(err)
 	}
 	installRoot := filepath.Join(store.EnvsDir, toolPHP, "8.4")

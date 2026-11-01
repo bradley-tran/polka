@@ -38,7 +38,7 @@ func TestRunExecRunsCommandWithShellEnvironment(t *testing.T) {
 	}
 
 	config := testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
@@ -95,7 +95,7 @@ func TestRunExecComposerRunsExtensionlessPHPScriptOnWindows(t *testing.T) {
 		t.Fatalf("WriteFile(composer.cmd) error = %v", err)
 	}
 	writeTestConfigFile(t, projectDir, testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {},
@@ -123,7 +123,7 @@ func TestRunExecUsesNearestNestedVendorBin(t *testing.T) {
 	stderr := &bytes.Buffer{}
 
 	writeTestConfigFile(t, projectDir, testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {},
@@ -203,7 +203,7 @@ func TestRunExecRunsPostComposerHookForCakePHPCreateProject(t *testing.T) {
 	}
 
 	config := testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			defaultEnvironmentName: {

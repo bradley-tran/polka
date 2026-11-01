@@ -77,7 +77,7 @@ func TestRunInstallProvisionsPIEExtensions(t *testing.T) {
 	writeCachedPIE(t, cacheDir, "1", []byte("pie phar\n"))
 
 	writeTestConfigFile(t, projectDir, testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
@@ -131,7 +131,7 @@ func TestRunInstallSkipsLoadedPIEExtensions(t *testing.T) {
 	writeCachedPIE(t, cacheDir, "1", []byte("pie phar\n"))
 
 	writeTestConfigFile(t, projectDir, testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {

@@ -42,22 +42,60 @@ php-extensions:
   - xmlreader
   - xsl
   - zip
+detection:
+  package-prefixes:
+    - "laravel/"
+  markers:
+    - "artisan"
+  priority: 60
+app-root:
+  public-dir: "public"
+  markers:
+    - "artisan"
+    - ".env"
+    - ".env.example"
+    - "composer.json"
 runtime-env:
-  database:
-    keys: standard
-    connection: mysql
+  requires-database: true
+  values:
+    DB_CONNECTION:
+      by-engine:
+        mysql: "mysql"
+        mariadb: "mysql"
+        postgresql: "pgsql"
+    DB_HOST:
+      from: "database.host"
+    DB_PORT:
+      from: "database.port"
+    DB_DATABASE:
+      from: "database.name"
+    DB_USERNAME:
+      from: "database.user"
+    DB_PASSWORD:
+      from: "database.password"
 post-composer:
-  strategy: dotenv
-  app-root:
-    public-dir: public
-    framework: laravel
-  dotenv:
-    target: .env
-    template: .env.example
-    values:
-      - DB_CONNECTION
-      - DB_HOST
-      - DB_PORT
-      - DB_DATABASE
-      - DB_USERNAME
-      - DB_PASSWORD
+  requires-database: true
+  actions:
+    - type: "dotenv"
+      path: ".env"
+      fallback: ".env.example"
+      values:
+        DB_CONNECTION:
+          from: "runtime-env.DB_CONNECTION"
+        DB_HOST:
+          from: "runtime-env.DB_HOST"
+        DB_PORT:
+          from: "runtime-env.DB_PORT"
+        DB_DATABASE:
+          from: "runtime-env.DB_DATABASE"
+        DB_USERNAME:
+          from: "runtime-env.DB_USERNAME"
+        DB_PASSWORD:
+          from: "runtime-env.DB_PASSWORD"
+      order:
+        - "DB_CONNECTION"
+        - "DB_HOST"
+        - "DB_PORT"
+        - "DB_DATABASE"
+        - "DB_USERNAME"
+        - "DB_PASSWORD"

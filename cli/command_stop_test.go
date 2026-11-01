@@ -286,7 +286,7 @@ func writeStopTestConfig(t *testing.T, projectDir string, environment testEnviro
 	t.Helper()
 
 	config := testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": environment,

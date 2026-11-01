@@ -289,7 +289,7 @@ func TestFrameworkRuntimeEnvUsesDatabaseCredentials(t *testing.T) {
 		t.Fatal("Framework(laravel) ok = false, want true")
 	}
 
-	values := laravel.RuntimeEnv(RuntimeEnvContext{
+	values := runtimeEnvForTest(t, laravel, RuntimeEnvContext{
 		Database: &DatabaseCredentials{
 			Host:         "127.0.0.1",
 			Port:         3307,
@@ -319,7 +319,7 @@ func TestCodeIgniterRuntimeEnvUsesDatabaseConfigKeys(t *testing.T) {
 		t.Fatal("Framework(codeigniter) ok = false, want true")
 	}
 
-	values := codeIgniter.RuntimeEnv(RuntimeEnvContext{
+	values := runtimeEnvForTest(t, codeIgniter, RuntimeEnvContext{
 		Database: &DatabaseCredentials{
 			Host:         "127.0.0.1",
 			Port:         3307,
@@ -349,7 +349,7 @@ func TestSymfonyRuntimeEnvUsesDatabaseURL(t *testing.T) {
 		t.Fatal("Framework(symfony) ok = false, want true")
 	}
 
-	values := symfony.RuntimeEnv(RuntimeEnvContext{
+	values := runtimeEnvForTest(t, symfony, RuntimeEnvContext{
 		Environment: config.Environment{
 			Framework: Symfony,
 			Database: &config.DatabaseConfig{

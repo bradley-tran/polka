@@ -145,7 +145,7 @@ func TestStoreRejectsInvalidWorkersSchema(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			projectDir := t.TempDir()
 			store := NewProjectStore(projectDir)
-			if err := os.WriteFile(store.ConfigFile, []byte("version: 1\nroot: .polka\n"), 0o644); err != nil {
+			if err := os.WriteFile(store.ConfigFile, []byte("version: 0.2\nroot: .polka\n"), 0o644); err != nil {
 				t.Fatalf("WriteFile(project config) error = %v", err)
 			}
 			if err := os.WriteFile(store.environmentConfigFile("data"), []byte(test.config), 0o644); err != nil {
@@ -168,7 +168,7 @@ func TestStoreRejectsInvalidWorkersSchema(t *testing.T) {
 func TestStoreReadsWorkersConfig(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
-	if err := os.WriteFile(store.ConfigFile, []byte("version: 1\nroot: .polka\n"), 0o644); err != nil {
+	if err := os.WriteFile(store.ConfigFile, []byte("version: 0.2\nroot: .polka\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(project config) error = %v", err)
 	}
 	environmentConfig := strings.Join([]string{

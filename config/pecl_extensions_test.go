@@ -35,7 +35,7 @@ func TestPECLExtensionsYAMLRoundTrip(t *testing.T) {
 	}
 
 	environment := ProjectFileToEnvironment("default", ProjectFile{PECLExtensions: raw})
-	file := ProjectFileFromEnvironment(1, ".polka", environment)
+	file := ProjectFileFromEnvironment("0.2", ".polka", environment)
 	if !reflect.DeepEqual(PECLExtensionsFromYAML(file.PECLExtensions), want) {
 		t.Fatalf("project file round trip = %#v, want %#v", file.PECLExtensions, want)
 	}

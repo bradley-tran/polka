@@ -104,7 +104,7 @@ func TestPHPZTSConfigRoundTrip(t *testing.T) {
 		t.Fatalf("ProjectFileToEnvironment() = %#v, want php-zts 8.4", environment)
 	}
 
-	file := ProjectFileFromEnvironment(1, ".polka", environment)
+	file := ProjectFileFromEnvironment("0.2", ".polka", environment)
 	if file.Tools == nil || file.Tools["php-zts"] != "8.4" || file.Tools["php"] != "" {
 		t.Fatalf("ProjectFileFromEnvironment() tools = %#v, want php-zts 8.4", file.Tools)
 	}
@@ -124,7 +124,7 @@ func TestFrankenPHPAndServerTypeConfigRoundTrip(t *testing.T) {
 		t.Fatalf("NormalizeEnvironment() = %#v, want FrankenPHP 1.12 server", normalized)
 	}
 
-	file := ProjectFileFromEnvironment(1, ".polka", normalized)
+	file := ProjectFileFromEnvironment("0.2", ".polka", normalized)
 	if file.Tools == nil || file.Tools["frankenphp"] != "1.12" {
 		t.Fatalf("ProjectFileFromEnvironment() tools = %#v, want FrankenPHP 1.12", file.Tools)
 	}
@@ -142,7 +142,7 @@ func TestPHPMemoryLimitConfigRoundTrip(t *testing.T) {
 		t.Fatalf("ProjectFileToEnvironment() memory-limit = %q, want 512M", environment.MemoryLimit)
 	}
 
-	file := ProjectFileFromEnvironment(1, ".polka", environment)
+	file := ProjectFileFromEnvironment("0.2", ".polka", environment)
 	if file.MemoryLimit != "512M" {
 		t.Fatalf("ProjectFileFromEnvironment() memory-limit = %#v, want 512M", file.MemoryLimit)
 	}
@@ -176,7 +176,7 @@ func TestApacheAndServerTypeConfigRoundTrip(t *testing.T) {
 		t.Fatalf("NormalizeEnvironment() = %#v, want Apache 2.4 server", normalized)
 	}
 
-	file := ProjectFileFromEnvironment(1, ".polka", normalized)
+	file := ProjectFileFromEnvironment("0.2", ".polka", normalized)
 	if file.Tools == nil || file.Tools["apache"] != "2.4" {
 		t.Fatalf("ProjectFileFromEnvironment() tools = %#v, want Apache 2.4", file.Tools)
 	}
@@ -212,12 +212,12 @@ func TestPHPBuildToolsSettingRoundTrip(t *testing.T) {
 		t.Fatal("ProjectFileToEnvironment() PHPBuildTools() = false, want true")
 	}
 
-	file := ProjectFileFromEnvironment(1, ".polka", environment)
+	file := ProjectFileFromEnvironment("0.2", ".polka", environment)
 	if file.Settings == nil || file.Settings["php"] == nil || file.Settings["php"]["extension-sdk"] != true {
 		t.Fatalf("ProjectFileFromEnvironment() settings = %#v, want extension-sdk true", file.Settings)
 	}
 
-	disabled := ProjectFileFromEnvironment(1, ".polka", Environment{})
+	disabled := ProjectFileFromEnvironment("0.2", ".polka", Environment{})
 	if disabled.Settings != nil {
 		t.Fatalf("ProjectFileFromEnvironment(disabled) settings = %#v, want nil", disabled.Settings)
 	}

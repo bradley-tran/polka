@@ -85,8 +85,13 @@ func runCreateProject(stdout, stderr io.Writer, store backend.Store, args []stri
 		return &statusError{code: exitCode}
 	}
 
-	framework := plugins.DetectFramework(pkg, targetDir)
+	framework, err := store.DetectFramework(pkg, targetDir)
+	if err != nil {
+		return &statusError{code: 1, err: err}
+	}
 	projectStore := backend.NewProjectStore(targetDir)
+	projectStore.Registry = store.Registry
+	projectStore.Plugins = store.Plugins
 	if framework != "" {
 		err = projectStore.InitWithFrameworkOptions(framework, backend.InitOptions{})
 	} else {

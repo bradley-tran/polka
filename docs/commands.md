@@ -16,6 +16,8 @@ Use `--root PATH` to override the local state directory. The default is `.polka`
 
 Creates the local `.polka` directory, bootstraps `polka.yaml` when it does not exist, and syncs the active environment's dispatch shims into `.polka/bin`. The bootstrapped default environment enables HTTPS and sets `server.hostname` to `<directory>.localhost`.
 
+Generated project manifests use `version: 0.2`. Existing manifests with `0.1`, `1`, or a missing version are rejected by project commands. Delete the old `polka.yaml` yourself and rerun `polka init [framework|preset]` to regenerate it, then reapply your custom settings. Init never replaces an existing manifest. Named environment files do not carry a version field.
+
 ```bash
 polka init
 polka init cakephp

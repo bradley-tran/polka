@@ -18,7 +18,7 @@ import (
 func writeWorkersTestProject(t *testing.T, projectDir string) {
 	t.Helper()
 
-	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), []byte("version: 1\nroot: .polka\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), []byte("version: 0.2\nroot: .polka\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(polka.yaml) error = %v", err)
 	}
 	demoConfig := strings.Join([]string{

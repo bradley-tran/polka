@@ -21,7 +21,7 @@ func TestDetectFrameworkFromPackage(t *testing.T) {
 		"acme/blog":                  "",
 	}
 	for pkg, want := range cases {
-		if got := DetectFramework(pkg, t.TempDir()); got != want {
+		if got, err := NewDefaultRegistry().DetectFramework(pkg, t.TempDir()); err != nil || got != want {
 			t.Fatalf("DetectFramework(%q) = %q, want %q", pkg, got, want)
 		}
 	}
@@ -62,7 +62,7 @@ func TestDetectFrameworkFromMarkerFiles(t *testing.T) {
 			for _, marker := range testCase.markers {
 				writeMarker(t, dir, marker...)
 			}
-			if got := DetectFramework("acme/blog", dir); got != testCase.want {
+			if got, err := NewDefaultRegistry().DetectFramework("acme/blog", dir); err != nil || got != testCase.want {
 				t.Fatalf("DetectFramework(acme/blog, %s markers) = %q, want %q", testCase.name, got, testCase.want)
 			}
 		})

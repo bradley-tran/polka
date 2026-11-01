@@ -278,7 +278,7 @@ func TestStorePresetDefaults(t *testing.T) {
 func TestStorePresetInitRejectsExistingConfigBeforeCreatingState(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
-	if err := os.WriteFile(store.ConfigFile, []byte("version: 1\nroot: .polka\n"), 0o644); err != nil {
+	if err := os.WriteFile(store.ConfigFile, []byte("version: 0.2\nroot: .polka\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
 
@@ -437,7 +437,7 @@ func TestStoreUseStoresActiveEnvironmentOutsideConfig(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
 	configData := []byte(strings.Join([]string{
-		"version: 1",
+		"version: 0.2",
 		"root: .polka",
 		"tools:",
 		"  php: \"8.4\"",
@@ -511,7 +511,7 @@ func TestStoreUseDefaultClearsActiveEnvironmentOverride(t *testing.T) {
 func TestStoreRejectsLegacyEnvironmentsConfig(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
-	configData := []byte("version: 1\nroot: .polka\nenvironments:\n  demo:\n    php: \"8.4\"\n")
+	configData := []byte("version: 0.2\nroot: .polka\nenvironments:\n  demo:\n    php: \"8.4\"\n")
 	if err := os.WriteFile(store.ConfigFile, configData, 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
@@ -625,7 +625,7 @@ func TestStoreReadsAndWritesOPcacheConfig(t *testing.T) {
 func TestStoreRejectsUnknownFrameworkConfig(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
-	if err := os.WriteFile(store.ConfigFile, []byte("version: 1\nroot: .polka\nframework: yii\n"), 0o644); err != nil {
+	if err := os.WriteFile(store.ConfigFile, []byte("version: 0.2\nroot: .polka\nframework: yii\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
 
@@ -1162,7 +1162,7 @@ func TestStoreInstallPreservesExistingConfigComments(t *testing.T) {
 	if err := os.WriteFile(store.environmentConfigFile("demo"), configData, 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
-	if err := os.WriteFile(store.ConfigFile, []byte("version: 1\nroot: .polka\n"), 0o644); err != nil {
+	if err := os.WriteFile(store.ConfigFile, []byte("version: 0.2\nroot: .polka\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(project config) error = %v", err)
 	}
 
@@ -1184,7 +1184,7 @@ func TestStoreConfigurePreservesExistingConfigComments(t *testing.T) {
 	store := NewProjectStore(projectDir)
 	configData := []byte(strings.Join([]string{
 		"# top comment",
-		"version: 1",
+		"version: 0.2",
 		"root: .polka",
 		"",
 	}, "\n"))
@@ -1234,7 +1234,7 @@ func TestStoreConfigurePreservesExistingConfigComments(t *testing.T) {
 func TestStoreConfigureValuePreservesExistingConfigComments(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
-	if err := os.WriteFile(store.ConfigFile, []byte("version: 1\nroot: .polka\n"), 0o644); err != nil {
+	if err := os.WriteFile(store.ConfigFile, []byte("version: 0.2\nroot: .polka\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(project config) error = %v", err)
 	}
 	configData := []byte(strings.Join([]string{
@@ -1365,7 +1365,7 @@ func TestStoreConfigureValueSetsApacheToolAndServerType(t *testing.T) {
 func TestStoreConfigureValueValidatesBeforeWrite(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
-	if err := os.WriteFile(store.ConfigFile, []byte("version: 1\nroot: .polka\n"), 0o644); err != nil {
+	if err := os.WriteFile(store.ConfigFile, []byte("version: 0.2\nroot: .polka\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(project config) error = %v", err)
 	}
 	configData := []byte("tools:\n  php: \"8.4\"\n")
@@ -2594,7 +2594,7 @@ func TestStoreReadsToolSettingsSeparatedFromVersions(t *testing.T) {
 			envName: "demo",
 			writeEnv: func(t *testing.T, store Store, data []byte) {
 				t.Helper()
-				if err := os.WriteFile(store.ConfigFile, []byte("version: 1\nroot: .polka\n"), 0o644); err != nil {
+				if err := os.WriteFile(store.ConfigFile, []byte("version: 0.2\nroot: .polka\n"), 0o644); err != nil {
 					t.Fatalf("WriteFile(project config) error = %v", err)
 				}
 				if err := os.WriteFile(store.environmentConfigFile("demo"), data, 0o644); err != nil {
@@ -2607,7 +2607,7 @@ func TestStoreReadsToolSettingsSeparatedFromVersions(t *testing.T) {
 			projectDir := t.TempDir()
 			store := NewProjectStore(projectDir)
 			configData := []byte(strings.Join([]string{
-				"version: 1",
+				"version: 0.2",
 				"root: .polka",
 				"tools:",
 				"  mailpit: \"1.30\"",
@@ -2743,7 +2743,7 @@ func TestStoreCreatePreservesExistingConfigComments(t *testing.T) {
 	store := NewProjectStore(projectDir)
 	configData := []byte(strings.Join([]string{
 		"# project comment",
-		"version: 1",
+		"version: 0.2",
 		"root: .polka",
 		"",
 	}, "\n"))
@@ -2905,7 +2905,7 @@ func TestStoreRemovePreservesRemainingConfigComments(t *testing.T) {
 	store := NewProjectStore(projectDir)
 	configData := []byte(strings.Join([]string{
 		"# project comment",
-		"version: 1",
+		"version: 0.2",
 		"root: .polka",
 		"",
 	}, "\n"))
@@ -3028,7 +3028,7 @@ func TestStoreReadsDatabaseToolVersionAndRootRuntimeConfig(t *testing.T) {
 	if err := os.WriteFile(store.environmentConfigFile("data"), configData, 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
-	if err := os.WriteFile(store.ConfigFile, []byte("version: 1\nroot: .polka\n"), 0o644); err != nil {
+	if err := os.WriteFile(store.ConfigFile, []byte("version: 0.2\nroot: .polka\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(project config) error = %v", err)
 	}
 
@@ -3201,7 +3201,7 @@ func TestStoreRejectsNonVersionToolsAndOrphanSettings(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			projectDir := t.TempDir()
 			store := NewProjectStore(projectDir)
-			if err := os.WriteFile(store.ConfigFile, []byte("version: 1\nroot: .polka\n"), 0o644); err != nil {
+			if err := os.WriteFile(store.ConfigFile, []byte("version: 0.2\nroot: .polka\n"), 0o644); err != nil {
 				t.Fatalf("WriteFile(project config) error = %v", err)
 			}
 			if err := os.WriteFile(store.environmentConfigFile("data"), []byte(test.config), 0o644); err != nil {
@@ -3223,7 +3223,7 @@ func TestResolveToolRequiresConfiguredVersion(t *testing.T) {
 	projectDir := t.TempDir()
 	store := NewProjectStore(projectDir)
 
-	projectConfig := "version: 1\nroot: .polka\n"
+	projectConfig := "version: 0.2\nroot: .polka\n"
 	if err := os.WriteFile(store.ConfigFile, []byte(projectConfig), 0o644); err != nil {
 		t.Fatalf("WriteFile(project config) error = %v", err)
 	}
@@ -3385,7 +3385,7 @@ func TestDefaultStoreDiscoversParentProjectFromNestedDirectory(t *testing.T) {
 	if err := os.MkdirAll(nestedDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(nested) error = %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), []byte("version: 1\nroot: .polka\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), []byte("version: 0.2\nroot: .polka\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
 
@@ -3420,7 +3420,7 @@ func TestDefaultStoreUsesConfiguredNestedRootFromProjectConfig(t *testing.T) {
 	if err := os.MkdirAll(nestedDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(nested) error = %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), []byte("version: 1\nroot: test-site/.polka\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), []byte("version: 0.2\nroot: test-site/.polka\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
 
@@ -3455,7 +3455,7 @@ func TestDefaultStoreUsesConfiguredNestedRootFromProjectConfig(t *testing.T) {
 func TestStoreForRootUsesConfiguredNestedRootFromAncestorConfig(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, "test-site", ".polka")
-	configData := []byte("version: 1\nroot: test-site/.polka\n")
+	configData := []byte("version: 0.2\nroot: test-site/.polka\n")
 	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), configData, 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
@@ -3496,7 +3496,7 @@ func TestDefaultStoreIgnoresNestedRuntimeDotPolkaWhenParentHasProjectConfig(t *t
 	if err := os.MkdirAll(filepath.Join(nestedDir, ".polka", "run"), 0o755); err != nil {
 		t.Fatalf("MkdirAll(nested runtime) error = %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), []byte("version: 1\nroot: .polka\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(projectDir, "polka.yaml"), []byte("version: 0.2\nroot: .polka\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(config) error = %v", err)
 	}
 

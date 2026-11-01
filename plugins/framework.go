@@ -2,9 +2,10 @@ package plugins
 
 import (
 	"fmt"
-	"net/url"
-	"strconv"
+	"io/fs"
+	"slices"
 	"strings"
+	"sync"
 
 	"polka/config"
 	"polka/tools"
@@ -20,7 +21,6 @@ const (
 )
 
 const (
-	defaultMariaDBVersion = "11.8"
 	defaultDatabasePort   = 3306
 	defaultPostgreSQLPort = 5432
 	defaultDatabaseHost   = "127.0.0.1"
@@ -79,7 +79,8 @@ type FrameworkPlugin interface {
 	PHPExtensions() map[string]bool
 	ValidateEnvironment(config.Environment) error
 	OPcacheConfig() map[string]string
-	RuntimeEnv(RuntimeEnvContext) map[string]string
+	Detection() FrameworkDetection
+	RuntimeEnv(RuntimeEnvContext) (map[string]string, error)
 	PostComposer(PostComposerContext) error
 	NginxConfig(NginxConfigContext) (NginxConfigResult, bool, error)
 }
@@ -90,21 +91,24 @@ type builtinFrameworkPlugin struct {
 	phpExtensions   map[string]bool
 	databaseEngines map[string]bool
 	opcacheConfig   map[string]string
-	runtimeDatabase frameworkRuntimeDatabaseManifest
-	postComposer    frameworkPostComposerManifest
+	manifest        frameworkManifest
+	files           fs.FS
 	nginx           func(NginxConfigContext) (NginxConfigResult, bool, error)
 }
 
-// DefaultFrameworkPlugins returns the built-in framework plugins.
-func DefaultFrameworkPlugins() []FrameworkPlugin {
-	return []FrameworkPlugin{
-		newManifestFrameworkPlugin(CakePHP),
-		newManifestFrameworkPlugin(CodeIgniter),
-		newManifestFrameworkPlugin(Drupal),
-		newManifestFrameworkPlugin(WordPress),
-		newManifestFrameworkPlugin(Laravel),
-		newManifestFrameworkPlugin(Symfony),
+// builtinFrameworkPlugins parses immutable embedded declarations once per
+// process, keeping registry construction cheap on the dispatch path.
+var builtinFrameworkPlugins = sync.OnceValue(func() []FrameworkPlugin {
+	plugins, err := loadFrameworkPlugins(builtinFrameworkManifestFiles)
+	if err != nil {
+		panic(err)
 	}
+	return plugins
+})
+
+// DefaultFrameworkPlugins returns an isolated list of the built-in plugins.
+func DefaultFrameworkPlugins() []FrameworkPlugin {
+	return slices.Clone(builtinFrameworkPlugins())
 }
 
 func (p builtinFrameworkPlugin) ID() string {
@@ -140,8 +144,11 @@ func (p builtinFrameworkPlugin) OPcacheConfig() map[string]string {
 	return copyStringMap(p.opcacheConfig)
 }
 
-func (p builtinFrameworkPlugin) RuntimeEnv(ctx RuntimeEnvContext) map[string]string {
-	return frameworkManifestRuntimeEnv(ctx, p.runtimeDatabase)
+// Detection returns isolated metadata so callers cannot mutate the registry.
+func (p builtinFrameworkPlugin) Detection() FrameworkDetection { return p.manifest.Detection.clone() }
+
+func (p builtinFrameworkPlugin) RuntimeEnv(ctx RuntimeEnvContext) (map[string]string, error) {
+	return frameworkManifestRuntimeEnv(ctx, p.manifest)
 }
 
 func (p builtinFrameworkPlugin) PostComposer(ctx PostComposerContext) error {
@@ -194,138 +201,10 @@ func copyStringMap(values map[string]string) map[string]string {
 	return copied
 }
 
-func frameworkDatabaseRuntimeEnv(ctx RuntimeEnvContext, includeLaravelConnection bool, includeSymfonyDatabaseURL bool) map[string]string {
-	if ctx.Database == nil {
-		return nil
-	}
-
-	host := strings.TrimSpace(ctx.Database.Host)
-	if host == "" {
-		host = defaultDatabaseHost
-	}
-	port := ctx.Database.Port
-	if port == 0 {
-		port = frameworkDefaultDatabasePort(ctx.Database.Engine)
-	}
-
-	values := map[string]string{
-		"DB_HOST":     host,
-		"DB_PORT":     strconv.Itoa(port),
-		"DB_DATABASE": ctx.Database.DatabaseName,
-		"DB_USERNAME": ctx.Database.User,
-		"DB_PASSWORD": ctx.Database.Password,
-	}
-	if includeLaravelConnection {
-		if isPostgreSQL(ctx.Database.Engine) {
-			values["DB_CONNECTION"] = "pgsql"
-		} else {
-			values["DB_CONNECTION"] = "mysql"
-		}
-	}
-	if includeSymfonyDatabaseURL {
-		values["DATABASE_URL"] = symfonyDatabaseURL(ctx, host, port)
-	}
-
-	return values
-}
-
-// codeIgniterDatabaseRuntimeEnv renders managed database credentials in CodeIgniter's config key form.
-func codeIgniterDatabaseRuntimeEnv(ctx RuntimeEnvContext) map[string]string {
-	credentials := normalizeDatabaseCredentials(ctx.Database)
-	if credentials == nil {
-		return nil
-	}
-
-	driver := "MySQLi"
-	if isPostgreSQL(credentials.Engine) {
-		driver = "Postgre"
-	}
-
-	return map[string]string{
-		"database.default.hostname": credentials.Host,
-		"database.default.port":     strconv.Itoa(credentials.Port),
-		"database.default.database": credentials.DatabaseName,
-		"database.default.username": credentials.User,
-		"database.default.password": credentials.Password,
-		"database.default.DBDriver": driver,
-	}
-}
-
-// symfonyDatabaseURL renders managed database credentials in Symfony's Doctrine URL form.
-func symfonyDatabaseURL(ctx RuntimeEnvContext, host string, port int) string {
-	user := url.UserPassword(ctx.Database.User, ctx.Database.Password).String()
-	databaseName := strings.TrimPrefix(url.PathEscape(ctx.Database.DatabaseName), "/")
-	serverVersion := symfonyDatabaseServerVersion(ctx.Environment)
-	scheme := "mysql"
-	charset := "utf8mb4"
-	if isPostgreSQL(ctx.Database.Engine) {
-		scheme = "postgresql"
-		charset = "utf8"
-	}
-	values := url.Values{"charset": []string{charset}}
-	if serverVersion != "" {
-		values.Set("serverVersion", serverVersion)
-	}
-
-	return scheme + "://" + user + "@" + host + ":" + strconv.Itoa(port) + "/" + databaseName + "?" + values.Encode()
-}
-
-// symfonyDatabaseServerVersion converts Polka's database selection to Doctrine's serverVersion value.
-func symfonyDatabaseServerVersion(environment config.Environment) string {
-	if environment.Database == nil {
-		return ""
-	}
-
-	engine := strings.ToLower(strings.TrimSpace(environment.Database.Engine))
-	version := strings.TrimSpace(environment.Database.Version)
-	switch engine {
-	case tools.MariaDB:
-		if version == "" {
-			version = environment.ToolVersion(tools.MariaDB)
-		}
-		if version == "" {
-			version = defaultMariaDBVersion
-		}
-		return "mariadb-" + symfonyMySQLCompatibleServerVersion(version)
-	case tools.MySQL:
-		if version == "" {
-			version = environment.ToolVersion(tools.MySQL)
-		}
-		if version == "" {
-			return "mysql"
-		}
-		return version
-	case tools.PostgreSQL:
-		if version == "" {
-			version = environment.ToolVersion(tools.PostgreSQL)
-		}
-		return version
-	default:
-		return ""
-	}
-}
-
-// symfonyMySQLCompatibleServerVersion pads two-part MariaDB versions for Doctrine's parser.
-func symfonyMySQLCompatibleServerVersion(version string) string {
-	trimmed := strings.TrimSpace(version)
-	if strings.HasPrefix(strings.ToLower(trimmed), "mariadb-") {
-		trimmed = strings.TrimSpace(trimmed[len("mariadb-"):])
-	}
-	if strings.Count(trimmed, ".") == 1 {
-		return trimmed + ".0"
-	}
-
-	return trimmed
-}
-
+// frameworkDefaultDatabasePort normalizes shared database context defaults.
 func frameworkDefaultDatabasePort(engine string) int {
-	if isPostgreSQL(engine) {
+	if strings.EqualFold(strings.TrimSpace(engine), tools.PostgreSQL) {
 		return defaultPostgreSQLPort
 	}
-
 	return defaultDatabasePort
-}
-
-func isPostgreSQL(engine string) bool {
-	return strings.EqualFold(strings.TrimSpace(engine), tools.PostgreSQL)
 }

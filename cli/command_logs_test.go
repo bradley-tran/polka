@@ -117,7 +117,7 @@ func TestRunLogsPrintsFrankenPHPServeLog(t *testing.T) {
 	stderr := &bytes.Buffer{}
 
 	writeTestConfigFile(t, projectDir, testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {FrankenPHP: "1.12"},
@@ -171,7 +171,7 @@ func writeLogsTestConfig(t *testing.T, projectDir string) {
 
 	root := filepath.Join(projectDir, ".polka")
 	writeTestConfigFile(t, projectDir, testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {Nginx: "1.30"},

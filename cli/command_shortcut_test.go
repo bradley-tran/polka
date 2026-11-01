@@ -34,7 +34,7 @@ func TestShortcutPHPExpandsToExec(t *testing.T) {
 	stderr := &bytes.Buffer{}
 
 	writeTestConfigFile(t, projectDir, testConfigFile{
-		Version:      1,
+		Version:      "0.2",
 		Root:         ".polka",
 		Environments: map[string]testEnvironmentConfig{"demo": {}},
 	})
@@ -60,7 +60,7 @@ func TestShortcutHiddenNodeExpandsToExec(t *testing.T) {
 	stderr := &bytes.Buffer{}
 
 	writeTestConfigFile(t, projectDir, testConfigFile{
-		Version:      1,
+		Version:      "0.2",
 		Root:         ".polka",
 		Environments: map[string]testEnvironmentConfig{"demo": {}},
 	})

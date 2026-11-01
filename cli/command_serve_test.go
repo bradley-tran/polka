@@ -85,7 +85,7 @@ func TestRunServeUsesConfiguredDocrootWhenArgumentOmitted(t *testing.T) {
 	}
 
 	config := testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
@@ -143,7 +143,7 @@ func TestRunServeArgumentOverridesConfiguredDocroot(t *testing.T) {
 	}
 
 	config := testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
@@ -189,7 +189,7 @@ func TestRunServeRequiresDocrootArgumentOrConfig(t *testing.T) {
 	stderr := &bytes.Buffer{}
 
 	config := testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
@@ -267,7 +267,7 @@ func TestRunServeUsesNginxWhenConfigured(t *testing.T) {
 	}
 
 	config := testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
@@ -337,7 +337,7 @@ func TestRunServeUsesExplicitApache(t *testing.T) {
 	}
 
 	config := testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
@@ -407,7 +407,7 @@ func TestRunServeDoesNotSelectApacheWhenServerTypeOmitted(t *testing.T) {
 	}
 
 	writeTestConfigFile(t, projectDir, testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
@@ -457,7 +457,7 @@ func TestRunServeUsesExplicitFrankenPHPWhenNginxIsConfigured(t *testing.T) {
 	}
 
 	writeTestConfigFile(t, projectDir, testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
@@ -1001,7 +1001,7 @@ func TestRunServeRejectsHTTPSWithoutNginx(t *testing.T) {
 	}
 
 	config := testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
@@ -1282,7 +1282,7 @@ func TestRunServeStartsConfiguredMailpitBeforeWebserver(t *testing.T) {
 	}
 
 	config := testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
@@ -1396,7 +1396,7 @@ func TestRunServeStartsConfiguredMeilisearchBeforeWebserver(t *testing.T) {
 	}
 
 	writeTestConfigFile(t, projectDir, testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
@@ -1500,7 +1500,7 @@ func TestRunServeStartsConfiguredPHPMyAdminBeforeWebserver(t *testing.T) {
 	}
 
 	config := testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
@@ -1610,7 +1610,7 @@ func TestRunServeStartsHTTPSPHPMyAdminWithRuntimeTLSKey(t *testing.T) {
 	}
 
 	config := testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
@@ -1736,7 +1736,7 @@ func TestRunServeStartsInBackgroundByDefaultAndStopStopsIt(t *testing.T) {
 	}
 
 	config := testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {

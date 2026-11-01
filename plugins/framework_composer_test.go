@@ -154,6 +154,8 @@ func TestCodeIgniterPostComposerUpdatesDotenvDatabaseSecrets(t *testing.T) {
 	}
 }
 
+// TestDrupalPostComposerWritesPolkaSettingsFile covers initial generation and
+// refreshing managed credentials after Drupal appends its installer settings.
 func TestDrupalPostComposerWritesPolkaSettingsFile(t *testing.T) {
 	projectDir := t.TempDir()
 	settingsDir := filepath.Join(projectDir, "drupal", "web", "sites", "default")
@@ -191,11 +193,11 @@ func TestDrupalPostComposerWritesPolkaSettingsFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile(settings.php) error = %v", err)
 	}
-	if !strings.Contains(string(settings), polkaDrupalSettingsFile) {
+	if !strings.Contains(string(settings), "settings.polka.php") {
 		t.Fatalf("settings.php = %q, want Polka include", string(settings))
 	}
 
-	polkaSettings, err := os.ReadFile(filepath.Join(settingsDir, polkaDrupalSettingsFile))
+	polkaSettings, err := os.ReadFile(filepath.Join(settingsDir, "settings.polka.php"))
 	if err != nil {
 		t.Fatalf("ReadFile(settings.polka.php) error = %v", err)
 	}
@@ -212,6 +214,47 @@ func TestDrupalPostComposerWritesPolkaSettingsFile(t *testing.T) {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("settings.polka.php = %q, want %q", text, expected)
 		}
+	}
+
+	// Drupal persists connection details after the generated include during
+	// installation. A later Composer refresh must make managed secrets win.
+	installerSettings := "$databases['default']['default'] = ['password' => 'stale'];\n$settings['hash_salt'] = 'preserve';\n"
+	settingsPath := filepath.Join(settingsDir, "settings.php")
+	if err := os.WriteFile(settingsPath, append(settings, []byte(installerSettings)...), 0o644); err != nil {
+		t.Fatalf("WriteFile(installer settings) error = %v", err)
+	}
+	context := PostComposerContext{
+		ProjectDir: projectDir,
+		Environment: config.Environment{
+			Framework: Drupal,
+			Docroot:   "drupal/web",
+		},
+		Database: &DatabaseCredentials{
+			Host:         "127.0.0.1",
+			Port:         3307,
+			DatabaseName: "demo",
+			User:         "polka",
+			Password:     "rotated-secret",
+		},
+	}
+	if err := drupal.PostComposer(context); err != nil {
+		t.Fatalf("PostComposer(refresh) error = %v", err)
+	}
+	refreshed := string(readPluginTestFile(t, settingsPath))
+	if !strings.Contains(refreshed, installerSettings) {
+		t.Fatalf("settings.php lost installer settings: %q", refreshed)
+	}
+	if strings.Index(refreshed, "// <polka:settings-polka>") < strings.Index(refreshed, installerSettings) {
+		t.Fatalf("settings.php loads managed credentials before installer settings: %q", refreshed)
+	}
+	if !strings.Contains(string(readPluginTestFile(t, filepath.Join(settingsDir, "settings.polka.php"))), "'password' => 'rotated-secret'") {
+		t.Fatal("settings.polka.php did not refresh the database password")
+	}
+	if err := drupal.PostComposer(context); err != nil {
+		t.Fatalf("PostComposer(repeat) error = %v", err)
+	}
+	if repeated := string(readPluginTestFile(t, settingsPath)); repeated != refreshed {
+		t.Fatalf("repeated refresh changed settings.php: %q", repeated)
 	}
 }
 

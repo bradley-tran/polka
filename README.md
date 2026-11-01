@@ -1,6 +1,6 @@
 # Polka
 
-Polka is a CLI tool for managing PHP virtual environments. It provides a consistent interface for installing and managing multiple local versions of PHP, Composer, Node.js, and other development tools on a per-project basis. Polka also includes support for serving web applications with nginx, Apache, or FrankenPHP, phpMyAdmin, managed databases, and Mailpit.
+Polka is a CLI tool for managing PHP local development environments. It provides a consistent interface for installing and managing multiple local versions of PHP, Composer, Node.js, and other development tools on a per-project basis. Polka also includes support for serving web applications with nginx, Apache, or FrankenPHP, phpMyAdmin, managed databases, and Mailpit.
 
 ## Quick start
 
@@ -40,11 +40,13 @@ For the full command reference, see [docs/commands.md](docs/commands.md). For ma
 
 Polka config files store portable version labels under `tools` and non-version tool options under `settings`. The default environment lives in `polka.yaml`; named environments live in `polka.<name>.yaml`.
 
+The project manifest requires `version: 0.2` (quoted `"0.2"` is also accepted). Older or unversioned manifests are rejected. To regenerate one, delete `polka.yaml` yourself, run `polka init` or `polka init <framework>`, and reapply your settings. Polka does not migrate or delete the old file. Named environment files remain unversioned.
+
 Use `polka config <key> <value>` to update the current environment, or `polka config --env blog <key> <value>` to update a named environment. Keys are dot-separated config paths such as `tools.php`, `tools.php-zts`, `tools.frankenphp`, `tools.apache`, `tools.meilisearch`, `tools.redis`, `tools.rabbitmq`, `server.type`, `database.engine`, `settings.mailpit.smtp-port`, `settings.meilisearch.port`, `settings.redis.port`, `settings.rabbitmq.port`, and `settings.traefik.port`.
 
 ```yaml
 # polka.yaml
-version: 0.1
+version: 0.2
 root: .polka
 framework: laravel
 https: true

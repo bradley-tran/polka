@@ -1,6 +1,8 @@
 package plugins
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -28,28 +30,50 @@ func TestFrameworksRenderPostgreSQLRuntimeSettings(t *testing.T) {
 	ctx := postgreSQLFrameworkContext()
 
 	laravel, _ := registry.Framework(Laravel)
-	if got := laravel.RuntimeEnv(ctx)["DB_CONNECTION"]; got != "pgsql" {
+	if got := runtimeEnvForTest(t, laravel, ctx)["DB_CONNECTION"]; got != "pgsql" {
 		t.Fatalf("Laravel DB_CONNECTION = %q, want pgsql", got)
 	}
 	codeIgniter, _ := registry.Framework(CodeIgniter)
-	if got := codeIgniter.RuntimeEnv(ctx)["database.default.DBDriver"]; got != "Postgre" {
+	if got := runtimeEnvForTest(t, codeIgniter, ctx)["database.default.DBDriver"]; got != "Postgre" {
 		t.Fatalf("CodeIgniter DBDriver = %q, want Postgre", got)
 	}
 	symfony, _ := registry.Framework(Symfony)
-	if got := symfony.RuntimeEnv(ctx)["DATABASE_URL"]; !strings.HasPrefix(got, "postgresql://") || !strings.Contains(got, "serverVersion=17") {
+	if got := runtimeEnvForTest(t, symfony, ctx)["DATABASE_URL"]; !strings.HasPrefix(got, "postgresql://") || !strings.Contains(got, "serverVersion=17") {
 		t.Fatalf("Symfony DATABASE_URL = %q, want PostgreSQL URL", got)
 	}
 }
 
+// TestFrameworksRenderPostgreSQLComposerSettings verifies the public action
+// pipeline rather than framework-specific rendering helpers.
 func TestFrameworksRenderPostgreSQLComposerSettings(t *testing.T) {
-	credentials := postgreSQLFrameworkContext().Database
-	cake := cakePHPDatasourceConfigs(credentials)["default"]
-	if cake["driver"].value != "Cake\\Database\\Driver\\Postgres" || cake["encoding"].value != "utf8" {
-		t.Fatalf("CakePHP datasource = %#v, want PostgreSQL driver", cake)
-	}
-	drupal := renderDrupalPolkaSettings(credentials)
-	if !strings.Contains(drupal, "'driver' => 'pgsql'") || !strings.Contains(drupal, "Drupal\\\\pgsql") {
-		t.Fatalf("Drupal settings = %q, want pgsql driver", drupal)
+	for _, test := range []struct {
+		id, path string
+		expected []string
+	}{
+		{CakePHP, "config/app_local.php", []string{"Cake\\\\Database\\\\Driver\\\\Postgres", "'encoding' => 'utf8'"}},
+		{Drupal, "web/sites/default/settings.polka.php", []string{"'driver' => 'pgsql'", "Drupal\\\\pgsql"}},
+	} {
+		t.Run(test.id, func(t *testing.T) {
+			plugin, ok := NewDefaultRegistry().Framework(test.id)
+			if !ok {
+				t.Fatal("framework missing")
+			}
+			dir := t.TempDir()
+			ctx := postgreSQLFrameworkContext()
+			ctx.Environment.Docroot = plugin.Defaults().Docroot
+			if err := plugin.PostComposer(PostComposerContext{ProjectDir: dir, Environment: ctx.Environment, Database: ctx.Database}); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(test.path)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, expected := range test.expected {
+				if !strings.Contains(string(data), expected) {
+					t.Fatalf("output %q missing %q", data, expected)
+				}
+			}
+		})
 	}
 }
 

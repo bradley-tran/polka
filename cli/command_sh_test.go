@@ -19,7 +19,7 @@ func TestRunShLaunchesInteractiveShellWithPreferredPath(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	writeTestConfigFile(t, projectDir, testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {PHP: "8.4"},
@@ -124,7 +124,7 @@ func TestRunShUsesConfiguredNestedRootForPathLoading(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	writeTestConfigFile(t, projectDir, testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    "test-site/.polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {PHP: "8.4"},
@@ -194,7 +194,7 @@ func TestRunShellAliasLaunchesInteractiveShell(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	writeTestConfigFile(t, projectDir, testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {PHP: "8.4"},
@@ -392,7 +392,7 @@ func TestPrepareShellEnvironmentAddsPHPBuildToolDirectories(t *testing.T) {
 	projectDir := t.TempDir()
 	store := backend.NewStore(filepath.Join(projectDir, ".polka"))
 	config := []byte(strings.Join([]string{
-		"version: 1",
+		"version: 0.2",
 		"root: .polka",
 		"tools:",
 		"  php: \"8.4\"",

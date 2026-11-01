@@ -64,7 +64,7 @@ func TestResolveRuntimeEnvironmentAppliesConfiguredPrecedence(t *testing.T) {
 	}
 
 	config := testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
@@ -110,7 +110,7 @@ func TestResolveRuntimeEnvironmentUsesWindowsKeyReplacement(t *testing.T) {
 	store := backend.NewProjectStore(projectDir)
 
 	config := testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
@@ -157,7 +157,7 @@ func TestResolveRuntimeEnvironmentAppliesFrameworkDatabaseCredentialsBeforeEnvVa
 	store := backend.NewProjectStore(projectDir)
 
 	config := testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {

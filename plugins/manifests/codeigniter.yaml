@@ -31,21 +31,60 @@ php-extensions:
   - opcache
   - openssl
   - zip
+detection:
+  package-prefixes:
+    - "codeigniter4/"
+  markers:
+    - "spark"
+  priority: 40
+app-root:
+  public-dir: "public"
+  markers:
+    - "spark"
+    - "env"
+    - ".env"
+    - "composer.json"
 runtime-env:
-  database:
-    keys: codeigniter
+  requires-database: true
+  values:
+    database.default.hostname:
+      from: "database.host"
+    database.default.port:
+      from: "database.port"
+    database.default.database:
+      from: "database.name"
+    database.default.username:
+      from: "database.user"
+    database.default.password:
+      from: "database.password"
+    database.default.DBDriver:
+      by-engine:
+        mysql: "MySQLi"
+        mariadb: "MySQLi"
+        postgresql: "Postgre"
 post-composer:
-  strategy: dotenv
-  app-root:
-    public-dir: public
-    framework: codeigniter
-  dotenv:
-    target: .env
-    template: env
-    values:
-      - database.default.hostname
-      - database.default.port
-      - database.default.database
-      - database.default.username
-      - database.default.password
-      - database.default.DBDriver
+  requires-database: true
+  actions:
+    - type: "dotenv"
+      path: ".env"
+      fallback: "env"
+      values:
+        database.default.hostname:
+          from: "runtime-env.database.default.hostname"
+        database.default.port:
+          from: "runtime-env.database.default.port"
+        database.default.database:
+          from: "runtime-env.database.default.database"
+        database.default.username:
+          from: "runtime-env.database.default.username"
+        database.default.password:
+          from: "runtime-env.database.default.password"
+        database.default.DBDriver:
+          from: "runtime-env.database.default.DBDriver"
+      order:
+        - "database.default.hostname"
+        - "database.default.port"
+        - "database.default.database"
+        - "database.default.username"
+        - "database.default.password"
+        - "database.default.DBDriver"

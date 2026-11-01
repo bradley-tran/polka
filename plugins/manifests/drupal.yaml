@@ -41,11 +41,68 @@ php-extensions:
   - zlib
 opcache-config:
   opcache.save_comments: "1"
+detection:
+  package-prefixes:
+    - "drupal/"
+  markers:
+    - "web/sites/default/default.settings.php"
+  priority: 20
+app-root:
+  public-dir: "web"
+  markers:
+    - "composer.json"
+    - "web/sites/default/default.settings.php"
+    - "sites/default/default.settings.php"
 runtime-env:
-  database:
-    keys: standard
+  requires-database: true
+  values:
+    DB_HOST:
+      from: "database.host"
+    DB_PORT:
+      from: "database.port"
+    DB_DATABASE:
+      from: "database.name"
+    DB_USERNAME:
+      from: "database.user"
+    DB_PASSWORD:
+      from: "database.password"
 post-composer:
-  strategy: drupal-settings
-  app-root:
-    public-dir: web
-    framework: drupal
+  requires-database: true
+  actions:
+    - type: "write-file"
+      base: "docroot"
+      path: "sites/default/settings.polka.php"
+      template-file: "drupal-settings.php"
+      encoding: "php-literal"
+      values:
+        database:
+          from: "database.name"
+        username:
+          from: "database.user"
+        password:
+          from: "database.password"
+        host:
+          from: "database.host"
+        port:
+          from: "database.port"
+        namespace:
+          by-engine:
+            mysql: "Drupal\\mysql\\Driver\\Database\\mysql"
+            mariadb: "Drupal\\mysql\\Driver\\Database\\mysql"
+            postgresql: "Drupal\\pgsql\\Driver\\Database\\pgsql"
+        driver:
+          by-engine:
+            mysql: "mysql"
+            mariadb: "mysql"
+            postgresql: "pgsql"
+        autoload:
+          by-engine:
+            mysql: "core/modules/mysql/src/Driver/Database/mysql/"
+            mariadb: "core/modules/mysql/src/Driver/Database/mysql/"
+            postgresql: "core/modules/pgsql/src/Driver/Database/pgsql/"
+    - type: "php-include"
+      base: "docroot"
+      path: "sites/default/settings.php"
+      fallback: "sites/default/default.settings.php"
+      include: "settings.polka.php"
+      marker: "settings-polka"

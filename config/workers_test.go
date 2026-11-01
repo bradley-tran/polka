@@ -133,7 +133,7 @@ func TestWorkersRoundTripThroughFileTypes(t *testing.T) {
 	if !reflect.DeepEqual(environment.Workers, workers) {
 		t.Fatalf("ProjectFileToEnvironment().Workers = %#v, want %#v", environment.Workers, workers)
 	}
-	projectFile := ProjectFileFromEnvironment(1, ".polka", environment)
+	projectFile := ProjectFileFromEnvironment("0.2", ".polka", environment)
 	if !reflect.DeepEqual(projectFile.Workers, workers) {
 		t.Fatalf("ProjectFileFromEnvironment().Workers = %#v, want %#v", projectFile.Workers, workers)
 	}

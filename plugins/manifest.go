@@ -3,308 +3,353 @@ package plugins
 import (
 	"embed"
 	"fmt"
-	"path/filepath"
+	"io/fs"
+	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/goccy/go-yaml"
-
 	"polka/config"
 )
 
-//go:embed manifests/*.yaml
+//go:embed manifests/*.yaml manifests/templates/*
 var builtinFrameworkManifestFiles embed.FS
 
+// frameworkManifest contains immutable declarations interpreted by shared Go
+// operations. No behavior is selected by a framework ID.
 type frameworkManifest struct {
 	ID              string                        `yaml:"id"`
 	Defaults        config.EnvironmentFile        `yaml:"defaults"`
 	PHPExtensions   []string                      `yaml:"php-extensions"`
 	DatabaseEngines []string                      `yaml:"database-engines"`
 	OPcacheConfig   map[string]string             `yaml:"opcache-config"`
+	Detection       FrameworkDetection            `yaml:"detection"`
+	AppRoot         frameworkAppRootConfig        `yaml:"app-root"`
+	Values          map[string]frameworkValue     `yaml:"values"`
 	RuntimeEnv      frameworkRuntimeEnvManifest   `yaml:"runtime-env"`
 	PostComposer    frameworkPostComposerManifest `yaml:"post-composer"`
 }
 
-type frameworkRuntimeEnvManifest struct {
-	Database frameworkRuntimeDatabaseManifest `yaml:"database"`
+// frameworkAppRootConfig holds permissive root hints, independently of the
+// distinctive marker files used for framework detection.
+type frameworkAppRootConfig struct {
+	PublicDir string   `yaml:"public-dir"`
+	Markers   []string `yaml:"markers"`
 }
 
-type frameworkRuntimeDatabaseManifest struct {
-	Keys        string `yaml:"keys"`
-	Connection  string `yaml:"connection"`
-	DatabaseURL string `yaml:"database-url"`
+type frameworkRuntimeEnvManifest struct {
+	RequiresDatabase bool                      `yaml:"requires-database"`
+	Values           map[string]frameworkValue `yaml:"values"`
 }
 
 type frameworkPostComposerManifest struct {
-	Strategy string                 `yaml:"strategy"`
-	AppRoot  frameworkAppRootConfig `yaml:"app-root"`
-	Dotenv   frameworkDotenvConfig  `yaml:"dotenv"`
+	RequiresDatabase bool                      `yaml:"requires-database"`
+	Actions          []frameworkActionManifest `yaml:"actions"`
 }
 
-type frameworkAppRootConfig struct {
-	PublicDir string `yaml:"public-dir"`
-	Framework string `yaml:"framework"`
+// frameworkActionManifest is a discriminated union. Fields belonging to other
+// operations are rejected rather than accepted without effect.
+type frameworkActionManifest struct {
+	Type                 string                    `yaml:"type"`
+	Base                 string                    `yaml:"base"`
+	Path                 string                    `yaml:"path"`
+	Fallback             string                    `yaml:"fallback"`
+	FallbackTemplateFile string                    `yaml:"fallback-template-file"`
+	TemplateFile         string                    `yaml:"template-file"`
+	Encoding             string                    `yaml:"encoding"`
+	Values               map[string]frameworkValue `yaml:"values"`
+	Order                []string                  `yaml:"order"`
+	Updates              []frameworkArrayUpdate    `yaml:"updates"`
+	InsertBefore         string                    `yaml:"insert-before"`
+	Include              string                    `yaml:"include"`
+	Marker               string                    `yaml:"marker"`
 }
 
-type frameworkDotenvConfig struct {
-	Target   string   `yaml:"target"`
-	Template string   `yaml:"template"`
-	Values   []string `yaml:"values"`
+// frameworkArrayUpdate binds scalar values within a returned-array path.
+type frameworkArrayUpdate struct {
+	Path   []string                  `yaml:"path"`
+	Values map[string]frameworkValue `yaml:"values"`
+	Order  []string                  `yaml:"order"`
 }
 
+var frameworkPlaceholder = regexp.MustCompile(`\{\{([A-Za-z0-9_.-]+)\}\}`)
+
+// newManifestFrameworkPlugin also supports focused tests of built-in manifests.
 func newManifestFrameworkPlugin(name string) FrameworkPlugin {
-	manifest, err := loadBuiltinFrameworkManifest(name)
+	m, err := loadBuiltinFrameworkManifest(name)
 	if err != nil {
 		panic(err)
 	}
-	plugin, err := manifest.toPlugin()
+	plugin, err := m.toPlugin()
 	if err != nil {
 		panic(err)
 	}
-
 	return plugin
 }
 
+// loadBuiltinFrameworkManifest reads a single embedded declaration for focused callers.
 func loadBuiltinFrameworkManifest(name string) (frameworkManifest, error) {
-	path := "manifests/" + strings.TrimSpace(name) + ".yaml"
-	data, err := builtinFrameworkManifestFiles.ReadFile(path)
+	filename := "manifests/" + strings.TrimSpace(name) + ".yaml"
+	data, err := builtinFrameworkManifestFiles.ReadFile(filename)
 	if err != nil {
-		return frameworkManifest{}, fmt.Errorf("read builtin framework manifest %s: %w", path, err)
+		return frameworkManifest{}, fmt.Errorf("read builtin framework manifest %s: %w", filename, err)
 	}
-
 	return parseFrameworkManifest(data)
 }
 
+// loadFrameworkPlugins enumerates manifests without a hardcoded registry list.
+// Supplying an FS also allows tests to register entirely new frameworks.
+func loadFrameworkPlugins(files fs.FS) ([]FrameworkPlugin, error) {
+	names, err := fs.Glob(files, "manifests/*.yaml")
+	if err != nil {
+		return nil, err
+	}
+	plugins := make([]FrameworkPlugin, 0, len(names))
+	seen := map[string]bool{}
+	for _, name := range names {
+		data, err := fs.ReadFile(files, name)
+		if err != nil {
+			return nil, fmt.Errorf("read framework manifest %s: %w", name, err)
+		}
+		m, err := parseFrameworkManifestWithFiles(data, files)
+		if err != nil {
+			return nil, fmt.Errorf("framework manifest %s: %w", name, err)
+		}
+		if seen[m.ID] {
+			return nil, fmt.Errorf("duplicate framework manifest %q", m.ID)
+		}
+		seen[m.ID] = true
+		plugin, err := m.pluginWithFiles(files)
+		if err != nil {
+			return nil, err
+		}
+		plugins = append(plugins, plugin)
+	}
+	return plugins, nil
+}
+
+// parseFrameworkManifest validates against the embedded template assets.
 func parseFrameworkManifest(data []byte) (frameworkManifest, error) {
-	var manifest frameworkManifest
-	if err := yaml.Unmarshal(data, &manifest); err != nil {
+	return parseFrameworkManifestWithFiles(data, builtinFrameworkManifestFiles)
+}
+
+// parseFrameworkManifestWithFiles rejects unknown fields before graph validation.
+func parseFrameworkManifestWithFiles(data []byte, files fs.FS) (frameworkManifest, error) {
+	var m frameworkManifest
+	if err := yaml.UnmarshalWithOptions(data, &m, yaml.Strict()); err != nil {
 		return frameworkManifest{}, fmt.Errorf("parse framework manifest: %w", err)
 	}
-	if err := manifest.validate(); err != nil {
-		return frameworkManifest{}, err
+	m.ID = strings.ToLower(strings.TrimSpace(m.ID))
+	if err := m.validate(files); err != nil {
+		return frameworkManifest{}, fmt.Errorf("framework manifest %q: %w", m.ID, err)
 	}
-
-	manifest.ID = strings.ToLower(strings.TrimSpace(manifest.ID))
-	manifest.Defaults.Framework = manifest.ID
-	manifest.RuntimeEnv.Database = normalizeRuntimeDatabaseManifest(manifest.RuntimeEnv.Database)
-	manifest.PostComposer = normalizePostComposerManifest(manifest.ID, manifest.PostComposer)
-	manifest.OPcacheConfig = config.NormalizeOPcacheConfig(manifest.OPcacheConfig)
-	manifest.DatabaseEngines = normalizeManifestStrings(manifest.DatabaseEngines)
-
-	return manifest, nil
+	m.Defaults.Framework = m.ID
+	m.OPcacheConfig = config.NormalizeOPcacheConfig(m.OPcacheConfig)
+	return m, nil
 }
 
-func (m frameworkManifest) validate() error {
-	id := strings.ToLower(strings.TrimSpace(m.ID))
-	if id == "" {
+// validate checks metadata, portable paths, references, and every action before use.
+func (m frameworkManifest) validate(files fs.FS) error {
+	if m.ID == "" {
 		return fmt.Errorf("framework manifest id cannot be empty")
 	}
-	if !validPluginID.MatchString(id) {
-		return fmt.Errorf("invalid framework manifest id %q: use letters, numbers, dots, dashes, or underscores", m.ID)
+	if !validPluginID.MatchString(m.ID) {
+		return fmt.Errorf("invalid framework manifest id %q", m.ID)
 	}
-	defaultFramework := strings.ToLower(strings.TrimSpace(m.Defaults.Framework))
-	if defaultFramework != "" && defaultFramework != id {
-		return fmt.Errorf("framework manifest %q defaults.framework must match id", id)
+	if id := strings.ToLower(strings.TrimSpace(m.Defaults.Framework)); id != "" && id != m.ID {
+		return fmt.Errorf("defaults.framework must match id")
 	}
 	if strings.TrimSpace(m.Defaults.Docroot) == "" {
-		return fmt.Errorf("framework manifest %q defaults.docroot cannot be empty", id)
+		return fmt.Errorf("defaults.docroot cannot be empty")
 	}
 	if err := config.ValidateWorkersConfig(m.Defaults.Workers); err != nil {
-		return fmt.Errorf("framework manifest %q: %w", id, err)
-	}
-	if err := validateFrameworkRuntimeEnvManifest(id, m.RuntimeEnv); err != nil {
 		return err
 	}
-	if err := validateFrameworkPostComposerManifest(id, m.PostComposer); err != nil {
+	if err := m.Detection.validate(); err != nil {
 		return err
+	}
+	if m.AppRoot.PublicDir != "" {
+		if err := validateFrameworkManifestRelativePath(m.AppRoot.PublicDir, "app-root.public-dir", true); err != nil {
+			return err
+		}
+	} else if len(m.PostComposer.Actions) > 0 {
+		return fmt.Errorf("app-root.public-dir cannot be empty")
+	}
+	for _, marker := range m.AppRoot.Markers {
+		if err := validateFrameworkManifestRelativePath(marker, "app-root.markers", false); err != nil {
+			return err
+		}
+	}
+	for _, engine := range m.DatabaseEngines {
+		if !slices.Contains([]string{"mysql", "mariadb", "postgresql", "sqlite"}, engine) {
+			return fmt.Errorf("unsupported database engine %q", engine)
+		}
+	}
+	if err := m.validateValues(); err != nil {
+		return err
+	}
+	for i, a := range m.PostComposer.Actions {
+		if err := a.validate(files); err != nil {
+			return fmt.Errorf("post-composer.actions[%d]: %w", i, err)
+		}
 	}
 	return nil
 }
 
-func validateFrameworkRuntimeEnvManifest(id string, runtimeEnv frameworkRuntimeEnvManifest) error {
-	database := runtimeEnv.Database
-	switch strings.ToLower(strings.TrimSpace(database.Keys)) {
-	case "", "standard", "codeigniter":
-	default:
-		return fmt.Errorf("framework manifest %q runtime-env.database.keys has unsupported value %q", id, database.Keys)
-	}
-	switch strings.ToLower(strings.TrimSpace(database.Connection)) {
-	case "", "mysql":
-	default:
-		return fmt.Errorf("framework manifest %q runtime-env.database.connection has unsupported value %q", id, database.Connection)
-	}
-	switch strings.ToLower(strings.TrimSpace(database.DatabaseURL)) {
-	case "", "symfony":
-	default:
-		return fmt.Errorf("framework manifest %q runtime-env.database.database-url has unsupported value %q", id, database.DatabaseURL)
-	}
-
-	return nil
-}
-
-func validateFrameworkPostComposerManifest(id string, post frameworkPostComposerManifest) error {
-	strategy := strings.ToLower(strings.TrimSpace(post.Strategy))
-	switch strategy {
-	case "":
+// validateFrameworkManifestRelativePath applies portable containment rules,
+// rejecting Windows drive and backslash paths even on Unix.
+func validateFrameworkManifestRelativePath(value, label string, allowDot bool) error {
+	if value == "." && allowDot {
 		return nil
-	case "cakephp-config", "dotenv", "drupal-settings", "wordpress-config":
-	default:
-		return fmt.Errorf("framework manifest %q post-composer.strategy has unsupported value %q", id, post.Strategy)
 	}
-	if strings.TrimSpace(post.AppRoot.PublicDir) == "" {
-		return fmt.Errorf("framework manifest %q post-composer.app-root.public-dir cannot be empty", id)
+	if value == "" || strings.ContainsAny(value, "\\:\x00") || !fs.ValidPath(value) {
+		return fmt.Errorf("%s %q must be a slash-separated relative path inside its base", label, value)
 	}
-	if err := validateFrameworkManifestRelativePath(post.AppRoot.PublicDir, "post-composer.app-root.public-dir", true); err != nil {
-		return fmt.Errorf("framework manifest %q: %w", id, err)
-	}
-	if strings.TrimSpace(post.AppRoot.Framework) != "" && !validPluginID.MatchString(strings.ToLower(strings.TrimSpace(post.AppRoot.Framework))) {
-		return fmt.Errorf("framework manifest %q post-composer.app-root.framework has invalid value %q", id, post.AppRoot.Framework)
-	}
-	if strategy == "dotenv" {
-		if strings.TrimSpace(post.Dotenv.Target) == "" {
-			return fmt.Errorf("framework manifest %q post-composer.dotenv.target cannot be empty", id)
+	for _, segment := range strings.Split(value, "/") {
+		if strings.TrimRight(segment, " .") != segment {
+			return fmt.Errorf("%s %q must not contain trailing dots or spaces in path segments", label, value)
 		}
-		if err := validateFrameworkManifestRelativePath(post.Dotenv.Target, "post-composer.dotenv.target", false); err != nil {
-			return fmt.Errorf("framework manifest %q: %w", id, err)
-		}
-		if strings.TrimSpace(post.Dotenv.Template) != "" {
-			if err := validateFrameworkManifestRelativePath(post.Dotenv.Template, "post-composer.dotenv.template", false); err != nil {
-				return fmt.Errorf("framework manifest %q: %w", id, err)
+	}
+	return nil
+}
+
+// validate checks the action discriminator and its required and forbidden fields.
+func (a frameworkActionManifest) validate(files fs.FS) error {
+	if !slices.Contains([]string{"dotenv", "php-array", "php-constants", "write-file", "php-include"}, a.Type) {
+		return fmt.Errorf("unsupported action type %q", a.Type)
+	}
+	if a.Base != "" && a.Base != "app-root" && a.Base != "docroot" {
+		return fmt.Errorf("unsupported base %q", a.Base)
+	}
+	for _, item := range []struct{ label, value string }{{"path", a.Path}, {"fallback", a.Fallback}, {"include", a.Include}} {
+		if item.value != "" || item.label == "path" {
+			if err := validateFrameworkManifestRelativePath(item.value, item.label, false); err != nil {
+				return err
 			}
 		}
 	}
-
-	return nil
-}
-
-func validateFrameworkManifestRelativePath(path, label string, allowDot bool) error {
-	trimmed := strings.TrimSpace(path)
-	if trimmed == "" {
-		return fmt.Errorf("%s cannot be empty", label)
-	}
-	if filepath.IsAbs(trimmed) || strings.HasPrefix(filepath.ToSlash(trimmed), "/") {
-		return fmt.Errorf("%s %q must be relative", label, path)
-	}
-	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(trimmed)))
-	if clean == ".." || strings.HasPrefix(clean, "../") || (clean == "." && !allowDot) {
-		return fmt.Errorf("%s %q must stay inside the framework app root", label, path)
-	}
-
-	return nil
-}
-
-func normalizeRuntimeDatabaseManifest(database frameworkRuntimeDatabaseManifest) frameworkRuntimeDatabaseManifest {
-	return frameworkRuntimeDatabaseManifest{
-		Keys:        strings.ToLower(strings.TrimSpace(database.Keys)),
-		Connection:  strings.ToLower(strings.TrimSpace(database.Connection)),
-		DatabaseURL: strings.ToLower(strings.TrimSpace(database.DatabaseURL)),
-	}
-}
-
-func normalizePostComposerManifest(id string, post frameworkPostComposerManifest) frameworkPostComposerManifest {
-	post.Strategy = strings.ToLower(strings.TrimSpace(post.Strategy))
-	post.AppRoot.PublicDir = filepath.ToSlash(filepath.Clean(filepath.FromSlash(strings.TrimSpace(post.AppRoot.PublicDir))))
-	post.AppRoot.Framework = strings.ToLower(strings.TrimSpace(post.AppRoot.Framework))
-	if post.AppRoot.Framework == "" {
-		post.AppRoot.Framework = id
-	}
-	post.Dotenv.Target = filepath.ToSlash(filepath.Clean(filepath.FromSlash(strings.TrimSpace(post.Dotenv.Target))))
-	if strings.TrimSpace(post.Dotenv.Template) != "" {
-		post.Dotenv.Template = filepath.ToSlash(filepath.Clean(filepath.FromSlash(strings.TrimSpace(post.Dotenv.Template))))
-	}
-	post.Dotenv.Values = normalizeManifestStrings(post.Dotenv.Values)
-
-	return post
-}
-
-func normalizeManifestStrings(values []string) []string {
-	normalized := make([]string, 0, len(values))
-	for _, value := range values {
-		trimmed := strings.TrimSpace(value)
-		if trimmed != "" {
-			normalized = append(normalized, trimmed)
+	for _, template := range []string{a.TemplateFile, a.FallbackTemplateFile} {
+		if template == "" {
+			continue
+		}
+		if err := validateFrameworkManifestRelativePath(template, "template-file", false); err != nil {
+			return err
+		}
+		data, err := fs.ReadFile(files, "manifests/templates/"+template)
+		if err != nil {
+			return fmt.Errorf("read template %q: %w", template, err)
+		}
+		if template == a.FallbackTemplateFile && frameworkPlaceholder.Match(data) {
+			return fmt.Errorf("fallback-template-file must contain literal content without placeholders")
 		}
 	}
-
-	return normalized
+	if err := validateFrameworkOrder(a.Order, a.Values); err != nil {
+		return err
+	}
+	if a.Type != "php-array" && len(a.Updates) != 0 {
+		return fmt.Errorf("updates requires php-array")
+	}
+	if a.Type != "php-constants" && a.InsertBefore != "" {
+		return fmt.Errorf("insert-before requires php-constants")
+	}
+	if a.Type != "php-include" && (a.Include != "" || a.Marker != "") {
+		return fmt.Errorf("include and marker require php-include")
+	}
+	if a.Type != "write-file" && (a.TemplateFile != "" || a.Encoding != "") {
+		return fmt.Errorf("template-file and encoding require write-file")
+	}
+	if (a.Type == "php-array" || a.Type == "php-include") && (len(a.Values) != 0 || len(a.Order) != 0) {
+		return fmt.Errorf("values and order are not supported for %s", a.Type)
+	}
+	switch a.Type {
+	case "php-array":
+		if len(a.Updates) == 0 {
+			return fmt.Errorf("php-array requires updates")
+		}
+		for _, u := range a.Updates {
+			for _, key := range u.Path {
+				if key == "" {
+					return fmt.Errorf("array path keys cannot be empty")
+				}
+			}
+			if len(u.Values) == 0 {
+				return fmt.Errorf("array update requires values")
+			}
+			if err := validateFrameworkOrder(u.Order, u.Values); err != nil {
+				return err
+			}
+		}
+	case "php-include":
+		if a.Include == "" || a.Marker == "" || !validPluginID.MatchString(a.Marker) {
+			return fmt.Errorf("php-include requires include and a valid marker")
+		}
+	case "write-file":
+		if a.TemplateFile == "" {
+			return fmt.Errorf("write-file requires template-file")
+		}
+		if a.Encoding != "text" && a.Encoding != "php-literal" {
+			return fmt.Errorf("write-file encoding must be text or php-literal")
+		}
+		if a.Fallback != "" || a.FallbackTemplateFile != "" {
+			return fmt.Errorf("write-file does not support fallbacks")
+		}
+		data, err := fs.ReadFile(files, "manifests/templates/"+a.TemplateFile)
+		if err != nil {
+			return err
+		}
+		for _, match := range frameworkPlaceholder.FindAllStringSubmatch(string(data), -1) {
+			if _, ok := a.Values[match[1]]; !ok {
+				return fmt.Errorf("unknown template placeholder %q", match[1])
+			}
+		}
+	default:
+		if len(a.Values) == 0 {
+			return fmt.Errorf("%s requires values", a.Type)
+		}
+	}
+	return nil
 }
 
+// validateFrameworkOrder rejects misspelled or repeated output keys.
+func validateFrameworkOrder(order []string, values map[string]frameworkValue) error {
+	seen := map[string]bool{}
+	for _, key := range order {
+		if _, ok := values[key]; !ok || seen[key] {
+			return fmt.Errorf("order contains unknown or duplicate key %q", key)
+		}
+		seen[key] = true
+	}
+	return nil
+}
+
+// toPlugin converts validated declarations using the built-in asset filesystem.
 func (m frameworkManifest) toPlugin() (FrameworkPlugin, error) {
+	return m.pluginWithFiles(builtinFrameworkManifestFiles)
+}
+
+// pluginWithFiles retains immutable declarations and normalizes isolated defaults.
+func (m frameworkManifest) pluginWithFiles(files fs.FS) (FrameworkPlugin, error) {
 	defaults := config.EnvironmentFileToEnvironment("", m.Defaults)
 	defaults.OPcacheConfig = config.NormalizeOPcacheConfig(m.OPcacheConfig)
-
 	return builtinFrameworkPlugin{
-		id:              strings.ToLower(strings.TrimSpace(m.ID)),
-		defaults:        config.NormalizeEnvironment("", defaults),
-		phpExtensions:   phpExtensionMap(m.PHPExtensions...),
-		databaseEngines: stringSet(m.DatabaseEngines),
-		opcacheConfig:   config.NormalizeOPcacheConfig(m.OPcacheConfig),
-		runtimeDatabase: m.RuntimeEnv.Database,
-		postComposer:    m.PostComposer,
+		id: m.ID, defaults: config.NormalizeEnvironment("", defaults), phpExtensions: phpExtensionMap(m.PHPExtensions...),
+		databaseEngines: stringSet(m.DatabaseEngines), opcacheConfig: config.NormalizeOPcacheConfig(m.OPcacheConfig), manifest: m, files: files,
 	}, nil
 }
 
+// stringSet canonicalizes identifiers for read-only membership checks.
 func stringSet(values []string) map[string]bool {
-	if len(values) == 0 {
-		return nil
-	}
-
 	set := make(map[string]bool, len(values))
 	for _, value := range values {
-		if normalized := strings.ToLower(strings.TrimSpace(value)); normalized != "" {
-			set[normalized] = true
+		if v := strings.ToLower(strings.TrimSpace(value)); v != "" {
+			set[v] = true
 		}
 	}
-
 	return set
 }
 
-func frameworkManifestRuntimeEnv(ctx RuntimeEnvContext, database frameworkRuntimeDatabaseManifest) map[string]string {
-	switch database.Keys {
-	case "codeigniter":
-		return codeIgniterDatabaseRuntimeEnv(ctx)
-	case "standard":
-		return frameworkDatabaseRuntimeEnv(ctx, database.Connection == "mysql", database.DatabaseURL == "symfony")
-	default:
-		return nil
-	}
-}
-
-func frameworkManifestPostComposer(ctx PostComposerContext, plugin builtinFrameworkPlugin) error {
-	post := plugin.postComposer
-	if post.Strategy == "" {
-		return nil
-	}
-
-	appRoot := frameworkComposerAppRoot(ctx, post.AppRoot.PublicDir, post.AppRoot.Framework)
-	switch post.Strategy {
-	case "cakephp-config":
-		return writeCakePHPConfigSecretsForAppRoot(ctx, appRoot)
-	case "dotenv":
-		values := plugin.RuntimeEnv(RuntimeEnvContext{
-			Environment: ctx.Environment,
-			Database:    ctx.Database,
-		})
-		if len(values) == 0 {
-			return nil
-		}
-		return writeDotenvSecretFile(
-			filepath.Join(appRoot, filepath.FromSlash(post.Dotenv.Target)),
-			frameworkManifestFallbackPath(appRoot, post.Dotenv.Template),
-			orderedDotenvAssignments(values, post.Dotenv.Values),
-		)
-	case "drupal-settings":
-		return writeDrupalSettingsSecretsForAppRoot(ctx, appRoot, post.AppRoot.PublicDir)
-	case "wordpress-config":
-		return writeWordPressConfigSecretsForAppRoot(ctx, appRoot)
-	default:
-		return nil
-	}
-}
-
-func frameworkManifestFallbackPath(appRoot, path string) string {
-	if strings.TrimSpace(path) == "" {
-		return ""
-	}
-
-	return filepath.Join(appRoot, filepath.FromSlash(path))
+// frameworkTemplate reads embedded assets, never application PHP.
+func frameworkTemplate(files fs.FS, name string) (string, error) {
+	data, err := fs.ReadFile(files, "manifests/templates/"+name)
+	return string(data), err
 }

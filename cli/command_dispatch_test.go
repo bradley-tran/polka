@@ -94,7 +94,7 @@ func TestRunDispatchFallsBackToFrankenPHPBundledPHP(t *testing.T) {
 
 	writeCachedFrankenPHP(t, cacheDir, "1.12")
 	writeTestConfigFile(t, projectDir, testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {FrankenPHP: "1.12"},
@@ -139,7 +139,7 @@ func TestRunDispatchLoadsProjectAndConfiguredEnvironmentVariables(t *testing.T) 
 	}
 
 	config := testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {
@@ -186,7 +186,7 @@ func TestRunDispatchRunsPostComposerHookForLaravelInstall(t *testing.T) {
 	}
 
 	config := testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			defaultEnvironmentName: {
@@ -245,7 +245,7 @@ func TestRunDispatchRunsPostComposerHookForCakePHPCreateProject(t *testing.T) {
 
 	writeCachedComposerExecutable(t, cacheDir, "2.8", fakeCakePHPCreateProjectComposerScript())
 	config := testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			defaultEnvironmentName: {
@@ -296,7 +296,7 @@ func TestRunDispatchRunsPostComposerHookExceptComposerExitTwo(t *testing.T) {
 
 			writeCachedComposerExecutable(t, cacheDir, "2.8", fakeCakePHPCreateProjectComposerScriptWithExit(test.exitCode))
 			config := testConfigFile{
-				Version: 1,
+				Version: "0.2",
 				Root:    ".polka",
 				Environments: map[string]testEnvironmentConfig{
 					defaultEnvironmentName: {
@@ -354,7 +354,7 @@ func TestRunDispatchRejectsPIE(t *testing.T) {
 	writeCachedPHP(t, cacheDir, "8.4", fakePHPScript())
 
 	config := testConfigFile{
-		Version: 1,
+		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
 			"demo": {

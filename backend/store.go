@@ -31,7 +31,7 @@ const (
 	envsDirectoryName        = "envs"
 	runDirectoryName         = "run"
 	currentEnvironmentName   = "current"
-	configVersion            = 1
+	configVersion            = config.CurrentManifestVersion
 	dispatcherBinaryName     = "polka"
 	dispatcherBatchFileName  = "polka.cmd"
 )
@@ -318,6 +318,11 @@ func (s Store) pluginRegistry() *PluginRegistry {
 // SupportedFrameworks returns the built-in framework IDs supported by this store.
 func (s Store) SupportedFrameworks() []string {
 	return s.pluginRegistry().SupportedFrameworks()
+}
+
+// DetectFramework uses the active registry when scaffolding a new project.
+func (s Store) DetectFramework(pkg, dir string) (string, error) {
+	return s.pluginRegistry().DetectFramework(pkg, dir)
 }
 
 // SupportedPresets returns the built-in project preset IDs supported by this store.
@@ -1527,7 +1532,7 @@ func (s Store) loadConfig() (Config, error) {
 		return Config{}, err
 	}
 
-	if loadedConfig.Version == 0 {
+	if loadedConfig.Version == "" {
 		loadedConfig.Version = configVersion
 	}
 	if strings.TrimSpace(loadedConfig.Root) == "" {
@@ -1615,8 +1620,8 @@ func (s Store) readProjectFile() (config.ProjectFile, Environment, error) {
 	}
 
 	var projectFile config.ProjectFile
-	if len(data) == 0 {
-		return projectFile, config.ProjectFileToEnvironment(defaultEnvironmentName, projectFile), nil
+	if err := config.ValidateProjectManifestVersion(data, s.ConfigFile); err != nil {
+		return config.ProjectFile{}, Environment{}, err
 	}
 
 	hasLegacyEnvironments, err := yamlHasTopLevelKey(data, "environments")
@@ -1643,6 +1648,9 @@ func (s Store) readProjectFile() (config.ProjectFile, Environment, error) {
 }
 
 func (s Store) readNamedEnvironmentFile(name string) (Environment, error) {
+	if err := s.validateProjectManifestVersion(); err != nil {
+		return Environment{}, err
+	}
 	path := s.environmentConfigFile(name)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -1682,7 +1690,7 @@ func (s Store) validateEnvironmentFramework(environment Environment) error {
 }
 
 func (s Store) writeConfig(loadedConfig Config) error {
-	if loadedConfig.Version == 0 {
+	if loadedConfig.Version == "" {
 		loadedConfig.Version = configVersion
 	}
 	if strings.TrimSpace(loadedConfig.Root) == "" {
@@ -1721,7 +1729,7 @@ func (s Store) writeEnvironmentConfig(name string, environment Environment) erro
 		} else if err != nil {
 			return err
 		}
-		if projectFile.Version == 0 {
+		if projectFile.Version == "" {
 			projectFile.Version = configVersion
 		}
 		if strings.TrimSpace(projectFile.Root) == "" {
@@ -1731,7 +1739,23 @@ func (s Store) writeEnvironmentConfig(name string, environment Environment) erro
 		return writeYAML(s.ConfigFile, config.ProjectFileFromEnvironment(projectFile.Version, projectFile.Root, environment))
 	}
 
+	if err := s.validateProjectManifestVersion(); err != nil {
+		return err
+	}
 	return writeYAML(s.environmentConfigFile(name), config.EnvironmentFileFromEnvironment(environment))
+}
+
+// validateProjectManifestVersion also guards direct named-environment access.
+// A missing root manifest remains valid while initializing a new project.
+func (s Store) validateProjectManifestVersion() error {
+	data, err := os.ReadFile(s.ConfigFile)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read project manifest %s: %w", s.ConfigFile, err)
+	}
+	return config.ValidateProjectManifestVersion(data, s.ConfigFile)
 }
 
 func (s Store) namedEnvironmentNames() ([]string, error) {

@@ -16,10 +16,12 @@ import (
 	"time"
 
 	"github.com/goccy/go-yaml"
+
+	projectconfig "polka/config"
 )
 
 type testConfigFile struct {
-	Version      int
+	Version      projectconfig.ManifestVersion
 	Root         string
 	Environments map[string]testEnvironmentConfig
 }
@@ -127,22 +129,22 @@ type testMeilisearchConfig struct {
 }
 
 type testProjectConfigData struct {
-	Version        int                 `yaml:"version,omitempty"`
-	Root           string              `yaml:"root,omitempty"`
-	Framework      string              `yaml:"framework,omitempty"`
-	Tools          *testToolsConfig    `yaml:"tools,omitempty"`
-	Settings       *testSettingsConfig `yaml:"settings,omitempty"`
-	Docroot        string              `yaml:"docroot,omitempty"`
-	HTTPS          bool                `yaml:"https,omitempty"`
-	EnvFile        string              `yaml:"env-file,omitempty"`
-	EnvVars        map[string]string   `yaml:"env-vars,omitempty"`
-	Database       *testDatabaseConfig `yaml:"database,omitempty"`
-	MemoryLimit    string              `yaml:"memory-limit,omitempty"`
-	PHPExtensions  map[string]any      `yaml:"php-extensions,omitempty"`
-	PECLExtensions map[string]any      `yaml:"pecl-extensions,omitempty"`
-	OPcachePreset  string              `yaml:"opcache-preset,omitempty"`
-	OPcacheConfig  map[string]string   `yaml:"opcache-config,omitempty"`
-	Server         *testServerConfig   `yaml:"server,omitempty"`
+	Version        projectconfig.ManifestVersion `yaml:"version,omitempty"`
+	Root           string                        `yaml:"root,omitempty"`
+	Framework      string                        `yaml:"framework,omitempty"`
+	Tools          *testToolsConfig              `yaml:"tools,omitempty"`
+	Settings       *testSettingsConfig           `yaml:"settings,omitempty"`
+	Docroot        string                        `yaml:"docroot,omitempty"`
+	HTTPS          bool                          `yaml:"https,omitempty"`
+	EnvFile        string                        `yaml:"env-file,omitempty"`
+	EnvVars        map[string]string             `yaml:"env-vars,omitempty"`
+	Database       *testDatabaseConfig           `yaml:"database,omitempty"`
+	MemoryLimit    string                        `yaml:"memory-limit,omitempty"`
+	PHPExtensions  map[string]any                `yaml:"php-extensions,omitempty"`
+	PECLExtensions map[string]any                `yaml:"pecl-extensions,omitempty"`
+	OPcachePreset  string                        `yaml:"opcache-preset,omitempty"`
+	OPcacheConfig  map[string]string             `yaml:"opcache-config,omitempty"`
+	Server         *testServerConfig             `yaml:"server,omitempty"`
 }
 
 type testEnvironmentConfigData struct {
@@ -208,8 +210,8 @@ func writeTestConfigFile(t *testing.T, projectDir string, config testConfigFile)
 		Version: config.Version,
 		Root:    config.Root,
 	}
-	if projectConfig.Version == 0 {
-		projectConfig.Version = 1
+	if projectConfig.Version == "" {
+		projectConfig.Version = projectconfig.CurrentManifestVersion
 	}
 	if strings.TrimSpace(projectConfig.Root) == "" {
 		projectConfig.Root = ".polka"

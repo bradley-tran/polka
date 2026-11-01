@@ -25,7 +25,7 @@ type SettingsConfig map[string]map[string]any
 
 // ProjectFile is the YAML shape of polka.yaml, which also defines the default environment.
 type ProjectFile struct {
-	Version        int                     `yaml:"version"`
+	Version        ManifestVersion         `yaml:"version"`
 	Root           string                  `yaml:"root"`
 	Framework      string                  `yaml:"framework,omitempty"`
 	Tools          ToolsConfig             `yaml:"tools,omitempty"`
@@ -152,7 +152,7 @@ type ServerConfig struct {
 }
 
 type Config struct {
-	Version      int                    `yaml:"version"`
+	Version      ManifestVersion        `yaml:"version"`
 	Root         string                 `yaml:"root"`
 	Environments map[string]Environment `yaml:"-"`
 }
@@ -510,7 +510,7 @@ func ProjectFileToEnvironment(name string, file ProjectFile) Environment {
 }
 
 // ProjectFileFromEnvironment converts the default environment into polka.yaml data.
-func ProjectFileFromEnvironment(version int, root string, environment Environment) ProjectFile {
+func ProjectFileFromEnvironment(version ManifestVersion, root string, environment Environment) ProjectFile {
 	return ProjectFile{
 		Version:        version,
 		Root:           root,

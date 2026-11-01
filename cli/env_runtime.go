@@ -99,7 +99,7 @@ func frameworkRuntimeEnvironmentVariables(store backend.Store, environment backe
 	return plugin.RuntimeEnv(plugins.RuntimeEnvContext{
 		Environment: environment,
 		Database:    credentials,
-	}), nil
+	})
 }
 
 func frameworkDatabaseCredentials(rootDir string, environment backend.Environment) (*plugins.DatabaseCredentials, error) {

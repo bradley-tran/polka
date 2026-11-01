@@ -45,6 +45,7 @@ The `config` package contains shared YAML schema types and normalization helpers
 - `Environment`
 - `ProjectFile`
 - `EnvironmentFile`
+- `ManifestVersion` and `CurrentManifestVersion` (`0.2`) for the root project manifest
 - `ToolsConfig` (`map[string]string`)
 - `SettingsConfig` (`map[string]map[string]any`)
 - `DatabaseConfig`
@@ -61,7 +62,11 @@ This package exists to avoid import cycles. Both `backend` and `tools` can depen
 
 The `plugins` package owns Polka's higher-level built-in plugin registry. It groups installable tool plugins from `tools` with framework plugins such as `cakephp`, `codeigniter`, `drupal`, `wordpress`, `laravel`, and `symfony`.
 
-Framework plugins provide config defaults and optional hooks for framework-common PHP extensions, runtime environment variables, OPcache directives, post-Composer secret file generation, and nginx config generation. Database driver extensions belong to the configured database tool rather than the framework. Built-in framework metadata lives in `plugins/manifests/*.yaml` and is embedded into the binary; the manifest data selects reusable Go strategies for framework-specific runtime environment and post-Composer behavior. Framework init is config-only and framework nginx hooks delegate to the generic front-controller config.
+Framework plugins provide config defaults and optional hooks for framework-common PHP extensions, runtime environment variables, OPcache directives, post-Composer secret file generation, and nginx config generation. Database driver extensions belong to the configured database tool rather than the framework. Built-in frameworks are defined entirely in embedded `plugins/manifests/*.yaml` files and `plugins/manifests/templates/*` assets. The loader enumerates manifests automatically, validates structured value bindings and references, and supplies shared detection, formatting, and file actions. Immutable built-in declarations are parsed once per process. Adding a framework requires no framework-specific Go implementation or registry entry. See [framework-manifests.md](framework-manifests.md) for the authoring schema. Framework init is config-only and framework nginx hooks delegate to the generic front-controller config.
+
+`FrameworkPlugin.Detection()` returns isolated detection metadata. Detection uses the active registry for package prefixes, substrings, and distinctive marker files, with declared priority and stable ID tie-breaking. `RuntimeEnv` returns a values map and an error so invalid runtime bindings reach the caller. Post-Composer actions patch dotenv assignments, returned PHP arrays, and PHP constants; they can also render managed files and maintain guarded PHP includes. PHP editing preserves unrelated source and refuses unsupported structures without replacing the affected file. Application PHP is never executed by these editors.
+
+Existing root `polka.yaml` files are validated against the exact `0.2` version before environment decoding, including direct named-environment reads and writes. Obsolete or missing versions require the user to delete and regenerate the file manually. Named environment and internal tool files remain unversioned; cache and runtime state retain their independent integer schema versions.
 
 Project presets are a third plugin kind for non-framework project shapes. They contribute a starting environment plus init-time scaffold files, with no runtime hooks and no marker in `polka.yaml`. Their manifests and templates live under `plugins/manifests/presets/*.yaml` and `plugins/manifests/presets/templates/*`. The built-in `php-extension` preset uses this mechanism to create a PIE-compatible Composer manifest without treating native extension projects as web frameworks.
 
