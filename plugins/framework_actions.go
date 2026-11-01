@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 )
@@ -237,5 +238,33 @@ func writeFrameworkFile(target string, data []byte, mode os.FileMode) (result er
 	if err := file.Close(); err != nil {
 		return err
 	}
-	return os.Rename(file.Name(), target)
+	return replaceFrameworkFile(file.Name(), target)
+}
+
+// replaceFrameworkFile temporarily clears the Windows read-only attribute,
+// which otherwise prevents replacing files such as Drupal's settings.php.
+// Restore protection on the replacement, or on the original if rename fails.
+func replaceFrameworkFile(staged, target string) (result error) {
+	if runtime.GOOS != "windows" {
+		return os.Rename(staged, target)
+	}
+	info, err := os.Stat(target)
+	if errors.Is(err, os.ErrNotExist) {
+		return os.Rename(staged, target)
+	}
+	if err != nil {
+		return fmt.Errorf("stat framework config before replacement: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0o200 != 0 {
+		return os.Rename(staged, target)
+	}
+	if err := os.Chmod(target, info.Mode().Perm()|0o200); err != nil {
+		return fmt.Errorf("make framework config writable for replacement: %w", err)
+	}
+	defer func() {
+		if err := os.Chmod(target, info.Mode().Perm()); err != nil {
+			result = errors.Join(result, fmt.Errorf("restore framework config read-only attribute: %w", err))
+		}
+	}()
+	return os.Rename(staged, target)
 }
