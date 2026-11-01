@@ -27,3 +27,8 @@ download:
       url: https://www.sqlite.org/{sqlite_relative_url}
       checksum-algorithm: sha3-256
       archive-format: zip
+script:
+  file: scripts/sqlite.star
+  hooks: [resolve]
+  vars:
+    download-page: https://www.sqlite.org/download.html

@@ -110,6 +110,9 @@ func downloadBuiltinManifestToolResolved(client *http.Client, cacheDir, tool, re
 }
 
 func resolveManifestRequest(client *http.Client, m pluginManifest, requestedVersion, goos, goarch string) (manifestRequestPlan, error) {
+	if m.Script.hasHook(scriptHookResolve) {
+		return resolveScriptRequest(client, m, requestedVersion, goos, goarch)
+	}
 	tool := strings.ToLower(strings.TrimSpace(m.ID))
 	resolvedVersion, tag, githubAssets, err := resolveManifestDownloadVersion(client, tool, requestedVersion, m.Download)
 	if err != nil {
@@ -798,6 +801,12 @@ func downloadFile(client *http.Client, url, targetPath string) error {
 }
 
 func downloadText(client *http.Client, url, description string) (string, error) {
+	return downloadTextLimit(client, url, description, 0)
+}
+
+// downloadTextLimit fetches url as text, failing when the body exceeds
+// maxBytes. A maxBytes of zero means unlimited.
+func downloadTextLimit(client *http.Client, url, description string, maxBytes int64) (string, error) {
 	client = effectiveHTTPClient(client)
 	request, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
@@ -815,9 +824,18 @@ func downloadText(client *http.Client, url, description string) (string, error) 
 		return "", fmt.Errorf("download %s %s: unexpected status %s", description, url, response.Status)
 	}
 
-	data, err := io.ReadAll(response.Body)
+	var body io.Reader = response.Body
+	if maxBytes > 0 {
+		// Read one extra byte so an oversized body is detected rather than
+		// silently truncated.
+		body = io.LimitReader(response.Body, maxBytes+1)
+	}
+	data, err := io.ReadAll(body)
 	if err != nil {
 		return "", fmt.Errorf("read %s %s: %w", description, url, err)
+	}
+	if maxBytes > 0 && int64(len(data)) > maxBytes {
+		return "", fmt.Errorf("read %s %s: response exceeds %d bytes", description, url, maxBytes)
 	}
 
 	return string(data), nil

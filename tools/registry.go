@@ -728,21 +728,27 @@ func (p builtinPlugin) validateManifestRules(environment config.Environment) err
 }
 
 func (p builtinPlugin) hasConfiguredSettings(environment config.Environment) bool {
-	if len(p.settings) == 0 || p.settingsNamespace == "" {
+	return settingsConfigured(environment, p.settingsNamespace, p.settings)
+}
+
+// settingsConfigured reports whether any setting declared in schema has a
+// non-zero value under settings.<namespace> in environment.
+func settingsConfigured(environment config.Environment, namespace string, schema map[string]SettingType) bool {
+	if len(schema) == 0 || namespace == "" {
 		return false
 	}
-	for key, settingType := range p.settings {
+	for key, settingType := range schema {
 		switch settingType {
 		case SettingTypePort:
-			if environment.SettingInt(p.settingsNamespace, key) != 0 {
+			if environment.SettingInt(namespace, key) != 0 {
 				return true
 			}
 		case SettingTypeString:
-			if environment.SettingString(p.settingsNamespace, key) != "" {
+			if environment.SettingString(namespace, key) != "" {
 				return true
 			}
 		case SettingTypeBool:
-			if environment.SettingBool(p.settingsNamespace, key) {
+			if environment.SettingBool(namespace, key) {
 				return true
 			}
 		}

@@ -10,6 +10,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/ulikunitz/xz v0.5.17
 	github.com/zalando/go-keyring v0.2.8
+	go.starlark.net v0.0.0-20261021141710-4f4267fb140d
 )
 
 require (

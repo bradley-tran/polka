@@ -54,3 +54,6 @@ download:
       url: https://github.com/rabbitmq/rabbitmq-server/releases/download/{tag}/rabbitmq-server-windows-{version}.zip
       checksum-algorithm: sha256
       archive-format: zip
+script:
+  file: scripts/rabbitmq.star
+  hooks: [validate]

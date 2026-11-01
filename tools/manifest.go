@@ -3,6 +3,7 @@ package tools
 import (
 	"embed"
 	"fmt"
+	"io/fs"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -14,8 +15,21 @@ import (
 	"polka/config"
 )
 
-//go:embed manifests/*.yaml
+//go:embed manifests/*.yaml manifests/scripts/*.star
 var builtinManifestFiles embed.FS
+
+// builtinManifestFS returns the embedded manifest directory as an fs.FS whose
+// root holds the manifest files, matching the layout external loaders use.
+func builtinManifestFS() fs.FS {
+	fsys, err := fs.Sub(builtinManifestFiles, "manifests")
+	if err != nil {
+		// fs.Sub only fails for invalid directory names; "manifests" is a
+		// constant valid path.
+		panic(err)
+	}
+
+	return fsys
+}
 
 // SettingType describes the scalar schema type of one settings.<namespace>.<key> entry.
 type SettingType string
@@ -50,6 +64,12 @@ type pluginManifest struct {
 	DispatchCandidates map[string]manifestPlatformPaths `yaml:"dispatch-candidates"`
 	Logs               manifestLogs                     `yaml:"logs"`
 	Download           manifestDownload                 `yaml:"download"`
+	Script             manifestScript                   `yaml:"script"`
+
+	// loadScript loads Script from the filesystem the manifest was read
+	// from. It is nil when the manifest declares no script or was parsed
+	// from bytes alone.
+	loadScript scriptModuleLoader
 }
 
 type manifestPlatformPaths map[string][]string
@@ -101,14 +121,41 @@ func newManifestPlugin(name string, hooks pluginHooks) Plugin {
 	return plugin
 }
 
+// loadBuiltinManifest loads an embedded tool manifest. Built-in scripts share
+// one lazily compiled module per process.
 func loadBuiltinManifest(name string) (pluginManifest, error) {
-	path := "manifests/" + strings.TrimSpace(name) + ".yaml"
-	data, err := builtinManifestFiles.ReadFile(path)
+	manifest, err := loadManifest(builtinManifestFS(), name)
 	if err != nil {
-		return pluginManifest{}, fmt.Errorf("read builtin tool manifest %s: %w", path, err)
+		return pluginManifest{}, err
+	}
+	if manifest.loadScript != nil {
+		manifest.loadScript = builtinScriptModuleLoader(manifest.ID, manifest.Script, manifest.loadScript)
 	}
 
-	return parsePluginManifest(data)
+	return manifest, nil
+}
+
+// loadManifest reads <name>.yaml from fsys and binds any declared script to
+// the same filesystem, so script paths resolve relative to the manifest.
+func loadManifest(fsys fs.FS, name string) (pluginManifest, error) {
+	path := strings.TrimSpace(name) + ".yaml"
+	data, err := fs.ReadFile(fsys, path)
+	if err != nil {
+		return pluginManifest{}, fmt.Errorf("read tool manifest %s: %w", path, err)
+	}
+	manifest, err := parsePluginManifest(data)
+	if err != nil {
+		return pluginManifest{}, err
+	}
+	if manifest.Script.File != "" {
+		loader, err := newScriptModuleLoader(fsys, manifest.ID, manifest.Script)
+		if err != nil {
+			return pluginManifest{}, err
+		}
+		manifest.loadScript = loader
+	}
+
+	return manifest, nil
 }
 
 func parsePluginManifest(data []byte) (pluginManifest, error) {
@@ -130,6 +177,7 @@ func parsePluginManifest(data []byte) (pluginManifest, error) {
 	manifest.Dependencies = normalizeManifestDependencies(manifest.Dependencies)
 	manifest.Wrappers = normalizeManifestWrappers(manifest.Wrappers)
 	manifest.Download.GitHub.Mode = strings.ToLower(strings.TrimSpace(manifest.Download.GitHub.Mode))
+	manifest.Script = manifest.Script.normalized()
 
 	return manifest, nil
 }
@@ -317,6 +365,9 @@ func (m pluginManifest) validate() error {
 			}
 		}
 	}
+	if err := m.Script.validate(id, m.Download); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -415,11 +466,27 @@ func validDownloadPlatform(platform string) bool {
 
 func (m pluginManifest) toPlugin(hooks pluginHooks) (Plugin, error) {
 	manifestID := strings.ToLower(strings.TrimSpace(m.ID))
+	if m.Script.File != "" && m.loadScript == nil {
+		return nil, fmt.Errorf("tool manifest %q script %s requires loading the manifest from a filesystem", manifestID, m.Script.File)
+	}
+	if m.Script.hasHook(scriptHookResolve) && hooks.download != nil {
+		return nil, fmt.Errorf("tool %q cannot define both a Go download hook and a script resolve hook", manifestID)
+	}
+	if m.Script.hasHook(scriptHookValidate) && hooks.validate != nil {
+		return nil, fmt.Errorf("tool %q cannot define both a Go validate hook and a script validate hook", manifestID)
+	}
+
 	download := hooks.download
 	if download == nil && len(m.Download.Assets) > 0 {
 		download = func(ctx DownloadContext) error {
 			return downloadManifestRequest(ctx, m)
 		}
+	}
+
+	settings := normalizeManifestSettings(m.Settings)
+	settingsNamespace := strings.ToLower(strings.TrimSpace(m.SettingsFrom))
+	if settingsNamespace == "" && len(settings) > 0 {
+		settingsNamespace = manifestID
 	}
 
 	// rawVersion resolves the tool version from an environment's tools config;
@@ -428,11 +495,14 @@ func (m pluginManifest) toPlugin(hooks pluginHooks) (Plugin, error) {
 	rawVersion := manifestVersionFunc(m)
 	version := rawVersion
 	validate := hooks.validate
+	if m.Script.hasHook(scriptHookValidate) {
+		validate = scriptValidateFunc(m, settingsNamespace, settings, rawVersion)
+	}
 	if m.InternalOnly {
 		// Internal-only tools must never appear in project installs, shims, or
 		// PHP extension unions, so their configured version reads as empty.
 		version = func(config.Environment) string { return "" }
-		validate = internalOnlyValidateFunc(manifestID, rawVersion, hooks.validate)
+		validate = internalOnlyValidateFunc(manifestID, rawVersion, validate)
 	}
 
 	dependencies := hooks.dependencies
@@ -450,12 +520,6 @@ func (m pluginManifest) toPlugin(hooks pluginHooks) (Plugin, error) {
 			}
 			return append([]InstallRequest(nil), declaredDeps...)
 		}
-	}
-
-	settings := normalizeManifestSettings(m.Settings)
-	settingsNamespace := strings.ToLower(strings.TrimSpace(m.SettingsFrom))
-	if settingsNamespace == "" && len(settings) > 0 {
-		settingsNamespace = manifestID
 	}
 
 	return builtinPlugin{

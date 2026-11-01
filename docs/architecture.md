@@ -1,6 +1,6 @@
 # Polka Architecture
 
-Polka is a Go CLI for managing project-local PHP development environments. The project is organized around a small CLI layer, a backend state layer, shared config types, service runtime orchestration, a higher-level plugin registry, and a tool package that knows how to install and dispatch managed tools.
+Polka is a Go CLI for managing project-local PHP development environments. The project is organized around a small CLI layer, a backend state layer, shared config types, service runtime orchestration, a higher-level plugin registry, a tool package that knows how to install and dispatch managed tools, and a sandboxed Starlark runtime for tool scripts.
 
 ## Package Map
 
@@ -11,6 +11,7 @@ Polka is a Go CLI for managing project-local PHP development environments. The p
 |-- backend/
 |-- config/
 |-- plugins/
+|-- script/
 |-- service/
 `-- tools/
 ```
@@ -70,6 +71,10 @@ Existing root `polka.yaml` files are validated against the exact `0.2` version b
 
 Project presets are a third plugin kind for non-framework project shapes. They contribute a starting environment plus init-time scaffold files, with no runtime hooks and no marker in `polka.yaml`. Their manifests and templates live under `plugins/manifests/presets/*.yaml` and `plugins/manifests/presets/templates/*`. The built-in `php-extension` preset uses this mechanism to create a PIE-compatible Composer manifest without treating native extension projects as web frameworks.
 
+### `script`
+
+The `script` package is the sandboxed Starlark runtime behind tool scripts. It loads a script from an `fs.FS` and freezes its globals. Each hook call runs on a fresh thread with a step budget. It provides generic modules (`re`, `json`, `url`, `html`) and a `fail` builtin whose `*script.FailError` separates user-facing failures from script bugs. It knows nothing about Polka plugins: `tools` adds the domain modules (`http`, `version`) and decides which functions are hooks.
+
 ### `service`
 
 The `service` package owns long-running managed services:
@@ -93,10 +98,11 @@ The `tools` package owns managed tool behavior:
 - install candidate paths and automatic Unix executable permission bits (`0755`) for installed binaries and generated wrappers
 - dispatch command mappings (a command without an explicit dispatch candidate falls back to the tool's install candidates)
 - declarative download resolution (`download.github` in `releases` or `tag` mode, and `download.release-index` with `{requested}` URL templates), built-in version template placeholders (`{version}`, `{requested}`, `{tag}`, `{major}`, `{minor}`, `{major_minor}`), required checksum verification (`md5`, `sha256`, `sha3-256`, and `embedded-commit-id`), cache metadata, and archive extraction
-- optional per-tool Go hooks for custom multi-field validation, non-standard download discovery, or custom post-install behavior
+- embedded Starlark tool scripts (`script` in the manifest, `tools/manifests/scripts/*.star`) implementing `resolve` hooks for non-standard version discovery (sqlite, apache) and `validate` hooks for cross-field rules (rabbitmq); see [tool-scripts.md](tool-scripts.md)
+- optional per-tool Go hooks for downloads that need more than a resolved asset plan (php, php-devel, postgresql), dependency rules, or custom post-install behavior
 - PHP extension post-install config generation
 
-The current plugin system is internal and compile-time only. Built-in tool metadata lives in `tools/manifests/*.yaml`, built-in framework metadata lives in `plugins/manifests/*.yaml`, and both are embedded into the binary; Polka does not load third-party plugins from disk or from `polka.yaml`. The manifest parsers accept bytes so future external loading can reuse the schemas, but that loading behavior is intentionally not implemented yet.
+The current plugin system is internal and compile-time only. Built-in tool metadata and scripts live in `tools/manifests/`, built-in framework metadata lives in `plugins/manifests/*.yaml`, and both are embedded into the binary; Polka does not load third-party plugins from disk or from `polka.yaml`. The manifest parsers accept bytes and the tool manifest loader (`loadManifest`) reads manifests and their scripts through an `fs.FS`, so future external loading can reuse the schemas and the sandboxed script runtime, but that loading behavior is intentionally not implemented yet.
 
 ## Tool Install Flow
 
@@ -173,6 +179,7 @@ cli -> backend -> config
 cli -> service -> tools -> config
 backend -> config
 backend -> service -> tools -> config
+tools -> script
 ```
 
 Avoid these dependencies:
@@ -182,6 +189,7 @@ Avoid these dependencies:
 - `config -> backend`
 - `config -> tools`
 - `service -> backend`
+- `script -> any other polka package`
 
 Plugin hooks receive `tools.InstallContext`, which contains layout paths and install results rather than a `backend.Store`. This keeps the tool package independent from backend orchestration.
 
@@ -192,10 +200,10 @@ To add a new managed tool:
 1. Add a tool ID in `tools/ids.go` (optional convenience constant for built-in Go callers) and create `tools/manifests/<id>.yaml`.
 2. Add a plugin constructor in `tools/plugins.go` (or a focused tool file if the tool needs custom Go hooks).
 3. Declare any versionless settings (`settings: <key>: bool|port|string`), shared settings namespace (`settings-from`), mutually exclusive tool peers (`exclusive-with`), version bounds (`version-constraint`), install-time dependencies (`dependencies`), or generated command wrappers (`wrappers`) in `tools/manifests/<id>.yaml`; version lookup from `config.Environment.ToolVersion(id)`, version-constraint checks, port range checks, and `<id> configuration requires version` checks are handled automatically by the manifest plugin and `tools.Registry`.
-4. Implement a custom `Validate` hook only if the tool has cross-field invariants beyond scalar setting types and version bounds (for example distinct port pairs or non-whitespace credentials).
+4. If the tool has cross-field invariants beyond scalar setting types and version bounds (for example distinct port pairs or single-line credentials), implement a `validate` hook in a manifest script (`script.hooks: [validate]`). Use a Go `Validate` hook only when the rule needs data a script cannot reach.
 5. Declare `install.candidates` in the manifest. Add `dispatch.candidates` only to override commands whose executable differs from the install candidates (for example a multi-binary tool); every dispatch command without an override resolves to the install candidates. Unix executable permission bits (`0755`) are applied automatically during post-install.
-6. Declare `download` (`github` or `release-index` plus `assets`) in the manifest so the default manifest downloader handles release resolution, checksum verification, and caching automatically; add a custom Go `download` hook only when upstream discovery requires custom parsing beyond `github` and `release-index`.
-7. Add a focused per-tool Go file only when the tool requires custom validation, download, dependency, or post-install hooks.
+6. Declare `download` (`github` or `release-index` plus `assets`) in the manifest so the default manifest downloader handles release resolution, checksum verification, and caching automatically. When upstream discovery needs custom parsing, keep `download.assets` and add a script `resolve` hook that returns the resolved version, template values, and checksum. Add a custom Go `download` hook only when the payload needs processing a resolved asset plan cannot describe, such as unwrapping a nested archive.
+7. Add a focused per-tool Go file only when the tool requires custom Go download, dependency, or post-install hooks. See [tool-scripts.md](tool-scripts.md) for the script contract.
 8. Register the plugin in `tools.DefaultPlugins`.
 9. Add tests in `tools` for registry, manifest, candidate, and downloader behavior.
 10. Add backend or CLI tests only when the new tool changes project state, shims, command output, or runtime behavior.
@@ -206,7 +214,8 @@ Do not add runtime plugin loading without a separate design. That would need con
 
 Use the package boundary to choose tests:
 
-- `tools`: plugin registry, candidate paths, download asset selection, archive extraction, and post-install hooks.
+- `tools`: plugin registry, candidate paths, download asset selection, tool script hooks, archive extraction, and post-install hooks.
+- `script`: sandbox limits, error classification, and generic Starlark modules.
 - `config`: normalization behavior when shared helpers become complex enough to warrant direct tests.
 - `backend`: store behavior, config persistence, install materialization, shim syncing, tool resolution, runtime state, and service orchestration.
 - `cli`: command parsing, user-facing output, command selection, and full command workflows.

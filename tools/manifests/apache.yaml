@@ -24,3 +24,8 @@ download:
       filename: httpd-{version}-{build}-Win64-VS{vs}.zip
       url: https://www.apachelounge.com/download/VS{vs}/binaries/httpd-{version}-{build}-Win64-VS{vs}.zip
       archive-format: zip
+script:
+  file: scripts/apache.star
+  hooks: [resolve]
+  vars:
+    download-page: https://www.apachelounge.com/download/

@@ -119,6 +119,23 @@ func loadManifestWithReleaseIndexURL(t *testing.T, tool, indexURL string) plugin
 	return manifest
 }
 
+// loadManifestWithScriptVar loads a built-in manifest and overrides one
+// script variable, typically to point a resolve hook at a test server.
+func loadManifestWithScriptVar(t *testing.T, tool, key, value string) pluginManifest {
+	t.Helper()
+	manifest, err := loadBuiltinManifest(tool)
+	if err != nil {
+		t.Fatalf("loadBuiltinManifest(%s) error = %v", tool, err)
+	}
+	vars := make(map[string]string, len(manifest.Script.Vars)+1)
+	for name, current := range manifest.Script.Vars {
+		vars[name] = current
+	}
+	vars[key] = value
+	manifest.Script.Vars = vars
+	return manifest
+}
+
 func TestResolveDatabaseDownloadAssetSupportsSeriesLabels(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -244,7 +261,7 @@ func TestResolveSQLiteDownloadAssetSupportsSeriesLabels(t *testing.T) {
 	}))
 	defer server.Close()
 
-	withTemporaryString(t, &sqliteDownloadPageURL, server.URL)
+	manifest := loadManifestWithScriptVar(t, SQLite, "download-page", server.URL)
 
 	tests := []struct {
 		name                string
@@ -253,6 +270,7 @@ func TestResolveSQLiteDownloadAssetSupportsSeriesLabels(t *testing.T) {
 		goarch              string
 		wantResolvedVersion string
 		wantFileName        string
+		wantChecksum        string
 	}{
 		{
 			name:                "windows",
@@ -261,6 +279,7 @@ func TestResolveSQLiteDownloadAssetSupportsSeriesLabels(t *testing.T) {
 			goarch:              "amd64",
 			wantResolvedVersion: "3.53.2",
 			wantFileName:        "sqlite-tools-win-x64-3530200.zip",
+			wantChecksum:        strings.Repeat("b", 64),
 		},
 		{
 			name:                "linux",
@@ -269,23 +288,28 @@ func TestResolveSQLiteDownloadAssetSupportsSeriesLabels(t *testing.T) {
 			goarch:              "amd64",
 			wantResolvedVersion: "3.53.2",
 			wantFileName:        "sqlite-tools-linux-x64-3530200.zip",
+			wantChecksum:        strings.Repeat("a", 64),
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			resolvedVersion, asset, err := resolveSQLiteDownloadAsset(server.Client(), test.version, test.goos, test.goarch)
+			plan, err := resolveManifestRequest(server.Client(), manifest, test.version, test.goos, test.goarch)
 			if err != nil {
-				t.Fatalf("resolveSQLiteDownloadAsset(%s) error = %v", test.version, err)
+				t.Fatalf("resolveManifestRequest(sqlite, %s) error = %v", test.version, err)
 			}
+			resolvedVersion, asset := plan.ResolvedVersion, plan.Asset
 			if resolvedVersion != test.wantResolvedVersion {
-				t.Fatalf("resolveSQLiteDownloadAsset(%s) resolved version = %q, want %q", test.version, resolvedVersion, test.wantResolvedVersion)
+				t.Fatalf("resolveManifestRequest(sqlite, %s) resolved version = %q, want %q", test.version, resolvedVersion, test.wantResolvedVersion)
 			}
 			if asset.FileName != test.wantFileName {
-				t.Fatalf("resolveSQLiteDownloadAsset(%s) file = %q, want %q", test.version, asset.FileName, test.wantFileName)
+				t.Fatalf("resolveManifestRequest(sqlite, %s) file = %q, want %q", test.version, asset.FileName, test.wantFileName)
 			}
 			if asset.ChecksumAlgorithm != checksumAlgorithmSHA3_256 {
-				t.Fatalf("resolveSQLiteDownloadAsset(%s) checksum algorithm = %q, want %q", test.version, asset.ChecksumAlgorithm, checksumAlgorithmSHA3_256)
+				t.Fatalf("resolveManifestRequest(sqlite, %s) checksum algorithm = %q, want %q", test.version, asset.ChecksumAlgorithm, checksumAlgorithmSHA3_256)
+			}
+			if asset.Checksum != test.wantChecksum {
+				t.Fatalf("resolveManifestRequest(sqlite, %s) checksum = %q, want %q", test.version, asset.Checksum, test.wantChecksum)
 			}
 		})
 	}
@@ -353,30 +377,31 @@ func TestResolveApacheDownloadAssetSupportsApacheLoungeSeriesLabels(t *testing.T
 	}))
 	defer server.Close()
 
-	withTemporaryString(t, &apacheLoungeDownloadURL, server.URL)
+	manifest := loadManifestWithScriptVar(t, Apache, "download-page", server.URL)
 
-	resolvedVersion, asset, err := resolveApacheDownloadAsset(server.Client(), "2.4", "windows", "amd64")
+	plan, err := resolveManifestRequest(server.Client(), manifest, "2.4", "windows", "amd64")
 	if err != nil {
-		t.Fatalf("resolveApacheDownloadAsset(2.4) error = %v", err)
+		t.Fatalf("resolveManifestRequest(apache, 2.4) error = %v", err)
 	}
+	resolvedVersion, asset := plan.ResolvedVersion, plan.Asset
 	if resolvedVersion != "2.4.68" {
-		t.Fatalf("resolveApacheDownloadAsset(2.4) resolved version = %q, want 2.4.68", resolvedVersion)
+		t.Fatalf("resolveManifestRequest(apache, 2.4) resolved version = %q, want 2.4.68", resolvedVersion)
 	}
 	if asset.FileName != "httpd-2.4.68-260617-Win64-VS18.zip" {
-		t.Fatalf("resolveApacheDownloadAsset(2.4) file = %q, want newest Apache Lounge build", asset.FileName)
+		t.Fatalf("resolveManifestRequest(apache, 2.4) file = %q, want newest Apache Lounge build", asset.FileName)
 	}
 	wantURL := server.URL + "/download/VS18/binaries/httpd-2.4.68-260617-Win64-VS18.zip"
 	if asset.URL != wantURL {
-		t.Fatalf("resolveApacheDownloadAsset(2.4) URL = %q, want %q", asset.URL, wantURL)
+		t.Fatalf("resolveManifestRequest(apache, 2.4) URL = %q, want %q", asset.URL, wantURL)
 	}
 	if asset.ChecksumURL != wantURL+".txt" {
-		t.Fatalf("resolveApacheDownloadAsset(2.4) checksum URL = %q, want %q", asset.ChecksumURL, wantURL+".txt")
+		t.Fatalf("resolveManifestRequest(apache, 2.4) checksum URL = %q, want %q", asset.ChecksumURL, wantURL+".txt")
 	}
 	if asset.ChecksumAlgorithm != checksumAlgorithmSHA256 {
-		t.Fatalf("resolveApacheDownloadAsset(2.4) checksum algorithm = %q, want %q", asset.ChecksumAlgorithm, checksumAlgorithmSHA256)
+		t.Fatalf("resolveManifestRequest(apache, 2.4) checksum algorithm = %q, want %q", asset.ChecksumAlgorithm, checksumAlgorithmSHA256)
 	}
 	if asset.ArchiveFormat != archiveFormatZip {
-		t.Fatalf("resolveApacheDownloadAsset(2.4) archive format = %q, want %q", asset.ArchiveFormat, archiveFormatZip)
+		t.Fatalf("resolveManifestRequest(apache, 2.4) archive format = %q, want %q", asset.ArchiveFormat, archiveFormatZip)
 	}
 }
 
@@ -1249,5 +1274,22 @@ func checksumForBytes(t *testing.T, algorithm checksumAlgorithm, data []byte) st
 	default:
 		t.Fatalf("unsupported checksum algorithm %q", algorithm)
 		return ""
+	}
+}
+
+// TestDownloadTextLimitRejectsOversizedBodies verifies the size cap used by
+// script HTTP requests detects bodies larger than the limit.
+func TestDownloadTextLimitRejectsOversizedBodies(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("0123456789"))
+	}))
+	defer server.Close()
+
+	if _, err := downloadTextLimit(server.Client(), server.URL, "fixture", 5); err == nil || !strings.Contains(err.Error(), "exceeds 5 bytes") {
+		t.Fatalf("downloadTextLimit(5) error = %v, want size error", err)
+	}
+	text, err := downloadTextLimit(server.Client(), server.URL, "fixture", 10)
+	if err != nil || text != "0123456789" {
+		t.Fatalf("downloadTextLimit(10) = %q, %v; want full body", text, err)
 	}
 }
