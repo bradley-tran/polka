@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/zalando/go-keyring"
 )
 
 func TestRunCertInstallCreatesAndInstallsGlobalCertificate(t *testing.T) {
@@ -192,7 +195,103 @@ func TestRunCertInstallRemovesExistingCAFromTrustStoreBeforeRegeneration(t *test
 	}
 }
 
+// TestRunCertInstallKeyringFailurePreservesCertificates checks that keyring
+// failures are actionable and leave cached certificates and trust entries alone.
+func TestRunCertInstallKeyringFailurePreservesCertificates(t *testing.T) {
+	for _, test := range []struct {
+		name             string
+		existing         bool
+		invalidServerKey bool
+	}{
+		{name: "unavailable keyring on first install"},
+		{name: "unavailable keyring with existing certificates", existing: true},
+		{name: "invalid server encryption key", existing: true, invalidServerKey: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cacheDir := filepath.Join(t.TempDir(), "global-cache")
+			t.Setenv("POLKA_CACHE_DIR", cacheDir)
+			t.Cleanup(keyring.MockInit)
+			caCertPath, caKeyPath := globalTLSCACertificatePaths(cacheDir)
+			certPath, keyPath := globalTLSCertificatePaths(cacheDir)
+			originalFiles := make(map[string][]byte)
+			if test.existing {
+				if _, _, err := regenerateGlobalTLSCertificateWithOptions(cacheDir, tlsCAKeyStorageOptions{Policy: tlsCAKeyStoragePlaintextRequired}); err != nil {
+					t.Fatalf("regenerateGlobalTLSCertificateWithOptions() error = %v", err)
+				}
+				for _, path := range []string{caCertPath, caKeyPath, certPath, keyPath} {
+					data, err := os.ReadFile(path)
+					if err != nil {
+						t.Fatalf("ReadFile(%s) error = %v", path, err)
+					}
+					originalFiles[path] = data
+				}
+			}
+
+			keyringError := "failed to unlock correct collection '/org/freedesktop/secrets/aliases/default'"
+			if test.invalidServerKey {
+				keyring.MockInit()
+				keyID, err := tlsKeyringAccount(keyPath)
+				if err != nil {
+					t.Fatalf("tlsKeyringAccount() error = %v", err)
+				}
+				if err := keyring.Set(tlsPrivateKeyringService, keyID, "invalid base64"); err != nil {
+					t.Fatalf("keyring.Set() error = %v", err)
+				}
+				keyringError = "decode local HTTPS private key encryption key"
+			} else {
+				keyring.MockInitWithError(errors.New(keyringError))
+			}
+
+			oldInstall := installCertificateToTrustStoreFunc
+			oldRemove := removeCertificateFromTrustStoreFunc
+			t.Cleanup(func() {
+				installCertificateToTrustStoreFunc = oldInstall
+				removeCertificateFromTrustStoreFunc = oldRemove
+			})
+			installCertificateToTrustStoreFunc = func(string) (string, error) {
+				t.Fatal("trust-store installation called after keyring failure")
+				return "", nil
+			}
+			removeCertificateFromTrustStoreFunc = func(*x509.Certificate) (string, error) {
+				t.Fatal("trust-store removal called after keyring failure")
+				return "", nil
+			}
+
+			stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			if code := Run(stdout, stderr, []string{"cert-install"}); code != 1 {
+				t.Fatalf("Run(cert-install) code = %d, want 1", code)
+			}
+			for _, message := range []string{keyringError, "unlock", "polka cert-install --no-encryption", "plaintext"} {
+				if !strings.Contains(stderr.String(), message) {
+					t.Errorf("stderr = %q, want %q", stderr.String(), message)
+				}
+			}
+			if stdout.Len() != 0 {
+				t.Errorf("stdout = %q, want no success output", stdout.String())
+			}
+			for path, original := range originalFiles {
+				data, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatalf("ReadFile(%s) after failure: %v", path, err)
+				}
+				if !bytes.Equal(data, original) {
+					t.Errorf("certificate file %s changed after keyring failure", path)
+				}
+			}
+			if !test.existing {
+				if _, err := os.Stat(filepath.Dir(caCertPath)); !errors.Is(err, os.ErrNotExist) {
+					t.Errorf("Stat(cert directory) error = %v, want not exist", err)
+				}
+			}
+		})
+	}
+}
+
+// TestRunCertInstallNoEncryptionCreatesPlaintextCAKey verifies that the explicit
+// plaintext option works even when the OS keyring cannot be accessed.
 func TestRunCertInstallNoEncryptionCreatesPlaintextCAKey(t *testing.T) {
+	keyring.MockInitWithError(errors.New("no keyring"))
+	t.Cleanup(keyring.MockInit)
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")

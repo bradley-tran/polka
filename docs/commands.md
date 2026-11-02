@@ -283,6 +283,8 @@ On Windows or macOS, removes any existing generated Polka CA certificate from th
 
 Use `--no-encryption` to regenerate the private keys in the legacy plaintext PEM format.
 
+Polka checks access to both private-key encryption keys before removing the existing CA from the trust store or replacing cached certificates. If the OS keyring is unavailable or locked, this check fails with recovery instructions and preserves the existing certificates. For errors such as `failed to unlock correct collection '/org/freedesktop/secrets/aliases/default'` on Linux, make sure your session's default keyring is available and unlocked, then retry. On machines without a usable keyring, run `polka cert-install --no-encryption` to store plaintext private keys; Linux still requires manual CA trust installation using the certificate path reported by the command.
+
 ## Database Commands
 
 Polka dispatches database commands to the primary database selected by `database.engine` in the current environment. Managed database versions are stored as `tools.mysql`, `tools.mariadb`, or `tools.postgresql`; shared options such as `database.port` live under the root-level `database` section. PostgreSQL defaults to port `5432` and exposes `psql`; MySQL and MariaDB default to `3306`.

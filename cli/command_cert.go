@@ -49,11 +49,16 @@ func newCertInstallCommand(ctx *commandContext) *cobra.Command {
 	return cmd
 }
 
+// runCertInstall prepares key storage before replacing certificates and updating
+// the user's trust store.
 func runCertInstall(stdout, stderr io.Writer, store backend.Store, input certInstallInput) int {
 	storageOptions := tlsCAKeyStorageOptions{Policy: tlsCAKeyStorageEncryptedRequired}
 	if input.NoEncryption {
 		storageOptions.Policy = tlsCAKeyStoragePlaintextRequired
 		fmt.Fprintln(stderr, "warning: writing Polka local HTTPS private keys without OS keyring encryption")
+	} else if err := ensureCertInstallEncryptionKeys(store.CacheDir); err != nil {
+		fmt.Fprintf(stderr, "error: %v; unlock your OS keyring and retry, or run \"polka cert-install --no-encryption\" to store the private keys in plaintext\n", err)
+		return 1
 	}
 
 	if oldCACertificate := readExistingGlobalTLSCACertificate(store.CacheDir); oldCACertificate != nil {
@@ -77,6 +82,24 @@ func runCertInstall(stdout, stderr io.Writer, store backend.Store, input certIns
 	fmt.Fprintf(stdout, "Installed Polka local HTTPS CA certificate into the %s trust store.\n", trustStore)
 	fmt.Fprintf(stdout, "CA certificate: %s\n", certificatePath)
 	return 0
+}
+
+// ensureCertInstallEncryptionKeys loads or creates both keyring entries before
+// cert-install removes trusted certificates or replaces cached TLS material.
+func ensureCertInstallEncryptionKeys(cacheDir string) error {
+	_, caKeyPath := globalTLSCACertificatePaths(cacheDir)
+	_, serverKeyPath := globalTLSCertificatePaths(cacheDir)
+	for _, path := range []string{caKeyPath, serverKeyPath} {
+		keyID, err := tlsKeyringAccount(path)
+		if err != nil {
+			return err
+		}
+		if _, err := ensureTLSPrivateKeyEncryptionKey(keyID); err != nil {
+			return fmt.Errorf("prepare local HTTPS private key encryption in OS keyring: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // readExistingGlobalTLSCACertificate loads the cached CA certificate when it
