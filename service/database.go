@@ -1048,6 +1048,8 @@ func databaseCreateCandidates(installDir, engine string) []string {
 	return []string{filepath.Join(installDir, "bin", "createdb"), filepath.Join(installDir, "createdb")}
 }
 
+// resolveDatabaseBootstrapTarget locates the installed MariaDB initialization
+// helper, allowing both packaged binary and relocatable archive layouts.
 func resolveDatabaseBootstrapTarget(installDir, engine string) (string, error) {
 	for _, candidate := range databaseBootstrapCandidates(installDir, engine) {
 		fileInfo, err := os.Stat(candidate)
@@ -1066,6 +1068,8 @@ func resolveDatabaseBootstrapTarget(installDir, engine string) (string, error) {
 	return "", fmt.Errorf("%s bootstrap helper was not found under %s", engine, installDir)
 }
 
+// databaseBootstrapCandidates includes both current and legacy MariaDB helper
+// names. Unix binary archives ship these helpers under scripts/.
 func databaseBootstrapCandidates(installDir, engine string) []string {
 	if engine != toolMariaDB {
 		return nil
@@ -1083,6 +1087,8 @@ func databaseBootstrapCandidates(installDir, engine string) []string {
 	return []string{
 		filepath.Join(installDir, "bin", "mariadb-install-db"),
 		filepath.Join(installDir, "bin", "mysql_install_db"),
+		filepath.Join(installDir, "scripts", "mariadb-install-db"),
+		filepath.Join(installDir, "scripts", "mysql_install_db"),
 		filepath.Join(installDir, "mariadb-install-db"),
 		filepath.Join(installDir, "mysql_install_db"),
 	}
