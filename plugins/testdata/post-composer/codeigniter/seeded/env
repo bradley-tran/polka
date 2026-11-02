@@ -1,0 +1,2 @@
+# CI_ENVIRONMENT = production
+# database.default.hostname = localhost
