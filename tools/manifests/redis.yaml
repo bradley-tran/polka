@@ -29,3 +29,26 @@ download:
       url: https://github.com/zkteco-home/redis-windows/archive/refs/tags/{tag}.zip
       checksum-algorithm: embedded-commit-id
       archive-format: zip
+script:
+  file: scripts/redis.star
+  hooks: [build_sources]
+  vars:
+    source-hashes: https://raw.githubusercontent.com/redis/redis-hashes/master/README
+    source-base: https://download.redis.io/releases/
+build:
+  platforms: [linux-amd64]
+  requires:
+    commands: ["cc|gcc", make]
+  stages:
+    - name: redis
+      source: redis
+      make: [BUILD_TLS=no, USE_SYSTEMD=no]
+  package:
+    copy:
+      - from: src/redis-server
+        to: redis-server
+      - from: src/redis-cli
+        to: redis-cli
+  verify:
+    - [redis-server, --version]
+    - [redis-cli, --version]

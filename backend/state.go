@@ -48,6 +48,20 @@ func (s *installState) record(tool, version string) {
 	sort.Strings(s.Tools[tool])
 }
 
+// forget removes the given tool version, so the next install materializes it again.
+func (s *installState) forget(tool, version string) {
+	versions := s.Tools[tool]
+	for index, installed := range versions {
+		if installed == version {
+			s.Tools[tool] = append(versions[:index], versions[index+1:]...)
+			break
+		}
+	}
+	if len(s.Tools[tool]) == 0 {
+		delete(s.Tools, tool)
+	}
+}
+
 // installStateFile returns the path of the project-local install state file.
 func (s Store) installStateFile() string {
 	return filepath.Join(s.EnvsDir, installStateFileName)

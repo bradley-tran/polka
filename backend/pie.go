@@ -20,7 +20,7 @@ import (
 // executes `<internal-php> pie.phar args...` streaming output to the given
 // writers. It returns the PIE process exit code. Both the polka ext command
 // and the install pipeline's extension provisioning use this entry point.
-func (s Store) RunPIE(stdout, stderr io.Writer, args []string, report func(InstallProgress)) (int, error) {
+func (s Store) RunPIE(stdout, stderr io.Writer, targetPHP string, args []string, report func(InstallProgress)) (int, error) {
 	phpPath, err := s.EnsureInternalTool(toolPHP, "", report)
 	if err != nil {
 		return 0, err
@@ -30,11 +30,12 @@ func (s Store) RunPIE(stdout, stderr io.Writer, args []string, report func(Insta
 		return 0, err
 	}
 
-	command, err := prepareInternalPHPCommand(phpPath, append([]string{piePath}, args...))
+	phpArgs, env := pieProcessConfig(runtime.GOOS, os.Environ(), phpPath, piePath, targetPHP, args)
+	command, err := prepareInternalPHPCommand(phpPath, phpArgs)
 	if err != nil {
 		return 0, err
 	}
-	command.Env = internalPHPProcessEnv(os.Environ(), phpPath)
+	command.Env = env
 	command.Stdout = stdout
 	command.Stderr = stderr
 
@@ -50,22 +51,74 @@ func (s Store) RunPIE(stdout, stderr io.Writer, args []string, report func(Insta
 	return 0, nil
 }
 
+// pieProcessConfig returns the internal PHP's arguments and environment for
+// running PIE. On Linux PIE inspects the target by running it as a child process
+// that inherits this environment, and Linux PHP takes its ini from PHPRC. If PHPRC
+// named the internal runtime's ini, the target would report the internal
+// extension_dir and PIE would refuse the mismatch with php-config. So the internal
+// PHP is given its ini through -c, which outranks PHPRC, and PHPRC names the target's.
+func pieProcessConfig(goos string, base []string, phpPath, piePath, targetPHP string, args []string) ([]string, []string) {
+	env := internalPHPProcessEnv(base, phpPath)
+	phpArgs := append([]string{piePath}, args...)
+	if goos != "linux" {
+		return phpArgs, env
+	}
+
+	if internalIni := filepath.Join(filepath.Dir(phpPath), "php.ini"); regularFileExistsAt(internalIni) {
+		phpArgs = append([]string{"-c", internalIni}, phpArgs...)
+	}
+	if targetIni := filepath.Join(filepath.Dir(targetPHP), "php.ini"); regularFileExistsAt(targetIni) {
+		env = setProcessEnvValue(env, "PHPRC", targetIni)
+	}
+
+	return phpArgs, env
+}
+
 // PIEExtensionInstallArgs builds the PIE arguments that install a package
 // against a specific PHP binary. --skip-enable-extension is required because
 // polka regenerates php.ini itself and would clobber any ini line PIE adds.
 func PIEExtensionInstallArgs(projectPHPPath, pkg, version string) []string {
+	return pieExtensionInstallArgs(runtime.GOOS, projectPHPPath, pkg, version)
+}
+
+// pieExtensionInstallArgs builds the install arguments for a target platform.
+func pieExtensionInstallArgs(goos, projectPHPPath, pkg, version string) []string {
 	spec := pkg
 	if trimmed := strings.TrimSpace(version); trimmed != "" && trimmed != "*" {
 		spec = pkg + ":" + trimmed
 	}
 
-	return []string{"install", "--with-php-path=" + projectPHPPath, "--skip-enable-extension", spec}
+	args := append([]string{"install"}, piePHPTargetArgs(goos, projectPHPPath)...)
+	return append(args, "--skip-enable-extension", spec)
 }
 
 // PIEExtensionUninstallArgs builds the PIE arguments that remove a package
 // from a specific PHP binary's extension directory.
 func PIEExtensionUninstallArgs(projectPHPPath, pkg string) []string {
-	return []string{"uninstall", "--with-php-path=" + projectPHPPath, pkg}
+	return pieExtensionUninstallArgs(runtime.GOOS, projectPHPPath, pkg)
+}
+
+// pieExtensionUninstallArgs builds the uninstall arguments for a target platform.
+func pieExtensionUninstallArgs(goos, projectPHPPath, pkg string) []string {
+	args := append([]string{"uninstall"}, piePHPTargetArgs(goos, projectPHPPath)...)
+	return append(args, pkg)
+}
+
+// piePHPTargetArgs selects the PHP runtime PIE builds against. PIE accepts
+// --with-php-path only on Windows and refuses it elsewhere, where it needs the
+// runtime's own php-config and phpize. Naming phpize matters on Linux, because
+// PIE would otherwise pick up a distribution's phpize from PATH and build against
+// the wrong PHP headers.
+func piePHPTargetArgs(goos, projectPHPPath string) []string {
+	if goos == "windows" {
+		return []string{"--with-php-path=" + projectPHPPath}
+	}
+
+	phpDir := filepath.Dir(projectPHPPath)
+	return []string{
+		"--with-php-config=" + filepath.Join(phpDir, "php-config"),
+		"--with-phpize-path=" + filepath.Join(phpDir, "phpize"),
+	}
 }
 
 // prepareInternalPHPCommand wraps batch files on Windows so fake test PHP
@@ -193,7 +246,7 @@ func (s Store) installPIEExtensions(environment Environment, report func(Install
 
 		emitInstallProgress(report, progress, InstallProgressInstalling)
 		var output bytes.Buffer
-		exitCode, err := s.RunPIE(&output, &output, PIEExtensionInstallArgs(projectPHP, pkg, constraint), internalReport)
+		exitCode, err := s.RunPIE(&output, &output, projectPHP, PIEExtensionInstallArgs(projectPHP, pkg, constraint), internalReport)
 		if err != nil {
 			return err
 		}

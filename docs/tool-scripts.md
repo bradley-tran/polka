@@ -4,7 +4,7 @@ A tool manifest (`tools/manifests/<id>.yaml`) can delegate logic the YAML schema
 
 Scripts follow one rule: **scripts plan, Go acts.** A hook returns data, and Polka validates it and performs every download, checksum, and file write itself.
 
-Scripts can implement four hooks:
+Scripts can implement five hooks:
 
 | Hook | Replaces | Runs |
 | --- | --- | --- |
@@ -12,6 +12,7 @@ Scripts can implement four hooks:
 | `validate(env)` | a Go `validate` hook | whenever an environment is validated, only if the tool has a version or settings |
 | `dependencies(env)` | a Go `dependencies` hook, or static `dependencies` in the manifest | when install requests are computed, only if the tool has a version |
 | `post_install(ctx)` | a Go `postInstall` hook | after every install, including installs skipped as already up to date, only if the install directory exists |
+| `build_sources(ctx)` | nothing; it locates source archives for a `build` recipe | when `polka build` or `polka install --build` compiles the tool |
 
 Framework plugins remain declarative YAML. A Go hook is still right for work a plan cannot describe, such as running the installed binary or using host tools. `goToolHooks` in `tools/plugins.go` lists the tools that need one.
 
@@ -38,6 +39,7 @@ script:
 - `vars` is an optional string map handed to hooks as `ctx.vars` or `env.vars`. Keys are lowercased. Put upstream URLs here so the hosts a script contacts stay visible in YAML and tests can point them at local servers.
 - A `resolve` hook requires `download.assets` and cannot be combined with `download.github` or `download.release-index`.
 - A `dependencies` hook cannot be combined with the manifest's `dependencies`.
+- A `build_sources` hook and a `build` block require each other. See [Build recipes](#build-recipes).
 - A tool cannot implement the same hook in both Go and Starlark.
 
 Tool manifests parse strictly, so an unknown key is an error.
@@ -179,7 +181,7 @@ Only `post_install` can use:
 
 ## Sandbox
 
-Scripts have no general filesystem, environment, or process access. The only file access is `ctx.read_text` and a returned plan, both confined to the install directory. Network access exists only through `http`, and only during `resolve`. Each module load, library load, and hook call is limited to 5,000,000 Starlark steps. `print` output is discarded.
+Scripts have no general filesystem, environment, or process access. The only file access is `ctx.read_text` and a returned plan, both confined to the install directory. Network access exists only through `http`, and only during `resolve` and `build_sources`. Each module load, library load, and hook call is limited to 5,000,000 Starlark steps. `print` output is discarded.
 
 Built-in scripts compile at most once per process, on first use. Command dispatch validates the active environment, so it compiles only the scripts of configured tools that implement `validate`. Keep `validate` hooks off tools that run constantly: php stays in Go for this reason, and a test fails if php dispatch compiles Starlark.
 
@@ -190,3 +192,64 @@ Loading third-party scripts from disk still needs a separate design covering tru
 `TestBuiltinToolScriptsLoad` compiles every embedded script and fails on scripts no manifest references and on libraries no script loads. Test a resolve hook against an `httptest` server by overriding its variable with `loadManifestWithScriptVar` and calling `resolveManifestRequest`, then `downloadManifestAsset` to cover the full path. Test `post_install` through `PostInstall` with a temporary install directory. Use `fstest.MapFS` with `loadManifest` for self-contained fixtures.
 
 Files under `tools/testdata/` were captured from the Go code that the phpMyAdmin and php-devel scripts replaced, and keep their exact line endings through a `-text` attribute. Treat a difference as a behavior change.
+
+## Build recipes
+
+A `build` block tells `polka build` how to compile a tool, and a `build_sources` hook tells it where the source is. The recipe is declarative, so a script still only plans:
+
+```yaml
+script:
+  file: scripts/demo.star
+  hooks: [build_sources]
+build:
+  platforms: [linux-amd64]
+  requires:
+    commands: ["cc|gcc", make]
+    libraries:
+      - name: OpenSSL
+        pkg-config: openssl
+        header: openssl/ssl.h
+        hint: "Debian: libssl-dev"
+        skip-with: [--without-openssl]
+  stages:
+    - name: demo
+      source: demo
+      configure: ["--prefix={prefix}", --with-openssl]
+      make: [EXTRA=1]
+      install: [install]
+  package:
+    keep-dirs: [logs]
+  verify:
+    - [bin/demo, --version]
+  verify-files: [share/demo.conf]
+```
+
+- `platforms` lists the `os-arch` keys the recipe targets. A platform with both a recipe and a download asset uses the download, so give recipes to platforms with no asset.
+- `min-version` rejects older resolved versions before compiling.
+- `requires.commands` accepts `a|b` alternatives. A library is found through `pkg-config` or `header`, and `skip-with` names `--configure-arg` values that remove the need for it.
+- `stages` run in order, each in the source tree its `source` names. `configure` holds `./configure` arguments, `make` holds extra compile arguments, and `install` holds make targets; leaving `configure` or `install` out skips that step. `env` adds environment variables. `--configure-arg` extends the last stage with a `configure`.
+- `prefix: deps` installs a stage into a private directory later stages can link against, instead of the payload.
+- `destdir-var` names the make variable for the staged install, `DESTDIR` by default. `detect-libdir` adds `--with-libdir` on hosts that keep libraries outside `lib`.
+- Stage fields may use `{prefix}`, `{deps}`, and `{jobs}`.
+- `package` shapes the installed tree: `copy` takes files from the last stage's source tree, `remove` deletes paths, `keep-dirs` creates directories, and `relocate-scripts` rewrites shell scripts to find the build prefix from their own location.
+- `verify` lists commands run against the extracted payload from an unrelated directory; `{install}` is its path. `verify-files` lists files that must exist. Load whatever only fails at load time, as the Apache recipe does with its modules, because a binary can print its version and still be unusable.
+- `from` reuses another manifest's recipe, with `extra-configure` extending its last configure stage, as `php-zts` does with `php`. The hook must still be declared.
+
+`build_sources(ctx)` receives the same `ctx` as `resolve` and has `http` access. It returns the resolved version and one source per stage:
+
+```python
+def build_sources(ctx):
+    return {
+        "version": "1.2.3",
+        "sources": {
+            "demo": {
+                "url": "https://example.com/demo-1.2.3.tar.gz",
+                "filename": "demo-1.2.3.tar.gz",
+                "checksum_algorithm": "sha256",
+                "checksum_url": "https://example.com/demo-1.2.3.tar.gz.sha256",
+            },
+        },
+    }
+```
+
+Each source needs a `checksum` or `checksum_url`, with `checksum_algorithm`. An upstream that publishes neither must say `"unverified": True`, so a recipe cannot skip verification by omission; Polka then warns the user. Sources must be `tar.gz` or `tar.xz`, because make depends on the modification times those preserve.

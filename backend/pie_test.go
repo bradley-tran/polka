@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -49,19 +50,76 @@ func TestPIEExtensionInstallArgs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := PIEExtensionInstallArgs(tt.phpPath, tt.pkg, tt.version)
+			// The platform is fixed because PIE's target flags differ by OS;
+			// TestPiePHPTargetArgs covers the other branch.
+			result := pieExtensionInstallArgs("windows", tt.phpPath, tt.pkg, tt.version)
 			if !reflect.DeepEqual(result, tt.expected) {
-				t.Errorf("PIEExtensionInstallArgs() = %v, want %v", result, tt.expected)
+				t.Errorf("pieExtensionInstallArgs() = %v, want %v", result, tt.expected)
 			}
 		})
 	}
 }
 
 func TestPIEExtensionUninstallArgs(t *testing.T) {
-	result := PIEExtensionUninstallArgs("/path/to/php", "foo/bar")
+	result := pieExtensionUninstallArgs("windows", "/path/to/php", "foo/bar")
 	expected := []string{"uninstall", "--with-php-path=/path/to/php", "foo/bar"}
 	if !reflect.DeepEqual(result, expected) {
-		t.Errorf("PIEExtensionUninstallArgs() = %v, want %v", result, expected)
+		t.Errorf("pieExtensionUninstallArgs() = %v, want %v", result, expected)
+	}
+}
+
+// TestPiePHPTargetArgs pins the platform split: PIE refuses --with-php-path off
+// Windows, and without an explicit phpize it would find a distribution's on PATH.
+func TestPiePHPTargetArgs(t *testing.T) {
+	phpPath := filepath.Join("install", "bin", "php")
+	want := []string{
+		"--with-php-config=" + filepath.Join("install", "bin", "php-config"),
+		"--with-phpize-path=" + filepath.Join("install", "bin", "phpize"),
+	}
+	if got := piePHPTargetArgs("linux", phpPath); !reflect.DeepEqual(got, want) {
+		t.Errorf("piePHPTargetArgs(linux) = %v, want %v", got, want)
+	}
+
+	wantInstall := append(append([]string{"install"}, want...), "--skip-enable-extension", "foo/bar")
+	if got := pieExtensionInstallArgs("linux", phpPath, "foo/bar", ""); !reflect.DeepEqual(got, wantInstall) {
+		t.Errorf("pieExtensionInstallArgs(linux) = %v, want %v", got, wantInstall)
+	}
+	wantUninstall := append(append([]string{"uninstall"}, want...), "foo/bar")
+	if got := pieExtensionUninstallArgs("linux", phpPath, "foo/bar"); !reflect.DeepEqual(got, wantUninstall) {
+		t.Errorf("pieExtensionUninstallArgs(linux) = %v, want %v", got, wantUninstall)
+	}
+}
+
+// TestPieProcessConfigSeparatesInternalAndTargetIni verifies that on Linux the
+// internal PHP keeps its ini through -c while PHPRC names the target's ini, so the
+// target PIE inspects reports its own extension_dir rather than the internal one.
+func TestPieProcessConfigSeparatesInternalAndTargetIni(t *testing.T) {
+	internalDir := t.TempDir()
+	targetDir := t.TempDir()
+	internalIni := filepath.Join(internalDir, "php.ini")
+	targetIni := filepath.Join(targetDir, "php.ini")
+	for _, path := range []string{internalIni, targetIni} {
+		if err := os.WriteFile(path, nil, 0o644); err != nil {
+			t.Fatalf("WriteFile(%s) error = %v", path, err)
+		}
+	}
+	internalPHP := filepath.Join(internalDir, "php")
+	targetPHP := filepath.Join(targetDir, "php")
+
+	args, env := pieProcessConfig("linux", nil, internalPHP, "pie.phar", targetPHP, []string{"install"})
+	if want := []string{"-c", internalIni, "pie.phar", "install"}; !reflect.DeepEqual(args, want) {
+		t.Errorf("linux args = %v, want %v", args, want)
+	}
+	if want := "PHPRC=" + targetIni; !slices.Contains(env, want) {
+		t.Errorf("linux env = %v, want %s", env, want)
+	}
+
+	args, env = pieProcessConfig("windows", nil, internalPHP, "pie.phar", targetPHP, []string{"install"})
+	if want := []string{"pie.phar", "install"}; !reflect.DeepEqual(args, want) {
+		t.Errorf("windows args = %v, want %v", args, want)
+	}
+	if want := "PHPRC=" + internalIni; !slices.Contains(env, want) {
+		t.Errorf("windows env = %v, want %s", env, want)
 	}
 }
 

@@ -134,6 +134,11 @@ func resolveManifestRequest(client *http.Client, m pluginManifest, requestedVers
 
 func downloadManifestRequest(ctx DownloadContext, m pluginManifest) error {
 	tool := strings.ToLower(strings.TrimSpace(m.ID))
+	// Checked before resolving, because several tools contact upstream first and
+	// an offline user would otherwise see a network error instead of the next step.
+	if err := manifestBuildRequired(m, ctx.Version, runtime.GOOS, runtime.GOARCH); err != nil {
+		return err
+	}
 	plan, err := resolveManifestRequest(ctx.Client, m, ctx.Version, runtime.GOOS, runtime.GOARCH)
 	if err != nil {
 		return err
@@ -143,6 +148,21 @@ func downloadManifestRequest(ctx DownloadContext, m pluginManifest) error {
 	}
 
 	return downloadManifestAsset(ctx.Client, ctx.CacheDir, tool, ctx.Version, plan.ResolvedVersion, plan.Asset)
+}
+
+// manifestBuildRequired returns a BuildRequiredError when the platform has no
+// download asset but the tool has a compile recipe for it.
+func manifestBuildRequired(m pluginManifest, version, goos, goarch string) error {
+	if !m.Build.supports(goos, goarch) {
+		return nil
+	}
+	for _, key := range downloadPlatformKeys(goos, goarch) {
+		if _, ok := m.Download.Assets[key]; ok {
+			return nil
+		}
+	}
+
+	return &BuildRequiredError{Tool: strings.ToLower(strings.TrimSpace(m.ID)), Version: strings.TrimSpace(version)}
 }
 
 func resolveManifestDownloadVersion(client *http.Client, tool, requestedVersion string, download manifestDownload) (string, string, []githubReleaseAsset, error) {
@@ -649,7 +669,34 @@ func extractArchive(archivePath, targetDir string, format archiveFormat) error {
 	}
 }
 
+// extractSourceArchive unpacks a source tarball for compiling. Unlike a tool
+// payload it keeps the archive's modification times: autotools trees ship
+// generated files such as configure and parsers, and make would try to
+// regenerate them (needing autoconf, bison, or re2c) if extraction order made
+// them look older than their inputs.
+func extractSourceArchive(archivePath, targetDir string, format archiveFormat) error {
+	options := tarExtractOptions{PreserveModTimes: true}
+	switch format {
+	case archiveFormatTarGz:
+		return extractTarGzipArchiveWithOptions(archivePath, targetDir, options)
+	case archiveFormatTarXz:
+		return extractTarXZArchiveWithOptions(archivePath, targetDir, options)
+	default:
+		return fmt.Errorf("unsupported source archive format %q", format)
+	}
+}
+
+// tarExtractOptions adjusts how a tar stream is written to disk.
+type tarExtractOptions struct {
+	// PreserveModTimes restores each file and directory modification time.
+	PreserveModTimes bool
+}
+
 func extractTarGzipArchive(archivePath, targetDir string) error {
+	return extractTarGzipArchiveWithOptions(archivePath, targetDir, tarExtractOptions{})
+}
+
+func extractTarGzipArchiveWithOptions(archivePath, targetDir string, options tarExtractOptions) error {
 	file, err := os.Open(archivePath)
 	if err != nil {
 		return fmt.Errorf("open tar.gz archive %s: %w", archivePath, err)
@@ -662,10 +709,14 @@ func extractTarGzipArchive(archivePath, targetDir string) error {
 	}
 	defer gzipReader.Close()
 
-	return extractTarStream(tar.NewReader(gzipReader), targetDir)
+	return extractTarStream(tar.NewReader(gzipReader), targetDir, options)
 }
 
 func extractTarXZArchive(archivePath, targetDir string) error {
+	return extractTarXZArchiveWithOptions(archivePath, targetDir, tarExtractOptions{})
+}
+
+func extractTarXZArchiveWithOptions(archivePath, targetDir string, options tarExtractOptions) error {
 	file, err := os.Open(archivePath)
 	if err != nil {
 		return fmt.Errorf("open tar.xz archive %s: %w", archivePath, err)
@@ -677,22 +728,41 @@ func extractTarXZArchive(archivePath, targetDir string) error {
 		return fmt.Errorf("open xz archive %s: %w", archivePath, err)
 	}
 
-	return extractTarStream(tar.NewReader(xzReader), targetDir)
+	return extractTarStream(tar.NewReader(xzReader), targetDir, options)
 }
 
-func extractTarStream(reader *tar.Reader, targetDir string) error {
+func extractTarStream(reader *tar.Reader, targetDir string, options tarExtractOptions) error {
 	cleanTarget := filepath.Clean(targetDir)
 	if err := os.MkdirAll(cleanTarget, 0o755); err != nil {
 		return fmt.Errorf("create target dir %s: %w", cleanTarget, err)
 	}
 
+	// Directory times are restored last, because writing an entry inside a
+	// directory updates that directory's modification time.
+	type directoryTime struct {
+		path    string
+		modTime time.Time
+	}
+	var directoryTimes []directoryTime
+
 	for {
 		header, err := reader.Next()
 		if err == io.EOF {
+			for index := len(directoryTimes) - 1; index >= 0; index-- {
+				entry := directoryTimes[index]
+				if err := os.Chtimes(entry.path, time.Time{}, entry.modTime); err != nil {
+					return fmt.Errorf("restore directory time %s: %w", entry.path, err)
+				}
+			}
 			return nil
 		}
 		if err != nil {
 			return fmt.Errorf("read tar archive: %w", err)
+		}
+		// A pax global header carries archive metadata, such as the commit ID
+		// git-archive embeds in the Redis tarball, rather than a file to write.
+		if header.Typeflag == tar.TypeXGlobalHeader {
+			continue
 		}
 
 		destinationPath, err := archiveDestinationPath(cleanTarget, header.Name)
@@ -705,6 +775,9 @@ func extractTarStream(reader *tar.Reader, targetDir string) error {
 			if err := os.MkdirAll(destinationPath, header.FileInfo().Mode()); err != nil {
 				return fmt.Errorf("create directory %s: %w", destinationPath, err)
 			}
+			if options.PreserveModTimes && !header.ModTime.IsZero() {
+				directoryTimes = append(directoryTimes, directoryTime{path: destinationPath, modTime: header.ModTime})
+			}
 		case tar.TypeReg, tar.TypeRegA:
 			if err := os.MkdirAll(filepath.Dir(destinationPath), 0o755); err != nil {
 				return fmt.Errorf("create parent dir for %s: %w", destinationPath, err)
@@ -716,9 +789,17 @@ func extractTarStream(reader *tar.Reader, targetDir string) error {
 			}
 
 			_, copyErr := io.Copy(target, reader)
-			target.Close()
+			closeErr := target.Close()
 			if copyErr != nil {
 				return fmt.Errorf("extract tar entry %s: %w", header.Name, copyErr)
+			}
+			if closeErr != nil {
+				return fmt.Errorf("close extracted file %s: %w", destinationPath, closeErr)
+			}
+			if options.PreserveModTimes && !header.ModTime.IsZero() {
+				if err := os.Chtimes(destinationPath, time.Time{}, header.ModTime); err != nil {
+					return fmt.Errorf("restore file time %s: %w", destinationPath, err)
+				}
 			}
 		case tar.TypeSymlink:
 			if err := os.MkdirAll(filepath.Dir(destinationPath), 0o755); err != nil {

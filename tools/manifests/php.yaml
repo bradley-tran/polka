@@ -26,8 +26,147 @@ download:
       archive-format: zip
 script:
   file: scripts/php.star
-  hooks: [resolve, dependencies]
+  hooks: [resolve, dependencies, build_sources]
   vars:
     release-index: https://windows.php.net/downloads/releases/releases.json
     flavor: nts
     php-sdk-version: 2.8.3
+    source-releases: https://www.php.net/releases/index.php
+    source-base: https://www.php.net/distributions/
+build:
+  platforms: [linux-amd64]
+  min-version: "8.2"
+  requires:
+    commands: ["cc|gcc", "c++|g++", make, pkg-config]
+    libraries:
+      - name: libxml2
+        pkg-config: libxml-2.0
+        hint: "Debian: libxml2-dev, Fedora: libxml2-devel, Arch: libxml2"
+      - name: zlib
+        pkg-config: zlib
+        header: zlib.h
+        hint: "Debian: zlib1g-dev, Fedora: zlib-devel, Arch: zlib"
+      - name: OpenSSL
+        pkg-config: openssl
+        hint: "Debian: libssl-dev, Fedora: openssl-devel, Arch: openssl"
+        skip-with: [--without-openssl]
+      - name: libcurl
+        pkg-config: libcurl
+        hint: "Debian: libcurl4-openssl-dev, Fedora: libcurl-devel, Arch: curl"
+        skip-with: [--without-curl]
+      - name: Oniguruma
+        pkg-config: oniguruma
+        hint: "Debian: libonig-dev, Fedora: oniguruma-devel, Arch: oniguruma"
+        skip-with: [--disable-mbstring]
+      - name: libzip
+        pkg-config: libzip
+        hint: "Debian: libzip-dev, Fedora: libzip-devel, Arch: libzip"
+        skip-with: [--without-zip]
+      - name: bzip2
+        pkg-config: bzip2
+        header: bzlib.h
+        hint: "Debian: libbz2-dev, Fedora: bzip2-devel, Arch: bzip2"
+        skip-with: [--without-bz2]
+      - name: ICU
+        pkg-config: icu-uc
+        hint: "Debian: libicu-dev, Fedora: libicu-devel, Arch: icu"
+        skip-with: [--disable-intl]
+      - name: libpng
+        pkg-config: libpng
+        hint: "Debian: libpng-dev, Fedora: libpng-devel, Arch: libpng"
+        skip-with: [--disable-gd]
+      - name: libjpeg
+        pkg-config: libjpeg
+        hint: "Debian: libjpeg-dev, Fedora: libjpeg-turbo-devel, Arch: libjpeg-turbo"
+        skip-with: [--without-jpeg, --disable-gd]
+      - name: libwebp
+        pkg-config: libwebp
+        hint: "Debian: libwebp-dev, Fedora: libwebp-devel, Arch: libwebp"
+        skip-with: [--without-webp, --disable-gd]
+      - name: FreeType
+        pkg-config: freetype2
+        hint: "Debian: libfreetype-dev, Fedora: freetype-devel, Arch: freetype2"
+        skip-with: [--without-freetype, --disable-gd]
+      - name: GMP
+        pkg-config: gmp
+        header: gmp.h
+        hint: "Debian: libgmp-dev, Fedora: gmp-devel, Arch: gmp"
+        skip-with: [--without-gmp]
+      - name: libsodium
+        pkg-config: libsodium
+        hint: "Debian: libsodium-dev, Fedora: libsodium-devel, Arch: libsodium"
+        skip-with: [--without-sodium]
+      - name: libtidy
+        pkg-config: tidy
+        header: tidy.h
+        hint: "Debian: libtidy-dev, Fedora: libtidy-devel, Arch: tidy"
+        skip-with: [--without-tidy]
+      - name: libxslt
+        pkg-config: libxslt
+        hint: "Debian: libxslt1-dev, Fedora: libxslt-devel, Arch: libxslt"
+        skip-with: [--without-xsl]
+      - name: OpenLDAP
+        pkg-config: ldap
+        header: ldap.h
+        hint: "Debian: libldap-dev, Fedora: openldap-devel, Arch: libldap"
+        skip-with: [--without-ldap]
+      - name: SQLite
+        pkg-config: sqlite3
+        hint: "Debian: libsqlite3-dev, Fedora: sqlite-devel, Arch: sqlite"
+        skip-with: [--without-sqlite3]
+      - name: libpq
+        pkg-config: libpq
+        hint: "Debian: libpq-dev, Fedora: libpq-devel, Arch: postgresql-libs"
+        skip-with: [--without-pgsql]
+  stages:
+    - name: php
+      source: php
+      env:
+        EXTENSION_DIR: "{prefix}/ext"
+      detect-libdir: true
+      configure:
+        - "--prefix={prefix}"
+        - --without-pear
+        - --disable-phpdbg
+        - --enable-mysqlnd
+        - --with-zlib
+        - --with-curl=shared
+        - --with-openssl=shared
+        - --enable-mbstring=shared
+        - --with-zip=shared
+        - --with-bz2=shared
+        - --enable-intl=shared
+        - --enable-gd=shared
+        - --with-freetype
+        - --with-jpeg
+        - --with-webp
+        - --enable-exif=shared
+        - --enable-fileinfo=shared
+        - --enable-ftp=shared
+        - --with-gettext=shared
+        - --with-gmp=shared
+        - --enable-bcmath=shared
+        - --enable-calendar=shared
+        - --enable-soap=shared
+        - --enable-sockets=shared
+        - --enable-shmop=shared
+        - --with-sodium=shared
+        - --with-tidy=shared
+        - --with-xsl=shared
+        - --with-ldap=shared
+        - --with-iconv=shared
+        - --with-sqlite3=shared
+        - --with-pdo-sqlite=shared
+        - --with-mysqli=shared
+        - --with-pdo-mysql=shared
+        - --with-pgsql=shared
+        - --with-pdo-pgsql=shared
+      install: [install]
+      destdir-var: INSTALL_ROOT
+  package:
+    relocate-scripts: [bin/php-config, bin/phpize]
+    remove: [bin/phar, bin/phar.phar, php/man]
+  verify:
+    - [bin/php, -n, -v]
+    - [bin/php-cgi, -n, -v]
+    - [bin/php-config, --extension-dir]

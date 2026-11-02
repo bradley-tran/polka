@@ -13,7 +13,7 @@ import (
 
 const (
 	// scriptHTTPLocal is the thread-local key granting a hook call network
-	// access. Only the resolve hook sets it.
+	// access. Only the resolve and build_sources hooks set it.
 	scriptHTTPLocal = "polka.http"
 	// scriptHTTPMaxBytes caps one script HTTP response body.
 	scriptHTTPMaxBytes = 8 << 20
@@ -46,7 +46,8 @@ var scriptVersionModule = &starlarkstruct.Module{
 	},
 }
 
-// scriptHTTPModule exposes read-only GET requests to resolve hooks.
+// scriptHTTPModule exposes read-only GET requests to the resolve and
+// build_sources hooks.
 var scriptHTTPModule = &starlarkstruct.Module{
 	Name: "http",
 	Members: starlark.StringDict{
@@ -141,7 +142,7 @@ func scriptHTTPText(thread *starlark.Thread, b *starlark.Builtin, args starlark.
 	}
 	access, ok := thread.Local(scriptHTTPLocal).(scriptHTTPAccess)
 	if !ok {
-		return "", fmt.Errorf("%s: http is only available in the resolve hook", b.Name())
+		return "", fmt.Errorf("%s: http is only available in the resolve and build_sources hooks", b.Name())
 	}
 	if err := validateScriptURL(rawURL); err != nil {
 		return "", fmt.Errorf("%s: %w", b.Name(), err)

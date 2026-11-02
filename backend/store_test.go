@@ -2254,8 +2254,14 @@ func TestStoreInstallWritesPHPExtensionConfig(t *testing.T) {
 		t.Fatalf("ReadFile(php.ini) error = %v", err)
 	}
 	phpIni := string(phpIniData)
-	if !strings.Contains(phpIni, "extension_dir=\"../ext\"") {
-		t.Fatalf("php.ini = %q, want extension_dir entry", phpIni)
+	// Linux needs an absolute path because PHP resolves a relative
+	// extension_dir against the working directory, not the ini file.
+	wantExtensionDir := "extension_dir=\"../ext\""
+	if runtime.GOOS == "linux" {
+		wantExtensionDir = "extension_dir=\"" + filepath.ToSlash(filepath.Join(filepath.Dir(filepath.Dir(results[0].TargetPath)), "ext")) + "\""
+	}
+	if !strings.Contains(phpIni, wantExtensionDir) {
+		t.Fatalf("php.ini = %q, want %s", phpIni, wantExtensionDir)
 	}
 	if !strings.Contains(phpIni, "extension=openssl") {
 		t.Fatalf("php.ini = %q, want enabled openssl extension", phpIni)

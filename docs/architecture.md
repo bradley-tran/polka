@@ -18,7 +18,7 @@ Polka is a Go CLI for managing project-local PHP development environments. The p
 
 ### `cli`
 
-The `cli` package owns command parsing, user-facing command output, and command-specific workflows. It uses Cobra to expose commands such as `init`, `new`, `install`, `serve`, `stop`, `exec`, `sh`, `db`, and `status`.
+The `cli` package owns command parsing, user-facing command output, and command-specific workflows. It uses Cobra to expose commands such as `init`, `new`, `install`, `build`, `serve`, `stop`, `exec`, `sh`, `db`, and `status`.
 
 The CLI should stay thin. It resolves flags and arguments, asks `backend.Store` for stateful operations, and handles process execution or runtime command flows where those are command-specific.
 
@@ -103,6 +103,7 @@ The `tools` package owns managed tool behavior:
 - optional per-tool Go hooks, listed in `goToolHooks`, for work a script plan cannot describe: php and php-zts validation (it runs on every dispatch) and php, php-zts, and frankenphp post-install (it runs the installed binary and host tools)
 - tool discovery: every `tools/manifests/*.yaml` becomes a plugin, ordered by `dispatch-priority` and then ID, which decides the provider of a command several tools share
 - PHP extension post-install config generation
+- compiling tools from source: declarative `build` manifest recipes (`from` shares a recipe between manifests), the `build_sources` script hook that locates sources, and the engine in `tools/build*.go` that checks the host, verifies sources, compiles, packages, and verifies the payload
 
 The current plugin system is internal and compile-time only. Built-in tool metadata and scripts live in `tools/manifests/`, built-in framework metadata lives in `plugins/manifests/*.yaml`, and both are embedded into the binary; Polka does not load third-party plugins from disk or from `polka.yaml`. The manifest parsers accept bytes and the tool manifest loader (`loadManifest`) reads manifests and their scripts through an `fs.FS`, so future external loading can reuse the schemas and the sandboxed script runtime, but that loading behavior is intentionally not implemented yet.
 
@@ -115,7 +116,7 @@ The current plugin system is internal and compile-time only. Built-in tool metad
 3. `backend.Store` loads and normalizes `polka.yaml` for the default environment or `polka.<name>.yaml` for named environments, then validates the install request(s). It builds the effective PHP extension set from framework-common requirements, every configured tool's manifest requirements, and explicit environment overrides in that order.
 4. For each requested tool, `backend.Store` first consults the project-local install state in `.polka/envs/installed.json`. Without `--force`, a tool recorded there whose installed executable still resolves on disk skips download and extraction and is reported as unchanged; its post-install hook still runs so configuration changes (PHP extensions, memory limit, OPcache) are applied. Explicit `tool:version` installs always reinstall.
 5. Otherwise, `backend.Store` checks the global cache metadata and cached payload checksum.
-6. If the cache is missing or invalid, `tools.HTTPDownloader` invokes the matching plugin download hook.
+6. If the cache is missing or invalid, `tools.HTTPDownloader` invokes the matching plugin download hook. A tool with a build recipe and no download for the platform returns `tools.BuildRequiredError` before any network request.
 7. `backend.Store` installs from the cached payload into `.polka/envs/<tool>/<version>`; archive payloads are extracted on demand, while single-file payloads such as PHARs are placed at their expected install path.
 8. The tool plugin may run a post-install hook using `tools.InstallContext`.
 9. `backend.Store` records each fully installed tool version in `.polka/envs/installed.json` (including tools that succeeded before another tool's failure aborted the run) and returns install results to the CLI.
@@ -129,6 +130,23 @@ After the tool installs, `backend.Store` provisions any PIE-managed `vendor/name
 As discouraged legacy compatibility, the backend also provisions `pecl-extensions` after PIE. It resolves official PECL metadata, installs matching Windows DLLs or builds Linux sources with target-matched PHP development tools, tracks installed artifacts beside the PHP runtime, and performs a final `php.ini` synchronization. PIE remains the preferred provider.
 
 Finally, on Windows environments with `settings.php.extension-sdk` enabled, `backend/msvc.go` locates a host MSVC toolchain through `vswhere.exe`, captures the variables `vcvarsall.bat` adds, and stores them in `.polka/envs/msvc/<environment>.json`. A missing toolchain is reported through `InstallOptions.Warn` rather than failing the install. `cli` applies the capture when composing `sh`, `exec`, and worker environments (`Store.MSVCToolchain`), before project env files so user values win.
+
+## Tool Build Flow
+
+`polka build <tool:version>` needs no project config, so `cli` uses `StoreForWorkingDirectory`. `backend.Store.BuildTool` delegates to `Store.Builder` (a test seam like `Store.Downloader`), which defaults to `tools.BuildTool`:
+
+1. Reject an invalid request, and return early when the cache already holds the label. Different `--configure-arg` values are an error rather than a reuse.
+2. Check host commands and libraries, reporting everything missing together.
+3. Take a `flock` per tool and label, because a compile far outlasts the cache metadata lock's staleness window. Check the cache again in case another build just finished.
+4. Run the `build_sources` hook, then download and verify each source. A source can only skip verification by declaring `unverified`, which is reported to the user.
+5. Extract sources with their modification times preserved, then run each stage's configure, make, and install, with output going only to the log. The compiled prefix is a path that never exists at runtime, and installs go through a destination directory.
+6. Apply the recipe's packaging, including rewriting `php-config` and `phpize` to find their install from their own location, and write a tar.gz. Absolute symlinks into the prefix become relative, and any that leave the payload fail the build.
+7. Extract and flatten the payload elsewhere and verify it from an unrelated directory, as install would use it.
+8. Publish it with `tools.CacheBuiltPayload` under the literal label, recording how it was built. A replacing build clears that label's internal install record.
+
+The build directory is removed on every outcome; the log stays. From here the normal install flow applies, because the payload is an ordinary cache entry.
+
+`polka install --build` runs a serial pass (`Store.buildMissingTools`) before the parallel install layers. It compiles each request that would need a payload, has none cached, and has a recipe, plus the internal PHP when the environment has PIE extensions. The install goroutines then only see cache hits. Recipes use host toolchains rather than other managed tools, so layer order does not matter.
 
 ## Internal Tools
 
@@ -215,7 +233,7 @@ Do not add runtime plugin loading without a separate design. That would need con
 
 Use the package boundary to choose tests:
 
-- `tools`: plugin registry, candidate paths, download asset selection, tool script hooks, archive extraction, and post-install hooks.
+- `tools`: plugin registry, candidate paths, download asset selection, tool script hooks, archive extraction, post-install hooks, and the build engine (through the `buildCommandRunner` fake, so it runs on every CI platform).
 - `script`: sandbox limits, error classification, and generic Starlark modules.
 - `config`: normalization behavior when shared helpers become complex enough to warrant direct tests.
 - `backend`: store behavior, config persistence, install materialization, shim syncing, tool resolution, runtime state, and service orchestration.
@@ -226,3 +244,11 @@ The default acceptance check is:
 ```bash
 go test ./...
 ```
+
+Compiling real tools is too slow and host-dependent for that check, so it sits behind a variable. It builds the recipes, serves pages through them, and installs an extension with PIE:
+
+```bash
+POLKA_BUILD_INTEGRATION=1 go test ./cli -run TestBuildIntegration -v -timeout 40m
+```
+
+`POLKA_BUILD_INTEGRATION_CACHE` reuses a cache between runs, and `POLKA_BUILD_INTEGRATION_PHP_ARGS` passes configure options such as `--without-tidy`.

@@ -77,7 +77,7 @@ func runExtInstall(stdout, stderr io.Writer, store backend.Store, envName, spec 
 	// Tee PIE output so the resolved version can be parsed from it while the
 	// user still sees the live install log.
 	var output bytes.Buffer
-	exitCode, err := store.RunPIE(io.MultiWriter(stdout, &output), io.MultiWriter(stderr, &output), backend.PIEExtensionInstallArgs(projectPHP, pkg, constraint), internalToolProgress(stdout))
+	exitCode, err := store.RunPIE(io.MultiWriter(stdout, &output), io.MultiWriter(stderr, &output), projectPHP, backend.PIEExtensionInstallArgs(projectPHP, pkg, constraint), internalToolProgress(stdout))
 	if err != nil {
 		return &statusError{code: 1, err: err}
 	}
@@ -135,7 +135,7 @@ func runExtRemove(stdout, stderr io.Writer, store backend.Store, envName, spec s
 		return &statusError{code: 1, err: err}
 	}
 
-	exitCode, err := store.RunPIE(stdout, stderr, backend.PIEExtensionUninstallArgs(projectPHP, pkg), internalToolProgress(stdout))
+	exitCode, err := store.RunPIE(stdout, stderr, projectPHP, backend.PIEExtensionUninstallArgs(projectPHP, pkg), internalToolProgress(stdout))
 	if err != nil {
 		return &statusError{code: 1, err: err}
 	}

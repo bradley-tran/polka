@@ -26,6 +26,95 @@ download:
       archive-format: zip
 script:
   file: scripts/apache.star
-  hooks: [resolve]
+  hooks: [resolve, build_sources]
   vars:
     download-page: https://www.apachelounge.com/download/
+    source-index: https://downloads.apache.org/httpd/
+    source-archive: https://archive.apache.org/dist/httpd/
+    apr-index: https://downloads.apache.org/apr/
+build:
+  platforms: [linux-amd64]
+  requires:
+    commands: ["cc|gcc", make, pkg-config]
+    libraries:
+      - name: PCRE2
+        pkg-config: libpcre2-8
+        hint: "Debian: libpcre2-dev, Fedora: pcre2-devel, Arch: pcre2"
+      - name: expat
+        pkg-config: expat
+        header: expat.h
+        hint: "Debian: libexpat1-dev, Fedora: expat-devel, Arch: expat"
+      - name: OpenSSL
+        pkg-config: openssl
+        hint: "Debian: libssl-dev, Fedora: openssl-devel, Arch: openssl"
+  stages:
+    # httpd links APR statically: Polka runs it directly, with no library path
+    # that could locate a shared libapr inside a per-project install directory.
+    # APR must still be built shared as well, because httpd compiles its modules
+    # with APR's libtool, and --disable-shared would leave them as static archives.
+    - name: apr
+      source: apr
+      prefix: deps
+      configure:
+        - "--prefix={prefix}"
+        - --with-pic
+      install: [install]
+    - name: apr-util
+      source: apr-util
+      prefix: deps
+      configure:
+        - "--prefix={prefix}"
+        - "--with-apr={deps}/bin/apr-1-config"
+      install: [install]
+    - name: httpd
+      source: httpd
+      configure:
+        - "--prefix={prefix}"
+        - "--with-apr={deps}/bin/apr-1-config"
+        - "--with-apr-util={deps}/bin/apu-1-config"
+        - --with-mpm=event
+        - --enable-mpms-shared=event
+        - --enable-mods-static=unixd
+        - --enable-mods-shared=authz_core authz_host dir mime log_config rewrite proxy proxy_fcgi socache_shmcb ssl
+      # -export-dynamic is configure's own value for this variable, and modules
+      # resolve httpd's symbols through it. Overriding must keep it.
+      make: ["HTTPD_LDFLAGS=-export-dynamic -static-libtool-libs"]
+      install: [install]
+  package:
+    # apxs, apachectl, and envvars embed the build prefix and Polka uses none of them.
+    remove: [manual, man, build, include, bin/apxs, bin/apachectl, bin/envvars, bin/envvars-std]
+    keep-dirs: [logs]
+  verify:
+    - [bin/httpd, -v]
+    # Loads every module Polka's generated config uses. A module whose symbols
+    # do not resolve only fails here, not when httpd starts without any modules.
+    - - bin/httpd
+      - -t
+      - -d
+      - "{install}"
+      - -f
+      - /dev/null
+      - -C
+      - LoadModule mpm_event_module modules/mod_mpm_event.so
+      - -C
+      - LoadModule authz_core_module modules/mod_authz_core.so
+      - -C
+      - LoadModule authz_host_module modules/mod_authz_host.so
+      - -C
+      - LoadModule dir_module modules/mod_dir.so
+      - -C
+      - LoadModule mime_module modules/mod_mime.so
+      - -C
+      - LoadModule log_config_module modules/mod_log_config.so
+      - -C
+      - LoadModule rewrite_module modules/mod_rewrite.so
+      - -C
+      - LoadModule proxy_module modules/mod_proxy.so
+      - -C
+      - LoadModule proxy_fcgi_module modules/mod_proxy_fcgi.so
+      - -C
+      - LoadModule socache_shmcb_module modules/mod_socache_shmcb.so
+      - -C
+      - LoadModule ssl_module modules/mod_ssl.so
+  verify-files:
+    - conf/mime.types

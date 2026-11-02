@@ -115,8 +115,13 @@ func TestRunExtInstallRecordsExplicitVersion(t *testing.T) {
 	if !strings.Contains(invocations, "pie.phar") || !strings.Contains(invocations, "install") {
 		t.Fatalf("php invocations = %q, want pie.phar install call", invocations)
 	}
-	if !strings.Contains(invocations, "--with-php-path=") || !strings.Contains(invocations, "--skip-enable-extension") {
-		t.Fatalf("php invocations = %q, want --with-php-path and --skip-enable-extension", invocations)
+	// PIE accepts --with-php-path only on Windows and refuses it elsewhere.
+	wantTarget := "--with-php-config="
+	if runtime.GOOS == "windows" {
+		wantTarget = "--with-php-path="
+	}
+	if !strings.Contains(invocations, wantTarget) || !strings.Contains(invocations, "--skip-enable-extension") {
+		t.Fatalf("php invocations = %q, want %s and --skip-enable-extension", invocations, wantTarget)
 	}
 	if !strings.Contains(invocations, "xdebug/xdebug:3.4.1") {
 		t.Fatalf("php invocations = %q, want versioned package spec", invocations)

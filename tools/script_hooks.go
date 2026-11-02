@@ -26,6 +26,7 @@ const (
 	scriptHookValidate     = "validate"
 	scriptHookDependencies = "dependencies"
 	scriptHookPostInstall  = "post_install"
+	scriptHookBuildSources = "build_sources"
 )
 
 // scriptLibraryDir holds script code shared through load(), relative to the
@@ -71,6 +72,18 @@ func (s manifestScript) isZero() bool {
 func (s manifestScript) hasHook(hook string) bool {
 	for _, declared := range s.Hooks {
 		if declared == hook {
+			return true
+		}
+	}
+
+	return false
+}
+
+// declaresHook reports whether the script declares hook, tolerating the raw
+// spelling manifest validation sees before names are normalized.
+func (s manifestScript) declaresHook(hook string) bool {
+	for _, declared := range s.Hooks {
+		if strings.ToLower(strings.TrimSpace(declared)) == hook {
 			return true
 		}
 	}
@@ -128,7 +141,7 @@ func (s manifestScript) validate(id string, download manifestDownload, dependenc
 	for index, rawHook := range s.Hooks {
 		hook := strings.ToLower(strings.TrimSpace(rawHook))
 		switch hook {
-		case scriptHookResolve, scriptHookValidate, scriptHookDependencies, scriptHookPostInstall:
+		case scriptHookResolve, scriptHookValidate, scriptHookDependencies, scriptHookPostInstall, scriptHookBuildSources:
 		default:
 			return fmt.Errorf("tool manifest %q script.hooks[%d] has unsupported hook %q", id, index, rawHook)
 		}
@@ -203,7 +216,7 @@ func loadToolScript(fsys fs.FS, tool string, spec manifestScript) (*script.Modul
 			continue
 		}
 		switch name {
-		case scriptHookResolve, scriptHookValidate, scriptHookDependencies, scriptHookPostInstall:
+		case scriptHookResolve, scriptHookValidate, scriptHookDependencies, scriptHookPostInstall, scriptHookBuildSources:
 			if !spec.hasHook(name) {
 				return nil, fmt.Errorf("%s script %s defines hook %q that is not declared in script.hooks", tool, spec.File, name)
 			}

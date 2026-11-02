@@ -189,6 +189,9 @@ func (s *installSpinner) renderLine(t toolState) string {
 		icon = "✓"
 	} else if t.stage == backend.InstallProgressDownloading {
 		icon = "↓"
+	} else if t.stage == backend.InstallProgressBuilding {
+		// A compile can take many minutes, so say why this row is not moving.
+		return fmt.Sprintf("%s %s %s (building)", icon, t.tool, t.version)
 	}
 	return fmt.Sprintf("%s %s %s", icon, t.tool, t.version)
 }

@@ -39,3 +39,31 @@ func TestResolvePHPBuildTools(t *testing.T) {
 		t.Fatalf("resolvePHPBuildTools() = %q, %q; want project host tools", phpize, phpConfig)
 	}
 }
+
+// TestVerifyPHPBuildToolsAllowsFirstInstallOfBuildablePHP verifies a host with no
+// system PHP can install a compiled PHP, which ships its own phpize and php-config,
+// while a PHP that is installed still gets checked.
+func TestVerifyPHPBuildToolsAllowsFirstInstallOfBuildablePHP(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("host PHP build-tool verification is Linux-specific")
+	}
+	t.Setenv("PATH", t.TempDir())
+
+	projectDir := t.TempDir()
+	store := NewProjectStore(projectDir)
+	store.CacheDir = filepath.Join(projectDir, "global-cache")
+	environment := Environment{Settings: map[string]map[string]any{"php": {"extension-sdk": true}}}
+	environment.SetToolVersion(toolPHP, "8.4")
+
+	if err := store.verifyPHPBuildTools(environment); err != nil {
+		t.Fatalf("verifyPHPBuildTools(not installed) error = %v", err)
+	}
+
+	writeCachedTool(t, store.CacheDir, toolPHP, "8.4")
+	if _, err := store.installToolFromCache(toolPHP, "8.4"); err != nil {
+		t.Fatalf("installToolFromCache() error = %v", err)
+	}
+	if err := store.verifyPHPBuildTools(environment); err == nil {
+		t.Fatal("verifyPHPBuildTools(installed without tools) error = nil, want the check to run")
+	}
+}

@@ -1,4 +1,5 @@
-# Resolves Apache httpd Windows builds from the Apache Lounge download page.
+# Resolves Apache httpd Windows builds from the Apache Lounge download page, and
+# locates the upstream source releases `polka build` compiles on other platforms.
 
 # Archive links; preferred because they carry the real published path.
 _HREF_PATTERN = r"""(?i)href=["']([^"']*?(httpd-([0-9]+\.[0-9]+\.[0-9]+)-([0-9]+)-Win64-VS([0-9]+)\.zip))["']"""
@@ -73,3 +74,44 @@ def resolve(ctx):
         plan["checksum_url"] = archive_url + ".txt"
         plan["checksum_algorithm"] = "sha256"
     return plan
+
+def _source_versions(index_url, name):
+    """Lists the versions with a tar.gz source and a sha256 in a release index."""
+    pattern = r"%s-([0-9]+\.[0-9]+\.[0-9]+)\.tar\.gz\.sha256" % name
+    return [match[1] for match in re.find_all(pattern, http.get(index_url))]
+
+def _source(index_url, name, resolved):
+    filename = "%s-%s.tar.gz" % (name, resolved)
+    source_url = url.resolve(index_url, filename)
+    return {
+        "url": source_url,
+        "filename": filename,
+        "checksum_algorithm": "sha256",
+        "checksum_url": source_url + ".sha256",
+    }
+
+def build_sources(ctx):
+    # The current index only lists the newest release, so a pinned older version
+    # is found in the archive. The archive is the slower host, so it comes second.
+    index_url = ctx.vars["source-index"]
+    resolved = version.best(_source_versions(index_url, "httpd"), ctx.requested)
+    if resolved == None:
+        index_url = ctx.vars["source-archive"]
+        resolved = version.best(_source_versions(index_url, "httpd"), ctx.requested)
+    if resolved == None:
+        fail("resolve apache version %r: no matching source release found" % ctx.requested)
+
+    apr_index = ctx.vars["apr-index"]
+    apr = version.best(_source_versions(apr_index, "apr"), "1")
+    apr_util = version.best(_source_versions(apr_index, "apr-util"), "1")
+    if apr == None or apr_util == None:
+        fail("resolve apache dependencies: no APR 1.x source release found")
+
+    return {
+        "version": resolved,
+        "sources": {
+            "httpd": _source(index_url, "httpd", resolved),
+            "apr": _source(apr_index, "apr", apr),
+            "apr-util": _source(apr_index, "apr-util", apr_util),
+        },
+    }

@@ -230,7 +230,7 @@ func TestPostInstallContextExcludesCredentials(t *testing.T) {
 func TestPostInstallHookHasNoNetwork(t *testing.T) {
 	_, ctx := newPostInstallInstall(t)
 	err := runPostInstallScript(t, "def post_install(ctx):\n    http.get(\"http://127.0.0.1:1/\")\n    return {}\n", ctx)
-	if err == nil || !strings.Contains(err.Error(), "only available in the resolve hook") {
+	if err == nil || !strings.Contains(err.Error(), "only available in the resolve and build_sources hooks") {
 		t.Fatalf("PostInstall() error = %v, want http refusal", err)
 	}
 }

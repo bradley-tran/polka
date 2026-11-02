@@ -20,6 +20,8 @@ For native C extensions, `polka init php-extension` writes a build-oriented `pol
 
 The remaining commands add a named `blog` environment in `polka.blog.yaml`, install its configured tools into `.polka/envs`, select it as the active environment, and run PHP through Polka's local command resolution. To install a single tool version directly, use a `tool:version` argument such as `polka install php:8.4`.
 
+On Linux, PHP, nginx, Apache, and Redis are compiled locally rather than downloaded. Run `polka build php:8.4` once per machine, or let `polka install --build` compile whatever a project is missing. See [Building Tools From Source](docs/tools.md#building-tools-from-source).
+
 Start a local web server when your project has a document root:
 
 ```bash

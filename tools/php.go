@@ -96,9 +96,10 @@ func phpRuntimeHooks(tool string) pluginHooks {
 
 // SyncInstalledPHPRuntimeConfig regenerates the php.ini and supporting
 // OpenSSL/CA-bundle assets for an installed PHP runtime from the effective
-// environment config. An empty effective config skips the write: fresh
-// installs stay ini-less. Use ResyncInstalledPHPRuntimeConfig after config
-// changes that may shrink to empty.
+// environment config. An empty effective config skips the write, so fresh
+// installs stay ini-less, unless the runtime must declare its extension_dir
+// (see phpInstallRequiresExtensionDir). Use ResyncInstalledPHPRuntimeConfig
+// after config changes that may shrink to empty.
 func SyncInstalledPHPRuntimeConfig(envsDir, tool, version string, environment config.Environment) error {
 	return syncInstalledPHPRuntimeConfig(envsDir, tool, version, environment, false)
 }
@@ -123,6 +124,11 @@ func syncInstalledPHPRuntimeConfig(envsDir, tool, version string, environment co
 		}
 		phpConfig.CABundlePath = caBundlePath
 	}
+	requireExtensionDir, err := phpInstallRequiresExtensionDir(runtime.GOOS, filepath.Join(envsDir, tool, version))
+	if err != nil {
+		return err
+	}
+	phpConfig.RequireExtensionDir = requireExtensionDir
 	if phpConfig.IsZero() && !force {
 		return nil
 	}

@@ -18,6 +18,7 @@ Commands:
                        manage recommended PIE or legacy PECL PHP extensions
   install [tool:version]
                        install one tool version or all tools for an environment
+  build <tool:version> compile php, php-zts, nginx, apache, or redis from source for local use (Linux only)
   php [args...]        run php with the local shell environment
   composer [args...]   run composer with the local shell environment
   cert-install         install Polka's local HTTPS certificate into the user trust store
@@ -148,13 +149,29 @@ server.type accepts php, nginx, apache, or frankenphp. When omitted, Polka prese
 `
 
 const installUsage = `Usage:
-  polka install [tool:version] [--env NAME] [--force]
+  polka install [tool:version] [--env NAME] [--force] [--build]
 
 Install one explicit tool version, such as php:8.4, php-zts:8.4, or frankenphp:1.12, or install every configured tool version for an environment when no tool argument is provided.
 Use --env NAME to select a named environment. When --env is omitted, Polka uses the current environment, falling back to default when no local override is selected.
 Polka installs tools from validated global cache payloads when available, otherwise downloads them into the cache first.
+On Linux, php, php-zts, nginx, apache, and redis have no download. Run "polka build" first, or pass --build to compile whichever of them is missing from the cache.
 Tools already installed at the requested version are skipped and reported as unchanged; pass --force to reinstall them. Installing an explicit tool:version always reinstalls that tool, and its version is only written to the config file after the install succeeds.
 When FrankenPHP and standalone PHP are both configured, Polka warns that the php CLI and FrankenPHP server runtimes may differ.
+`
+
+const buildUsage = `Usage:
+  polka build <tool:version> [--configure-arg OPTION]... [--jobs N] [--force]
+
+Compile a tool from verified upstream source into the machine-wide cache, where every project's "polka install" finds it. Linux only; supports php, php-zts, nginx, apache, and redis. Works from any directory.
+The version is the label projects configure: "polka build php:8.4" compiles the newest PHP 8.4 release and satisfies tools.php: 8.4. It does not change any project config.
+Missing host compilers and development libraries are listed together before anything downloads. Compiler output goes to a log file, whose last lines are shown if the build fails.
+
+Options:
+  --configure-arg OPTION  extra ./configure option, repeatable; use the --configure-arg=--option form
+  --jobs N                parallel compile jobs (default: every CPU)
+  --force                 rebuild a label that is already cached
+
+A label that is already cached is left alone unless --force is passed. After a forced rebuild, existing projects keep the old build until "polka install --force". Built tools link host shared libraries, so rebuild with --force if an OS upgrade breaks them.
 `
 
 const certInstallUsage = `Usage:

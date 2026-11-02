@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"embed"
 	"fmt"
 	"io/fs"
@@ -66,6 +67,7 @@ type pluginManifest struct {
 	Logs               manifestLogs                     `yaml:"logs"`
 	Download           manifestDownload                 `yaml:"download"`
 	Script             manifestScript                   `yaml:"script"`
+	Build              manifestBuild                    `yaml:"build"`
 
 	// loadScript loads Script from the filesystem the manifest was read
 	// from. It is nil when the manifest declares no script or was parsed
@@ -151,6 +153,10 @@ func loadManifest(fsys fs.FS, name string) (pluginManifest, error) {
 		return pluginManifest{}, fmt.Errorf("read tool manifest %s: %w", path, err)
 	}
 	manifest, err := parsePluginManifest(data)
+	if err != nil {
+		return pluginManifest{}, err
+	}
+	manifest.Build, err = loadBuildFrom(fsys, manifest.ID, manifest.Build)
 	if err != nil {
 		return pluginManifest{}, err
 	}
@@ -401,6 +407,9 @@ func (m pluginManifest) validate() error {
 	if err := m.Script.validate(id, m.Download, m.Dependencies); err != nil {
 		return err
 	}
+	if err := m.Build.validate(id, m.Script); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -608,6 +617,13 @@ func (m pluginManifest) toPlugin(hooks pluginHooks) (Plugin, error) {
 		postInstall = scriptPostInstallFunc(m, runtime.GOOS, runtime.GOARCH)
 	}
 
+	var build func(context.Context, BuildRequest) (BuildResult, error)
+	if len(m.Build.Stages) > 0 {
+		build = func(ctx context.Context, request BuildRequest) (BuildResult, error) {
+			return buildManifestTool(ctx, m, request)
+		}
+	}
+
 	return builtinPlugin{
 		id:                 manifestID,
 		version:            version,
@@ -630,6 +646,8 @@ func (m pluginManifest) toPlugin(hooks pluginHooks) (Plugin, error) {
 		download:           download,
 		postInstall:        postInstall,
 		dependencies:       dependencies,
+		build:              build,
+		buildSupports:      m.Build.supports,
 	}, nil
 }
 

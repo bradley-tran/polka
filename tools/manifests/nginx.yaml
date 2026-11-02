@@ -25,3 +25,35 @@ download:
       filename: nginx-{version}.zip
       url: https://nginx.org/download/nginx-{version}.zip
       archive-format: zip
+script:
+  file: scripts/nginx.star
+  hooks: [build_sources]
+  vars:
+    source-index: https://nginx.org/download/
+build:
+  platforms: [linux-amd64]
+  requires:
+    commands: ["cc|gcc", make, pkg-config]
+    libraries:
+      - name: PCRE2
+        pkg-config: libpcre2-8
+        hint: "Debian: libpcre2-dev, Fedora: pcre2-devel, Arch: pcre2"
+      - name: OpenSSL
+        pkg-config: openssl
+        hint: "Debian: libssl-dev, Fedora: openssl-devel, Arch: openssl"
+      - name: zlib
+        pkg-config: zlib
+        header: zlib.h
+        hint: "Debian: zlib1g-dev, Fedora: zlib-devel, Arch: zlib"
+  stages:
+    - name: nginx
+      source: nginx
+      configure:
+        - "--prefix={prefix}"
+        - --with-http_ssl_module
+        - --with-http_v2_module
+      install: [install]
+  package:
+    keep-dirs: [logs]
+  verify:
+    - [sbin/nginx, -V]

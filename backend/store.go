@@ -2,6 +2,7 @@ package backend
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -75,6 +76,7 @@ type InstallProgressStage string
 const (
 	InstallProgressUsingCache  InstallProgressStage = "using cache"
 	InstallProgressDownloading InstallProgressStage = "downloading"
+	InstallProgressBuilding    InstallProgressStage = "building"
 	InstallProgressInstalling  InstallProgressStage = "installing"
 	InstallProgressConfiguring InstallProgressStage = "configuring"
 	InstallProgressInstalled   InstallProgressStage = "installed"
@@ -104,6 +106,14 @@ type InstallOptions struct {
 	// Warn receives non-fatal install problems, such as a missing host MSVC
 	// toolchain for the PHP extension SDK. Nil discards them.
 	Warn func(string)
+	// Build compiles tools that have a recipe but no cached payload, instead of
+	// failing with a hint to run polka build.
+	Build bool
+	// BuildContext supplies the context for each compile started by Build, with
+	// a function to release it. Compiles alone get one, so a caller watching for
+	// an interrupt only intercepts it while a compile runs and the signal's default
+	// behavior applies to the rest of the install. Nil never cancels.
+	BuildContext func() (context.Context, context.CancelFunc)
 }
 
 type Store struct {
@@ -114,6 +124,7 @@ type Store struct {
 	ConfigFile string
 	CacheDir   string
 	Downloader ToolDownloader
+	Builder    ToolBuilder
 	Plugins    *ToolRegistry
 	Registry   *PluginRegistry
 }
@@ -746,6 +757,12 @@ func (s Store) InstallTool(name, tool, version string) (InstallResult, error) {
 // the previous configuration untouched. Explicit installs always reinstall,
 // bypassing the recorded install state.
 func (s Store) InstallToolWithProgress(name, tool, version string, report func(InstallProgress)) (InstallResult, error) {
+	return s.InstallToolWithOptions(name, tool, version, InstallOptions{}, report)
+}
+
+// InstallToolWithOptions is InstallToolWithProgress with install options. An
+// explicit install always reinstalls, so options.Force has no further effect.
+func (s Store) InstallToolWithOptions(name, tool, version string, options InstallOptions, report func(InstallProgress)) (InstallResult, error) {
 	environment, registry, err := s.installEnvironment(name)
 	if err != nil {
 		return InstallResult{}, err
@@ -759,10 +776,15 @@ func (s Store) InstallToolWithProgress(name, tool, version string, report func(I
 		return InstallResult{}, err
 	}
 
+	built, err := s.buildMissingTools(environment, []tools.InstallRequest{request}, options, true, report)
+	if err != nil {
+		return InstallResult{}, err
+	}
 	results, err := s.installRequests(environment, []tools.InstallRequest{request}, true, report)
 	if err != nil {
 		return InstallResult{}, err
 	}
+	markBuiltResults(results, built)
 	if len(results) == 0 {
 		return InstallResult{}, fmt.Errorf("no install result produced for %s %s", request.Tool, request.Version)
 	}
@@ -845,10 +867,15 @@ func (s Store) install(name string, options InstallOptions, report func(InstallP
 		return nil, err
 	}
 
+	built, err := s.buildMissingTools(environment, requests, options, options.Force, report)
+	if err != nil {
+		return nil, err
+	}
 	results, err := s.installRequests(environment, requests, options.Force, report)
 	if err != nil {
 		return nil, err
 	}
+	markBuiltResults(results, built)
 	// PIE-managed extensions install after the tools so the target PHP binary
 	// exists; this makes fresh checkouts reproduce vendor/name entries.
 	if err := s.installPIEExtensions(environment, report); err != nil {
@@ -885,6 +912,11 @@ func (s Store) verifyPHPBuildTools(environment Environment) error {
 		if installed, err := s.resolveInstalledTool(tool, version); err == nil {
 			phpPath = installed
 		}
+	}
+	// A compiled PHP ships its own phpize and php-config, so a first install must
+	// not depend on a system PHP. The check runs against it on the next install.
+	if phpPath == "" && tool != "" && s.toolRegistry().Buildable(tool, runtime.GOOS, runtime.GOARCH) {
+		return nil
 	}
 	if phpPath == "" {
 		resolved, err := exec.LookPath("php")

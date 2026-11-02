@@ -163,7 +163,7 @@ func TestToolScriptBindChecks(t *testing.T) {
 		{name: "varargs", source: "def validate(*args):\n    pass\n", want: "exactly one parameter"},
 		{name: "undeclared hook", source: "def validate(env):\n    pass\ndef resolve(ctx):\n    pass\n", want: `hook "resolve" that is not declared`},
 		{name: "public helper", source: "def validate(env):\n    pass\ndef helper():\n    pass\n", want: `unsupported public function "helper"`},
-		{name: "top-level http", source: "PAGE = http.get(\"https://example.com\")\ndef validate(env):\n    pass\n", want: "only available in the resolve hook"},
+		{name: "top-level http", source: "PAGE = http.get(\"https://example.com\")\ndef validate(env):\n    pass\n", want: "only available in the resolve and build_sources hooks"},
 		{name: "syntax error", source: "def validate(env):\n    return (\n", want: "compile script scripts/demo.star"},
 	}
 	for _, test := range tests {
@@ -337,7 +337,7 @@ func TestValidateScriptHookErrors(t *testing.T) {
 		{name: "syntax error", source: "def validate(env):\n    return (\n", want: "compile script"},
 		{name: "non-None result", source: "def validate(env):\n    return \"bad\"\n", want: "must return None"},
 		{name: "undeclared setting", source: "def validate(env):\n    env.setting(\"missing\")\n", want: `declares no setting "missing" (declared: enabled, label, port)`},
-		{name: "http unavailable", source: "def validate(env):\n    http.get(\"https://example.com\")\n", want: "only available in the resolve hook"},
+		{name: "http unavailable", source: "def validate(env):\n    http.get(\"https://example.com\")\n", want: "only available in the resolve and build_sources hooks"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

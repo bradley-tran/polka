@@ -92,7 +92,7 @@ The `roadrunner` tool key installs an official [RoadRunner](https://roadrunner.d
 
 Set `settings.php.extension-sdk: true` to make `polka install` prepare the native PHP extension toolchain for the configured `php` or `php-zts` runtime. On Windows amd64, Polka downloads the exact PHP devel pack matching the runtime's resolved version, TS/NTS mode, architecture, and compiler, plus the pinned `php-sdk-binary-tools` release. These are internal dependencies under `.polka/envs/php-devel/<php-version>` and `.polka/envs/php-sdk/<sdk-version>`; they cannot be configured under `tools` and do not create shims. `polka sh` and `polka exec` add both directories to `PATH`, along with the SDK's bundled `msys2/usr/bin` utilities (`bison`, `re2c`, `sed`, `grep`, `patch`, and friends), so commands such as `polka exec phpize --version`, `polka exec re2c --version`, and `polka exec phpsdk-vs17-x64.bat` resolve after installation.
 
-Polka does not install Microsoft Visual Studio Build Tools; a compatible MSVC toolchain remains a Windows host prerequisite. Install does detect it, though: Polka asks `vswhere.exe` (from the Visual Studio Installer, falling back to the copy bundled with the PHP SDK) for installations with the x64 C++ build tools, preferring stable releases, then the Visual Studio major version the PHP runtime was built with (for example VS 2022 for `vs17` builds), then the newest version. A newer Visual Studio is an acceptable fallback because MSVC 2015 and later share a binary-compatible ABI. Polka runs that installation's `vcvarsall.bat x64` once and records the variables it adds under `.polka/envs/msvc/<environment>.json`; `polka sh` and `polka exec` apply them, so `cl`, `link`, `nmake`, `dumpbin`, and `rc` work without a Developer Command Prompt. List variables such as `INCLUDE` and `LIB` get the MSVC entries prepended to the current value, and the project's `.env`, `env-file`, and `env-vars` still override them. Later installs reuse the capture while the Visual Studio instance and version are unchanged; `polka install --force` recaptures it. When no toolchain is found, install still succeeds but prints a warning. On Linux, Polka downloads no SDK payload. Instead, install verifies `php`, matching `phpize` and `php-config`, `make`, `autoconf`, and either `cc` or `gcc` on the host, and fails with the missing command named in the error. Install the distribution's PHP development package matching the selected PHP plus the standard C build toolchain before retrying.
+Polka does not install Microsoft Visual Studio Build Tools; a compatible MSVC toolchain remains a Windows host prerequisite. Install does detect it, though: Polka asks `vswhere.exe` (from the Visual Studio Installer, falling back to the copy bundled with the PHP SDK) for installations with the x64 C++ build tools, preferring stable releases, then the Visual Studio major version the PHP runtime was built with (for example VS 2022 for `vs17` builds), then the newest version. A newer Visual Studio is an acceptable fallback because MSVC 2015 and later share a binary-compatible ABI. Polka runs that installation's `vcvarsall.bat x64` once and records the variables it adds under `.polka/envs/msvc/<environment>.json`; `polka sh` and `polka exec` apply them, so `cl`, `link`, `nmake`, `dumpbin`, and `rc` work without a Developer Command Prompt. List variables such as `INCLUDE` and `LIB` get the MSVC entries prepended to the current value, and the project's `.env`, `env-file`, and `env-vars` still override them. Later installs reuse the capture while the Visual Studio instance and version are unchanged; `polka install --force` recaptures it. When no toolchain is found, install still succeeds but prints a warning. On Linux, Polka downloads no SDK payload. Instead, install verifies `php`, matching `phpize` and `php-config`, `make`, `autoconf`, and either `cc` or `gcc` on the host, and fails with the missing command named in the error. A PHP compiled by `polka build` ships its own `phpize` and `php-config`; otherwise install the distribution's PHP development package matching the selected PHP. Either way, the standard C build toolchain must be present before retrying.
 
 PIE is an internal-only tool: it cannot be configured under `tools`, has no command shim, and is provisioned into the global internal tools directory on demand. `polka ext install|remove` and the `polka install` extension provisioning drive PIE against the environment's standalone PHP runtime. See the Internal Tools section below.
 
@@ -154,11 +154,38 @@ After dispatched `composer install`, `composer update`, or `composer create-proj
 
 These integrations use [declarative framework manifests](framework-manifests.md). Updates preserve unrelated dotenv keys, PHP settings, comments, and line endings. Unsupported or ambiguous PHP config structures produce an error without replacing that file. Drupal's generated `settings.polka.php` is a managed file and is regenerated from its embedded template; the include in `settings.php` is maintained once. Secret file writes are staged before replacement, and a project fallback file is used only when the target is absent.
 
+## Building Tools From Source
+
+On Linux amd64, `php`, `php-zts`, `nginx`, `apache`, and `redis` have no prebuilt download, so [`polka build`](commands.md) compiles them from upstream source. The payload goes into the machine-wide cache under the label you ask for, exactly where a download would go, so `polka install` needs no special handling and every project on the machine shares one compile.
+
+| Tool | Source | Source verification | Built with |
+| --- | --- | --- | --- |
+| `php`, `php-zts` | php.net | SHA-256 from the release index | CLI and CGI SAPIs, plus shared modules for the extensions below; `php-zts` adds `--enable-zts` |
+| `apache` | downloads.apache.org, then archive.apache.org for older releases | `.sha256` files, including APR | event MPM and the modules Polka's generated config loads, with APR linked statically |
+| `nginx` | nginx.org | **None published.** nginx signs releases with PGP, which Polka does not check, so the download relies on TLS and the build prints a warning | SSL and HTTP/2 modules |
+| `redis` | download.redis.io | SHA-256 from the `redis-hashes` repository | no TLS or systemd support |
+
+PHP is built with `bcmath`, `bz2`, `calendar`, `curl`, `exif`, `fileinfo`, `ftp`, `gd`, `gettext`, `gmp`, `iconv`, `intl`, `ldap`, `mbstring`, `mysqli`, `openssl`, `pdo_mysql`, `pdo_pgsql`, `pdo_sqlite`, `pgsql`, `shmop`, `soap`, `sockets`, `sodium`, `sqlite3`, `tidy`, `xsl`, and `zip` as loadable modules. PHP 8.2 or newer is required. `opcache` is also available, as a module before PHP 8.5 and built in from 8.5. Pass `--configure-arg=--without-tidy` and similar to leave out an extension whose library you do not want to install.
+
+Before compiling, a build checks the host for its commands and development libraries, then verifies the result the way an install would use it: it extracts the payload somewhere else, confirms the expected files exist, and runs checks from an unrelated directory, including loading every Apache module. A payload that fails never reaches the cache.
+
+Things to know:
+
+- **Payloads belong to the machine that built them.** They link against host shared libraries, so an OS upgrade that changes a library's soname can break a built tool. Rebuild it with `polka build <tool>:<version> --force`, then run `polka install --force` in each project.
+- **A rebuild does not reach existing projects on its own.** Install state records versions rather than payload contents, so projects keep the previous build until `polka install --force`. The internal PHP picks up a rebuild automatically.
+- **The label is literal.** `polka build php:8.4` and `polka build php:8.4.27` are separate payloads, each matching only the same `tools.php` value. A label stays on the release it was built from until it is rebuilt, so rebuild it to pick up a newer release.
+- **Internal tools never compile on demand.** `polka ext` and `polka create-project` need an internal PHP, whose label defaults to `8.4`, so on Linux run `polka build php:8.4` first. `polka install --build` does this when the environment has PIE-managed extensions.
+- **Moving a project needs a reinstall.** On Linux the generated `php.ini` holds an absolute `extension_dir`, because PHP resolves a relative one against the working directory. `polka install` regenerates it.
+
+`php-config` and `phpize` in a built PHP find their install from their own location, so PIE, PECL, and manual extension builds work against any project's copy. PIE keeps a working copy for each target PHP under `~/.config/pie`.
+
 ## Platform Notes
 
-Automatic nginx downloads are currently implemented on Windows amd64.
+Automatic nginx downloads are currently implemented on Windows amd64. On Linux, use `polka build`.
 
-Automatic Apache downloads use Apache Lounge builds and are currently implemented on Windows amd64.
+Automatic Apache downloads use Apache Lounge builds and are currently implemented on Windows amd64. On Linux, use `polka build`.
+
+Automatic PHP and Redis downloads are currently implemented on Windows amd64. On Linux, use `polka build`.
 
 Automatic Mailpit downloads are currently implemented for Windows amd64 and Linux amd64.
 

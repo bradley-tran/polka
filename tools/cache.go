@@ -47,6 +47,41 @@ type toolCacheVersion struct {
 	Checksum          string            `json:"checksum"`
 	Size              int64             `json:"size"`
 	DownloadedAt      time.Time         `json:"downloadedAt"`
+	// Build is set for payloads compiled by `polka build` rather than downloaded.
+	Build *BuildInfo `json:"build,omitempty"`
+}
+
+// BuildInfo records how a locally built payload was produced, so a later build
+// can detect changed arguments and a user can see what a cache entry contains.
+type BuildInfo struct {
+	Platform      string            `json:"platform"`
+	Compiler      string            `json:"compiler,omitempty"`
+	ConfigureArgs []string          `json:"configureArgs,omitempty"`
+	Sources       []BuildSourceInfo `json:"sources"`
+	BuiltAt       time.Time         `json:"builtAt"`
+}
+
+// BuildSourceInfo records one source archive a build consumed.
+type BuildSourceInfo struct {
+	Name              string `json:"name"`
+	URL               string `json:"url"`
+	FileName          string `json:"fileName"`
+	ChecksumAlgorithm string `json:"checksumAlgorithm"`
+	Checksum          string `json:"checksum"`
+	// Unverified marks a checksum computed locally, because upstream publishes
+	// none, rather than one the download was checked against.
+	Unverified bool `json:"unverified,omitempty"`
+
+	archiveFormat archiveFormat
+}
+
+// BuiltPayload is a compiled tool ready to publish to the cache.
+type BuiltPayload struct {
+	ResolvedVersion string
+	FileName        string
+	// ArchivePath is a tar.gz on the cache's filesystem, moved into place.
+	ArchivePath string
+	Info        BuildInfo
 }
 
 // CachedPayload describes a validated cached payload for a requested tool version.
@@ -120,6 +155,24 @@ func cacheArchivePayload(cacheDir, tool, requestedVersion, downloadedVersion str
 	}
 
 	return cacheDownloadedPayload(cacheDir, tool, requestedVersion, entry, stagingPath)
+}
+
+// CacheBuiltPayload publishes a compiled payload under the literal label, so the
+// normal install path finds it exactly as it finds a download. It returns the
+// cached payload path.
+func CacheBuiltPayload(cacheDir, tool, label string, payload BuiltPayload) (string, error) {
+	info := payload.Info
+	entry := toolCacheVersion{
+		DownloadedVersion: strings.TrimSpace(payload.ResolvedVersion),
+		PayloadKind:       payloadKindArchive,
+		FileName:          strings.TrimSpace(payload.FileName),
+		SourceURL:         builtPayloadSourceURL(info),
+		ArchiveFormat:     archiveFormatTarGz,
+		DownloadedAt:      time.Now().UTC(),
+		Build:             &info,
+	}
+
+	return cacheDownloadedPayload(cacheDir, tool, label, entry, payload.ArchivePath)
 }
 
 func cacheFilePayload(cacheDir, tool, requestedVersion, downloadedVersion, fileName, sourceURL, installPath string, algorithm checksumAlgorithm, checksum, stagingPath string) (string, error) {

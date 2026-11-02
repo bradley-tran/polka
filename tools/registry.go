@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"runtime"
@@ -43,6 +44,8 @@ type InstallResult struct {
 	TargetPath string
 	Downloaded bool
 	Skipped    bool
+	// Built reports that this install compiled the payload from source.
+	Built bool
 }
 
 const (
@@ -595,6 +598,8 @@ func uniqueToolCommands(plugins []ToolPlugin, commandList func(ToolPlugin) []str
 
 type builtinPlugin struct {
 	id                 string
+	build              func(context.Context, BuildRequest) (BuildResult, error)
+	buildSupports      func(goos, goarch string) bool
 	version            func(config.Environment) string
 	internalOnly       bool
 	internalVersion    func(config.Environment) string
@@ -828,6 +833,20 @@ func (p builtinPlugin) Download(ctx DownloadContext) error {
 	}
 
 	return p.download(ctx)
+}
+
+// Buildable reports whether the plugin has a compile recipe for the platform.
+func (p builtinPlugin) Buildable(goos, goarch string) bool {
+	return p.build != nil && p.buildSupports != nil && p.buildSupports(goos, goarch)
+}
+
+// Build compiles the tool through its recipe.
+func (p builtinPlugin) Build(ctx context.Context, request BuildRequest) (BuildResult, error) {
+	if p.build == nil {
+		return BuildResult{}, fmt.Errorf("%s has no build recipe", p.id)
+	}
+
+	return p.build(ctx, request)
 }
 
 func (p builtinPlugin) PostInstall(ctx InstallContext) error {

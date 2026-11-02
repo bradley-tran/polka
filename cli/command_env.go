@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"os"
+	"os/signal"
 	"sort"
 	"strings"
 
@@ -198,6 +201,7 @@ func newInstallCommand(ctx *commandContext) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&input.Name, "env", "", "environment name")
 	cmd.Flags().BoolVar(&input.Force, "force", false, "reinstall tools even if already installed")
+	cmd.Flags().BoolVar(&input.Build, "build", false, "compile tools that have a build recipe but no cached payload")
 	configureCommand(cmd, installUsage)
 
 	return cmd
@@ -389,13 +393,35 @@ func runInstall(stdout, stderr io.Writer, store backend.Store, input installComm
 			}
 		}
 	}
+	if input.Build {
+		// Show the internal PHP compile too, since it can take many minutes. A
+		// lookup failure surfaces from the install below.
+		if environment, envErr := environmentByName(store, input.Name); envErr == nil {
+			if request, needed, requestErr := store.InternalBuildRequest(environment); requestErr == nil && needed {
+				spinner.Register(request.Tool, request.Version)
+			}
+		}
+		// Printed once up front: a long path in a spinner row could wrap the
+		// terminal line and break its in-place rendering.
+		_, _ = fmt.Fprintf(stdout, "Compile logs are written to %s\n", store.BuildLogDir())
+	}
 	spinner.printInitialLines()
 	spinner.Start()
 
 	var results []backend.InstallResult
 	var warnings []string
+	options := backend.InstallOptions{
+		Force: input.Force,
+		Build: input.Build,
+		// Warnings print after the spinner stops so they do not tear
+		// its in-place rendering.
+		Warn: func(message string) { warnings = append(warnings, message) },
+		BuildContext: func() (context.Context, context.CancelFunc) {
+			return signal.NotifyContext(context.Background(), os.Interrupt)
+		},
+	}
 	if input.Tool != "" {
-		result, installErr := store.InstallToolWithProgress(input.Name, input.Tool, input.Version, func(progress backend.InstallProgress) {
+		result, installErr := store.InstallToolWithOptions(input.Name, input.Tool, input.Version, options, func(progress backend.InstallProgress) {
 			spinner.Update(progress.Tool, progress.Version, progress.Stage)
 		})
 		err = installErr
@@ -403,12 +429,6 @@ func runInstall(stdout, stderr io.Writer, store backend.Store, input installComm
 			results = []backend.InstallResult{result}
 		}
 	} else {
-		options := backend.InstallOptions{
-			Force: input.Force,
-			// Warnings print after the spinner stops so they do not tear
-			// its in-place rendering.
-			Warn: func(message string) { warnings = append(warnings, message) },
-		}
 		results, err = store.InstallWithProgress(input.Name, options, func(progress backend.InstallProgress) {
 			spinner.Update(progress.Tool, progress.Version, progress.Stage)
 		})
@@ -442,6 +462,8 @@ func runInstall(stdout, stderr io.Writer, store backend.Store, input installComm
 		switch {
 		case result.Skipped:
 			_, _ = fmt.Fprintf(stdout, "%s %s\t(unchanged)\n", result.Tool, result.Version)
+		case result.Built:
+			_, _ = fmt.Fprintf(stdout, "%s %s\t(built)\n", result.Tool, result.Version)
 		case result.Downloaded:
 			_, _ = fmt.Fprintf(stdout, "%s %s\n", result.Tool, result.Version)
 		default:
@@ -694,6 +716,7 @@ type installCommandInput struct {
 	Tool    string
 	Version string
 	Force   bool
+	Build   bool
 }
 
 func parseInstallToolVersion(value string) (string, string, error) {

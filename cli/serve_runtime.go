@@ -18,6 +18,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"polka/backend"
@@ -398,8 +399,14 @@ func stopServeRuntime(state serveRuntimeState) error {
 	return fmt.Errorf("webserver did not stop listening on %s within %s", state.ServerAddress, serveShutdownTimeout)
 }
 
-// stopServePID force-terminates one process (and its children on Windows),
-// treating already-gone processes as success.
+// serveStopGracePeriod is how long a Unix server gets to exit after SIGTERM
+// before it is killed. A variable so tests need not wait the full period.
+var serveStopGracePeriod = 3 * time.Second
+
+// stopServePID terminates one process, treating already-gone processes as
+// success. Windows kills the whole tree. On Unix a multi-process server must be
+// asked to stop first: SIGKILL reaches only the recorded master, which leaves
+// nginx and httpd workers running and still holding the listening socket.
 func stopServePID(pid int) error {
 	if pid <= 0 {
 		return nil
@@ -417,12 +424,45 @@ func stopServePID(pid int) error {
 	if err != nil {
 		return nil
 	}
+	defer func() { _ = process.Release() }()
+
+	if err := process.Signal(syscall.SIGTERM); err != nil {
+		if isMissingServeProcessOutput(err.Error()) {
+			return nil
+		}
+		return fmt.Errorf("stop serve process %d: %w", pid, err)
+	}
+	deadline := time.Now().Add(serveStopGracePeriod)
+	for time.Now().Before(deadline) {
+		if !serveProcessRunning(process) {
+			return nil
+		}
+		time.Sleep(servePollInterval)
+	}
 	if err := process.Kill(); err != nil && !isMissingServeProcessOutput(err.Error()) {
 		return fmt.Errorf("stop serve process %d: %w", pid, err)
 	}
-	_ = process.Release()
 
 	return nil
+}
+
+// serveProcessRunning reports whether a Unix process is still executing. A
+// zombie has exited and only awaits reaping, which happens when startup cleanup
+// stops its own child, so it must not use up the grace period.
+func serveProcessRunning(process *os.Process) bool {
+	if err := process.Signal(syscall.Signal(0)); err != nil {
+		return false
+	}
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", process.Pid))
+	if err != nil {
+		return true
+	}
+	// The state follows the parenthesized command name, which may contain spaces.
+	if index := strings.LastIndexByte(string(data), ')'); index >= 0 {
+		return !strings.HasPrefix(strings.TrimSpace(string(data[index+1:])), "Z")
+	}
+
+	return true
 }
 
 // openServeLog creates (or truncates) a serve log file, creating parent directories.

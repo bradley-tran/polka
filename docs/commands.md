@@ -98,7 +98,7 @@ polka config --env blog settings.traefik.port 8080
 
 Use `--env name` to select a named environment. When `--env` is omitted, Polka updates the current environment, falling back to `default` when no local override is selected. Supported keys are schema-aware dot paths such as `tools.php`, `tools.php-zts`, `settings.php.extension-sdk`, `tools.frankenphp`, `tools.apache`, `database.port`, `server.type`, `env-vars.APP_ENV`, `memory-limit`, `php-extensions.xdebug`, `pecl-extensions.redis`, and `opcache-config.opcache.enable_cli`. `tools.php` and `tools.php-zts` are mutually exclusive. `tools.pie` is rejected because PIE is managed internally. `php-extensions.<vendor>/<name>` holds recommended PIE constraints; `pecl-extensions.<name>` holds exact deprecated PECL releases.
 
-### `polka install [tool:version] [--env name]`
+### `polka install [tool:version] [--env name] [--force] [--build]`
 
 Installs one explicit tool version, or every configured tool version for an environment when no `tool:version` argument is provided.
 
@@ -113,6 +113,8 @@ polka install --env blog
 
 Use `--env name` to select a named environment. When `--env` is omitted, Polka installs against the current environment and prints which one it selected. If no current environment is selected, Polka uses `default` from `polka.yaml`.
 
+On Linux, `php`, `php-zts`, `nginx`, `apache`, and `redis` have no download. Install fails with a hint to run [`polka build`](#polka-build-toolversion---configure-arg-option---jobs-n---force) unless the label is already in the cache. `--build` compiles whichever of them are missing before installing, one at a time, and also compiles the internal PHP when the environment has PIE-managed extensions. `--force` reinstalls from the cache and never recompiles.
+
 When `settings.php.extension-sdk` is true, install also provisions or verifies the PHP-native build toolchain described in [tools.md](tools.md#php-build-tools).
 
 For managed tool installation, command shims, PHP runtime generation, and platform support details, see [tools.md](tools.md).
@@ -120,6 +122,27 @@ For managed tool installation, command shims, PHP runtime generation, and platfo
 When the environment's `php-extensions` config contains PIE-managed `vendor/name` entries, `polka install` also provisions any of those extensions that the environment's installed PHP does not yet load, using Polka's internal PIE. Fresh checkouts therefore reproduce PIE-managed extensions.
 
 Configured `pecl-extensions` are also reproduced. PECL is deprecated legacy compatibility support; prefer a PIE package whenever one exists. Windows uses matching official prebuilt DLLs, while Linux requires matching `phpize`/`php-config` and an existing native build toolchain.
+
+### `polka build <tool:version> [--configure-arg OPTION]... [--jobs N] [--force]`
+
+Compiles a tool from verified upstream source into the machine-wide cache, where every project's `polka install` finds it. Linux only; supports `php`, `php-zts`, `nginx`, `apache`, and `redis`. It works from any directory, and does not change any project config.
+
+```bash
+polka build php:8.4
+polka build php:8.4 --configure-arg=--without-tidy
+polka build nginx:1.30 --jobs 4
+polka build redis:8.2 --force
+```
+
+The version is the label projects configure: `polka build php:8.4` compiles the newest PHP 8.4 release and satisfies `tools.php: 8.4`.
+
+Missing compilers and development libraries are listed together, with package hints, before anything is downloaded. Compiler output goes to `<cache>/.build-logs/<tool>-<version>.log`, and a failed build shows the end of that log. Ctrl-C stops the compile and publishes nothing.
+
+`--configure-arg` adds a `./configure` option and can be repeated. Use the `--configure-arg=--option` form. An option such as `--without-tidy` also removes the matching library requirement. Redis has no configure step, so it rejects the flag.
+
+A label already in the cache is left alone unless `--force` is passed, and asking for different configure arguments than the cached build used is an error. After a forced rebuild, existing projects keep the old build until `polka install --force`. A failed rebuild keeps the previous payload.
+
+See [tools.md](tools.md#building-tools-from-source) for what each recipe builds and its limits.
 
 ### `polka ext <install|remove> <vendor/name[:version]|name[:version]> [--env name]`
 
