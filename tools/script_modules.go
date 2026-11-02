@@ -46,6 +46,12 @@ var scriptVersionModule = &starlarkstruct.Module{
 	},
 }
 
+// ScriptVersionModule returns the version module for scripts of other plugin
+// kinds, which do not get the rest of the tool script modules.
+func ScriptVersionModule() *starlarkstruct.Module {
+	return scriptVersionModule
+}
+
 // scriptHTTPModule exposes read-only GET requests to the resolve and
 // build_sources hooks.
 var scriptHTTPModule = &starlarkstruct.Module{

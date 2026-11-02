@@ -12,9 +12,12 @@ import (
 
 // frameworkManifestPostComposer resolves each action in memory before writing
 // its target. An unsupported PHP shape never causes that target to be replaced.
+// Actions come from the manifest or from a script hook, which only compiles
+// once the database guard has passed.
 func frameworkManifestPostComposer(ctx PostComposerContext, plugin builtinFrameworkPlugin) error {
 	m := plugin.manifest
-	if len(m.PostComposer.Actions) == 0 {
+	scripted := m.Script.hasHook(frameworkHookPostComposer)
+	if len(m.PostComposer.Actions) == 0 && !scripted {
 		return nil
 	}
 	state := newFrameworkValueState(m, RuntimeEnvContext{Environment: ctx.Environment, Database: ctx.Database})
@@ -25,7 +28,14 @@ func frameworkManifestPostComposer(ctx PostComposerContext, plugin builtinFramew
 	if err != nil {
 		return fmt.Errorf("framework %q application root: %w", m.ID, err)
 	}
-	for i, action := range m.PostComposer.Actions {
+	actions := m.PostComposer.Actions
+	if scripted {
+		actions, err = frameworkScriptActions(ctx, plugin, state.database, root)
+		if err != nil {
+			return err
+		}
+	}
+	for i, action := range actions {
 		base := root
 		if action.Base == "docroot" {
 			base = frameworkDocrootPath(ctx, root, m.AppRoot.PublicDir)

@@ -66,31 +66,9 @@ runtime-env:
       from: "database.user"
     DB_PASSWORD:
       from: "database.password"
+script:
+  file: "scripts/wordpress.star"
+  hooks:
+    - "post_composer"
 post-composer:
   requires-database: true
-  actions:
-    - type: "php-constants"
-      path: "wp-config.php"
-      fallback: "wp-config-sample.php"
-      fallback-template-file: "wordpress-config.php"
-      insert-before: "DB_CHARSET"
-      values:
-        DB_NAME:
-          from: "database.name"
-        DB_USER:
-          from: "database.user"
-        DB_PASSWORD:
-          from: "database.password"
-        DB_HOST:
-          format:
-            kind: "host-port"
-            host:
-              from: "database.host"
-            port:
-              from: "database.port"
-            omit-port: "3306"
-      order:
-        - "DB_NAME"
-        - "DB_USER"
-        - "DB_PASSWORD"
-        - "DB_HOST"

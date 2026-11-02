@@ -12,7 +12,7 @@ import (
 	"polka/config"
 )
 
-//go:embed manifests/*.yaml manifests/templates/*
+//go:embed manifests/*.yaml manifests/templates/* manifests/scripts/*.star
 var builtinFrameworkManifestFiles embed.FS
 
 // frameworkManifest contains immutable declarations interpreted by shared Go
@@ -28,6 +28,7 @@ type frameworkManifest struct {
 	Values          map[string]frameworkValue     `yaml:"values"`
 	RuntimeEnv      frameworkRuntimeEnvManifest   `yaml:"runtime-env"`
 	PostComposer    frameworkPostComposerManifest `yaml:"post-composer"`
+	Script          frameworkScript               `yaml:"script"`
 }
 
 // frameworkAppRootConfig holds permissive root hints, independently of the
@@ -168,11 +169,14 @@ func (m frameworkManifest) validate(files fs.FS) error {
 	if err := m.Detection.validate(); err != nil {
 		return err
 	}
+	if err := m.validateScript(files); err != nil {
+		return err
+	}
 	if m.AppRoot.PublicDir != "" {
 		if err := validateFrameworkManifestRelativePath(m.AppRoot.PublicDir, "app-root.public-dir", true); err != nil {
 			return err
 		}
-	} else if len(m.PostComposer.Actions) > 0 {
+	} else if len(m.PostComposer.Actions) > 0 || m.Script.hasHook(frameworkHookPostComposer) {
 		return fmt.Errorf("app-root.public-dir cannot be empty")
 	}
 	for _, marker := range m.AppRoot.Markers {
@@ -334,6 +338,7 @@ func (m frameworkManifest) pluginWithFiles(files fs.FS) (FrameworkPlugin, error)
 	return builtinFrameworkPlugin{
 		id: m.ID, defaults: config.NormalizeEnvironment("", defaults), phpExtensions: phpExtensionMap(m.PHPExtensions...),
 		databaseEngines: stringSet(m.DatabaseEngines), opcacheConfig: config.NormalizeOPcacheConfig(m.OPcacheConfig), manifest: m, files: files,
+		loadScript: newFrameworkScriptLoader(files, m.ID, m.Script),
 	}, nil
 }
 

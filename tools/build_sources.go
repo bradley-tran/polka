@@ -55,7 +55,7 @@ func resolveBuildSources(client *http.Client, m pluginManifest, requestedVersion
 	locals := map[string]any{scriptHTTPLocal: scriptHTTPAccess{client: client, tool: tool}}
 	result, err := module.Call(scriptHookBuildSources, locals, ctx)
 	if err != nil {
-		return buildSourcePlan{}, scriptHookError(tool, m.Script.File, err)
+		return buildSourcePlan{}, script.HookError(tool, m.Script.File, err)
 	}
 	plan, err := parseBuildSourcePlan(result)
 	if err != nil {

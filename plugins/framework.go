@@ -65,6 +65,9 @@ type NginxConfigContext struct {
 	TLSEnabled            bool
 	TLSCertificatePath    string
 	TLSCertificateKeyPath string
+	// DefaultConfig is the generic config Polka uses when a plugin does not
+	// handle nginx config generation.
+	DefaultConfig string
 }
 
 // NginxConfigResult lets a framework plugin replace Polka's generic generated nginx config.
@@ -93,7 +96,10 @@ type builtinFrameworkPlugin struct {
 	opcacheConfig   map[string]string
 	manifest        frameworkManifest
 	files           fs.FS
-	nginx           func(NginxConfigContext) (NginxConfigResult, bool, error)
+	// loadScript compiles the manifest's script on first use, and is nil when
+	// the manifest declares none. Only the post_composer and nginx_config hooks
+	// call it, so commands that never reach them do not compile Starlark.
+	loadScript frameworkScriptLoader
 }
 
 // builtinFrameworkPlugins parses immutable embedded declarations once per
@@ -155,12 +161,14 @@ func (p builtinFrameworkPlugin) PostComposer(ctx PostComposerContext) error {
 	return frameworkManifestPostComposer(ctx, p)
 }
 
+// NginxConfig leaves the generic config in place unless the manifest declares
+// an nginx_config script hook.
 func (p builtinFrameworkPlugin) NginxConfig(ctx NginxConfigContext) (NginxConfigResult, bool, error) {
-	if p.nginx == nil {
+	if !p.manifest.Script.hasHook(frameworkHookNginxConfig) {
 		return NginxConfigResult{}, false, nil
 	}
 
-	return p.nginx(ctx)
+	return frameworkScriptNginxConfig(ctx, p)
 }
 
 func phpExtensionMap(names ...string) map[string]bool {

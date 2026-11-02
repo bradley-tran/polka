@@ -1,6 +1,6 @@
 # Framework manifests
 
-Framework integrations are embedded in `plugins/manifests/*.yaml`; assets live in `plugins/manifests/templates/*`. Adding a manifest registers the framework automatically on the next build. Project files select its `id` through `framework`. There is no runtime loading from disk.
+Framework integrations are embedded in `plugins/manifests/*.yaml`; assets live in `plugins/manifests/templates/*`, and optional [scripts](#scripts) live in `plugins/manifests/scripts/*.star`. Adding a manifest registers the framework automatically on the next build. Project files select its `id` through `framework`. There is no runtime loading from disk.
 
 The project schema version is `0.2` in `polka.yaml`. Embedded framework declarations do not have a separate version field. Legacy `runtime-env.database` and `post-composer.strategy` declarations are rejected.
 
@@ -110,3 +110,87 @@ PHP arrays and constants preserve unrelated source, comments, and line endings. 
 Targets are staged before replacement. Secret files use mode `0600`; include files use `0644`. Cross-file updates are ordered rather than transactional: an earlier successful action remains applied if a later action fails.
 
 Unknown fields, old selectors, invalid references, cycles, missing template assets, unknown placeholders, conflicting expression/action fields, and duplicate or unknown `order` keys fail during loading. Keep regression tests beside the plugin code and run `go test ./...` after adding or changing a manifest.
+
+## Scripts
+
+A manifest can delegate logic the YAML cannot express to a sandboxed [Starlark](https://github.com/google/starlark-go) script, such as looping over repeated blocks or branching on a tool version or an application file. All built-in frameworks use one for their post-Composer actions.
+
+Framework scripts follow the same rule as [tool scripts](tool-scripts.md): **scripts plan, Go acts.** A hook returns data, and Polka validates it and performs every file write and all escaping itself.
+
+```yaml
+script:
+  file: scripts/acme.star
+  hooks: [post_composer]
+post-composer:
+  requires-database: true
+```
+
+- `file` is a `.star` path relative to the manifest directory. It must exist and stay inside that directory.
+- `hooks` lists the hooks the script implements, without duplicates. Each must be a top-level function taking exactly one parameter. Other top-level functions must start with `_`, so a misspelled hook name fails instead of being silently ignored.
+- A `post_composer` hook cannot be combined with `post-composer.actions`, and requires `app-root.public-dir`.
+- `post-composer.requires-database` still applies: without credentials the hook does not run or compile.
+
+| Hook | Runs |
+|---|---|
+| `post_composer(ctx)` | after Composer `install`, `update`, or `create-project`; `create-project` runs it twice, so it must be idempotent |
+| `nginx_config(ctx)` | when `polka serve` generates an nginx config |
+
+Runtime variables and framework validation have no hooks and stay declarative. Polka evaluates them on every managed command, including each `php` call through a shim, and `TestFrameworkDispatchPathDoesNotCompileScript` keeps Starlark off that path.
+
+Scripts use the dialect, `fail()`, error reporting, step budget, and `re`, `json`, `url`, `html`, and `version` modules described in [tool-scripts.md](tool-scripts.md). `http`, `crypto`, and `path` are not available, so using them is a compile error. `load()` reads libraries from `plugins/manifests/scripts/lib/*.star`; add that pattern to the `go:embed` line in `plugins/manifest.go` along with the first library, because a pattern with no matches does not compile.
+
+### `post_composer(ctx)`
+
+`ctx` is read-only:
+
+| Member | Value |
+|---|---|
+| `ctx.framework`, `ctx.environment` | framework ID and environment name |
+| `ctx.os`, `ctx.arch`, `ctx.platform` | the host platform |
+| `ctx.database` | `None`, or a value with `engine`, `version`, `host`, and `port` (an int) |
+| `ctx.tool_version(id)` | any tool's configured version label, or `""` |
+| `ctx.read_text(path, base="app-root")` | a file under `app-root` or `docroot` as a string, or `None` if it does not exist; 8 MiB limit; reads that resolve outside the base, including through links, are refused |
+
+The hook returns `{"actions": [...]}`, which may be empty. Each action uses exactly the [file action](#file-actions) schema, with the same kebab-case keys, and each value is a [structured value](#structured-values):
+
+```python
+_DRIVERS = {"mysql": "mysql", "mariadb": "mysql", "postgresql": "pgsql"}
+
+def post_composer(ctx):
+    # A custom layout decides where the configuration goes.
+    path = ".env.local" if ctx.read_text("acme.lock") else ".env"
+    return {"actions": [{
+        "type": "dotenv",
+        "path": path,
+        "values": {
+            "DB_DRIVER": _DRIVERS[ctx.database.engine],
+            "DB_USER": {"from": "database.user"},
+            "DB_PASSWORD": {"from": "database.password"},
+        },
+        "order": ["DB_DRIVER", "DB_USER", "DB_PASSWORD"],
+    }]}
+```
+
+Polka does not hand credentials to scripts. `ctx.database` holds no database name, user, or password, so a script references them with bindings such as `{"from": "database.password"}`, and Polka resolves those after the hook returns. All PHP, dotenv, and URL escaping therefore stays in Go. Use a `format` binding instead of building a connection string from parts.
+
+`ctx.read_text` is the one way a script can still come across a credential. Files under the application root, such as `.env`, can hold values Polka wrote on an earlier run, and Polka's state directory may sit inside that root. Scripts have no network access, so a failure message is the only way out: do not repeat file contents in `fail()`.
+
+Polka validates the entire plan before running its first action, using the checks manifests get at load time, so an invalid plan writes nothing. Bindings may reference `values.*` and `runtime-env.*` entries declared in the manifest. Because these checks run when the hook runs rather than when the manifest loads, a mistake in a branch no test reaches only surfaces at that point.
+
+### `nginx_config(ctx)`
+
+`ctx` is read-only and has `framework`, `environment`, `os`, `arch`, `platform`, `host`, `port`, `docroot`, `index_names`, `try_files_fallback`, `fastcgi_index`, `backend_address`, `tls` (`None`, or a value with `certificate` and `certificate_key`), and `default_config`, the generic config Polka would otherwise write.
+
+The hook returns `None` to keep the generic config, or a non-empty string to replace it. Prefer editing `default_config`, whose paths are already quoted, to building a config from scratch. Polka does not validate the returned text before writing it.
+
+```python
+def nginx_config(ctx):
+    return ctx.default_config.replace(
+        "        location / {",
+        "        location /private { deny all; }\n        location / {",
+    )
+```
+
+### Testing scripts
+
+`TestBuiltinFrameworkScriptsLoad` compiles every embedded script and fails on scripts no manifest references. `TestBuiltinFrameworkEngineMatrix` and `TestBuiltinFrameworkPostComposerGolden` run each built-in on every engine, and from project fallback files. The goldens in `plugins/testdata/post-composer/` pin the exact generated files, so treat a difference as a behavior change, and set `POLKA_UPDATE_TESTDATA=1` to regenerate them after an intended one. Use `fstest.MapFS` with `parseFrameworkManifestWithFiles` for self-contained fixtures.

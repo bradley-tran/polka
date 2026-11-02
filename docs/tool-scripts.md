@@ -14,7 +14,7 @@ Scripts can implement five hooks:
 | `post_install(ctx)` | a Go `postInstall` hook | after every install, including installs skipped as already up to date, only if the install directory exists |
 | `build_sources(ctx)` | nothing; it locates source archives for a `build` recipe | when `polka build` or `polka install --build` compiles the tool |
 
-Framework plugins remain declarative YAML. A Go hook is still right for work a plan cannot describe, such as running the installed binary or using host tools. `goToolHooks` in `tools/plugins.go` lists the tools that need one.
+Framework plugins have their own hooks, described in [framework-manifests.md](framework-manifests.md#scripts). A Go hook is still right for work a plan cannot describe, such as running the installed binary or using host tools. `goToolHooks` in `tools/plugins.go` lists the tools that need one.
 
 ## Manifest schema
 

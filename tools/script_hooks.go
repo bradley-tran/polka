@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -203,38 +202,9 @@ func builtinScriptModuleLoader(tool string, spec manifestScript, candidate scrip
 // loadToolScript loads a tool script and checks that its public functions
 // match the hooks declared in the manifest.
 func loadToolScript(fsys fs.FS, tool string, spec manifestScript) (*script.Module, error) {
-	module, err := script.Load(fsys, spec.File, script.Options{Predeclared: toolScriptModules(), LoadDir: scriptLibraryDir})
-	if err != nil {
-		return nil, fmt.Errorf("%s script: %w", tool, err)
-	}
+	known := []string{scriptHookResolve, scriptHookValidate, scriptHookDependencies, scriptHookPostInstall, scriptHookBuildSources}
 
-	for _, name := range module.Names() {
-		if strings.HasPrefix(name, "_") {
-			continue
-		}
-		if _, callable := module.Global(name).(starlark.Callable); !callable {
-			continue
-		}
-		switch name {
-		case scriptHookResolve, scriptHookValidate, scriptHookDependencies, scriptHookPostInstall, scriptHookBuildSources:
-			if !spec.hasHook(name) {
-				return nil, fmt.Errorf("%s script %s defines hook %q that is not declared in script.hooks", tool, spec.File, name)
-			}
-		default:
-			return nil, fmt.Errorf("%s script %s defines unsupported public function %q; prefix helpers with _", tool, spec.File, name)
-		}
-	}
-	for _, hook := range spec.Hooks {
-		fn, ok := module.Global(hook).(*starlark.Function)
-		if !ok {
-			return nil, fmt.Errorf("%s script %s declares hook %q but does not define it as a function", tool, spec.File, hook)
-		}
-		if fn.NumParams() != 1 || fn.HasVarargs() || fn.HasKwargs() || fn.NumKwonlyParams() != 0 {
-			return nil, fmt.Errorf("%s script %s hook %q must take exactly one parameter", tool, spec.File, hook)
-		}
-	}
-
-	return module, nil
+	return script.LoadHooks(fsys, spec.File, tool, known, spec.Hooks, script.Options{Predeclared: toolScriptModules(), LoadDir: scriptLibraryDir})
 }
 
 // scriptModule returns the manifest's loaded script module.
@@ -244,18 +214,6 @@ func (m pluginManifest) scriptModule() (*script.Module, error) {
 	}
 
 	return m.loadScript()
-}
-
-// scriptHookError converts a hook failure into a polka error. fail() messages
-// are user-facing and returned verbatim; anything else is a plugin bug and is
-// reported with its Starlark backtrace.
-func scriptHookError(tool, file string, err error) error {
-	var failErr *script.FailError
-	if errors.As(err, &failErr) {
-		return failErr
-	}
-
-	return fmt.Errorf("%s script %s: %s", tool, file, script.Describe(err))
 }
 
 // scriptResolvePlan is the validated result of a resolve hook.
@@ -294,7 +252,7 @@ func resolveScriptRequest(client *http.Client, m pluginManifest, requestedVersio
 	locals := map[string]any{scriptHTTPLocal: scriptHTTPAccess{client: client, tool: tool}}
 	result, err := module.Call(scriptHookResolve, locals, ctx)
 	if err != nil {
-		return manifestRequestPlan{}, scriptHookError(tool, m.Script.File, err)
+		return manifestRequestPlan{}, script.HookError(tool, m.Script.File, err)
 	}
 	plan, err := parseScriptResolvePlan(result)
 	if err != nil {
@@ -461,7 +419,7 @@ func scriptValidateFunc(m pluginManifest, settingsNamespace string, settings map
 		env := newScriptEnvironment(m, tool, version, settingsNamespace, settings, runtime.GOOS, runtime.GOARCH, environment)
 		result, err := module.Call(scriptHookValidate, nil, env)
 		if err != nil {
-			return scriptHookError(tool, m.Script.File, err)
+			return script.HookError(tool, m.Script.File, err)
 		}
 		if result != starlark.None {
 			return fmt.Errorf("%s script %s validate must return None; use fail(msg) to report errors", tool, m.Script.File)
@@ -490,7 +448,7 @@ func scriptDependenciesFunc(m pluginManifest, settingsNamespace string, settings
 		env := newScriptEnvironment(m, tool, version, settingsNamespace, settings, goos, goarch, environment)
 		result, err := module.Call(scriptHookDependencies, nil, env)
 		if err != nil {
-			return nil, scriptHookError(tool, m.Script.File, err)
+			return nil, script.HookError(tool, m.Script.File, err)
 		}
 		requests, err := parseScriptDependencies(tool, result)
 		if err != nil {

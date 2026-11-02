@@ -63,7 +63,9 @@ This package exists to avoid import cycles. Both `backend` and `tools` can depen
 
 The `plugins` package owns Polka's higher-level built-in plugin registry. It groups installable tool plugins from `tools` with framework plugins such as `cakephp`, `codeigniter`, `drupal`, `wordpress`, `laravel`, and `symfony`.
 
-Framework plugins provide config defaults and optional hooks for framework-common PHP extensions, runtime environment variables, OPcache directives, post-Composer secret file generation, and nginx config generation. Database driver extensions belong to the configured database tool rather than the framework. Built-in frameworks are defined entirely in embedded `plugins/manifests/*.yaml` files and `plugins/manifests/templates/*` assets. The loader enumerates manifests automatically, validates structured value bindings and references, and supplies shared detection, formatting, and file actions. Immutable built-in declarations are parsed once per process. Adding a framework requires no framework-specific Go implementation or registry entry. See [framework-manifests.md](framework-manifests.md) for the authoring schema. Framework init is config-only and framework nginx hooks delegate to the generic front-controller config.
+Framework plugins provide config defaults and optional hooks for framework-common PHP extensions, runtime environment variables, OPcache directives, post-Composer secret file generation, and nginx config generation. Database driver extensions belong to the configured database tool rather than the framework. Built-in frameworks are defined entirely in embedded `plugins/manifests/*.yaml` files, `plugins/manifests/templates/*` assets, and `plugins/manifests/scripts/*.star` scripts. The loader enumerates manifests automatically, validates structured value bindings and references, and supplies shared detection, formatting, and file actions. Immutable built-in declarations are parsed once per process. Adding a framework requires no framework-specific Go implementation or registry entry. See [framework-manifests.md](framework-manifests.md) for the authoring schema. Framework init is config-only, and nginx config generation uses the generic front-controller config unless a manifest declares an `nginx_config` script hook.
+
+A `post_composer` script hook returns the same file actions a manifest can declare under `post-composer.actions`. Polka validates the whole plan, then runs it through the same action code, so scripts add logic without adding a second way to write files. Hook contexts never contain database credentials: scripts reference them through structured value bindings that Go resolves after the hook returns. Scripts compile on first use and only these two hooks reach them, so resolving runtime variables and validating config, which happen on every dispatched command, never parse Starlark for a framework. Only a Composer `install`, `update`, or `create-project` does.
 
 `FrameworkPlugin.Detection()` returns isolated detection metadata. Detection uses the active registry for package prefixes, substrings, and distinctive marker files, with declared priority and stable ID tie-breaking. `RuntimeEnv` returns a values map and an error so invalid runtime bindings reach the caller. Post-Composer actions patch dotenv assignments, returned PHP arrays, and PHP constants; they can also render managed files and maintain guarded PHP includes. PHP editing preserves unrelated source and refuses unsupported structures without replacing the affected file. Application PHP is never executed by these editors.
 
@@ -73,7 +75,7 @@ Project presets are a third plugin kind for non-framework project shapes. They c
 
 ### `script`
 
-The `script` package is the sandboxed Starlark runtime behind tool scripts. It loads a script from an `fs.FS` and freezes its globals. Each hook call runs on a fresh thread with a step budget. It provides generic modules (`re`, `json`, `url`, `html`) and a `fail` builtin whose `*script.FailError` separates user-facing failures from script bugs. It knows nothing about Polka plugins: `tools` adds the domain modules (`http`, `version`) and decides which functions are hooks.
+The `script` package is the sandboxed Starlark runtime behind tool and framework scripts. It loads a script from an `fs.FS` and freezes its globals. Each hook call runs on a fresh thread with a step budget. It provides generic modules (`re`, `json`, `url`, `html`), a `fail` builtin whose `*script.FailError` separates user-facing failures from script bugs, and helpers both plugin kinds share for checking a script's public functions against its hooks, classifying hook errors, and reading files through an `os.Root`. It knows nothing about Polka plugins: `tools` and `plugins` add their domain modules (`tools` adds `http` and `version`, and `plugins` reuses `version`) and decide which functions are hooks.
 
 ### `service`
 
@@ -105,7 +107,7 @@ The `tools` package owns managed tool behavior:
 - PHP extension post-install config generation
 - compiling tools from source: declarative `build` manifest recipes (`from` shares a recipe between manifests), the `build_sources` script hook that locates sources, and the engine in `tools/build*.go` that checks the host, verifies sources, compiles, packages, and verifies the payload
 
-The current plugin system is internal and compile-time only. Built-in tool metadata and scripts live in `tools/manifests/`, built-in framework metadata lives in `plugins/manifests/*.yaml`, and both are embedded into the binary; Polka does not load third-party plugins from disk or from `polka.yaml`. The manifest parsers accept bytes and the tool manifest loader (`loadManifest`) reads manifests and their scripts through an `fs.FS`, so future external loading can reuse the schemas and the sandboxed script runtime, but that loading behavior is intentionally not implemented yet.
+The current plugin system is internal and compile-time only. Built-in tool metadata and scripts live in `tools/manifests/`, built-in framework metadata and scripts live in `plugins/manifests/`, and both are embedded into the binary; Polka does not load third-party plugins from disk or from `polka.yaml`. The manifest parsers accept bytes and the tool manifest loader (`loadManifest`) reads manifests and their scripts through an `fs.FS`, so future external loading can reuse the schemas and the sandboxed script runtime, but that loading behavior is intentionally not implemented yet.
 
 ## Tool Install Flow
 
@@ -213,6 +215,7 @@ cli -> service -> tools -> config
 backend -> config
 backend -> service -> tools -> config
 tools -> script
+plugins -> script
 ```
 
 Avoid these dependencies:
@@ -248,6 +251,7 @@ Use the package boundary to choose tests:
 
 - `tools`: plugin registry, candidate paths, download asset selection, tool script hooks, archive extraction, post-install hooks, and the build engine (through the `buildCommandRunner` fake, so it runs on every CI platform).
 - `script`: sandbox limits, error classification, and generic Starlark modules.
+- `plugins`: framework manifest validation, framework script hooks, and generated files, which goldens in `plugins/testdata/post-composer/` pin for every built-in and engine.
 - `config`: normalization behavior when shared helpers become complex enough to warrant direct tests.
 - `backend`: store behavior, config persistence, install materialization, shim syncing, tool resolution, runtime state, and service orchestration.
 - `cli`: command parsing, user-facing output, command selection, and full command workflows.

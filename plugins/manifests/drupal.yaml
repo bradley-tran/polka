@@ -66,43 +66,9 @@ runtime-env:
       from: "database.user"
     DB_PASSWORD:
       from: "database.password"
+script:
+  file: "scripts/drupal.star"
+  hooks:
+    - "post_composer"
 post-composer:
   requires-database: true
-  actions:
-    - type: "write-file"
-      base: "docroot"
-      path: "sites/default/settings.polka.php"
-      template-file: "drupal-settings.php"
-      encoding: "php-literal"
-      values:
-        database:
-          from: "database.name"
-        username:
-          from: "database.user"
-        password:
-          from: "database.password"
-        host:
-          from: "database.host"
-        port:
-          from: "database.port"
-        namespace:
-          by-engine:
-            mysql: "Drupal\\mysql\\Driver\\Database\\mysql"
-            mariadb: "Drupal\\mysql\\Driver\\Database\\mysql"
-            postgresql: "Drupal\\pgsql\\Driver\\Database\\pgsql"
-        driver:
-          by-engine:
-            mysql: "mysql"
-            mariadb: "mysql"
-            postgresql: "pgsql"
-        autoload:
-          by-engine:
-            mysql: "core/modules/mysql/src/Driver/Database/mysql/"
-            mariadb: "core/modules/mysql/src/Driver/Database/mysql/"
-            postgresql: "core/modules/pgsql/src/Driver/Database/pgsql/"
-    - type: "php-include"
-      base: "docroot"
-      path: "sites/default/settings.php"
-      fallback: "sites/default/default.settings.php"
-      include: "settings.polka.php"
-      marker: "settings-polka"

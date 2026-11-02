@@ -118,13 +118,9 @@ runtime-env:
             from: "values.charset"
           serverVersion:
             from: "values.server-version"
+script:
+  file: "scripts/symfony.star"
+  hooks:
+    - "post_composer"
 post-composer:
   requires-database: true
-  actions:
-    - type: "dotenv"
-      path: ".env.local"
-      values:
-        DATABASE_URL:
-          from: "runtime-env.DATABASE_URL"
-      order:
-        - "DATABASE_URL"

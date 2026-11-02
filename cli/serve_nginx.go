@@ -278,6 +278,14 @@ func renderFrameworkNginxServeConfig(environment backend.Environment, host strin
 	if !ok {
 		return nil, fmt.Errorf("unsupported framework %q", environment.Framework)
 	}
+
+	return frameworkNginxServeConfig(plugin, environment, host, port, layout, backendAddress, tlsConfig)
+}
+
+// frameworkNginxServeConfig calls one plugin's nginx hook, giving it the generic
+// config to start from. It returns nil bytes when the plugin leaves the generic
+// config in place.
+func frameworkNginxServeConfig(plugin plugins.FrameworkPlugin, environment backend.Environment, host string, port int, layout serveAppLayout, backendAddress string, tlsConfig serveTLSConfig) ([]byte, error) {
 	result, handled, err := plugin.NginxConfig(plugins.NginxConfigContext{
 		Environment:           environment,
 		Host:                  host,
@@ -290,6 +298,7 @@ func renderFrameworkNginxServeConfig(environment backend.Environment, host strin
 		TLSEnabled:            tlsConfig.Enabled,
 		TLSCertificatePath:    tlsConfig.CertificatePath,
 		TLSCertificateKeyPath: tlsConfig.CertificateKeyPath,
+		DefaultConfig:         string(renderNginxServeConfig(host, port, layout, backendAddress, tlsConfig)),
 	})
 	if err != nil {
 		return nil, err

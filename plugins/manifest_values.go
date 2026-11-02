@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"fmt"
+	"io/fs"
 	"maps"
 	"net"
 	"net/url"
@@ -159,79 +160,122 @@ func (v frameworkValue) validate() error {
 // validateValues checks references across named and runtime values as a graph,
 // including unused engine branches, before any plugin can execute.
 func (m frameworkManifest) validateValues() error {
-	all := map[string]frameworkValue{}
+	checker, err := newFrameworkValueChecker(m)
+	if err != nil {
+		return err
+	}
+	for _, key := range slices.Sorted(maps.Keys(checker.named)) {
+		if err := checker.visit(key); err != nil {
+			return err
+		}
+	}
+	return checker.checkActions(m.PostComposer.Actions)
+}
+
+// validateActions applies the checks declared actions get at load time to
+// actions a script planned, so nothing has run when an invalid plan is refused.
+func (m frameworkManifest) validateActions(actions []frameworkActionManifest, files fs.FS) error {
+	checker, err := newFrameworkValueChecker(m)
+	if err != nil {
+		return err
+	}
+	if err := checker.checkActions(actions); err != nil {
+		return err
+	}
+	for i, action := range actions {
+		if err := action.validate(files); err != nil {
+			return fmt.Errorf("actions[%d]: %w", i, err)
+		}
+	}
+	return nil
+}
+
+// frameworkValueChecker validates bindings against one manifest's named values.
+type frameworkValueChecker struct {
+	manifest frameworkManifest
+	// named holds every referenceable value by its full reference.
+	named map[string]frameworkValue
+	// state tracks named values during traversal: 1 is in progress, which
+	// identifies cycles, and 2 is done.
+	state map[string]int
+}
+
+// newFrameworkValueChecker collects a manifest's referenceable values.
+func newFrameworkValueChecker(m frameworkManifest) (*frameworkValueChecker, error) {
+	named := map[string]frameworkValue{}
 	for key, value := range m.Values {
-		all["values."+key] = value
+		named["values."+key] = value
 	}
 	for key, value := range m.RuntimeEnv.Values {
 		if !validFrameworkVariable(key) {
-			return fmt.Errorf("invalid runtime variable name %q", key)
+			return nil, fmt.Errorf("invalid runtime variable name %q", key)
 		}
-		all["runtime-env."+key] = value
+		named["runtime-env."+key] = value
 	}
-	state := map[string]int{}
-	var visit func(string) error
-	var check func(frameworkValue) error
-	check = func(v frameworkValue) error {
-		if err := v.validate(); err != nil {
-			return err
-		}
-		if v.ByEngine != nil {
-			for _, engine := range m.DatabaseEngines {
-				if _, ok := v.ByEngine[engine]; !ok {
-					return fmt.Errorf("by-engine is missing declared database engine %q", engine)
-				}
+	return &frameworkValueChecker{manifest: m, named: named, state: map[string]int{}}, nil
+}
+
+// check validates one binding, its references, and all of its branches.
+func (c *frameworkValueChecker) check(v frameworkValue) error {
+	if err := v.validate(); err != nil {
+		return err
+	}
+	if v.ByEngine != nil {
+		for _, engine := range c.manifest.DatabaseEngines {
+			if _, ok := v.ByEngine[engine]; !ok {
+				return fmt.Errorf("by-engine is missing declared database engine %q", engine)
 			}
 		}
-		if v.From != "" {
-			if strings.HasPrefix(v.From, "database.") {
-				if !slices.Contains([]string{"engine", "version", "host", "port", "name", "user", "password"}, strings.TrimPrefix(v.From, "database.")) {
-					return fmt.Errorf("unknown reference %q", v.From)
-				}
-			} else if _, exists := all[v.From]; !exists {
+	}
+	if v.From != "" {
+		if strings.HasPrefix(v.From, "database.") {
+			if !slices.Contains([]string{"engine", "version", "host", "port", "name", "user", "password"}, strings.TrimPrefix(v.From, "database.")) {
 				return fmt.Errorf("unknown reference %q", v.From)
-			} else if err := visit(v.From); err != nil {
-				return err
 			}
-		}
-		for _, child := range v.children() {
-			if err := check(child); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	visit = func(key string) error {
-		if state[key] == 1 {
-			return fmt.Errorf("reference cycle at %q", key)
-		}
-		if state[key] == 2 {
-			return nil
-		}
-		state[key] = 1
-		if err := check(all[key]); err != nil {
-			return fmt.Errorf("%s: %w", key, err)
-		}
-		state[key] = 2
-		return nil
-	}
-	for _, key := range slices.Sorted(maps.Keys(all)) {
-		if err := visit(key); err != nil {
+		} else if _, exists := c.named[v.From]; !exists {
+			return fmt.Errorf("unknown reference %q", v.From)
+		} else if err := c.visit(v.From); err != nil {
 			return err
 		}
 	}
-	for i, action := range m.PostComposer.Actions {
+	for _, child := range v.children() {
+		if err := c.check(child); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// visit validates a named value once and detects reference cycles.
+func (c *frameworkValueChecker) visit(key string) error {
+	if c.state[key] == 1 {
+		return fmt.Errorf("reference cycle at %q", key)
+	}
+	if c.state[key] == 2 {
+		return nil
+	}
+	c.state[key] = 1
+	if err := c.check(c.named[key]); err != nil {
+		return fmt.Errorf("%s: %w", key, err)
+	}
+	c.state[key] = 2
+	return nil
+}
+
+// checkActions validates the bindings and dotenv names of file actions.
+func (c *frameworkValueChecker) checkActions(actions []frameworkActionManifest) error {
+	for i, action := range actions {
 		for key, value := range action.Values {
 			if action.Type == "dotenv" && !validFrameworkVariable(key) {
 				return fmt.Errorf("invalid dotenv variable name %q", key)
 			}
-			if err := check(value); err != nil {
+			if err := c.check(value); err != nil {
 				return fmt.Errorf("action %d value %q: %w", i, key, err)
 			}
 		}
 		for _, update := range action.Updates {
 			for _, value := range update.Values {
-				if err := check(value); err != nil {
+				if err := c.check(value); err != nil {
 					return fmt.Errorf("action %d: %w", i, err)
 				}
 			}

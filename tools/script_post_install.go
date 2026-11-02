@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -23,8 +22,6 @@ const (
 	// scriptPostInstallLocal is the thread-local key marking a post_install hook
 	// call, which unlocks the path and crypto modules.
 	scriptPostInstallLocal = "polka.post_install"
-	// scriptReadTextMaxBytes caps one file read through ctx.read_text.
-	scriptReadTextMaxBytes = 8 << 20
 	// scriptRandomMaxBytes caps one crypto.random_base64 request.
 	scriptRandomMaxBytes = 1024
 )
@@ -133,7 +130,7 @@ func scriptPostInstallFunc(m pluginManifest, goos, goarch string) func(InstallCo
 		}
 		result, err := module.Call(scriptHookPostInstall, map[string]any{scriptPostInstallLocal: true}, hookCtx)
 		if err != nil {
-			return scriptHookError(tool, m.Script.File, err)
+			return script.HookError(tool, m.Script.File, err)
 		}
 		plan, err := parseScriptPostInstallPlan(result)
 		if err != nil {
@@ -164,7 +161,7 @@ func newScriptPostInstallContext(m pluginManifest, tool, goos, goarch string, ct
 			return nil, fmt.Errorf("%s: %w", b.Name(), err)
 		}
 
-		return scriptReadInstallFile(root, b.Name(), rawPath)
+		return script.ReadRootText(root, b.Name(), rawPath)
 	})
 
 	return script.NewStruct("ctx", starlark.StringDict{
@@ -192,30 +189,6 @@ func scriptDatabaseValue(database *config.DatabaseConfig) starlark.Value {
 		"engine": starlark.String(strings.ToLower(strings.TrimSpace(database.Engine))),
 		"port":   starlark.MakeInt(database.Port),
 	})
-}
-
-// scriptReadInstallFile reads a file for ctx.read_text, returning None when it
-// does not exist. Failures reading the install are not script bugs, so they
-// are reported like fail().
-func scriptReadInstallFile(root *os.Root, name, rawPath string) (starlark.Value, error) {
-	file, err := root.Open(filepath.FromSlash(rawPath))
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return starlark.None, nil
-		}
-		return nil, script.Fail(fmt.Errorf("%s(%q): %w", name, rawPath, err))
-	}
-	defer file.Close()
-
-	data, err := io.ReadAll(io.LimitReader(file, scriptReadTextMaxBytes+1))
-	if err != nil {
-		return nil, script.Fail(fmt.Errorf("%s(%q): %w", name, rawPath, err))
-	}
-	if len(data) > scriptReadTextMaxBytes {
-		return nil, script.Fail(fmt.Errorf("%s(%q): file exceeds %d bytes", name, rawPath, scriptReadTextMaxBytes))
-	}
-
-	return starlark.String(data), nil
 }
 
 // parseScriptPostInstallPlan converts a post_install hook result dict into a

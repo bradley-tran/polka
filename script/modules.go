@@ -173,6 +173,21 @@ func ToStringMap(value starlark.Value, what string) (map[string]string, error) {
 	return values, nil
 }
 
+// EncodeJSON encodes a hook result as JSON, rejecting values JSON cannot
+// represent, such as functions.
+func EncodeJSON(value starlark.Value) ([]byte, error) {
+	encoded, err := starlark.Call(&starlark.Thread{Name: "json.encode"}, jsonModule.Members["encode"], starlark.Tuple{value}, nil)
+	if err != nil {
+		return nil, err
+	}
+	text, ok := starlark.AsString(encoded)
+	if !ok {
+		return nil, fmt.Errorf("json.encode returned %s, want string", encoded.Type())
+	}
+
+	return []byte(text), nil
+}
+
 // NewStruct builds a frozen struct value whose type name is name, suitable
 // for passing read-only context objects to hooks.
 func NewStruct(name string, fields starlark.StringDict) *starlarkstruct.Struct {

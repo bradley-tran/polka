@@ -198,7 +198,7 @@ func TestPostInstallReadText(t *testing.T) {
 		t.Fatalf("PostInstall(traversal read) error = %v", err)
 	}
 
-	if err := os.WriteFile(filepath.Join(installDir, "huge.txt"), make([]byte, scriptReadTextMaxBytes+1), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(installDir, "huge.txt"), make([]byte, script.MaxReadTextBytes+1), 0o644); err != nil {
 		t.Fatalf("WriteFile(huge) error = %v", err)
 	}
 	err = runPostInstallScript(t, "def post_install(ctx):\n    ctx.read_text(\"huge.txt\")\n    return {}\n", ctx)

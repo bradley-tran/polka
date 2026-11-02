@@ -73,29 +73,9 @@ runtime-env:
       from: "database.user"
     DB_PASSWORD:
       from: "database.password"
+script:
+  file: "scripts/laravel.star"
+  hooks:
+    - "post_composer"
 post-composer:
   requires-database: true
-  actions:
-    - type: "dotenv"
-      path: ".env"
-      fallback: ".env.example"
-      values:
-        DB_CONNECTION:
-          from: "runtime-env.DB_CONNECTION"
-        DB_HOST:
-          from: "runtime-env.DB_HOST"
-        DB_PORT:
-          from: "runtime-env.DB_PORT"
-        DB_DATABASE:
-          from: "runtime-env.DB_DATABASE"
-        DB_USERNAME:
-          from: "runtime-env.DB_USERNAME"
-        DB_PASSWORD:
-          from: "runtime-env.DB_PASSWORD"
-      order:
-        - "DB_CONNECTION"
-        - "DB_HOST"
-        - "DB_PORT"
-        - "DB_DATABASE"
-        - "DB_USERNAME"
-        - "DB_PASSWORD"
