@@ -15,21 +15,19 @@ logs:
   error:
     - server.log
 download:
+  github:
+    owner: theseus-rs
+    repo: postgresql-binaries
   assets:
     windows-amd64:
-      filename: postgresql-{version}-1-windows-x64-binaries.zip
-      url: https://get.enterprisedb.com/postgresql/postgresql-{version}-1-windows-x64-binaries.zip
+      filename: postgresql-{version}-x86_64-pc-windows-msvc.zip
+      url: https://github.com/theseus-rs/postgresql-binaries/releases/download/{tag}/postgresql-{version}-x86_64-pc-windows-msvc.zip
+      checksum-url: https://github.com/theseus-rs/postgresql-binaries/releases/download/{tag}/postgresql-{version}-x86_64-pc-windows-msvc.zip.sha256
+      checksum-algorithm: sha256
       archive-format: zip
     linux-amd64:
-      filename: embedded-postgres-binaries-linux-amd64-{maven_version}.jar
-      url: https://repo1.maven.org/maven2/io/zonky/test/postgres/embedded-postgres-binaries-linux-amd64/{maven_version}/embedded-postgres-binaries-linux-amd64-{maven_version}.jar
-      archive-format: zip
-      unwrap:
-        path: postgres-linux-x86_64.txz
-        filename: postgresql-{version}-linux-amd64.tar.xz
-        archive-format: tar.xz
-script:
-  file: scripts/postgresql.star
-  hooks: [resolve]
-  vars:
-    versions-index: https://www.postgresql.org/versions.json
+      filename: postgresql-{version}-x86_64-unknown-linux-gnu.tar.gz
+      url: https://github.com/theseus-rs/postgresql-binaries/releases/download/{tag}/postgresql-{version}-x86_64-unknown-linux-gnu.tar.gz
+      checksum-url: https://github.com/theseus-rs/postgresql-binaries/releases/download/{tag}/postgresql-{version}-x86_64-unknown-linux-gnu.tar.gz.sha256
+      checksum-algorithm: sha256
+      archive-format: tar.gz
