@@ -28,7 +28,7 @@ def post_composer(ctx):
         "host": {"from": "database.host"},
         "port": {"from": "database.port"},
     })
-    return {"actions": [
+    actions = [
         {
             "type": "write-file",
             "base": "docroot",
@@ -37,12 +37,17 @@ def post_composer(ctx):
             "encoding": "php-literal",
             "values": values,
         },
-        {
+    ]
+    # create-project runs this hook before dependencies supply Drupal's
+    # template. Wait for it instead of creating a bare settings.php that
+    # would take precedence over default.settings.php on the next run.
+    if ctx.read_text("sites/default/settings.php", base="docroot") != None or ctx.read_text("sites/default/default.settings.php", base="docroot") != None:
+        actions.append({
             "type": "php-include",
             "base": "docroot",
             "path": "sites/default/settings.php",
             "fallback": "sites/default/default.settings.php",
             "include": "settings.polka.php",
             "marker": "settings-polka",
-        },
-    ]}
+        })
+    return {"actions": actions}

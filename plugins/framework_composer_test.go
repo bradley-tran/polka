@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -154,6 +155,86 @@ func TestCodeIgniterPostComposerUpdatesDotenvDatabaseSecrets(t *testing.T) {
 	}
 }
 
+// TestDrupalPostComposerWaitsForDefaultSettings models create-project's hooks
+// before and after dependencies supply Drupal's default.settings.php template.
+func TestDrupalPostComposerWaitsForDefaultSettings(t *testing.T) {
+	for _, docroot := range []string{"web", "drupal/web", "public"} {
+		t.Run(docroot, func(t *testing.T) {
+			projectDir := t.TempDir()
+			settingsDir := filepath.Join(projectDir, filepath.FromSlash(docroot), "sites", "default")
+			settingsPath := filepath.Join(settingsDir, "settings.php")
+			plugin := newManifestFrameworkPlugin(Drupal)
+			ctx := PostComposerContext{
+				ProjectDir: projectDir,
+				Environment: config.Environment{
+					Framework: Drupal,
+					Docroot:   docroot,
+				},
+				Database: &DatabaseCredentials{
+					Engine: tools.MariaDB, DatabaseName: "demo", User: "polka", Password: "secret",
+				},
+			}
+
+			// Repeated early hooks must not leave an empty settings.php that
+			// prevents Drupal's template from being used after installation.
+			for i := 0; i < 2; i++ {
+				if err := plugin.PostComposer(ctx); err != nil {
+					t.Fatalf("PostComposer(before dependencies) error = %v", err)
+				}
+				if _, err := os.Stat(settingsPath); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("Stat(settings.php) error = %v, want file absent until defaults exist", err)
+				}
+			}
+			if data := string(readPluginTestFile(t, filepath.Join(settingsDir, "settings.polka.php"))); !strings.Contains(data, "'database' => 'demo'") {
+				t.Fatalf("settings.polka.php = %q, want managed credentials before dependencies", data)
+			}
+
+			defaults := "<?php\n\n// Drupal defaults.\n$databases = [];\n$settings['update_free_access'] = FALSE;\n$settings['file_scan_ignore_directories'] = ['node_modules', 'bower_components'];\n"
+			defaultPath := filepath.Join(settingsDir, "default.settings.php")
+			writePluginTestFile(t, defaultPath, defaults)
+			if err := plugin.PostComposer(ctx); err != nil {
+				t.Fatalf("PostComposer(after dependencies) error = %v", err)
+			}
+			settings := string(readPluginTestFile(t, settingsPath))
+			if !strings.HasPrefix(settings, defaults) || strings.Count(settings, "// <polka:settings-polka>") != 1 {
+				t.Fatalf("settings.php = %q, want complete defaults followed by one Polka include", settings)
+			}
+			if data := string(readPluginTestFile(t, defaultPath)); data != defaults {
+				t.Fatalf("default.settings.php changed: %q", data)
+			}
+			if err := plugin.PostComposer(ctx); err != nil {
+				t.Fatalf("PostComposer(repeat) error = %v", err)
+			}
+			if data := string(readPluginTestFile(t, settingsPath)); data != settings {
+				t.Fatalf("repeated hook changed settings.php: %q", data)
+			}
+		})
+	}
+}
+
+// TestDrupalPostComposerPreservesExistingSettingsWithoutDefaults ensures a
+// customized site can refresh managed credentials even without the template.
+func TestDrupalPostComposerPreservesExistingSettingsWithoutDefaults(t *testing.T) {
+	plugin := newManifestFrameworkPlugin(Drupal)
+	dir := t.TempDir()
+	settingsPath := filepath.Join(dir, "web", "sites", "default", "settings.php")
+	existing := "<?php\n$settings['hash_salt'] = 'preserve';\n"
+	writePluginTestFile(t, settingsPath, existing)
+	if err := plugin.PostComposer(PostComposerContext{
+		ProjectDir:  dir,
+		Environment: plugin.Defaults(),
+		Database: &DatabaseCredentials{
+			Engine: tools.MariaDB, DatabaseName: "demo", User: "polka", Password: "secret",
+		},
+	}); err != nil {
+		t.Fatalf("PostComposer() error = %v", err)
+	}
+	settings := string(readPluginTestFile(t, settingsPath))
+	if !strings.HasPrefix(settings, existing) || strings.Count(settings, "// <polka:settings-polka>") != 1 {
+		t.Fatalf("settings.php = %q, want existing settings followed by one Polka include", settings)
+	}
+}
+
 // TestDrupalPostComposerWritesPolkaSettingsFile covers initial generation and
 // refreshing managed credentials after Drupal appends its installer settings.
 func TestDrupalPostComposerWritesPolkaSettingsFile(t *testing.T) {
@@ -195,6 +276,9 @@ func TestDrupalPostComposerWritesPolkaSettingsFile(t *testing.T) {
 	}
 	if !strings.Contains(string(settings), "settings.polka.php") {
 		t.Fatalf("settings.php = %q, want Polka include", string(settings))
+	}
+	if !strings.HasPrefix(string(settings), defaultSettings) {
+		t.Fatalf("settings.php = %q, want Drupal defaults preserved", string(settings))
 	}
 
 	polkaSettings, err := os.ReadFile(filepath.Join(settingsDir, "settings.polka.php"))
