@@ -45,6 +45,9 @@ type toolState struct {
 	version string
 	stage   backend.InstallProgressStage
 	done    bool // true once "installed" is received
+	// downloaded and downloadTotal hold the latest transfer counts for the row.
+	downloaded    int64
+	downloadTotal int64
 }
 
 // installSpinner renders a live spinner list of tools during a concurrent install.
@@ -137,6 +140,33 @@ func (s *installSpinner) Update(tool, version string, stage backend.InstallProgr
 	_, _ = fmt.Fprintf(s.out, "%s %s: %s\n", t.tool, t.version, stage)
 }
 
+// Report routes one install progress event. Safe to call from any goroutine.
+func (s *installSpinner) Report(progress backend.InstallProgress) {
+	if progress.Stage == backend.InstallProgressTransfer {
+		s.updateTransfer(progress)
+		return
+	}
+	s.Update(progress.Tool, progress.Version, progress.Stage)
+}
+
+// updateTransfer stores byte counts for the next animation tick to render. Without
+// a terminal there is no tick and nothing to redraw, so piped output stays limited
+// to one line per stage.
+func (s *installSpinner) updateTransfer(progress backend.InstallProgress) {
+	if !s.tty {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	idx, ok := s.keys[toolKey(progress.Tool, progress.Version)]
+	if !ok {
+		return
+	}
+	s.tools[idx].downloaded = progress.Downloaded
+	s.tools[idx].downloadTotal = progress.DownloadTotal
+}
+
 // Stop terminates the animation and prints the final state (TTY only).
 func (s *installSpinner) Stop() {
 	if !s.tty {
@@ -188,12 +218,38 @@ func (s *installSpinner) renderLine(t toolState) string {
 	if t.done {
 		icon = "✓"
 	} else if t.stage == backend.InstallProgressDownloading {
-		icon = "↓"
+		// A large download can take minutes, so show that the row is moving.
+		return fmt.Sprintf("↓ %s %s%s", t.tool, t.version, formatDownloadProgress(t.downloaded, t.downloadTotal))
 	} else if t.stage == backend.InstallProgressBuilding {
 		// A compile can take many minutes, so say why this row is not moving.
 		return fmt.Sprintf("%s %s %s (building)", icon, t.tool, t.version)
 	}
 	return fmt.Sprintf("%s %s %s", icon, t.tool, t.version)
+}
+
+// formatDownloadProgress renders the suffix of a downloading row, such as
+// "  42% 18/43 MB", or "  18 MB" when the size is unknown. It stays short because a
+// wrapped row would break in-place rendering.
+func formatDownloadProgress(downloaded, total int64) string {
+	if downloaded <= 0 {
+		return ""
+	}
+	if total <= 0 {
+		divisor, unit := downloadSizeUnit(downloaded)
+		return fmt.Sprintf("  %d %s", downloaded/divisor, unit)
+	}
+	divisor, unit := downloadSizeUnit(total)
+	percent := min(downloaded*100/total, 100)
+	return fmt.Sprintf("  %d%% %d/%d %s", percent, downloaded/divisor, total/divisor, unit)
+}
+
+// downloadSizeUnit picks a unit for a byte count, so that a small file reads
+// "120/480 KB" rather than "0/0 MB".
+func downloadSizeUnit(size int64) (int64, string) {
+	if size < 1_000_000 {
+		return 1_000, "KB"
+	}
+	return 1_000_000, "MB"
 }
 
 // replaceLine overwrites one rendered row and returns the cursor to the bottom.

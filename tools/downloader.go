@@ -31,6 +31,9 @@ type Downloader interface {
 type HTTPDownloader struct {
 	Client  *http.Client
 	Plugins *Registry
+	// Progress receives transfer counts for the file being downloaded. Nil
+	// discards them.
+	Progress func(DownloadProgress)
 }
 
 type checksumAlgorithm string
@@ -66,7 +69,7 @@ var (
 func (d HTTPDownloader) Download(cacheDir, tool, version string) error {
 	client := d.Client
 	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Minute}
+		client = newDownloadClient()
 	}
 
 	registry := d.Plugins
@@ -83,6 +86,7 @@ func (d HTTPDownloader) Download(cacheDir, tool, version string) error {
 		CacheDir: cacheDir,
 		Tool:     tool,
 		Version:  version,
+		Progress: d.Progress,
 	})
 }
 
@@ -144,10 +148,10 @@ func downloadManifestRequest(ctx DownloadContext, m pluginManifest) error {
 		return err
 	}
 	if plan.Asset.ChecksumAlgorithm == checksumAlgorithmEmbeddedCommitID {
-		return downloadGitHubSourceArchive(ctx.Client, ctx.CacheDir, tool, ctx.Version, plan.ResolvedVersion, plan.Asset, plan.Commit)
+		return downloadGitHubSourceArchive(ctx.Client, ctx.CacheDir, tool, ctx.Version, plan.ResolvedVersion, plan.Asset, plan.Commit, ctx.Progress)
 	}
 
-	return downloadManifestAsset(ctx.Client, ctx.CacheDir, tool, ctx.Version, plan.ResolvedVersion, plan.Asset)
+	return downloadManifestAssetWithProgress(ctx.Client, ctx.CacheDir, tool, ctx.Version, plan.ResolvedVersion, plan.Asset, ctx.Progress)
 }
 
 // manifestBuildRequired returns a BuildRequiredError when the platform has no
@@ -580,6 +584,12 @@ func downloadDatabaseAsset(client *http.Client, cacheDir, tool, version string, 
 }
 
 func downloadManifestAsset(client *http.Client, cacheDir, tool, requestedVersion, downloadedVersion string, asset downloadAsset) error {
+	return downloadManifestAssetWithProgress(client, cacheDir, tool, requestedVersion, downloadedVersion, asset, nil)
+}
+
+// downloadManifestAssetWithProgress stages, verifies, and caches an asset while
+// reporting transfer counts for its archive to progress, which may be nil.
+func downloadManifestAssetWithProgress(client *http.Client, cacheDir, tool, requestedVersion, downloadedVersion string, asset downloadAsset, progress func(DownloadProgress)) error {
 	if err := os.MkdirAll(filepath.Join(cacheDir, tool), 0o755); err != nil {
 		return fmt.Errorf("create %s cache dir: %w", tool, err)
 	}
@@ -591,7 +601,7 @@ func downloadManifestAsset(client *http.Client, cacheDir, tool, requestedVersion
 	defer os.RemoveAll(stagingDir)
 
 	archivePath := filepath.Join(stagingDir, asset.FileName)
-	if err := downloadFile(client, asset.URL, archivePath); err != nil {
+	if err := downloadFileWithProgress(client, asset.URL, archivePath, progress); err != nil {
 		return err
 	}
 	checksum := strings.TrimSpace(asset.Checksum)
@@ -870,38 +880,9 @@ func collapseSingleDirectory(root string) error {
 	return nil
 }
 
+// downloadFile downloads url to targetPath without reporting progress.
 func downloadFile(client *http.Client, url, targetPath string) error {
-	client = effectiveHTTPClient(client)
-	request, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return fmt.Errorf("download %s: %w", url, err)
-	}
-	setDownloadRequestHeaders(request)
-
-	response, err := doDownloadRequest(client, request)
-	if err != nil {
-		return fmt.Errorf("download %s: %w", url, err)
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("download %s: unexpected status %s", url, response.Status)
-	}
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
-		return fmt.Errorf("create parent dir for %s: %w", targetPath, err)
-	}
-
-	file, err := os.OpenFile(targetPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
-	if err != nil {
-		return fmt.Errorf("create %s: %w", targetPath, err)
-	}
-	defer file.Close()
-
-	if _, err := io.Copy(file, response.Body); err != nil {
-		return fmt.Errorf("write %s: %w", targetPath, err)
-	}
-
-	return nil
+	return downloadFileWithProgress(client, url, targetPath, nil)
 }
 
 func downloadText(client *http.Client, url, description string) (string, error) {
@@ -979,7 +960,7 @@ func effectiveHTTPClient(client *http.Client) *http.Client {
 		return client
 	}
 
-	return &http.Client{Timeout: 10 * time.Minute}
+	return newDownloadClient()
 }
 
 // doDownloadRequest executes a download request with bounded retries for

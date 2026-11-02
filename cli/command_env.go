@@ -422,7 +422,7 @@ func runInstall(stdout, stderr io.Writer, store backend.Store, input installComm
 	}
 	if input.Tool != "" {
 		result, installErr := store.InstallToolWithOptions(input.Name, input.Tool, input.Version, options, func(progress backend.InstallProgress) {
-			spinner.Update(progress.Tool, progress.Version, progress.Stage)
+			spinner.Report(progress)
 		})
 		err = installErr
 		if err == nil {
@@ -430,7 +430,7 @@ func runInstall(stdout, stderr io.Writer, store backend.Store, input installComm
 		}
 	} else {
 		results, err = store.InstallWithProgress(input.Name, options, func(progress backend.InstallProgress) {
-			spinner.Update(progress.Tool, progress.Version, progress.Stage)
+			spinner.Report(progress)
 		})
 	}
 

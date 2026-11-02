@@ -347,7 +347,7 @@ func runBuild(ctx context.Context, m pluginManifest, request BuildRequest, resul
 
 	client := request.Client
 	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Minute}
+		client = newDownloadClient()
 	}
 	request.status("resolving %s %s sources", tool, label)
 	plan, err := resolveBuildSources(client, m, label, goos, goarch)

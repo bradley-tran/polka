@@ -16,6 +16,9 @@ type DownloadContext struct {
 	CacheDir string
 	Tool     string
 	Version  string
+	// Progress receives transfer counts for the file being downloaded. It may be
+	// nil, and it is called from a goroutine other than the one running Download.
+	Progress func(DownloadProgress)
 }
 
 type InstallContext struct {

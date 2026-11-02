@@ -76,6 +76,10 @@ type InstallProgressStage string
 const (
 	InstallProgressUsingCache  InstallProgressStage = "using cache"
 	InstallProgressDownloading InstallProgressStage = "downloading"
+	// InstallProgressTransfer carries byte counts for a tool that is in the
+	// downloading stage. It repeats many times per tool, so a consumer that prints
+	// per event has to ignore it; it does not replace the tool's current stage.
+	InstallProgressTransfer    InstallProgressStage = "transfer"
 	InstallProgressBuilding    InstallProgressStage = "building"
 	InstallProgressInstalling  InstallProgressStage = "installing"
 	InstallProgressConfiguring InstallProgressStage = "configuring"
@@ -89,6 +93,10 @@ type InstallProgress struct {
 	Tool    string
 	Version string
 	Stage   InstallProgressStage
+	// Downloaded and DownloadTotal are set only on InstallProgressTransfer events.
+	// A DownloadTotal of 0 means the size is unknown.
+	Downloaded    int64
+	DownloadTotal int64
 }
 
 // InstallRequest describes a single tool that will be installed.
@@ -1079,9 +1087,18 @@ func (s Store) installRequestLayer(environment Environment, requests []tools.Ins
 			}
 
 			if !skipped {
+				// A private copy, because transfer events arrive from the downloader's
+				// reporter goroutine while this one updates baseProgress.
+				transferProgress := baseProgress
+				transferProgress.Stage = InstallProgressTransfer
 				cachedPayloadPath, downloaded, err := s.ensureCachedTool(req.Tool, cacheVersion, func(stage InstallProgressStage) {
 					baseProgress.Stage = stage
 					safeReport(baseProgress)
+				}, func(download tools.DownloadProgress) {
+					event := transferProgress
+					event.Downloaded = download.Downloaded
+					event.DownloadTotal = download.Total
+					safeReport(event)
 				})
 				if err != nil {
 					errs[i] = err
@@ -1303,7 +1320,10 @@ func installCacheVersion(environment Environment, tool, version string) string {
 	return version + "-nts"
 }
 
-func (s Store) ensureCachedTool(tool, version string, report func(InstallProgressStage)) (string, bool, error) {
+// ensureCachedTool returns the cached payload for a tool version, downloading it on
+// a cache miss. The transfer callback may be nil, and it only receives byte counts
+// when the default downloader is in use.
+func (s Store) ensureCachedTool(tool, version string, report func(InstallProgressStage), transfer func(tools.DownloadProgress)) (string, bool, error) {
 	cachedPayload, err := tools.CachedToolPayload(s.CacheDir, tool, version)
 	if err == nil {
 		if report != nil {
@@ -1317,7 +1337,7 @@ func (s Store) ensureCachedTool(tool, version string, report func(InstallProgres
 
 	downloader := s.Downloader
 	if downloader == nil {
-		downloader = HTTPToolDownloader{Plugins: s.toolRegistry()}
+		downloader = HTTPToolDownloader{Plugins: s.toolRegistry(), Progress: transfer}
 	}
 
 	if report != nil {

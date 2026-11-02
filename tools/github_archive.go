@@ -39,7 +39,7 @@ func resolveGitHubTagCommit(client *http.Client, tool string, github manifestGit
 
 // downloadGitHubSourceArchive downloads a tag source zip, verifies its
 // embedded commit, and caches it as a normal archive payload.
-func downloadGitHubSourceArchive(client *http.Client, cacheDir, tool, requestedVersion, resolvedVersion string, asset downloadAsset, commit string) error {
+func downloadGitHubSourceArchive(client *http.Client, cacheDir, tool, requestedVersion, resolvedVersion string, asset downloadAsset, commit string, progress func(DownloadProgress)) error {
 	if err := os.MkdirAll(filepath.Join(cacheDir, tool), 0o755); err != nil {
 		return fmt.Errorf("create %s cache dir: %w", tool, err)
 	}
@@ -50,7 +50,7 @@ func downloadGitHubSourceArchive(client *http.Client, cacheDir, tool, requestedV
 	defer os.RemoveAll(stagingDir)
 
 	archivePath := filepath.Join(stagingDir, asset.FileName)
-	if err := downloadFile(client, asset.URL, archivePath); err != nil {
+	if err := downloadFileWithProgress(client, asset.URL, archivePath, progress); err != nil {
 		return err
 	}
 	if err := verifyGitHubArchiveCommit(tool, archivePath, commit); err != nil {

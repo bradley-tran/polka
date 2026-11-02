@@ -119,6 +119,8 @@ When `settings.php.extension-sdk` is true, install also provisions or verifies t
 
 For managed tool installation, command shims, PHP runtime generation, and platform support details, see [tools.md](tools.md).
 
+Large downloads use up to four connections per file when the server supports it. Set `POLKA_DOWNLOAD_CONNECTIONS` to change that limit, or to `1` to use a single connection if a host or proxy misbehaves.
+
 When the environment's `php-extensions` config contains PIE-managed `vendor/name` entries, `polka install` also provisions any of those extensions that the environment's installed PHP does not yet load, using Polka's internal PIE. Fresh checkouts therefore reproduce PIE-managed extensions.
 
 Configured `pecl-extensions` are also reproduced. PECL is deprecated legacy compatibility support; prefer a PIE package whenever one exists. Windows uses matching official prebuilt DLLs, while Linux requires matching `phpize`/`php-config` and an existing native build toolchain.

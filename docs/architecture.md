@@ -116,10 +116,23 @@ The current plugin system is internal and compile-time only. Built-in tool metad
 3. `backend.Store` loads and normalizes `polka.yaml` for the default environment or `polka.<name>.yaml` for named environments, then validates the install request(s). It builds the effective PHP extension set from framework-common requirements, every configured tool's manifest requirements, and explicit environment overrides in that order.
 4. For each requested tool, `backend.Store` first consults the project-local install state in `.polka/envs/installed.json`. Without `--force`, a tool recorded there whose installed executable still resolves on disk skips download and extraction and is reported as unchanged; its post-install hook still runs so configuration changes (PHP extensions, memory limit, OPcache) are applied. Explicit `tool:version` installs always reinstall.
 5. Otherwise, `backend.Store` checks the global cache metadata and cached payload checksum.
-6. If the cache is missing or invalid, `tools.HTTPDownloader` invokes the matching plugin download hook. A tool with a build recipe and no download for the platform returns `tools.BuildRequiredError` before any network request.
+6. If the cache is missing or invalid, `tools.HTTPDownloader` invokes the matching plugin download hook. A tool with a build recipe and no download for the platform returns `tools.BuildRequiredError` before any network request. See [File transfers](#file-transfers).
 7. `backend.Store` installs from the cached payload into `.polka/envs/<tool>/<version>`; archive payloads are extracted on demand, while single-file payloads such as PHARs are placed at their expected install path.
 8. The tool plugin may run a post-install hook using `tools.InstallContext`.
 9. `backend.Store` records each fully installed tool version in `.polka/envs/installed.json` (including tools that succeeded before another tool's failure aborted the run) and returns install results to the CLI.
+
+### File transfers
+
+`tools/ranged_download.go` transfers each artifact, including build sources. Tools in one dependency layer already install concurrently; this adds concurrency within a single file:
+
+- The first request is a GET for the first 8 MiB. There is no HEAD request, so a server that ignores `Range` answers `200` and that response body is used as a normal single-stream download. Any answer that may be a rejection of `Range` (a `206` without a validator or with an inexact range, `416`, a WAF's `403`) is discarded in favor of a plain GET.
+- A valid `206` starts up to four workers per file (`POLKA_DOWNLOAD_CONNECTIONS`, where `1` disables `Range`) writing fixed-size chunks at their offsets. Each chunk request uses the original URL, so expiring signed redirects are issued again, and must return the exact range and the same strong ETag or `Last-Modified`.
+- File transfers have no total time limit, on either path, because a total limit fails large downloads on slow links while data is still arriving. Instead, each request is cancelled if no data arrives for two minutes. Metadata requests such as release indexes and checksums keep the client's 10-minute limit.
+- A chunk is retried on network errors and short reads, and on those stalls. A single stream gets retries only until its response headers arrive, so a stall in its body fails the download. Any failure that retrying cannot fix, or exhausted retries, restarts the file once as a plain GET after every worker has stopped. Local write errors such as a full disk fail immediately.
+- A file's first worker needs no budget, so every tool always makes progress. Additional workers share a process-wide pool of eight connections, so a large layer cannot open four connections per tool to one host.
+- Default clients use an HTTP/1.1-only transport, because HTTP/2 would multiplex every range over one TCP connection.
+
+Checksum verification runs on the assembled file, as it does for a single stream. Byte counts reach the CLI as `InstallProgressTransfer` events, delivered from one goroutine per file so they stay ordered, and they are separate from stage events so that consumers printing a line per stage are unaffected. Internal tool provisioning does not report byte counts.
 
 For an explicit `tool:version`, the new version is written to the environment config only after the install succeeds, so a failed resolve, download, or install leaves the previous configuration untouched.
 

@@ -185,7 +185,7 @@ func (s Store) EnsureInternalTool(tool, version string, report func(InstallProgr
 	progress := InstallProgress{Index: 1, Total: 1, Tool: normalizedTool, Version: requested}
 	if _, _, err := internal.ensureCachedTool(normalizedTool, requested, func(stage InstallProgressStage) {
 		emitInstallProgress(report, progress, stage)
-	}); err != nil {
+	}, nil); err != nil {
 		return "", err
 	}
 
