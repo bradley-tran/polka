@@ -151,6 +151,54 @@ func TestResolveRuntimeEnvironmentUsesWindowsKeyReplacement(t *testing.T) {
 	}
 }
 
+// TestResolveRuntimeEnvironmentProvidesDrushSiteURL verifies that Drupal commands
+// receive the active server URL even before managed database credentials exist.
+func TestResolveRuntimeEnvironmentProvidesDrushSiteURL(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		framework string
+		server    *testServerConfig
+		https     bool
+		envVars   map[string]string
+		want      string
+	}{
+		{name: "default server", framework: "drupal", want: "http://localhost:8000"},
+		{name: "custom HTTP", framework: "drupal", server: &testServerConfig{Hostname: "drupal.localhost", Port: 8080}, want: "http://drupal.localhost:8080"},
+		{name: "HTTPS", framework: "drupal", https: true, server: &testServerConfig{Hostname: "drupal.localhost", Port: 8443}, want: "https://drupal.localhost:8443"},
+		{name: "IPv6", framework: "drupal", server: &testServerConfig{Hostname: "::1", Port: 8080}, want: "http://[::1]:8080"},
+		{name: "explicit override", framework: "drupal", envVars: map[string]string{"DRUSH_OPTIONS_URI": "https://multisite.localhost"}, want: "https://multisite.localhost"},
+		{name: "other framework", framework: "laravel"},
+		{name: "no framework"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			projectDir := t.TempDir()
+			store := backend.NewProjectStore(projectDir)
+			writeTestConfigFile(t, projectDir, testConfigFile{
+				Version: "0.2",
+				Root:    ".polka",
+				Environments: map[string]testEnvironmentConfig{
+					"default": {Framework: "drupal", Server: &testServerConfig{Hostname: "inactive.localhost", Port: 9000}},
+					"demo":    {Framework: test.framework, Server: test.server, HTTPS: test.https, EnvVars: test.envVars},
+				},
+			})
+			writeTestActiveEnvironment(t, filepath.Join(projectDir, ".polka"), "demo")
+
+			for _, goos := range []string{"linux", "windows"} {
+				resolved, err := resolveRuntimeEnvironment(goos, nil, store)
+				if err != nil {
+					t.Fatalf("resolveRuntimeEnvironment(%s) error = %v", goos, err)
+				}
+				if _, value, ok := lookupEnvValue(goos, resolved, "DRUSH_OPTIONS_URI"); value != test.want || ok != (test.want != "") {
+					t.Fatalf("%s DRUSH_OPTIONS_URI = %q, present=%v, want %q", goos, value, ok, test.want)
+				}
+				if _, value, ok := lookupEnvValue(goos, resolved, "DB_HOST"); ok {
+					t.Fatalf("%s DB_HOST = %q without managed database credentials", goos, value)
+				}
+			}
+		})
+	}
+}
+
 func TestResolveRuntimeEnvironmentAppliesFrameworkDatabaseCredentialsBeforeEnvVars(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")

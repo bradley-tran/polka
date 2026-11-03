@@ -82,6 +82,8 @@ func resolveRuntimeEnvironment(goos string, inherited []string, store backend.St
 	return resolved, nil
 }
 
+// frameworkRuntimeEnvironmentVariables supplies the configured server URL and
+// available managed credentials to the active framework's runtime bindings.
 func frameworkRuntimeEnvironmentVariables(store backend.Store, environment backend.Environment) (map[string]string, error) {
 	if strings.TrimSpace(environment.Framework) == "" {
 		return nil, nil
@@ -95,10 +97,15 @@ func frameworkRuntimeEnvironmentVariables(store backend.Store, environment backe
 	if err != nil {
 		return nil, err
 	}
+	endpoint, err := resolveServerEndpoint(environment.Server, "")
+	if err != nil {
+		return nil, fmt.Errorf("resolve framework server URL for environment %q: %w", environment.Name, err)
+	}
 
 	return plugin.RuntimeEnv(plugins.RuntimeEnvContext{
 		Environment: environment,
 		Database:    credentials,
+		ServerURL:   serverEndpointURL(endpoint),
 	})
 }
 

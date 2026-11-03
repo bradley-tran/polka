@@ -143,10 +143,12 @@ Polka composes runtime environment variables for the active environment from fiv
 1. inherited process environment
 2. project `.env`
 3. current environment file's `env-file`
-4. framework-provided database variables when generated managed database credentials exist
+4. framework-provided variables (database variables require generated managed credentials)
 5. current environment file's `env-vars`
 
 The `.env` file is loaded automatically from the directory containing `polka.yaml` when present. `env-file` paths are resolved relative to that same directory unless absolute, and `env-vars` always win when keys overlap. This runtime environment applies to `polka sh`, `polka exec`, `polka serve`, generated `.polka/bin` dispatch shims, and database client/import/export commands.
+
+For `framework: drupal`, Polka sets [`DRUSH_OPTIONS_URI`](https://www.drush.org/13.x/using-drush-configuration/) from the active environment's configured server URL (`server.hostname`, `server.port`, and `https`), defaulting to `http://localhost:8000`. This works before database credentials exist and lets Drush report the site URL and generate login links. Set `env-vars.DRUSH_OPTIONS_URI` to override it for a multisite or another public URL, or pass Drush's `--uri` option for one command.
 
 ## Composer Hooks
 

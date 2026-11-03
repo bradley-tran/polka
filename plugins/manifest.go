@@ -38,9 +38,12 @@ type frameworkAppRootConfig struct {
 	Markers   []string `yaml:"markers"`
 }
 
+// frameworkRuntimeEnvManifest separates general runtime values from values that
+// can only be exported after managed database credentials have been generated.
 type frameworkRuntimeEnvManifest struct {
 	RequiresDatabase bool                      `yaml:"requires-database"`
 	Values           map[string]frameworkValue `yaml:"values"`
+	DatabaseValues   map[string]frameworkValue `yaml:"database-values"`
 }
 
 type frameworkPostComposerManifest struct {

@@ -69,6 +69,8 @@ Every value is a YAML scalar (string, number, boolean, or null) or one expressio
 
 `database` fields are `engine`, `version`, `host`, `port`, `name`, `user`, and `password`, exposed as text. Host defaults to `127.0.0.1`; port defaults to `5432` for PostgreSQL and `3306` otherwise. An absent engine uses the environment engine, then `mysql`. Version uses the environment's explicit database version, then its selected tool version, then credential metadata. Database values require managed credentials. Normalization does not mutate caller data.
 
+`server.url` exposes the configured webserver URL supplied by the runtime layer, including its scheme, hostname, and port. It is available without managed database credentials.
+
 `values.<name>` references named values and `runtime-env.<key>` references declared runtime variables. Names retain their exact spelling, including dotted variable names. References and cycles are checked across all branches during loading. A `by-engine` expression must cover every engine in `database-engines`.
 
 The URL formatter has structured components and omits empty query values:
@@ -90,6 +92,8 @@ format:
 `host`, `scheme`, and `path` bindings are required; other URL components are optional. User information, the database path component, and query values are escaped separately. Ports must be valid TCP ports. The built-in Symfony manifest shows per-engine URL and server-version declarations.
 
 `runtime-env.requires-database` and `post-composer.requires-database` default to `false`. Set them to `true` for database-dependent integrations: their entire block then becomes a no-op without credentials. A database reference without credentials in an unguarded block returns an error. Runtime values are converted to strings.
+
+For integrations mixing general values with database settings, put credential-dependent variables under `runtime-env.database-values` and leave `requires-database` unset. These variables are exported only when credentials exist; `runtime-env.values` remains available independently. Both groups use the same bindings and `runtime-env.<key>` references, and variable names must be unique across them. For example, Drupal exports `DRUSH_OPTIONS_URI: {from: server.url}` under `values` and its `DB_*` variables under `database-values`.
 
 ## File actions
 

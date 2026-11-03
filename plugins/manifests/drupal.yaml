@@ -54,8 +54,10 @@ app-root:
     - "web/sites/default/default.settings.php"
     - "sites/default/default.settings.php"
 runtime-env:
-  requires-database: true
   values:
+    DRUSH_OPTIONS_URI:
+      from: "server.url"
+  database-values:
     DB_HOST:
       from: "database.host"
     DB_PORT:

@@ -41,6 +41,8 @@ type DatabaseCredentials struct {
 type RuntimeEnvContext struct {
 	Environment config.Environment
 	Database    *DatabaseCredentials
+	// ServerURL is the resolved webserver URL supplied by the runtime layer.
+	ServerURL string
 }
 
 // PostComposerContext is passed to framework plugins after selected Composer workflows finish.

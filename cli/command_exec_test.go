@@ -114,6 +114,8 @@ func TestRunExecComposerRunsExtensionlessPHPScriptOnWindows(t *testing.T) {
 	}
 }
 
+// TestRunExecUsesNearestNestedVendorBin checks that a nested Drush launcher
+// receives the active Drupal site's URL through both exec and its shortcut.
 func TestRunExecUsesNearestNestedVendorBin(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
@@ -126,7 +128,11 @@ func TestRunExecUsesNearestNestedVendorBin(t *testing.T) {
 		Version: "0.2",
 		Root:    ".polka",
 		Environments: map[string]testEnvironmentConfig{
-			"demo": {},
+			"demo": {
+				Framework: "drupal",
+				HTTPS:     true,
+				Server:    &testServerConfig{Hostname: "drupal.localhost", Port: 8443},
+			},
 		},
 	})
 	writeTestActiveEnvironment(t, root, "demo")
@@ -134,7 +140,7 @@ func TestRunExecUsesNearestNestedVendorBin(t *testing.T) {
 		t.Fatalf("MkdirAll(root/bin) error = %v", err)
 	}
 	if runtime.GOOS == "windows" {
-		if err := os.WriteFile(filepath.Join(root, "bin", "php.cmd"), fakePHPScript(), 0o755); err != nil {
+		if err := os.WriteFile(filepath.Join(root, "bin", "php.cmd"), fakePHPScriptWithEnv("DRUSH_OPTIONS_URI"), 0o755); err != nil {
 			t.Fatalf("WriteFile(root php) error = %v", err)
 		}
 	} else {
@@ -153,30 +159,27 @@ func TestRunExecUsesNearestNestedVendorBin(t *testing.T) {
 			t.Fatalf("WriteFile(drush.php) error = %v", err)
 		}
 	} else {
-		if err := os.WriteFile(filepath.Join(nestedVendorBinDir, "drush"), fakePHPScript(), 0o755); err != nil {
+		if err := os.WriteFile(filepath.Join(nestedVendorBinDir, "drush"), fakePHPScriptWithEnv("DRUSH_OPTIONS_URI"), 0o755); err != nil {
 			t.Fatalf("WriteFile(drush) error = %v", err)
 		}
 	}
 
-	originalWorkingDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Getwd() error = %v", err)
-	}
-	t.Cleanup(func() {
-		_ = os.Chdir(originalWorkingDir)
-	})
 	if err := os.MkdirAll(nestedProjectDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(nested project) error = %v", err)
 	}
-	if err := os.Chdir(nestedProjectDir); err != nil {
-		t.Fatalf("Chdir() error = %v", err)
-	}
+	t.Chdir(nestedProjectDir)
 
-	if code := Run(stdout, stderr, []string{"--root", root, "exec", "drush", "status"}); code != 0 {
-		t.Fatalf("Run(exec drush) code = %d, stderr = %q", code, stderr.String())
-	}
-	if !strings.Contains(stdout.String(), "fake-php") || !strings.Contains(stdout.String(), "status") {
-		t.Fatalf("Run(exec drush) stdout = %q, want nested vendor command output", stdout.String())
+	for _, command := range [][]string{{"exec", "drush", "status"}, {"drush", "status"}} {
+		stdout.Reset()
+		stderr.Reset()
+		if code := Run(stdout, stderr, append([]string{"--root", root}, command...)); code != 0 {
+			t.Fatalf("Run(%v) code = %d, stderr = %q", command, code, stderr.String())
+		}
+		for _, want := range []string{"fake-php", "status", "https://drupal.localhost:8443"} {
+			if !strings.Contains(stdout.String(), want) {
+				t.Fatalf("Run(%v) stdout = %q, want %q", command, stdout.String(), want)
+			}
+		}
 	}
 }
 

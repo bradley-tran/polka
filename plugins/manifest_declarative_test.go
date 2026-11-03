@@ -170,9 +170,13 @@ func TestDeclarativeManifestValidation(t *testing.T) {
 		{"legacy runtime", "runtime-env: {database: {keys: standard}}", "database"},
 		{"legacy composer", "post-composer: {strategy: dotenv}", "strategy"},
 		{"unknown source", "values: {x: {from: database.token}}", "unknown reference"},
+		{"unknown server source", "values: {x: {from: server.token}}", "unknown reference"},
 		{"unknown variable", "runtime-env: {values: {X: {from: values.missing}}}", "unknown reference"},
+		{"unknown database variable", "runtime-env: {database-values: {X: {from: values.missing}}}", "unknown reference"},
+		{"duplicate runtime variable", "runtime-env: {values: {X: literal}, database-values: {X: {from: database.host}}}", "duplicate runtime variable"},
 		{"cycle", "values: {a: {from: values.b}, b: {from: values.a}}", "reference cycle"},
 		{"runtime cycle", "runtime-env: {values: {X: {from: runtime-env.X}}}", "reference cycle"},
+		{"database runtime cycle", "runtime-env: {values: {X: {from: runtime-env.Y}}, database-values: {Y: {from: runtime-env.X}}}", "reference cycle"},
 		{"conflicting binding", "values: {x: {from: database.host, by-engine: {mysql: x}}}", "exactly one"},
 		{"misspelled binding", "values: {x: {form: database.host}}", "form"},
 		{"non scalar", "values: {x: [a, b]}", "scalar"},
@@ -183,6 +187,7 @@ func TestDeclarativeManifestValidation(t *testing.T) {
 		{"missing engine", "database-engines: [mysql, postgresql]\nvalues: {x: {by-engine: {mysql: x}}}", "missing declared"},
 		{"unused branch", "values: {x: {by-engine: {mysql: x, postgresql: {from: values.missing}}}}", "unknown reference"},
 		{"bad env key", "runtime-env: {values: {'BAD=KEY': literal}}", "invalid runtime"},
+		{"bad database env key", "runtime-env: {database-values: {'BAD=KEY': literal}}", "invalid runtime"},
 		{"generic marker", "detection: {markers: [composer.json]}", "not distinctive"},
 		{"unsafe marker", "detection: {markers: [../marker]}", "relative path"},
 		{"unsafe public dir", "app-root: {public-dir: ../public}", "relative path"},
@@ -307,6 +312,41 @@ func TestRuntimeBindingErrorsReturnToCaller(t *testing.T) {
 	}
 	if _, err := unguarded.RuntimeEnv(RuntimeEnvContext{}); err == nil {
 		t.Fatal("missing database reference did not return an error")
+	}
+}
+
+// TestRuntimeEnvDatabaseValues verifies that URL bindings do not require
+// credentials, while database bindings remain guarded and referenceable.
+func TestRuntimeEnvDatabaseValues(t *testing.T) {
+	m, err := parseFrameworkManifest([]byte(`
+id: demo
+defaults: {docroot: public}
+runtime-env:
+  values:
+    SITE_URL: {from: server.url}
+  database-values:
+    DB_PASSWORD: {from: database.password}
+    PASSWORD_COPY: {from: runtime-env.DB_PASSWORD}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plugin, err := m.toPlugin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := RuntimeEnvContext{ServerURL: "https://demo.localhost:8443"}
+	if got, want := runtimeEnvForTest(t, plugin, ctx), (map[string]string{"SITE_URL": ctx.ServerURL}); !reflect.DeepEqual(got, want) {
+		t.Fatalf("runtime without credentials = %#v, want %#v", got, want)
+	}
+	ctx.Database = &DatabaseCredentials{Password: "managed-secret"}
+	want := map[string]string{"SITE_URL": ctx.ServerURL, "DB_PASSWORD": ctx.Database.Password, "PASSWORD_COPY": ctx.Database.Password}
+	if got := runtimeEnvForTest(t, plugin, ctx); !reflect.DeepEqual(got, want) {
+		t.Fatalf("runtime with credentials = %#v, want %#v", got, want)
+	}
+	ctx.Database = nil
+	if got := runtimeEnvForTest(t, plugin, ctx); len(got) != 1 {
+		t.Fatalf("runtime retained credentials between calls: %#v", got)
 	}
 }
 

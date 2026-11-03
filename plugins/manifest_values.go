@@ -206,11 +206,17 @@ func newFrameworkValueChecker(m frameworkManifest) (*frameworkValueChecker, erro
 	for key, value := range m.Values {
 		named["values."+key] = value
 	}
-	for key, value := range m.RuntimeEnv.Values {
-		if !validFrameworkVariable(key) {
-			return nil, fmt.Errorf("invalid runtime variable name %q", key)
+	for _, values := range []map[string]frameworkValue{m.RuntimeEnv.Values, m.RuntimeEnv.DatabaseValues} {
+		for key, value := range values {
+			if !validFrameworkVariable(key) {
+				return nil, fmt.Errorf("invalid runtime variable name %q", key)
+			}
+			ref := "runtime-env." + key
+			if _, exists := named[ref]; exists {
+				return nil, fmt.Errorf("duplicate runtime variable name %q", key)
+			}
+			named[ref] = value
 		}
-		named["runtime-env."+key] = value
 	}
 	return &frameworkValueChecker{manifest: m, named: named, state: map[string]int{}}, nil
 }
@@ -232,10 +238,13 @@ func (c *frameworkValueChecker) check(v frameworkValue) error {
 			if !slices.Contains([]string{"engine", "version", "host", "port", "name", "user", "password"}, strings.TrimPrefix(v.From, "database.")) {
 				return fmt.Errorf("unknown reference %q", v.From)
 			}
-		} else if _, exists := c.named[v.From]; !exists {
-			return fmt.Errorf("unknown reference %q", v.From)
-		} else if err := c.visit(v.From); err != nil {
-			return err
+		} else if v.From != "server.url" {
+			if _, exists := c.named[v.From]; !exists {
+				return fmt.Errorf("unknown reference %q", v.From)
+			}
+			if err := c.visit(v.From); err != nil {
+				return err
+			}
 		}
 	}
 	for _, child := range v.children() {
@@ -301,9 +310,10 @@ func validFrameworkVariable(key string) bool {
 // frameworkValueState caches evaluated references for one hook invocation;
 // no mutable values are retained on a registered plugin.
 type frameworkValueState struct {
-	manifest frameworkManifest
-	database *DatabaseCredentials
-	memo     map[string]any
+	manifest  frameworkManifest
+	database  *DatabaseCredentials
+	serverURL string
+	memo      map[string]any
 }
 
 // newFrameworkValueState normalizes a private credential copy for one invocation.
@@ -326,13 +336,16 @@ func newFrameworkValueState(m frameworkManifest, ctx RuntimeEnvContext) *framewo
 			db.Version = version
 		}
 	}
-	return &frameworkValueState{manifest: m, database: db, memo: map[string]any{}}
+	return &frameworkValueState{manifest: m, database: db, serverURL: ctx.ServerURL, memo: map[string]any{}}
 }
 
 // reference resolves a validated selector, memoizing named values for this call.
 func (s *frameworkValueState) reference(ref string) (any, error) {
 	if value, ok := s.memo[ref]; ok {
 		return value, nil
+	}
+	if ref == "server.url" {
+		return s.serverURL, nil
 	}
 	if strings.HasPrefix(ref, "database.") {
 		if s.database == nil {
@@ -351,7 +364,11 @@ func (s *frameworkValueState) reference(ref string) (any, error) {
 	if strings.HasPrefix(ref, "values.") {
 		value, ok = s.manifest.Values[strings.TrimPrefix(ref, "values.")]
 	} else if strings.HasPrefix(ref, "runtime-env.") {
-		value, ok = s.manifest.RuntimeEnv.Values[strings.TrimPrefix(ref, "runtime-env.")]
+		key := strings.TrimPrefix(ref, "runtime-env.")
+		value, ok = s.manifest.RuntimeEnv.Values[key]
+		if !ok {
+			value, ok = s.manifest.RuntimeEnv.DatabaseValues[key]
+		}
 	}
 	if !ok {
 		return nil, fmt.Errorf("unknown reference %q", ref)
@@ -493,19 +510,26 @@ func orderedFrameworkKeys(values map[string]frameworkValue, order []string) []st
 	return keys
 }
 
-// frameworkManifestRuntimeEnv applies the block guard and resolves declared variables.
+// frameworkManifestRuntimeEnv applies the block guard and resolves general
+// values independently of credential-dependent database values.
 func frameworkManifestRuntimeEnv(ctx RuntimeEnvContext, m frameworkManifest) (map[string]string, error) {
 	state := newFrameworkValueState(m, ctx)
 	if m.RuntimeEnv.RequiresDatabase && state.database == nil {
 		return nil, nil
 	}
-	result := make(map[string]string, len(m.RuntimeEnv.Values))
-	for _, key := range slices.Sorted(maps.Keys(m.RuntimeEnv.Values)) {
-		value, err := state.reference("runtime-env." + key)
-		if err != nil {
-			return nil, fmt.Errorf("framework %q: %w", m.ID, err)
+	groups := []map[string]frameworkValue{m.RuntimeEnv.Values}
+	if state.database != nil {
+		groups = append(groups, m.RuntimeEnv.DatabaseValues)
+	}
+	result := make(map[string]string)
+	for _, values := range groups {
+		for _, key := range slices.Sorted(maps.Keys(values)) {
+			value, err := state.reference("runtime-env." + key)
+			if err != nil {
+				return nil, fmt.Errorf("framework %q: %w", m.ID, err)
+			}
+			result[key] = frameworkScalarText(value)
 		}
-		result[key] = frameworkScalarText(value)
 	}
 	return result, nil
 }
