@@ -171,6 +171,7 @@ func TestDeclarativeManifestValidation(t *testing.T) {
 		{"legacy composer", "post-composer: {strategy: dotenv}", "strategy"},
 		{"unknown source", "values: {x: {from: database.token}}", "unknown reference"},
 		{"unknown server source", "values: {x: {from: server.token}}", "unknown reference"},
+		{"unknown mailpit source", "values: {x: {from: mailpit.token}}", "unknown reference"},
 		{"unknown variable", "runtime-env: {values: {X: {from: values.missing}}}", "unknown reference"},
 		{"unknown database variable", "runtime-env: {database-values: {X: {from: values.missing}}}", "unknown reference"},
 		{"duplicate runtime variable", "runtime-env: {values: {X: literal}, database-values: {X: {from: database.host}}}", "duplicate runtime variable"},

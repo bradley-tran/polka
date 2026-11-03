@@ -71,6 +71,8 @@ Every value is a YAML scalar (string, number, boolean, or null) or one expressio
 
 `server.url` exposes the configured webserver URL supplied by the runtime layer, including its scheme, hostname, and port. It is available without managed database credentials.
 
+`mailpit.smtp-port` exposes the configured Mailpit SMTP port as an integer, or null when omitted. Use a `default` binding for the standard port `1025`. It is available without managed database credentials.
+
 `values.<name>` references named values and `runtime-env.<key>` references declared runtime variables. Names retain their exact spelling, including dotted variable names. References and cycles are checked across all branches during loading. A `by-engine` expression must cover every engine in `database-engines`.
 
 The URL formatter has structured components and omits empty query values:

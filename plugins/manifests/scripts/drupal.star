@@ -1,5 +1,5 @@
 # Generates settings.polka.php and includes it from Drupal's settings.php, so
-# managed credentials stay out of the file Drupal's installer writes to.
+# managed credentials and local mail routing stay out of the installer file.
 
 _MYSQL = {
     "namespace": "Drupal\\mysql\\Driver\\Database\\mysql",
@@ -27,6 +27,8 @@ def post_composer(ctx):
         "password": {"from": "database.password"},
         "host": {"from": "database.host"},
         "port": {"from": "database.port"},
+        "mailpit-enabled": bool(ctx.tool_version("mailpit")),
+        "mailpit-port": {"from": "mailpit.smtp-port", "default": 1025},
     })
     actions = [
         {

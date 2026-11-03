@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/goccy/go-yaml"
+
+	"polka/config"
 )
 
 // frameworkValue is a scalar literal or exactly one structured expression.
@@ -238,7 +240,7 @@ func (c *frameworkValueChecker) check(v frameworkValue) error {
 			if !slices.Contains([]string{"engine", "version", "host", "port", "name", "user", "password"}, strings.TrimPrefix(v.From, "database.")) {
 				return fmt.Errorf("unknown reference %q", v.From)
 			}
-		} else if v.From != "server.url" {
+		} else if v.From != "server.url" && v.From != "mailpit.smtp-port" {
 			if _, exists := c.named[v.From]; !exists {
 				return fmt.Errorf("unknown reference %q", v.From)
 			}
@@ -312,6 +314,7 @@ func validFrameworkVariable(key string) bool {
 type frameworkValueState struct {
 	manifest  frameworkManifest
 	database  *DatabaseCredentials
+	mailpit   *config.MailpitConfig
 	serverURL string
 	memo      map[string]any
 }
@@ -336,7 +339,7 @@ func newFrameworkValueState(m frameworkManifest, ctx RuntimeEnvContext) *framewo
 			db.Version = version
 		}
 	}
-	return &frameworkValueState{manifest: m, database: db, serverURL: ctx.ServerURL, memo: map[string]any{}}
+	return &frameworkValueState{manifest: m, database: db, mailpit: ctx.Environment.Mailpit(), serverURL: ctx.ServerURL, memo: map[string]any{}}
 }
 
 // reference resolves a validated selector, memoizing named values for this call.
@@ -346,6 +349,13 @@ func (s *frameworkValueState) reference(ref string) (any, error) {
 	}
 	if ref == "server.url" {
 		return s.serverURL, nil
+	}
+	if ref == "mailpit.smtp-port" {
+		// Leave an omitted port empty so the manifest can supply its default.
+		if s.mailpit == nil || s.mailpit.SMTPPort == 0 {
+			return nil, nil
+		}
+		return s.mailpit.SMTPPort, nil
 	}
 	if strings.HasPrefix(ref, "database.") {
 		if s.database == nil {

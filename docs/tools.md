@@ -104,6 +104,10 @@ The `phpmyadmin` tool key installs the phpMyAdmin web app archive under `.polka/
 
 The `mailpit` tool key installs Mailpit and creates a `mailpit` command shim. Its SMTP and UI port settings live under `settings.mailpit`.
 
+For Drupal projects with a managed database, Composer workflows through Polka generate local mail overrides in `sites/default/settings.polka.php`. When `tools.mailpit` is configured, Mailer Plus 2.x (`mailer_transport`) and Symfony Mailer 1.x (`symfony_mailer`) use their existing `sendmail` transport with SMTP at `127.0.0.1` on `settings.mailpit.smtp-port` (default `1025`). Authentication is empty, and TLS peer verification is disabled for Mailpit's local certificate. The overrides do not change exported Drupal configuration.
+
+To refresh an existing project, run `polka exec composer install`, then `polka exec drush cr`. Run `polka serve` to start Mailpit. Removing `tools.mailpit` and rerunning Composer disables the overrides.
+
 The `meilisearch` tool key installs Meilisearch and creates a `meilisearch` command shim. Its HTTP port and optional local master key live under `settings.meilisearch`; Polka stores only a runtime fingerprint of the master key and does not print it in status output.
 
 The `redis` tool key installs Redis and creates `redis-server` and `redis-cli` command shims. Its port and optional local password live under `settings.redis`; the password maps to Redis `requirepass`, and Polka stores only a runtime fingerprint of it and does not print it in status output. On Windows, Redis is provided by a community native build (`zkteco-home/redis-windows`), whose prebuilt binaries are committed to the repository rather than published as release assets, so Polka downloads the tag's GitHub source-archive zip. Because that archive has no published checksum, Polka verifies integrity by comparing the source commit embedded in the zip's archive comment against the commit the tag resolves to via the GitHub API.
