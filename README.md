@@ -1,6 +1,6 @@
 # Polka
 
-Polka is a CLI tool for managing PHP local development environments. It provides a consistent interface for installing and managing multiple local versions of PHP, Composer, Node.js, and other development tools on a per-project basis. Polka also includes support for serving web applications with nginx, Apache, or FrankenPHP, phpMyAdmin, managed databases, and Mailpit.
+Polka is a CLI tool for managing local PHP development environments. It provides a consistent interface for installing and managing multiple local versions of PHP, Composer, Node.js, and other development tools on a per-project basis. Polka also includes support for serving web applications with nginx, Apache, or FrankenPHP, phpMyAdmin, managed databases, Mailpit, and many more.
 
 ## Quick start
 
@@ -8,24 +8,24 @@ From a PHP project directory:
 
 ```bash
 polka init
-polka new blog
-polka install --env blog
-polka use blog
+polka install
 polka exec php -v
 ```
 
-`polka init` creates `polka.yaml` and local helper scripts, enabling HTTPS and using `<directory>.localhost` as the default server hostname. Add `--docroot PATH` to set the generated default environment's docroot. Use `polka init cakephp`, `polka init laravel`, `polka init symfony`, or `polka init codeigniter` instead to write a config-only framework preset; `drupal` and `wordpress` are also supported. Framework init does not create app files, install tools, or start services, and it fails when `polka.yaml` already exists.
+`polka init` creates `polka.yaml` and local helper scripts, enabling HTTPS and using `<directory>.localhost` as the default server hostname. Add `--docroot PATH` to set the generated default environment's docroot.
+
+Use `polka init drupal`, `polka init laravel`, or `polka init symfony` instead to create a `polka.yaml` with specific framework preset; `cakephp` and `wordpress` are also supported. Framework init does not create app files, install tools, or start services, and it fails when `polka.yaml` already exists.
 
 For native C extensions, `polka init php-extension` writes a build-oriented `polka.yaml` and a PIE-compatible `composer.json` without replacing an existing Composer manifest.
 
-The remaining commands add a named `blog` environment in `polka.blog.yaml`, install its configured tools into `.polka/envs`, select it as the active environment, and run PHP through Polka's local command resolution. To install a single tool version directly, use a `tool:version` argument such as `polka install php:8.4`.
+To install a single tool version directly, you can use a `tool:version` argument such as `polka install php:8.4`.
 
 On Linux, PHP, nginx, Apache, and Redis are compiled locally rather than downloaded. Run `polka build php:8.4` once per machine, or let `polka install --build` compile whatever a project is missing. See [Building Tools From Source](docs/tools.md#building-tools-from-source).
 
 Start a local web server when your project has a document root:
 
 ```bash
-polka serve public
+polka start
 polka status
 polka stop
 ```
@@ -44,7 +44,9 @@ Polka config files store portable version labels under `tools` and non-version t
 
 The project manifest requires `version: 0.2` (quoted `"0.2"` is also accepted). Older or unversioned manifests are rejected. To regenerate one, delete `polka.yaml` yourself, run `polka init` or `polka init <framework>`, and reapply your settings. Polka does not migrate or delete the old file. Named environment files remain unversioned.
 
-Use `polka config <key> <value>` to update the current environment, or `polka config --env blog <key> <value>` to update a named environment. Keys are dot-separated config paths such as `tools.php`, `tools.php-zts`, `tools.frankenphp`, `tools.apache`, `tools.meilisearch`, `tools.redis`, `tools.rabbitmq`, `server.type`, `database.engine`, `settings.mailpit.smtp-port`, `settings.meilisearch.port`, `settings.redis.port`, `settings.rabbitmq.port`, and `settings.traefik.port`.
+Use `polka config <key> <value>` to update the current environment, or `polka config --env blog <key> <value>` to update a named environment.
+
+Keys are dot-separated config paths such as `tools.php`, `tools.frankenphp`, `tools.apache`, `tools.meilisearch`, `tools.redis`, `tools.rabbitmq`, `server.type`, `database.engine`, `settings.mailpit.smtp-port`, and `settings.redis.port`.
 
 ```yaml
 # polka.yaml
