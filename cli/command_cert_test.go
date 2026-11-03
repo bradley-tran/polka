@@ -5,6 +5,8 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +15,24 @@ import (
 	"github.com/zalando/go-keyring"
 )
 
+// stubCertificateTrustStore isolates command tests from real trust stores on
+// every host OS, including Linux preflight authentication.
+func stubCertificateTrustStore(t *testing.T) *certificateTrustStore {
+	t.Helper()
+	store := &certificateTrustStore{
+		install: func(string) (string, error) { return "test", nil },
+		remove:  func(*x509.Certificate) (string, error) { return "test", nil },
+	}
+	previous := prepareCertificateTrustStoreFunc
+	prepareCertificateTrustStoreFunc = func(io.Writer) (certificateTrustStore, error) {
+		return *store, nil
+	}
+	t.Cleanup(func() { prepareCertificateTrustStoreFunc = previous })
+	return store
+}
+
+// TestRunCertInstallCreatesAndInstallsGlobalCertificate checks generation,
+// encrypted private-key storage, and the public certificate passed to install.
 func TestRunCertInstallCreatesAndInstallsGlobalCertificate(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
@@ -21,14 +41,11 @@ func TestRunCertInstallCreatesAndInstallsGlobalCertificate(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	oldInstall := installCertificateToTrustStoreFunc
-	t.Cleanup(func() {
-		installCertificateToTrustStoreFunc = oldInstall
-	})
+	trustStore := stubCertificateTrustStore(t)
 
 	installCalls := 0
 	installedPath := ""
-	installCertificateToTrustStoreFunc = func(certificatePath string) (string, error) {
+	trustStore.install = func(certificatePath string) (string, error) {
 		installCalls++
 		installedPath = certificatePath
 		return "test", nil
@@ -85,6 +102,8 @@ func TestRunCertInstallCreatesAndInstallsGlobalCertificate(t *testing.T) {
 	}
 }
 
+// TestRunCertInstallRegeneratesExistingGlobalCertificate checks that malformed
+// legacy cached material can still be replaced by a fresh certificate pair.
 func TestRunCertInstallRegeneratesExistingGlobalCertificate(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
@@ -110,13 +129,7 @@ func TestRunCertInstallRegeneratesExistingGlobalCertificate(t *testing.T) {
 		}
 	}
 
-	oldInstall := installCertificateToTrustStoreFunc
-	t.Cleanup(func() {
-		installCertificateToTrustStoreFunc = oldInstall
-	})
-	installCertificateToTrustStoreFunc = func(certificatePath string) (string, error) {
-		return "test", nil
-	}
+	stubCertificateTrustStore(t)
 
 	if code := Run(stdout, stderr, []string{"--root", root, "cert-install"}); code != 0 {
 		t.Fatalf("Run(cert-install) code = %d, stderr = %q", code, stderr.String())
@@ -134,6 +147,8 @@ func TestRunCertInstallRegeneratesExistingGlobalCertificate(t *testing.T) {
 	}
 }
 
+// TestRunCertInstallRemovesExistingCAFromTrustStoreBeforeRegeneration checks
+// that preparation, old-CA removal, and new-CA installation remain ordered.
 func TestRunCertInstallRemovesExistingCAFromTrustStoreBeforeRegeneration(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, ".polka")
@@ -151,15 +166,13 @@ func TestRunCertInstallRemovesExistingCAFromTrustStoreBeforeRegeneration(t *test
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	oldInstall := installCertificateToTrustStoreFunc
-	oldRemove := removeCertificateFromTrustStoreFunc
-	t.Cleanup(func() {
-		installCertificateToTrustStoreFunc = oldInstall
-		removeCertificateFromTrustStoreFunc = oldRemove
-	})
-
+	trustStore := stubCertificateTrustStore(t)
 	events := []string{}
-	removeCertificateFromTrustStoreFunc = func(certificate *x509.Certificate) (string, error) {
+	prepareCertificateTrustStoreFunc = func(io.Writer) (certificateTrustStore, error) {
+		events = append(events, "prepare")
+		return *trustStore, nil
+	}
+	trustStore.remove = func(certificate *x509.Certificate) (string, error) {
 		events = append(events, "remove")
 		if got := certificateSHA1Thumbprint(certificate); got != oldThumbprint {
 			t.Fatalf("removed certificate thumbprint = %q, want old CA %q", got, oldThumbprint)
@@ -174,7 +187,7 @@ func TestRunCertInstallRemovesExistingCAFromTrustStoreBeforeRegeneration(t *test
 
 		return "test", nil
 	}
-	installCertificateToTrustStoreFunc = func(certificatePath string) (string, error) {
+	trustStore.install = func(certificatePath string) (string, error) {
 		events = append(events, "install")
 		newCertificate, err := readCertificateFile(certificatePath)
 		if err != nil {
@@ -190,8 +203,8 @@ func TestRunCertInstallRemovesExistingCAFromTrustStoreBeforeRegeneration(t *test
 	if code := Run(stdout, stderr, []string{"--root", root, "cert-install"}); code != 0 {
 		t.Fatalf("Run(cert-install) code = %d, stderr = %q", code, stderr.String())
 	}
-	if got := strings.Join(events, ","); got != "remove,install" {
-		t.Fatalf("trust-store events = %q, want remove,install", got)
+	if got := strings.Join(events, ","); got != "prepare,remove,install" {
+		t.Fatalf("trust-store events = %q, want prepare,remove,install", got)
 	}
 }
 
@@ -242,19 +255,10 @@ func TestRunCertInstallKeyringFailurePreservesCertificates(t *testing.T) {
 				keyring.MockInitWithError(errors.New(keyringError))
 			}
 
-			oldInstall := installCertificateToTrustStoreFunc
-			oldRemove := removeCertificateFromTrustStoreFunc
-			t.Cleanup(func() {
-				installCertificateToTrustStoreFunc = oldInstall
-				removeCertificateFromTrustStoreFunc = oldRemove
-			})
-			installCertificateToTrustStoreFunc = func(string) (string, error) {
-				t.Fatal("trust-store installation called after keyring failure")
-				return "", nil
-			}
-			removeCertificateFromTrustStoreFunc = func(*x509.Certificate) (string, error) {
-				t.Fatal("trust-store removal called after keyring failure")
-				return "", nil
+			stubCertificateTrustStore(t)
+			prepareCertificateTrustStoreFunc = func(io.Writer) (certificateTrustStore, error) {
+				t.Fatal("trust-store preparation called after keyring failure")
+				return certificateTrustStore{}, nil
 			}
 
 			stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
@@ -299,13 +303,7 @@ func TestRunCertInstallNoEncryptionCreatesPlaintextCAKey(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	oldInstall := installCertificateToTrustStoreFunc
-	t.Cleanup(func() {
-		installCertificateToTrustStoreFunc = oldInstall
-	})
-	installCertificateToTrustStoreFunc = func(certificatePath string) (string, error) {
-		return "test", nil
-	}
+	stubCertificateTrustStore(t)
 
 	if code := Run(stdout, stderr, []string{"--root", root, "cert-install", "--no-encryption"}); code != 0 {
 		t.Fatalf("Run(cert-install --no-encryption) code = %d, stderr = %q", code, stderr.String())
@@ -331,6 +329,104 @@ func TestRunCertInstallNoEncryptionCreatesPlaintextCAKey(t *testing.T) {
 	}
 }
 
+// TestRunCertInstallTrustStoreFailures checks that preparation and removal
+// failures preserve old files, while late failures retain generated material.
+func TestRunCertInstallTrustStoreFailures(t *testing.T) {
+	for _, test := range []struct {
+		phase    string
+		existing bool
+	}{
+		{phase: "prepare"},
+		{phase: "prepare", existing: true},
+		{phase: "remove", existing: true},
+		{phase: "install", existing: true},
+	} {
+		t.Run(fmt.Sprintf("%s existing=%v", test.phase, test.existing), func(t *testing.T) {
+			cache := t.TempDir()
+			t.Setenv("POLKA_CACHE_DIR", cache)
+			caPath, caKeyPath := globalTLSCACertificatePaths(cache)
+			serverPath, serverKeyPath := globalTLSCertificatePaths(cache)
+			originals := make(map[string][]byte)
+			if test.existing {
+				if _, _, err := regenerateGlobalTLSCertificateWithOptions(cache, tlsCAKeyStorageOptions{Policy: tlsCAKeyStoragePlaintextRequired}); err != nil {
+					t.Fatal(err)
+				}
+				for _, path := range []string{caPath, caKeyPath, serverPath, serverKeyPath} {
+					data, err := os.ReadFile(path)
+					if err != nil {
+						t.Fatal(err)
+					}
+					originals[path] = data
+				}
+			}
+			trustStore := stubCertificateTrustStore(t)
+			var events []string
+			failure := errors.New("native trust command: permission denied")
+			prepareCertificateTrustStoreFunc = func(io.Writer) (certificateTrustStore, error) {
+				events = append(events, "prepare")
+				if test.phase == "prepare" {
+					return certificateTrustStore{}, failure
+				}
+				return *trustStore, nil
+			}
+			trustStore.remove = func(*x509.Certificate) (string, error) {
+				events = append(events, "remove")
+				if test.phase == "remove" {
+					return "", failure
+				}
+				return "test", nil
+			}
+			trustStore.install = func(string) (string, error) {
+				events = append(events, "install")
+				return "", failure
+			}
+			stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			if code := Run(stdout, stderr, []string{"cert-install"}); code != 1 {
+				t.Errorf("Run() code = %d, want 1", code)
+			}
+			if stdout.Len() != 0 || !strings.Contains(stderr.String(), failure.Error()) || !strings.Contains(stderr.String(), caPath) {
+				t.Errorf("failure output: stdout %q, stderr %q", stdout.String(), stderr.String())
+			}
+			wantEvents := "prepare"
+			if test.phase == "remove" {
+				wantEvents += ",remove"
+			} else if test.phase == "install" {
+				wantEvents += ",remove,install"
+			}
+			if strings.Join(events, ",") != wantEvents {
+				t.Errorf("events = %q, want %q", events, wantEvents)
+			}
+			for path, original := range originals {
+				data, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if test.phase != "install" && !bytes.Equal(data, original) {
+					t.Errorf("cached file changed after %s failure: %s", test.phase, path)
+				}
+			}
+			if !test.existing {
+				if _, err := os.Stat(caPath); !os.IsNotExist(err) {
+					t.Errorf("CA created after preflight failure: %v", err)
+				}
+			} else if test.phase == "install" {
+				if _, err := readCertificateFile(caPath); err != nil {
+					t.Errorf("generated CA unavailable for recovery: %v", err)
+				}
+				data, err := os.ReadFile(caPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if bytes.Equal(data, originals[caPath]) {
+					t.Error("late installation failure did not retain regenerated CA")
+				}
+			}
+		})
+	}
+}
+
+// TestGlobalTLSCertificateCoversLocalhostNames checks that the generated server
+// certificate verifies against the local CA and covers the localhost defaults.
 func TestGlobalTLSCertificateCoversLocalhostNames(t *testing.T) {
 	cacheDir := t.TempDir()
 	certificatePath, keyPath, err := ensureGlobalTLSCertificate(cacheDir, "site.localhost")
@@ -372,6 +468,9 @@ func TestGlobalTLSCertificateCoversLocalhostNames(t *testing.T) {
 	}
 	if !caCertificate.IsCA {
 		t.Fatal("ca certificate IsCA = false, want true")
+	}
+	if len(caCertificate.SubjectKeyId) == 0 || !bytes.Equal(certificate.AuthorityKeyId, caCertificate.SubjectKeyId) {
+		t.Fatalf("server issuer key ID = %x, want CA subject key ID %x", certificate.AuthorityKeyId, caCertificate.SubjectKeyId)
 	}
 	if certificate.IsCA {
 		t.Fatal("server certificate IsCA = true, want false")

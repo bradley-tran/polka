@@ -6,6 +6,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/huh v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.0
+	github.com/charmbracelet/x/term v0.2.2
 	github.com/goccy/go-yaml v1.19.2
 	github.com/spf13/cobra v1.10.2
 	github.com/ulikunitz/xz v0.5.17
@@ -22,7 +23,6 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.9 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.15 // indirect
 	github.com/charmbracelet/x/exp/strings v0.1.0 // indirect
-	github.com/charmbracelet/x/term v0.2.2 // indirect
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/danieljoos/wincred v1.2.3 // indirect

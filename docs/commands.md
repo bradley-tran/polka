@@ -279,11 +279,31 @@ Manifest log paths are resolved under `.polka/run/<tool>/<environment>`. When `-
 
 ### `polka cert-install [--no-encryption]`
 
-On Windows or macOS, removes any existing generated Polka CA certificate from the current user's trust store, clears and regenerates the global Polka CA/server certificate pair, then installs the new CA certificate. By default, Polka encrypts the regenerated global-cache private keys with random keys stored in the OS keyring, and the command fails if that keyring storage is unavailable. After certificate generation, unsupported trust-store platforms fail with the certificate path so it can be installed manually.
+Removes the existing managed Polka CA certificate from the platform trust store, clears and regenerates the global Polka CA/server certificate pair, then installs the new CA certificate. Windows uses the current user's Root store, macOS uses the login keychain, and Linux uses the system-wide CA store. By default, Polka encrypts the regenerated global-cache private keys with random keys stored in the OS keyring, and the command fails if that keyring storage is unavailable. Other unsupported operating systems fail after generation with the certificate path for manual installation.
 
 Use `--no-encryption` to regenerate the private keys in the legacy plaintext PEM format.
 
-Polka checks access to both private-key encryption keys before removing the existing CA from the trust store or replacing cached certificates. If the OS keyring is unavailable or locked, this check fails with recovery instructions and preserves the existing certificates. For errors such as `failed to unlock correct collection '/org/freedesktop/secrets/aliases/default'` on Linux, make sure your session's default keyring is available and unlocked, then retry. On machines without a usable keyring, run `polka cert-install --no-encryption` to store plaintext private keys; Linux still requires manual CA trust installation using the certificate path reported by the command.
+Polka checks access to both private-key encryption keys before removing the existing CA from the trust store or replacing cached certificates. If the OS keyring is unavailable or locked, this check fails with recovery instructions and preserves the existing certificates. For errors such as `failed to unlock correct collection '/org/freedesktop/secrets/aliases/default'` on Linux, make sure your session's default keyring is available and unlocked, then retry. On machines without a usable keyring, run `polka cert-install --no-encryption` to store plaintext private keys.
+
+On Linux, Polka detects the distribution through `ID` and then `ID_LIKE` in `/etc/os-release`, falling back to `/usr/lib/os-release` when the former is absent. Compatible derivatives use their parent distribution's trust-store layout:
+
+| Distribution | Administrator CA directory | Refresh command |
+| --- | --- | --- |
+| Debian/Ubuntu | `/usr/local/share/ca-certificates` | `update-ca-certificates` (`--fresh` after removal) |
+| Fedora/RHEL | `/etc/pki/ca-trust/source/anchors` | `update-ca-trust extract` |
+| Arch | `/etc/ca-certificates/trust-source/anchors` | `update-ca-trust extract` |
+| openSUSE | `/etc/pki/trust/anchors` | `update-ca-certificates` |
+| Alpine | `/usr/local/share/ca-certificates` | `update-ca-certificates` |
+
+Install the distribution's `ca-certificates` package, including `ca-certificates-utils` on Arch, and the system file utilities first. Polka checks the native trust layout and tools before rotating certificates; it does not install OS packages. An unsupported Linux distribution or missing prerequisites fail before certificate replacement.
+
+Run `polka cert-install` as your normal user so cache ownership and keyring access stay in your session. For non-root users, Polka authenticates with `sudo -v` in a terminal, then uses `sudo -n` only for copying/removing the public CA and refreshing the system trust store. Without a terminal, authentication uses `sudo -n -v` and requires cached credentials or suitable passwordless sudo access. Root execution skips sudo; keyring requirements still apply unless `--no-encryption` is used. Failed preflight authentication preserves existing cached certificates and trust entries.
+
+Each Linux entry is named `polka-local-ca-<SHA-256 fingerprint>.crt`, so separate Polka CAs can coexist. Removal checks the exact old certificate and refuses symlinks or conflicting contents. Manually installed certificates under other names are left in place. Only public CA certificates are copied into the system store; private keys remain in the cache. Browser/NSS profile stores are not managed, so applications with separate trust stores may need manual setup. `polka serve` never installs trust or prompts for sudo.
+
+Failures during copying, removal, or refresh report the operation and relevant certificate paths and exit nonzero. There is no automatic rollback after rotation starts. Available cached certificate material remains available for recovery: fix the reported permission/tool error and either finish the native installation using the reported CA path, or rerun `polka cert-install` to rotate again. A refresh failure after copying can be recovered by rerunning the appropriate refresh command above with sudo; use Debian's `--fresh` form after removal.
+
+Contributors can exercise native installation and two CA rotations across all five distro families in disposable Docker containers with `POLKA_CERT_TRUST_INTEGRATION=1 go test ./cli -run '^TestLinuxTrustStoreIntegration$' -v -timeout 20m`. This opt-in check also exercises noninteractive sudo on Debian; standard unit tests never modify a system trust store.
 
 ## Database Commands
 

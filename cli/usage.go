@@ -21,7 +21,7 @@ Commands:
   build <tool:version> compile php, php-zts, nginx, apache, or redis from source for local use (Linux only)
   php [args...]        run php with the local shell environment
   composer [args...]   run composer with the local shell environment
-  cert-install         install Polka's local HTTPS certificate into the user trust store
+  cert-install         install Polka's local HTTPS CA into the platform trust store
   db [args...]         run the active environment's database client or manage its local server
   serve, start [docroot]
                        start the local web server for the active environment
@@ -177,11 +177,15 @@ A label that is already cached is left alone unless --force is passed. After a f
 const certInstallUsage = `Usage:
   polka cert-install [--no-encryption]
 
-Install Polka's generated local HTTPS certificate into the current user's trust store.
+Install Polka's generated local HTTPS CA into the current user's trust store on Windows/macOS or the system trust store on Linux.
 The generated certificate material is global to the Polka cache. On supported platforms, this command removes any existing generated CA certificate from the trust store, replaces the generated CA/server certificate pair, and installs the new CA certificate.
 By default, Polka encrypts the generated global-cache private keys with random keys stored in the OS keyring.
 Polka checks keyring access before removing existing certificates. If access fails, unlock your OS keyring and retry.
 Use --no-encryption to write the private keys in the legacy plaintext PEM format.
+Linux supports Debian/Ubuntu, Fedora/RHEL, Arch, openSUSE, Alpine, and compatible derivatives with their native CA tools installed.
+Run Polka as your normal user; it checks sudo access before replacing certificates and elevates only system trust-store operations.
+Without a terminal, sudo must already work noninteractively. Linux browser/NSS profile stores are not managed.
+If trust-store installation fails, the error reports the CA path for recovery. The serve command never installs trust or prompts for sudo.
 `
 
 const dbUsage = `Usage:

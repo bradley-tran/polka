@@ -17,10 +17,14 @@ import (
 	"polka/backend"
 )
 
-var (
-	installCertificateToTrustStoreFunc  = installCertificateToTrustStore
-	removeCertificateFromTrustStoreFunc = removeCertificateFromTrustStore
-)
+var prepareCertificateTrustStoreFunc = prepareCertificateTrustStore
+
+// certificateTrustStore holds operations prepared for one cert-install run.
+// Linux preparation resolves native tools and authenticates sudo before rotation.
+type certificateTrustStore struct {
+	install func(string) (string, error)
+	remove  func(*x509.Certificate) (string, error)
+}
 
 // certInstallInput carries certificate regeneration options parsed from flags.
 type certInstallInput struct {
@@ -50,7 +54,7 @@ func newCertInstallCommand(ctx *commandContext) *cobra.Command {
 }
 
 // runCertInstall prepares key storage before replacing certificates and updating
-// the user's trust store.
+// the platform's trust store.
 func runCertInstall(stdout, stderr io.Writer, store backend.Store, input certInstallInput) int {
 	storageOptions := tlsCAKeyStorageOptions{Policy: tlsCAKeyStorageEncryptedRequired}
 	if input.NoEncryption {
@@ -61,27 +65,50 @@ func runCertInstall(stdout, stderr io.Writer, store backend.Store, input certIns
 		return 1
 	}
 
+	certificatePath, _ := globalTLSCACertificatePaths(store.CacheDir)
+	trustStore, err := prepareCertificateTrustStoreFunc(stderr)
+	if err != nil {
+		fmt.Fprintf(stderr, "error: prepare certificate trust store: %v (CA certificate path: %s)\n", err, certificatePath)
+		return 1
+	}
+
 	if oldCACertificate := readExistingGlobalTLSCACertificate(store.CacheDir); oldCACertificate != nil {
-		if _, err := removeCertificateFromTrustStoreFunc(oldCACertificate); err != nil {
-			fmt.Fprintf(stderr, "error: %v\n", err)
+		if _, err := trustStore.remove(oldCACertificate); err != nil {
+			fmt.Fprintf(stderr, "error: remove old CA from trust store: %v (CA certificate path: %s)\n", err, certificatePath)
 			return 1
 		}
 	}
 
 	if _, _, err := regenerateGlobalTLSCertificateWithOptions(store.CacheDir, storageOptions); err != nil {
-		fmt.Fprintf(stderr, "error: %v\n", err)
+		fmt.Fprintf(stderr, "error: regenerate certificates: %v (CA certificate path: %s)\n", err, certificatePath)
 		return 1
 	}
-	certificatePath, _ := globalTLSCACertificatePaths(store.CacheDir)
-	trustStore, err := installCertificateToTrustStoreFunc(certificatePath)
+	trustStoreName, err := trustStore.install(certificatePath)
 	if err != nil {
-		fmt.Fprintf(stderr, "error: %v\n", err)
+		fmt.Fprintf(stderr, "error: install CA into trust store: %v (CA certificate path: %s)\n", err, certificatePath)
 		return 1
 	}
 
-	fmt.Fprintf(stdout, "Installed Polka local HTTPS CA certificate into the %s trust store.\n", trustStore)
+	fmt.Fprintf(stdout, "Installed Polka local HTTPS CA certificate into the %s trust store.\n", trustStoreName)
 	fmt.Fprintf(stdout, "CA certificate: %s\n", certificatePath)
 	return 0
+}
+
+// prepareCertificateTrustStore leaves existing user-store management unchanged
+// outside Linux, where native system-store operations require a preflight.
+func prepareCertificateTrustStore(stderr io.Writer) (certificateTrustStore, error) {
+	if runtime.GOOS == "linux" {
+		store, err := prepareLinuxTrustStore(defaultLinuxTrustStoreSystem(), stderr)
+		if err != nil {
+			return certificateTrustStore{}, err
+		}
+		return certificateTrustStore{install: store.install, remove: store.remove}, nil
+	}
+
+	return certificateTrustStore{
+		install: installCertificateToTrustStore,
+		remove:  removeCertificateFromTrustStore,
+	}, nil
 }
 
 // ensureCertInstallEncryptionKeys loads or creates both keyring entries before

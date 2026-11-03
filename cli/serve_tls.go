@@ -133,6 +133,13 @@ func createGlobalTLSCertificateWithOptions(cacheDir, host string, storageOptions
 	if err != nil {
 		return "", "", fmt.Errorf("generate local ca certificate: %w", err)
 	}
+	// Parse the generated CA to retain its automatically generated subject key
+	// identifier. Server certificates need that issuer identifier when multiple
+	// Polka CAs with the same subject coexist in the system trust store.
+	caCertificate, err := x509.ParseCertificate(caDER)
+	if err != nil {
+		return "", "", fmt.Errorf("parse generated local ca certificate: %w", err)
+	}
 
 	if err := writePEMFile(caCertPath, 0o644, "CERTIFICATE", caDER); err != nil {
 		return "", "", fmt.Errorf("write local ca certificate: %w", err)
@@ -141,7 +148,7 @@ func createGlobalTLSCertificateWithOptions(cacheDir, host string, storageOptions
 		return "", "", fmt.Errorf("write local ca private key: %w", err)
 	}
 
-	return createGlobalTLSServerCertificateWithCA(cacheDir, host, &caTemplate, caPrivateKey, storageOptions)
+	return createGlobalTLSServerCertificateWithCA(cacheDir, host, caCertificate, caPrivateKey, storageOptions)
 }
 
 func createGlobalTLSServerCertificate(cacheDir, host string) (string, string, error) {
