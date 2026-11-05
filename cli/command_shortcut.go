@@ -19,7 +19,7 @@ type shortcutSpec struct {
 // newShortcutCommand builds a cobra command that expands to the command path in
 // spec.prefix. Flag parsing is disabled so every argument after the shortcut
 // name passes through untouched, and the command re-dispatches through the root
-// so persistent flags (such as --root) and the target command's own flag and
+// so persistent flags (such as -C/--dir) and the target command's own flag and
 // argument validation continue to work unchanged.
 func newShortcutCommand(spec shortcutSpec) *cobra.Command {
 	cmd := &cobra.Command{

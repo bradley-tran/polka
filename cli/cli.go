@@ -12,10 +12,12 @@ import (
 )
 
 type commandContext struct {
-	stdout   io.Writer
-	stderr   io.Writer
-	rootDir  string
-	exitCode int
+	stdout io.Writer
+	stderr io.Writer
+	// projectDir is the -C/--dir value: the directory holding polka.yaml. When
+	// empty, commands discover the project from the working directory.
+	projectDir string
+	exitCode   int
 }
 
 type statusError struct {
@@ -69,7 +71,7 @@ func newRootCommand(ctx *commandContext) *cobra.Command {
 	root.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
 		return &statusError{code: 2, err: err, showUsage: true, usage: rootUsage}
 	})
-	root.PersistentFlags().StringVar(&ctx.rootDir, "root", "", "override Polka state directory")
+	root.PersistentFlags().StringVarP(&ctx.projectDir, "dir", "C", "", "use the project whose polka.yaml is in DIR")
 	root.AddCommand(
 		newInitCommand(ctx),
 		newEnvCommand(ctx),
@@ -94,24 +96,32 @@ func newRootCommand(ctx *commandContext) *cobra.Command {
 	return root
 }
 
-func resolveStore(root string) (backend.Store, error) {
-	if strings.TrimSpace(root) != "" {
-		return backend.StoreForRoot(root)
+// resolveStore opens the project whose polka.yaml is in projectDir, or
+// discovers the project from the working directory when projectDir is empty.
+// Either way the state directory follows the config's root key.
+func resolveStore(projectDir string) (backend.Store, error) {
+	if strings.TrimSpace(projectDir) != "" {
+		return backend.StoreForProjectDir(projectDir)
 	}
 
 	return backend.DefaultStore()
 }
 
-func resolveInitStore(root string) (backend.Store, error) {
-	return backend.StoreForWorkingDirectory(root)
+// resolveInitStore opens the project in projectDir, or in the working directory
+// when projectDir is empty, without requiring polka.yaml to exist yet.
+func resolveInitStore(projectDir string) (backend.Store, error) {
+	return backend.InitStore(projectDir)
 }
 
+// store opens the project selected by -C/--dir or the working directory.
 func (ctx *commandContext) store() (backend.Store, error) {
-	return resolveStore(ctx.rootDir)
+	return resolveStore(ctx.projectDir)
 }
 
+// initStore opens the project for commands that may run before polka.yaml
+// exists, such as init, create-project and build.
 func (ctx *commandContext) initStore() (backend.Store, error) {
-	return resolveInitStore(ctx.rootDir)
+	return resolveInitStore(ctx.projectDir)
 }
 
 func configureHelp(cmd *cobra.Command, usage string) {

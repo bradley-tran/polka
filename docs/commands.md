@@ -5,16 +5,20 @@ This page summarizes Polka's command surface. Run `polka help` or `polka <comman
 ## Global Flags
 
 ```bash
-polka [--root PATH] <command> [options]
+polka [-C DIR] <command> [options]
 ```
 
-Use `--root PATH` to override the local state directory. The default is `.polka`.
+Polka finds the project by searching the current directory and its parents for `polka.yaml`. Use `-C DIR` (or `--dir DIR`) to name the project directory instead: `DIR` must exist and is used as-is, without searching its parents. Commands still run in the current directory, so `polka -C ../app exec php script.php` resolves `script.php` from where you are.
+
+The state directory, which holds installed tools, dispatch shims, and runtime state, comes from the `root` key in `polka.yaml`. Relative paths are resolved against the project directory, and the default is `.polka`. To move it, change `root`, then run `polka init` and `polka install` to recreate the shims and tools there. Dispatch shims find their project from their own location, so they work wherever `root` points.
+
+Shims written by older Polka versions pass a `--root` flag that no longer exists; run `polka init` once to regenerate them.
 
 ## Environment Commands
 
 ### `polka init [framework|preset] [--docroot PATH] [--package VENDOR/NAME]`
 
-Creates the local `.polka` directory, bootstraps `polka.yaml` when it does not exist, and syncs the active environment's dispatch shims into `.polka/bin`. The bootstrapped default environment enables HTTPS and sets `server.hostname` to `<directory>.localhost`.
+Creates the state directory (`root` in an existing `polka.yaml`, otherwise `.polka`), bootstraps `polka.yaml` when it does not exist, and syncs the active environment's dispatch shims into its `bin` directory. Init always uses the current directory, or `-C DIR`, as the project; it does not search parent directories. The bootstrapped default environment enables HTTPS and sets `server.hostname` to `<directory>.localhost`.
 
 Generated project manifests use `version: 0.2`. Existing manifests with `0.1`, `1`, or a missing version are rejected by project commands. Delete the old `polka.yaml` yourself and rerun `polka init [framework|preset]` to regenerate it, then reapply your custom settings. Init never replaces an existing manifest. Named environment files do not carry a version field.
 

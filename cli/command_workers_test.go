@@ -70,7 +70,7 @@ func TestRunStopStopsWorkersWhenConfigured(t *testing.T) {
 	}
 	workerPIDIsLiveFunc = func(pid int) bool { return live[pid] }
 
-	if code := Run(stdout, stderr, []string{"--root", root, "stop"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "stop"}); code != 0 {
 		t.Fatalf("Run(stop) code = %d, stderr = %q", code, stderr.String())
 	}
 	if len(stopped) != 1 || stopped[0] != 4242 {
@@ -88,12 +88,11 @@ func TestRunStopStopsWorkersWhenConfigured(t *testing.T) {
 // when workers are configured but nothing is running.
 func TestRunStopReportsWorkersAlreadyStopped(t *testing.T) {
 	projectDir := t.TempDir()
-	root := filepath.Join(projectDir, ".polka")
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	writeWorkersTestProject(t, projectDir)
 
-	if code := Run(stdout, stderr, []string{"--root", root, "stop"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "stop"}); code != 0 {
 		t.Fatalf("Run(stop) code = %d, stderr = %q", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "Workers for environment \"demo\" are already stopped.") {

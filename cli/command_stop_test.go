@@ -55,7 +55,7 @@ func TestRunStopStopsManagedDatabaseWhenWebserverAlreadyStopped(t *testing.T) {
 		return running[address]
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "stop"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "stop"}); code != 0 {
 		t.Fatalf("Run(stop) code = %d, stderr = %q", code, stderr.String())
 	}
 	if stopCalls != 1 {
@@ -141,7 +141,7 @@ func TestRunStopStopsWebserverAndDatabase(t *testing.T) {
 		return databaseRunning[address]
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "stop"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "stop"}); code != 0 {
 		t.Fatalf("Run(stop) code = %d, stderr = %q", code, stderr.String())
 	}
 	if serveStopCalls != 1 {
@@ -208,7 +208,7 @@ func TestRunStopStopsMailpitWhenConfigured(t *testing.T) {
 		return running[address]
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "stop"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "stop"}); code != 0 {
 		t.Fatalf("Run(stop) code = %d, stderr = %q", code, stderr.String())
 	}
 	if stopCalls != 1 {
@@ -265,7 +265,7 @@ func TestRunStopStopsMeilisearchWhenConfigured(t *testing.T) {
 		return running[address]
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "stop"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "stop"}); code != 0 {
 		t.Fatalf("Run(stop) code = %d, stderr = %q", code, stderr.String())
 	}
 	if stopCalls != 1 {

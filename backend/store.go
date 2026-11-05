@@ -35,6 +35,9 @@ const (
 	configVersion            = config.CurrentManifestVersion
 	dispatcherBinaryName     = "polka"
 	dispatcherBatchFileName  = "polka.cmd"
+	// toolProjectDirEnv carries the project directory from a dispatch shim to
+	// the shims of the tools it launches.
+	toolProjectDirEnv = "POLKA_TOOL_PROJECT_DIR"
 )
 
 // Default managed tool versions. These are the versions `polka new` writes
@@ -152,6 +155,9 @@ type InitResult struct {
 	ScaffoldSkipped []string
 }
 
+// DefaultStore returns a store for the project found by searching upward from
+// the current working directory for polka.yaml. The state directory follows
+// the config's root key.
 func DefaultStore() (Store, error) {
 	workingDir, err := os.Getwd()
 	if err != nil {
@@ -163,8 +169,56 @@ func DefaultStore() (Store, error) {
 		return Store{}, err
 	}
 
-	store := NewProjectStore(projectDir)
-	config, err := store.loadConfig()
+	return storeForConfiguredProject(projectDir)
+}
+
+// StoreForProjectDir returns a store for the project whose polka.yaml lives
+// directly in projectDir, without searching parent directories. The state
+// directory follows the config's root key. A directory without polka.yaml gets
+// the default config, exactly as when Polka runs there and finds none.
+func StoreForProjectDir(projectDir string) (Store, error) {
+	cleanProjectDir, err := resolveExistingProjectDir(projectDir)
+	if err != nil {
+		return Store{}, err
+	}
+
+	return storeForConfiguredProject(cleanProjectDir)
+}
+
+// InitStore returns a store for initializing the project in projectDir, or in
+// the current working directory when projectDir is empty. It never searches
+// parent directories, because init creates a project where it is run.
+//
+// When polka.yaml already exists and loads, the state directory follows its
+// root key. Otherwise the default .polka directory is used: init reloads the
+// config itself and reports any error, and commands such as build only need
+// the cache and registry, so a missing or broken config must not block them.
+func InitStore(projectDir string) (Store, error) {
+	if strings.TrimSpace(projectDir) == "" {
+		workingDir, err := os.Getwd()
+		if err != nil {
+			return Store{}, fmt.Errorf("resolve current working directory: %w", err)
+		}
+		projectDir = workingDir
+	}
+
+	cleanProjectDir, err := resolveExistingProjectDir(projectDir)
+	if err != nil {
+		return Store{}, err
+	}
+
+	store, err := storeForConfiguredProject(cleanProjectDir)
+	if err != nil {
+		return NewProjectStore(cleanProjectDir), nil
+	}
+
+	return store, nil
+}
+
+// storeForConfiguredProject loads the config in projectDir and returns a store
+// whose state directory is the config's root, resolved against projectDir.
+func storeForConfiguredProject(projectDir string) (Store, error) {
+	config, err := NewProjectStore(projectDir).loadConfig()
 	if err != nil {
 		return Store{}, err
 	}
@@ -172,44 +226,29 @@ func DefaultStore() (Store, error) {
 	return newStore(projectDir, resolveConfiguredRootDir(projectDir, config.Root)), nil
 }
 
-// StoreForWorkingDirectory returns a store rooted at the current working
-// directory without discovering a parent project config.
-func StoreForWorkingDirectory(root string) (Store, error) {
-	workingDir, err := os.Getwd()
+// resolveExistingProjectDir makes projectDir absolute and checks that it names
+// an existing directory, so a mistyped path fails instead of creating state.
+func resolveExistingProjectDir(projectDir string) (string, error) {
+	cleanProjectDir, err := filepath.Abs(projectDir)
 	if err != nil {
-		return Store{}, fmt.Errorf("resolve current working directory: %w", err)
-	}
-	projectDir, err := filepath.Abs(workingDir)
-	if err != nil {
-		return Store{}, fmt.Errorf("resolve project directory: %w", err)
+		return "", fmt.Errorf("resolve project directory: %w", err)
 	}
 
-	if strings.TrimSpace(root) == "" {
-		return NewProjectStore(projectDir), nil
+	fileInfo, err := os.Stat(cleanProjectDir)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return "", fmt.Errorf("project directory %s does not exist", cleanProjectDir)
+	case err != nil:
+		return "", fmt.Errorf("stat project directory %s: %w", cleanProjectDir, err)
+	case !fileInfo.IsDir():
+		return "", fmt.Errorf("project directory %s is not a directory", cleanProjectDir)
 	}
 
-	cleanRoot, err := filepath.Abs(root)
-	if err != nil {
-		return Store{}, fmt.Errorf("resolve Polka root directory: %w", err)
-	}
-
-	return newStore(projectDir, cleanRoot), nil
+	return cleanProjectDir, nil
 }
 
-func StoreForRoot(root string) (Store, error) {
-	cleanRoot, err := filepath.Abs(root)
-	if err != nil {
-		return Store{}, fmt.Errorf("resolve Polka root directory: %w", err)
-	}
-
-	projectDir, err := discoverProjectDirForRoot(cleanRoot)
-	if err != nil {
-		return Store{}, err
-	}
-
-	return newStore(projectDir, cleanRoot), nil
-}
-
+// discoverProjectDir walks upward from workingDir to the nearest directory
+// holding polka.yaml, falling back to workingDir when none exists.
 func discoverProjectDir(workingDir string) (string, error) {
 	currentDir, err := filepath.Abs(workingDir)
 	if err != nil {
@@ -238,46 +277,14 @@ func discoverProjectDir(workingDir string) (string, error) {
 	}
 }
 
-func discoverProjectDirForRoot(root string) (string, error) {
-	cleanRoot, err := filepath.Abs(root)
-	if err != nil {
-		return "", fmt.Errorf("resolve Polka root directory: %w", err)
-	}
-
-	currentDir := filepath.Dir(cleanRoot)
-	originalDir := currentDir
-
-	for {
-		configPath := filepath.Join(currentDir, configFileName)
-		fileInfo, statErr := os.Stat(configPath)
-		switch {
-		case statErr == nil && !fileInfo.IsDir():
-			config, err := newStore(currentDir, cleanRoot).readConfig()
-			if err != nil {
-				return "", err
-			}
-			if pathsEqual(resolveConfiguredRootDir(currentDir, config.Root), cleanRoot) {
-				return currentDir, nil
-			}
-		case statErr == nil && fileInfo.IsDir():
-			// Ignore directories named polka.yaml and keep walking upward.
-		case !errors.Is(statErr, os.ErrNotExist):
-			return "", fmt.Errorf("stat %s: %w", configPath, statErr)
-		}
-
-		parentDir := filepath.Dir(currentDir)
-		if parentDir == currentDir {
-			return originalDir, nil
-		}
-
-		currentDir = parentDir
-	}
-}
-
+// NewProjectStore returns a store for projectDir that uses the default .polka
+// state directory without reading the project's config.
 func NewProjectStore(projectDir string) Store {
 	return newStore(projectDir, filepath.Join(projectDir, defaultRootDirectoryName))
 }
 
+// NewStore returns a store for the state directory root, treating its parent as
+// the project directory.
 func NewStore(root string) Store {
 	cleanRoot := filepath.Clean(root)
 	projectDir := filepath.Dir(cleanRoot)
@@ -457,16 +464,6 @@ func resolveConfiguredRootDir(projectDir, configuredRoot string) string {
 	}
 
 	return filepath.Clean(filepath.Join(projectDir, filepath.FromSlash(trimmedRoot)))
-}
-
-func pathsEqual(left, right string) bool {
-	cleanLeft := filepath.Clean(left)
-	cleanRight := filepath.Clean(right)
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(cleanLeft, cleanRight)
-	}
-
-	return cleanLeft == cleanRight
 }
 
 func (s Store) Init() error {
@@ -2535,9 +2532,10 @@ func windowsDispatcherBinary(selfPath string) installedBinary {
 
 func (s Store) managedBinaries() []installedBinary {
 	commands := s.toolRegistry().CleanupCommandNames()
+	projectDir := s.shimProjectDir()
 	binaries := make([]installedBinary, 0, len(commands)*2)
 	for _, command := range commands {
-		binaries = append(binaries, shellDispatchBinary(command), windowsDispatchBinary(command))
+		binaries = append(binaries, shellDispatchBinary(command, projectDir), windowsDispatchBinary(command, projectDir))
 	}
 
 	return binaries
@@ -2545,12 +2543,59 @@ func (s Store) managedBinaries() []installedBinary {
 
 func (s Store) managedBinariesForEnvironment(environment *Environment) []installedBinary {
 	tools := s.toolRegistry().ActiveCommandNames(environment)
+	projectDir := s.shimProjectDir()
 	binaries := make([]installedBinary, 0, len(tools)*2)
 	for _, tool := range tools {
-		binaries = append(binaries, shellDispatchBinary(tool), windowsDispatchBinary(tool))
+		binaries = append(binaries, shellDispatchBinary(tool, projectDir), windowsDispatchBinary(tool, projectDir))
 	}
 
 	return binaries
+}
+
+// shimProjectDir tells dispatch shims in BinDir where the project lives. The
+// path is relative to BinDir whenever one exists, so shims keep working after
+// the whole project tree moves; otherwise, such as with a state root on
+// another Windows volume, it is the absolute project directory.
+type shimProjectDir struct {
+	path     string
+	relative bool
+}
+
+// shimProjectDir returns the project location to embed in this store's shims.
+func (s Store) shimProjectDir() shimProjectDir {
+	relativePath, err := filepath.Rel(s.BinDir, s.ProjectDir)
+	if err != nil {
+		return shimProjectDir{path: s.ProjectDir}
+	}
+
+	return shimProjectDir{path: relativePath, relative: true}
+}
+
+// shellValue returns a POSIX shell word that expands to the project directory.
+// Relative paths resolve against $SCRIPT_DIR, the shim's own directory.
+func (p shimProjectDir) shellValue() string {
+	path := filepath.ToSlash(p.path)
+	if p.relative {
+		return "$(CDPATH= cd -- \"$SCRIPT_DIR/" + shellDoubleQuoted(path) + "\" && pwd)"
+	}
+
+	return shellLiteral(path)
+}
+
+// batchValue returns the project directory for a quoted cmd.exe set command.
+// Relative paths resolve against %SCRIPT_DIR%, which ends in a backslash.
+func (p shimProjectDir) batchValue() string {
+	path := escapeWindowsBatchValue(strings.ReplaceAll(filepath.ToSlash(p.path), "/", `\`))
+	if p.relative {
+		path = "%SCRIPT_DIR%" + path
+	}
+	// A trailing backslash, as in a drive root, would escape the closing quote
+	// once the value is passed on as "%DISPATCH_PROJECT%".
+	if strings.HasSuffix(path, `\`) {
+		path += "."
+	}
+
+	return path
 }
 
 func (s Store) activeEnvironmentFromConfig(config Config) (*Environment, error) {
@@ -2575,49 +2620,63 @@ func managedToolsForEnvironment(environment *Environment) []string {
 	return NewDefaultToolRegistry().ActiveCommandNames(environment)
 }
 
-func shellDispatchBinary(tool string) installedBinary {
+// shellDispatchBinary renders the POSIX shim that forwards tool to
+// `polka -C <project> dispatch`. An inherited POLKA_TOOL_PROJECT_DIR wins over
+// the shim's own location, so copies of the shim placed elsewhere (as npm does)
+// still dispatch to the project that launched them.
+func shellDispatchBinary(tool string, projectDir shimProjectDir) installedBinary {
 	return installedBinary{
 		Name: tool,
 		Mode: 0o755,
 		Contents: "#!/usr/bin/env sh\n" +
 			"set -eu\n" +
 			"SCRIPT_DIR=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\n" +
-			"ROOT_DIR=$(CDPATH= cd -- \"$SCRIPT_DIR/..\" && pwd)\n" +
 			"DISPATCHER=${POLKA_TOOL_DISPATCHER:-$SCRIPT_DIR/" + dispatcherBinaryName + "}\n" +
-			"DISPATCH_ROOT=${POLKA_TOOL_ROOT:-$ROOT_DIR}\n" +
+			"DISPATCH_PROJECT=${" + toolProjectDirEnv + ":-}\n" +
+			"if [ -z \"$DISPATCH_PROJECT\" ]; then\n" +
+			"  DISPATCH_PROJECT=" + projectDir.shellValue() + "\n" +
+			"fi\n" +
 			"if [ ! -f \"$DISPATCHER\" ]; then\n" +
 			"  printf '%s\\n' 'Polka dispatcher shim not found in .polka/bin. Re-run \"polka init\".' >&2\n" +
 			"  exit 1\n" +
 			"fi\n" +
 			"export POLKA_TOOL_DISPATCHER=\"$DISPATCHER\"\n" +
-			"export POLKA_TOOL_ROOT=\"$DISPATCH_ROOT\"\n" +
-			"exec \"$DISPATCHER\" --root \"$DISPATCH_ROOT\" dispatch " + tool + " \"$@\"\n",
+			"export " + toolProjectDirEnv + "=\"$DISPATCH_PROJECT\"\n" +
+			"exec \"$DISPATCHER\" -C \"$DISPATCH_PROJECT\" dispatch " + tool + " \"$@\"\n",
 	}
 }
 
-func windowsDispatchBinary(tool string) installedBinary {
+// windowsDispatchBinary renders the cmd.exe counterpart of shellDispatchBinary.
+func windowsDispatchBinary(tool string, projectDir shimProjectDir) installedBinary {
 	return installedBinary{
 		Name: tool + ".cmd",
 		Mode: 0o755,
 		Contents: "@echo off\r\n" +
 			"setlocal\r\n" +
 			"set \"SCRIPT_DIR=%~dp0\"\r\n" +
-			"set \"ROOT_DIR=%SCRIPT_DIR%..\"\r\n" +
 			"set \"DISPATCHER=%POLKA_TOOL_DISPATCHER%\"\r\n" +
 			"if not defined DISPATCHER set \"DISPATCHER=%SCRIPT_DIR%" + dispatcherBatchFileName + "\"\r\n" +
-			"set \"DISPATCH_ROOT=%POLKA_TOOL_ROOT%\"\r\n" +
-			"if not defined DISPATCH_ROOT set \"DISPATCH_ROOT=%ROOT_DIR%\"\r\n" +
+			"set \"DISPATCH_PROJECT=%" + toolProjectDirEnv + "%\"\r\n" +
+			"if not defined DISPATCH_PROJECT set \"DISPATCH_PROJECT=" + projectDir.batchValue() + "\"\r\n" +
 			"if not exist \"%DISPATCHER%\" (\r\n" +
 			"  >&2 echo Polka dispatcher shim not found in .polka\\bin. Re-run polka init.\r\n" +
 			"  exit /b 1\r\n" +
 			")\r\n" +
 			"set \"POLKA_TOOL_DISPATCHER=%DISPATCHER%\"\r\n" +
-			"set \"POLKA_TOOL_ROOT=%DISPATCH_ROOT%\"\r\n" +
-			"call \"%DISPATCHER%\" --root \"%DISPATCH_ROOT%\" dispatch " + tool + " %*\r\n" +
+			"set \"" + toolProjectDirEnv + "=%DISPATCH_PROJECT%\"\r\n" +
+			"call \"%DISPATCHER%\" -C \"%DISPATCH_PROJECT%\" dispatch " + tool + " %*\r\n" +
 			"exit /b %ERRORLEVEL%\r\n",
 	}
 }
 
+// shellDoubleQuoted escapes value for use inside a double-quoted POSIX shell
+// string, where $, `, " and \ keep their special meaning.
+func shellDoubleQuoted(value string) string {
+	replacer := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "$", `\$`, "`", "\\`")
+	return replacer.Replace(value)
+}
+
+// shellLiteral single-quotes value for a POSIX shell.
 func shellLiteral(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }

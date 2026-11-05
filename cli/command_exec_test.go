@@ -51,7 +51,7 @@ func TestRunExecRunsCommandWithShellEnvironment(t *testing.T) {
 	writeTestConfigFile(t, projectDir, config)
 	writeTestActiveEnvironment(t, root, "demo")
 
-	if code := Run(stdout, stderr, []string{"--root", root, "exec", "php", "-v"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "exec", "php", "-v"}); code != 0 {
 		t.Fatalf("Run(exec php) code = %d, stderr = %q", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "fake-php -v config") {
@@ -103,7 +103,7 @@ func TestRunExecComposerRunsExtensionlessPHPScriptOnWindows(t *testing.T) {
 	})
 	writeTestActiveEnvironment(t, root, "demo")
 
-	if code := Run(stdout, stderr, []string{"--root", root, "exec", "composer", "run-script", "post-cmd"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "exec", "composer", "run-script", "post-cmd"}); code != 0 {
 		t.Fatalf("Run(exec composer) code = %d, stderr = %q", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "fake-php") || !strings.Contains(stdout.String(), "cache:clear") {
@@ -172,7 +172,7 @@ func TestRunExecUsesNearestNestedVendorBin(t *testing.T) {
 	for _, command := range [][]string{{"exec", "drush", "status"}, {"drush", "status"}} {
 		stdout.Reset()
 		stderr.Reset()
-		if code := Run(stdout, stderr, append([]string{"--root", root}, command...)); code != 0 {
+		if code := Run(stdout, stderr, append([]string{"--dir", projectDir}, command...)); code != 0 {
 			t.Fatalf("Run(%v) code = %d, stderr = %q", command, code, stderr.String())
 		}
 		for _, want := range []string{"fake-php", "status", "https://drupal.localhost:8443"} {
@@ -185,7 +185,6 @@ func TestRunExecUsesNearestNestedVendorBin(t *testing.T) {
 
 func TestRunExecRunsPostComposerHookForCakePHPCreateProject(t *testing.T) {
 	projectDir := t.TempDir()
-	root := filepath.Join(projectDir, ".polka")
 	appRoot := filepath.Join(projectDir, "cake")
 	systemBinDir := filepath.Join(projectDir, "system-bin")
 	stdout := &bytes.Buffer{}
@@ -219,7 +218,7 @@ func TestRunExecRunsPostComposerHookForCakePHPCreateProject(t *testing.T) {
 	}
 	writeTestConfigFile(t, projectDir, config)
 
-	if code := Run(stdout, stderr, []string{"--root", root, "exec", "composer", "create-project", "cakephp/app", "cake"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "exec", "composer", "create-project", "cakephp/app", "cake"}); code != 0 {
 		t.Fatalf("Run(exec composer create-project) code = %d, stderr = %q", code, stderr.String())
 	}
 

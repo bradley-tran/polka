@@ -194,17 +194,16 @@ func TestParseBuildToolVersion(t *testing.T) {
 // top-level shortcut, says where logs go, and needs no compile for a cached tool.
 func TestInstallBuildFlagUsesCachedPayload(t *testing.T) {
 	projectDir := t.TempDir()
-	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
 	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 
 	writeCachedPHP(t, cacheDir, "8.4", fakePHPScript())
-	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.php", "8.4")
+	runTestConfigValue(t, stdout, stderr, projectDir, "demo", "tools.php", "8.4")
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo", "--build"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "install", "--env", "demo", "--build"}); code != 0 {
 		t.Fatalf("Run(install --build) code = %d, stderr = %q", code, stderr.String())
 	}
 	if want := "Compile logs are written to " + filepath.Join(cacheDir, ".build-logs"); !strings.Contains(stdout.String(), want) {
@@ -215,7 +214,7 @@ func TestInstallBuildFlagUsesCachedPayload(t *testing.T) {
 	}
 
 	stdout.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 	if strings.Contains(stdout.String(), "Compile logs") {

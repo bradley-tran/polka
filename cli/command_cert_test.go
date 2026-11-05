@@ -35,7 +35,6 @@ func stubCertificateTrustStore(t *testing.T) *certificateTrustStore {
 // encrypted private-key storage, and the public certificate passed to install.
 func TestRunCertInstallCreatesAndInstallsGlobalCertificate(t *testing.T) {
 	projectDir := t.TempDir()
-	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
 	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
@@ -51,7 +50,7 @@ func TestRunCertInstallCreatesAndInstallsGlobalCertificate(t *testing.T) {
 		return "test", nil
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "cert-install"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "cert-install"}); code != 0 {
 		t.Fatalf("Run(cert-install) code = %d, stderr = %q", code, stderr.String())
 	}
 	if installCalls != 1 {
@@ -106,7 +105,6 @@ func TestRunCertInstallCreatesAndInstallsGlobalCertificate(t *testing.T) {
 // legacy cached material can still be replaced by a fresh certificate pair.
 func TestRunCertInstallRegeneratesExistingGlobalCertificate(t *testing.T) {
 	projectDir := t.TempDir()
-	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
 	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
@@ -131,7 +129,7 @@ func TestRunCertInstallRegeneratesExistingGlobalCertificate(t *testing.T) {
 
 	stubCertificateTrustStore(t)
 
-	if code := Run(stdout, stderr, []string{"--root", root, "cert-install"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "cert-install"}); code != 0 {
 		t.Fatalf("Run(cert-install) code = %d, stderr = %q", code, stderr.String())
 	}
 	certificateData, err := os.ReadFile(caCertificatePath)
@@ -151,7 +149,6 @@ func TestRunCertInstallRegeneratesExistingGlobalCertificate(t *testing.T) {
 // that preparation, old-CA removal, and new-CA installation remain ordered.
 func TestRunCertInstallRemovesExistingCAFromTrustStoreBeforeRegeneration(t *testing.T) {
 	projectDir := t.TempDir()
-	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
 	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	if _, _, err := regenerateGlobalTLSCertificateWithOptions(cacheDir, tlsCAKeyStorageOptions{Policy: tlsCAKeyStoragePlaintextRequired}); err != nil {
@@ -200,7 +197,7 @@ func TestRunCertInstallRemovesExistingCAFromTrustStoreBeforeRegeneration(t *test
 		return "test", nil
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "cert-install"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "cert-install"}); code != 0 {
 		t.Fatalf("Run(cert-install) code = %d, stderr = %q", code, stderr.String())
 	}
 	if got := strings.Join(events, ","); got != "prepare,remove,install" {
@@ -297,7 +294,6 @@ func TestRunCertInstallNoEncryptionCreatesPlaintextCAKey(t *testing.T) {
 	keyring.MockInitWithError(errors.New("no keyring"))
 	t.Cleanup(keyring.MockInit)
 	projectDir := t.TempDir()
-	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
 	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
@@ -305,7 +301,7 @@ func TestRunCertInstallNoEncryptionCreatesPlaintextCAKey(t *testing.T) {
 
 	stubCertificateTrustStore(t)
 
-	if code := Run(stdout, stderr, []string{"--root", root, "cert-install", "--no-encryption"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "cert-install", "--no-encryption"}); code != 0 {
 		t.Fatalf("Run(cert-install --no-encryption) code = %d, stderr = %q", code, stderr.String())
 	}
 	caKeyPath := filepath.Join(cacheDir, "polka", serveTLSSubdir, serveTLSCAKeyName)

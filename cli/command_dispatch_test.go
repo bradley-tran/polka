@@ -19,8 +19,8 @@ func TestRunConfigSetsVersionLabelsAndDispatchesPhp(t *testing.T) {
 	fakePHP := writeCachedPHP(t, cacheDir, "8.4", fakePHPScriptWithEnv("OPENSSL_CONF"))
 	writeCachedComposer(t, cacheDir, "2.8", []byte("composer\n"))
 
-	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.php", "8.4")
-	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.composer", "2.8")
+	runTestConfigValue(t, stdout, stderr, projectDir, "demo", "tools.php", "8.4")
+	runTestConfigValue(t, stdout, stderr, projectDir, "demo", "tools.composer", "2.8")
 
 	environment := readTestEnvironmentConfig(t, projectDir, "demo")
 	if environment.PHP != "8.4" || environment.Composer != "2.8" {
@@ -37,7 +37,7 @@ func TestRunConfigSetsVersionLabelsAndDispatchesPhp(t *testing.T) {
 	stdout.Reset()
 	stderr.Reset()
 
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 	if _, err := os.Stat(projectInstalledPHPPath(root, "8.4")); err != nil {
@@ -63,14 +63,14 @@ func TestRunConfigSetsVersionLabelsAndDispatchesPhp(t *testing.T) {
 	stdout.Reset()
 	stderr.Reset()
 
-	if code := Run(stdout, stderr, []string{"--root", root, "use", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "use", "demo"}); code != 0 {
 		t.Fatalf("Run(use) code = %d, stderr = %q", code, stderr.String())
 	}
 
 	stdout.Reset()
 	stderr.Reset()
 
-	if code := Run(stdout, stderr, []string{"--root", root, "dispatch", "php", "-v", "--ini"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "dispatch", "php", "-v", "--ini"}); code != 0 {
 		t.Fatalf("Run(dispatch) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -102,7 +102,7 @@ func TestRunDispatchFallsBackToFrankenPHPBundledPHP(t *testing.T) {
 	})
 	writeTestActiveEnvironment(t, root, "demo")
 
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install FrankenPHP) code = %d, stderr = %q", code, stderr.String())
 	}
 	if _, err := os.Stat(filepath.Join(root, "bin", "php.cmd")); err != nil {
@@ -111,7 +111,7 @@ func TestRunDispatchFallsBackToFrankenPHPBundledPHP(t *testing.T) {
 	stdout.Reset()
 	stderr.Reset()
 
-	if code := Run(stdout, stderr, []string{"--root", root, "dispatch", "php", "-v"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "dispatch", "php", "-v"}); code != 0 {
 		t.Fatalf("Run(dispatch php fallback) code = %d, stderr = %q", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "fake-frankenphp-php -v") {
@@ -152,13 +152,13 @@ func TestRunDispatchLoadsProjectAndConfiguredEnvironmentVariables(t *testing.T) 
 	writeTestConfigFile(t, projectDir, config)
 	writeTestActiveEnvironment(t, root, "demo")
 
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 	stdout.Reset()
 	stderr.Reset()
 
-	if code := Run(stdout, stderr, []string{"--root", root, "dispatch", "php", "-v"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "dispatch", "php", "-v"}); code != 0 {
 		t.Fatalf("Run(dispatch) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -200,13 +200,13 @@ func TestRunDispatchRunsPostComposerHookForLaravelInstall(t *testing.T) {
 	}
 	writeTestConfigFile(t, projectDir, config)
 
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "composer:2.8"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "install", "composer:2.8"}); code != 0 {
 		t.Fatalf("Run(install composer) code = %d, stderr = %q", code, stderr.String())
 	}
 	stdout.Reset()
 	stderr.Reset()
 
-	if code := Run(stdout, stderr, []string{"--root", root, "dispatch", "composer", "install"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "dispatch", "composer", "install"}); code != 0 {
 		t.Fatalf("Run(dispatch composer install) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -234,7 +234,6 @@ func TestRunDispatchRunsPostComposerHookForLaravelInstall(t *testing.T) {
 
 func TestRunDispatchRunsPostComposerHookForCakePHPCreateProject(t *testing.T) {
 	projectDir := t.TempDir()
-	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
 	appRoot := filepath.Join(projectDir, "cake")
 	t.Setenv("POLKA_CACHE_DIR", cacheDir)
@@ -259,13 +258,13 @@ func TestRunDispatchRunsPostComposerHookForCakePHPCreateProject(t *testing.T) {
 	}
 	writeTestConfigFile(t, projectDir, config)
 
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "composer:2.8"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "install", "composer:2.8"}); code != 0 {
 		t.Fatalf("Run(install composer) code = %d, stderr = %q", code, stderr.String())
 	}
 	stdout.Reset()
 	stderr.Reset()
 
-	if code := Run(stdout, stderr, []string{"--root", root, "dispatch", "composer", "create-project", "cakephp/app", "cake"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "dispatch", "composer", "create-project", "cakephp/app", "cake"}); code != 0 {
 		t.Fatalf("Run(dispatch composer create-project) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -285,7 +284,6 @@ func TestRunDispatchRunsPostComposerHookExceptComposerExitTwo(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			projectDir := t.TempDir()
-			root := filepath.Join(projectDir, ".polka")
 			cacheDir := filepath.Join(projectDir, "global-cache")
 			appRoot := filepath.Join(projectDir, "cake")
 			t.Setenv("POLKA_CACHE_DIR", cacheDir)
@@ -310,13 +308,13 @@ func TestRunDispatchRunsPostComposerHookExceptComposerExitTwo(t *testing.T) {
 			}
 			writeTestConfigFile(t, projectDir, config)
 
-			if code := Run(stdout, stderr, []string{"--root", root, "install", "composer:2.8"}); code != 0 {
+			if code := Run(stdout, stderr, []string{"--dir", projectDir, "install", "composer:2.8"}); code != 0 {
 				t.Fatalf("Run(install composer) code = %d, stderr = %q", code, stderr.String())
 			}
 			stdout.Reset()
 			stderr.Reset()
 
-			if code := Run(stdout, stderr, []string{"--root", root, "dispatch", "composer", "create-project", "cakephp/app", "cake"}); code != test.exitCode {
+			if code := Run(stdout, stderr, []string{"--dir", projectDir, "dispatch", "composer", "create-project", "cakephp/app", "cake"}); code != test.exitCode {
 				t.Fatalf("Run(dispatch composer create-project) code = %d, want %d, stderr = %q", code, test.exitCode, stderr.String())
 			}
 
@@ -365,13 +363,13 @@ func TestRunDispatchRejectsPIE(t *testing.T) {
 	writeTestConfigFile(t, projectDir, config)
 	writeTestActiveEnvironment(t, root, "demo")
 
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 	stdout.Reset()
 	stderr.Reset()
 
-	if code := Run(stdout, stderr, []string{"--root", root, "dispatch", "pie", "install", "asgrim/example-pie-extension"}); code == 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "dispatch", "pie", "install", "asgrim/example-pie-extension"}); code == 0 {
 		t.Fatal("Run(dispatch pie) code = 0, want failure for internal-only tool")
 	}
 	if !strings.Contains(stderr.String(), "unsupported tool") {
@@ -385,11 +383,11 @@ func TestRunDispatchUsesNodeAliasesAndRejectsNodeJSKey(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.nodejs", "24")
+	runTestConfigValue(t, stdout, stderr, projectDir, "demo", "tools.nodejs", "24")
 	stdout.Reset()
 	stderr.Reset()
 
-	if code := Run(stdout, stderr, []string{"--root", root, "use", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "use", "demo"}); code != 0 {
 		t.Fatalf("Run(use) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -406,7 +404,7 @@ func TestRunDispatchUsesNodeAliasesAndRejectsNodeJSKey(t *testing.T) {
 	for _, command := range []string{"node", "npm", "npx", "yarn"} {
 		stdout.Reset()
 		stderr.Reset()
-		if code := Run(stdout, stderr, []string{"--root", root, "dispatch", command, "--version"}); code != 0 {
+		if code := Run(stdout, stderr, []string{"--dir", projectDir, "dispatch", command, "--version"}); code != 0 {
 			t.Fatalf("Run(dispatch %s) code = %d, stderr = %q", command, code, stderr.String())
 		}
 		if !strings.Contains(stdout.String(), "fake-"+command+" --version") {
@@ -416,7 +414,7 @@ func TestRunDispatchUsesNodeAliasesAndRejectsNodeJSKey(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "dispatch", "nodejs", "--version"}); code == 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "dispatch", "nodejs", "--version"}); code == 0 {
 		t.Fatal("Run(dispatch nodejs) code = 0, want unsupported tool error")
 	}
 	if !strings.Contains(stderr.String(), "unsupported tool \"nodejs\"") {

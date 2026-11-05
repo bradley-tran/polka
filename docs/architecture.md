@@ -26,7 +26,7 @@ The CLI should stay thin. It resolves flags and arguments, asks `backend.Store` 
 
 The `backend` package owns Polka project state and orchestration:
 
-- locating the project and `polka.yaml`
+- locating the project and `polka.yaml`, either by searching upward from the working directory or from the `-C/--dir` project directory, and resolving the state directory from the config's `root` key
 - reading, normalizing, and writing config
 - managing `.polka/envs`, `.polka/bin`, `.polka/run`, secrets, and logs
 - installing tools from the global cache into the project
@@ -179,10 +179,12 @@ Managed command shims in `.polka/bin` call back into Polka:
 
 ```text
 .polka/bin/php
-`-- polka --root <root> dispatch php ...
+`-- polka -C <project> dispatch php ...
     `-- backend.Store.ResolveTool("php")
      `-- tools.Registry.ResolveDispatchRequestForEnvironment("php", environment)
 ```
+
+Each shim stores the project directory relative to its own location (absolute only when no relative path exists, such as a state root on another Windows volume), so it works wherever `root` places the state directory and survives moving the whole project. Shims export `POLKA_TOOL_PROJECT_DIR` and `POLKA_TOOL_DISPATCHER`; a shim that inherits them uses them instead, so copies of a shim outside the state directory, such as the ones npm creates, still dispatch to the project that launched them. `-C` selects the project without changing the working directory, so dispatched tools run where they were called.
 
 Dispatch resolution uses the active environment recorded in `.polka/run/current`, or `default` from `polka.yaml` when no local override is selected. It maps command names to the configured provider, reads that environment's definition from `polka.yaml` or `polka.<name>.yaml`, and locates the installed executable under `.polka/envs`. Tool-specific command mappings are declared by manifests and exposed through `tools.Registry`.
 

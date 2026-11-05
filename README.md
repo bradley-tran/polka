@@ -51,7 +51,7 @@ Keys are dot-separated config paths such as `tools.php`, `tools.frankenphp`, `to
 ```yaml
 # polka.yaml
 version: 0.2
-root: .polka
+root: .polka # state directory for tools, shims, and runtime state
 framework: laravel
 https: true
 tools:
@@ -114,10 +114,10 @@ opcache-config:
 
 For per-tool behavior, command shims, Node.js/Yarn support, PostgreSQL notes, PHP-ZTS and FrankenPHP runtime selection, generated `php.ini` behavior, and the `.polka/envs` install layout, see [docs/tools.md](docs/tools.md).
 
-During development you can override the state directory while keeping the config file next to it:
+Polka uses the nearest `polka.yaml` in the current directory or its parents. During development you can point a local build at a project elsewhere with `-C`:
 
 ```bash
-go run . --root ./.polka-dev init
+go run . -C ../my-site install
 ```
 
 The current schema is not yet stable, so expect breaking changes to config file structure and field names until version 1.0.

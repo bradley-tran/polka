@@ -58,7 +58,7 @@ func TestRunShLaunchesInteractiveShellWithPreferredPath(t *testing.T) {
 		t.Fatalf("Chdir() error = %v", err)
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "sh"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "sh"}); code != 0 {
 		t.Fatalf("Run(sh) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -224,7 +224,7 @@ func TestRunShellAliasLaunchesInteractiveShell(t *testing.T) {
 		t.Fatalf("Chdir() error = %v", err)
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "shell"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "shell"}); code != 0 {
 		t.Fatalf("Run(shell) code = %d, stderr = %q", code, stderr.String())
 	}
 	if !launched {

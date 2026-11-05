@@ -3,7 +3,7 @@ package cli
 const rootUsage = `The polka CLI manages isolated PHP virtual environments.
 
 Usage:
-  polka [--root PATH] <command> [options]
+  polka [-C DIR] <command> [options]
 
 Commands:
   init [framework|preset] [--docroot PATH] [--package VENDOR/NAME]
@@ -76,13 +76,16 @@ Examples:
   polka dashboard
 
 Flags:
-  --root PATH          override the state directory (defaults to ./.polka)
+  -C, --dir DIR        use the project whose polka.yaml is in DIR instead of
+                       searching upward from the current directory; commands
+                       still run in the current directory
 `
 
 const initUsage = `Usage:
   polka init [framework|preset] [--docroot PATH] [--package VENDOR/NAME]
 
-Create the local .polka directory, bootstrap polka.yaml, and sync the active environment's dispatch shims into .polka/bin.
+Create the state directory (root in an existing polka.yaml, otherwise .polka), bootstrap polka.yaml, and sync the active environment's dispatch shims into its bin directory.
+Init uses the current directory, or -C DIR, as the project without searching parent directories.
 The generated default environment enables HTTPS and uses <directory>.localhost as server.hostname.
 Use --docroot PATH to set the generated default environment's document root.
 When framework is cakephp, codeigniter, drupal, wordpress, laravel, or symfony, Polka writes an opinionated default config for that framework.

@@ -17,7 +17,6 @@ import (
 
 func TestRunServeUsesCurrentServerConfig(t *testing.T) {
 	projectDir := t.TempDir()
-	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
 	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
@@ -29,7 +28,7 @@ func TestRunServeUsesCurrentServerConfig(t *testing.T) {
 		t.Fatalf("MkdirAll(docroot) error = %v", err)
 	}
 
-	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.php", "8.4")
+	runTestConfigValue(t, stdout, stderr, projectDir, "demo", "tools.php", "8.4")
 	if err := os.WriteFile(filepath.Join(projectDir, ".env"), []byte("APP_ENV=project\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(project .env) error = %v", err)
 	}
@@ -40,18 +39,18 @@ func TestRunServeUsesCurrentServerConfig(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "use", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "use", "demo"}); code != 0 {
 		t.Fatalf("Run(use) code = %d, stderr = %q", code, stderr.String())
 	}
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "start", "--watch", filepath.Join("named-project", "public")}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "start", "--watch", filepath.Join("named-project", "public")}); code != 0 {
 		t.Fatalf("Run(serve) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -100,18 +99,18 @@ func TestRunServeUsesConfiguredDocrootWhenArgumentOmitted(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "use", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "use", "demo"}); code != 0 {
 		t.Fatalf("Run(use) code = %d, stderr = %q", code, stderr.String())
 	}
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "start", "--watch"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "start", "--watch"}); code != 0 {
 		t.Fatalf("Run(serve without arg) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -158,18 +157,18 @@ func TestRunServeArgumentOverridesConfiguredDocroot(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "use", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "use", "demo"}); code != 0 {
 		t.Fatalf("Run(use) code = %d, stderr = %q", code, stderr.String())
 	}
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "start", "--watch", filepath.Join("override-project", "public")}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "start", "--watch", filepath.Join("override-project", "public")}); code != 0 {
 		t.Fatalf("Run(serve with override) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -200,7 +199,7 @@ func TestRunServeRequiresDocrootArgumentOrConfig(t *testing.T) {
 	writeTestConfigFile(t, projectDir, config)
 	writeTestActiveEnvironment(t, root, "demo")
 
-	if code := Run(stdout, stderr, []string{"--root", root, "start"}); code != 1 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "start"}); code != 1 {
 		t.Fatalf("Run(serve without docroot) code = %d, stderr = %q", code, stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "docroot argument or docroot in the current environment file") {
@@ -210,7 +209,6 @@ func TestRunServeRequiresDocrootArgumentOrConfig(t *testing.T) {
 
 func TestRunServeAllowsServerOverride(t *testing.T) {
 	projectDir := t.TempDir()
-	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
 	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
@@ -222,25 +220,25 @@ func TestRunServeAllowsServerOverride(t *testing.T) {
 		t.Fatalf("MkdirAll(docroot) error = %v", err)
 	}
 
-	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.php", "8.4")
+	runTestConfigValue(t, stdout, stderr, projectDir, "demo", "tools.php", "8.4")
 	environment := readTestEnvironmentConfig(t, projectDir, "demo")
 	environment.Server = &testServerConfig{Hostname: "localhost", Port: 8080}
 	writeTestEnvironmentConfig(t, projectDir, "demo", environment)
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "use", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "use", "demo"}); code != 0 {
 		t.Fatalf("Run(use) code = %d, stderr = %q", code, stderr.String())
 	}
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "start", "--watch", "--server", "127.0.0.1:9001", filepath.Join("site", "public")}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "start", "--watch", "--server", "127.0.0.1:9001", filepath.Join("site", "public")}); code != 0 {
 		t.Fatalf("Run(serve) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -303,7 +301,7 @@ func TestRunServeUsesNginxWhenConfigured(t *testing.T) {
 		return 0, nil
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "start", "--watch", filepath.Join("site", "public")}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "start", "--watch", filepath.Join("site", "public")}); code != 0 {
 		t.Fatalf("Run(serve with nginx) code = %d, stderr = %q", code, stderr.String())
 	}
 	if phpCalls != 0 {
@@ -373,7 +371,7 @@ func TestRunServeUsesExplicitApache(t *testing.T) {
 		return 0, nil
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "start", "--watch", filepath.Join("site", "public")}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "start", "--watch", filepath.Join("site", "public")}); code != 0 {
 		t.Fatalf("Run(serve with apache) code = %d, stderr = %q", code, stderr.String())
 	}
 	if phpCalls != 0 {
@@ -438,7 +436,7 @@ func TestRunServeDoesNotSelectApacheWhenServerTypeOmitted(t *testing.T) {
 		return 0, nil
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "start", "--watch"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "start", "--watch"}); code != 0 {
 		t.Fatalf("Run(serve with implicit apache) code = %d, stderr = %q", code, stderr.String())
 	}
 	if phpCalls != 1 || apacheCalls != 0 {
@@ -498,7 +496,7 @@ func TestRunServeUsesExplicitFrankenPHPWhenNginxIsConfigured(t *testing.T) {
 		return 0, nil
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "start", "--watch", filepath.Join("site", "public")}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "start", "--watch", filepath.Join("site", "public")}); code != 0 {
 		t.Fatalf("Run(serve with FrankenPHP) code = %d, stderr = %q", code, stderr.String())
 	}
 	if phpCalls != 0 || nginxCalls != 0 || frankenPHPCalls != 1 {
@@ -1015,7 +1013,7 @@ func TestRunServeRejectsHTTPSWithoutNginx(t *testing.T) {
 	writeTestConfigFile(t, projectDir, config)
 	writeTestActiveEnvironment(t, root, "demo")
 
-	if code := Run(stdout, stderr, []string{"--root", root, "start"}); code != 1 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "start"}); code != 1 {
 		t.Fatalf("Run(serve https without nginx) code = %d, stderr = %q", code, stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "use nginx, apache, or frankenphp") {
@@ -1166,18 +1164,18 @@ func TestRunServeStartsConfiguredDatabaseBeforePhp(t *testing.T) {
 		t.Fatalf("MkdirAll(docroot) error = %v", err)
 	}
 
-	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.php", "8.4")
-	runTestMySQLConfig(t, stdout, stderr, root, "demo", "8.4", 3307)
+	runTestConfigValue(t, stdout, stderr, projectDir, "demo", "tools.php", "8.4")
+	runTestMySQLConfig(t, stdout, stderr, projectDir, "demo", "8.4", 3307)
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "use", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "use", "demo"}); code != 0 {
 		t.Fatalf("Run(use) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -1219,7 +1217,7 @@ func TestRunServeStartsConfiguredDatabaseBeforePhp(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "start", "--watch", filepath.Join("site", "public")}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "start", "--watch", filepath.Join("site", "public")}); code != 0 {
 		t.Fatalf("Run(serve with db) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -1362,7 +1360,7 @@ func TestRunServeStartsConfiguredMailpitBeforeWebserver(t *testing.T) {
 		return serveRunning[address]
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "start"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "start"}); code != 0 {
 		t.Fatalf("Run(serve with mailpit) code = %d, stderr = %q", code, stderr.String())
 	}
 	if strings.Join(order, ",") != "mailpit,web" {
@@ -1471,7 +1469,7 @@ func TestRunServeStartsConfiguredMeilisearchBeforeWebserver(t *testing.T) {
 		return serveRunning[address]
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "start"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "start"}); code != 0 {
 		t.Fatalf("Run(serve with meilisearch) code = %d, stderr = %q", code, stderr.String())
 	}
 	if strings.Join(order, ",") != "meilisearch,web" {
@@ -1573,7 +1571,7 @@ func TestRunServeStartsConfiguredPHPMyAdminBeforeWebserver(t *testing.T) {
 		return time.Date(2026, time.June, 2, 12, 0, 0, 0, time.UTC)
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "start"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "start"}); code != 0 {
 		t.Fatalf("Run(serve with phpmyadmin) code = %d, stderr = %q", code, stderr.String())
 	}
 	if strings.Join(order, ",") != "storage,phpmyadmin,web" {
@@ -1679,7 +1677,7 @@ func TestRunServeStartsHTTPSPHPMyAdminWithRuntimeTLSKey(t *testing.T) {
 		return running[address]
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "start"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "start"}); code != 0 {
 		t.Fatalf("Run(serve with https phpmyadmin) code = %d, stderr = %q", code, stderr.String())
 	}
 	state, err := loadPHPMyAdminState(phpMyAdminStatePath(root, "demo"))
@@ -1788,7 +1786,7 @@ func TestRunServeStartsInBackgroundByDefaultAndStopStopsIt(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "start"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "start"}); code != 0 {
 		t.Fatalf("Run(serve background) code = %d, stderr = %q", code, stderr.String())
 	}
 	if startCalls != 1 {
@@ -1814,7 +1812,7 @@ func TestRunServeStartsInBackgroundByDefaultAndStopStopsIt(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "stop"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "stop"}); code != 0 {
 		t.Fatalf("Run(stop) code = %d, stderr = %q", code, stderr.String())
 	}
 	if stopCalls != 1 {
@@ -1832,7 +1830,7 @@ func TestRunServeStartsInBackgroundByDefaultAndStopStopsIt(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "stop"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "stop"}); code != 0 {
 		t.Fatalf("Run(stop after stop) code = %d, stderr = %q", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "already stopped") {

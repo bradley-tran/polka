@@ -73,10 +73,10 @@ func chdirTest(t *testing.T, dir string) {
 	}
 }
 
-func runTestConfigValue(t *testing.T, stdout, stderr *bytes.Buffer, root, environmentName, key, value string) {
+func runTestConfigValue(t *testing.T, stdout, stderr *bytes.Buffer, projectDir, environmentName, key, value string) {
 	t.Helper()
 
-	args := []string{"--root", root, "config"}
+	args := []string{"--dir", projectDir, "config"}
 	if strings.TrimSpace(environmentName) != "" {
 		args = append(args, "--env", environmentName)
 	}
@@ -86,13 +86,13 @@ func runTestConfigValue(t *testing.T, stdout, stderr *bytes.Buffer, root, enviro
 	}
 }
 
-func runTestMySQLConfig(t *testing.T, stdout, stderr *bytes.Buffer, root, environmentName, version string, port int) {
+func runTestMySQLConfig(t *testing.T, stdout, stderr *bytes.Buffer, projectDir, environmentName, version string, port int) {
 	t.Helper()
 
-	runTestConfigValue(t, stdout, stderr, root, environmentName, "tools.mysql", version)
-	runTestConfigValue(t, stdout, stderr, root, environmentName, "database.engine", "mysql")
+	runTestConfigValue(t, stdout, stderr, projectDir, environmentName, "tools.mysql", version)
+	runTestConfigValue(t, stdout, stderr, projectDir, environmentName, "database.engine", "mysql")
 	if port != 0 {
-		runTestConfigValue(t, stdout, stderr, root, environmentName, "database.port", strconv.Itoa(port))
+		runTestConfigValue(t, stdout, stderr, projectDir, environmentName, "database.port", strconv.Itoa(port))
 	}
 }
 

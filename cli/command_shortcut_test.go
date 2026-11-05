@@ -41,7 +41,7 @@ func TestShortcutPHPExpandsToExec(t *testing.T) {
 	writeTestActiveEnvironment(t, root, "demo")
 	writeFakePHPInRoot(t, root)
 
-	if code := Run(stdout, stderr, []string{"--root", root, "php", "-v"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "php", "-v"}); code != 0 {
 		t.Fatalf("Run(php) code = %d, stderr = %q", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "fake-php") || !strings.Contains(stdout.String(), "-v") {
@@ -76,7 +76,7 @@ func TestShortcutHiddenNodeExpandsToExec(t *testing.T) {
 		t.Fatalf("WriteFile(root node) error = %v", err)
 	}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "node", "polka-shortcut-marker"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "node", "polka-shortcut-marker"}); code != 0 {
 		t.Fatalf("Run(node) code = %d, stderr = %q", code, stderr.String())
 	}
 	if strings.Contains(stderr.String(), "unknown command") {
@@ -91,24 +91,23 @@ func TestShortcutHiddenNodeExpandsToExec(t *testing.T) {
 // top-level "install" shortcut produce the same result for the current environment.
 func TestShortcutEnvInstallMatchesTopLevelInstall(t *testing.T) {
 	projectDir := t.TempDir()
-	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
 	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
 	writeCachedPHP(t, cacheDir, "8.4", fakePHPScript())
-	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.php", "8.4")
+	runTestConfigValue(t, stdout, stderr, projectDir, "demo", "tools.php", "8.4")
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "use", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "use", "demo"}); code != 0 {
 		t.Fatalf("Run(use) code = %d, stderr = %q", code, stderr.String())
 	}
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "env", "install"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "env", "install"}); code != 0 {
 		t.Fatalf("Run(env install) code = %d, stderr = %q", code, stderr.String())
 	}
 	output := stdout.String()

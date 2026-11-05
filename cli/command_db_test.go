@@ -15,7 +15,6 @@ import (
 
 func TestRunDBDispatchesConfiguredDatabaseTool(t *testing.T) {
 	projectDir := t.TempDir()
-	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
 	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
@@ -23,23 +22,23 @@ func TestRunDBDispatchesConfiguredDatabaseTool(t *testing.T) {
 
 	writeCachedDatabaseTool(t, cacheDir, "mysql", "8.4", false, false, false)
 
-	runTestMySQLConfig(t, stdout, stderr, root, "demo", "8.4", 0)
+	runTestMySQLConfig(t, stdout, stderr, projectDir, "demo", "8.4", 0)
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "use", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "use", "demo"}); code != 0 {
 		t.Fatalf("Run(use) code = %d, stderr = %q", code, stderr.String())
 	}
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "db", "--version"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "db", "--version"}); code != 0 {
 		t.Fatalf("Run(db) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -51,7 +50,6 @@ func TestRunDBDispatchesConfiguredDatabaseTool(t *testing.T) {
 
 func TestRunDBPreservesExplicitConnectionArguments(t *testing.T) {
 	projectDir := t.TempDir()
-	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
 	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
@@ -59,23 +57,23 @@ func TestRunDBPreservesExplicitConnectionArguments(t *testing.T) {
 
 	writeCachedDatabaseTool(t, cacheDir, "mysql", "8.4", false, false, false)
 
-	runTestMySQLConfig(t, stdout, stderr, root, "demo", "8.4", 3307)
+	runTestMySQLConfig(t, stdout, stderr, projectDir, "demo", "8.4", 3307)
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "use", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "use", "demo"}); code != 0 {
 		t.Fatalf("Run(use) code = %d, stderr = %q", code, stderr.String())
 	}
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "db", "--host=db.internal", "--port=4406", "--protocol=tcp", "--version"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "db", "--host=db.internal", "--port=4406", "--protocol=tcp", "--version"}); code != 0 {
 		t.Fatalf("Run(db explicit connection) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -90,7 +88,6 @@ func TestRunDBPreservesExplicitConnectionArguments(t *testing.T) {
 
 func TestRunDBTranslatesDatabaseNameOverride(t *testing.T) {
 	projectDir := t.TempDir()
-	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
 	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
@@ -98,23 +95,23 @@ func TestRunDBTranslatesDatabaseNameOverride(t *testing.T) {
 
 	writeCachedDatabaseTool(t, cacheDir, "mysql", "8.4", false, false, false)
 
-	runTestMySQLConfig(t, stdout, stderr, root, "demo", "8.4", 0)
+	runTestMySQLConfig(t, stdout, stderr, projectDir, "demo", "8.4", 0)
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "use", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "use", "demo"}); code != 0 {
 		t.Fatalf("Run(use) code = %d, stderr = %q", code, stderr.String())
 	}
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "db", "--db-name", "reporting", "--version"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "db", "--db-name", "reporting", "--version"}); code != 0 {
 		t.Fatalf("Run(db --db-name) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -129,7 +126,6 @@ func TestRunDBTranslatesDatabaseNameOverride(t *testing.T) {
 
 func TestRunDBClientSubcommandDispatchesReservedWord(t *testing.T) {
 	projectDir := t.TempDir()
-	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
 	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
@@ -137,23 +133,23 @@ func TestRunDBClientSubcommandDispatchesReservedWord(t *testing.T) {
 
 	writeCachedDatabaseTool(t, cacheDir, "mysql", "8.4", false, false, false)
 
-	runTestMySQLConfig(t, stdout, stderr, root, "demo", "8.4", 0)
+	runTestMySQLConfig(t, stdout, stderr, projectDir, "demo", "8.4", 0)
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "use", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "use", "demo"}); code != 0 {
 		t.Fatalf("Run(use) code = %d, stderr = %q", code, stderr.String())
 	}
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "db", "client", "status"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "db", "client", "status"}); code != 0 {
 		t.Fatalf("Run(db client) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -179,7 +175,6 @@ func TestRunDBImportAcceptsSQLAndGzip(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			projectDir := t.TempDir()
-			root := filepath.Join(projectDir, ".polka")
 			cacheDir := filepath.Join(projectDir, "global-cache")
 			capturePath := filepath.Join(projectDir, "captured.sql")
 			t.Setenv("POLKA_CACHE_DIR", cacheDir)
@@ -192,7 +187,7 @@ func TestRunDBImportAcceptsSQLAndGzip(t *testing.T) {
 			}
 			writeCachedArchivePayload(t, cacheDir, "mysql", "8.4", files)
 
-			runTestMySQLConfig(t, stdout, stderr, root, "demo", "8.4", 0)
+			runTestMySQLConfig(t, stdout, stderr, projectDir, "demo", "8.4", 0)
 
 			environment := readTestEnvironmentConfig(t, projectDir, "demo")
 			environment.EnvVars = map[string]string{"POLKA_TEST_DB_CAPTURE_PATH": capturePath}
@@ -200,13 +195,13 @@ func TestRunDBImportAcceptsSQLAndGzip(t *testing.T) {
 
 			stdout.Reset()
 			stderr.Reset()
-			if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
+			if code := Run(stdout, stderr, []string{"--dir", projectDir, "install", "--env", "demo"}); code != 0 {
 				t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 			}
 
 			stdout.Reset()
 			stderr.Reset()
-			if code := Run(stdout, stderr, []string{"--root", root, "use", "demo"}); code != 0 {
+			if code := Run(stdout, stderr, []string{"--dir", projectDir, "use", "demo"}); code != 0 {
 				t.Fatalf("Run(use) code = %d, stderr = %q", code, stderr.String())
 			}
 
@@ -238,7 +233,7 @@ func TestRunDBImportAcceptsSQLAndGzip(t *testing.T) {
 
 			stdout.Reset()
 			stderr.Reset()
-			runArgs := []string{"--root", root, "db", "import"}
+			runArgs := []string{"--dir", projectDir, "db", "import"}
 			runArgs = append(runArgs, testCase.args...)
 			runArgs = append(runArgs, importPath)
 			if code := Run(stdout, stderr, runArgs); code != 0 {
@@ -275,7 +270,6 @@ func TestRunDBExportWritesSQLAndGzip(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			projectDir := t.TempDir()
-			root := filepath.Join(projectDir, ".polka")
 			cacheDir := filepath.Join(projectDir, "global-cache")
 			t.Setenv("POLKA_CACHE_DIR", cacheDir)
 			t.Setenv("POLKA_TEST_DB_DUMP_OUTPUT", "CREATE DATABASE demo;\n")
@@ -286,7 +280,7 @@ func TestRunDBExportWritesSQLAndGzip(t *testing.T) {
 
 			writeCachedDatabaseTool(t, cacheDir, "mysql", "8.4", true, false, false)
 
-			runTestMySQLConfig(t, stdout, stderr, root, "demo", "8.4", 0)
+			runTestMySQLConfig(t, stdout, stderr, projectDir, "demo", "8.4", 0)
 
 			environment := readTestEnvironmentConfig(t, projectDir, "demo")
 			environment.EnvVars = map[string]string{"POLKA_TEST_DB_DUMP_CAPTURE_PATH": dumpCapturePath, "POLKA_TEST_DB_DUMP_OUTPUT": "CREATE DATABASE demo;\n"}
@@ -294,20 +288,20 @@ func TestRunDBExportWritesSQLAndGzip(t *testing.T) {
 
 			stdout.Reset()
 			stderr.Reset()
-			if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
+			if code := Run(stdout, stderr, []string{"--dir", projectDir, "install", "--env", "demo"}); code != 0 {
 				t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 			}
 
 			stdout.Reset()
 			stderr.Reset()
-			if code := Run(stdout, stderr, []string{"--root", root, "use", "demo"}); code != 0 {
+			if code := Run(stdout, stderr, []string{"--dir", projectDir, "use", "demo"}); code != 0 {
 				t.Fatalf("Run(use) code = %d, stderr = %q", code, stderr.String())
 			}
 
 			exportPath := filepath.Join(projectDir, testCase.fileName)
 			stdout.Reset()
 			stderr.Reset()
-			runArgs := []string{"--root", root, "db", "export"}
+			runArgs := []string{"--dir", projectDir, "db", "export"}
 			runArgs = append(runArgs, testCase.args...)
 			runArgs = append(runArgs, exportPath)
 			if code := Run(stdout, stderr, runArgs); code != 0 {
@@ -374,17 +368,17 @@ func TestRunDBLifecycleSubcommandsManageState(t *testing.T) {
 
 	writeCachedDatabaseTool(t, cacheDir, "mysql", "8.4", false, true, true)
 
-	runTestMySQLConfig(t, stdout, stderr, root, "demo", "8.4", 3307)
+	runTestMySQLConfig(t, stdout, stderr, projectDir, "demo", "8.4", 3307)
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "use", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "use", "demo"}); code != 0 {
 		t.Fatalf("Run(use) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -437,7 +431,7 @@ func TestRunDBLifecycleSubcommandsManageState(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "db", "start"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "db", "start"}); code != 0 {
 		t.Fatalf("Run(db start) code = %d, stderr = %q", code, stderr.String())
 	}
 	if initialized != 1 || started != 1 {
@@ -488,7 +482,7 @@ func TestRunDBLifecycleSubcommandsManageState(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "db", "status"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "db", "status"}); code != 0 {
 		t.Fatalf("Run(db status) code = %d, stderr = %q", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "is running") || !strings.Contains(stdout.String(), "3307") {
@@ -497,7 +491,7 @@ func TestRunDBLifecycleSubcommandsManageState(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "db", "stop"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "db", "stop"}); code != 0 {
 		t.Fatalf("Run(db stop) code = %d, stderr = %q", code, stderr.String())
 	}
 	if stopped != 1 {
@@ -515,7 +509,7 @@ func TestRunDBLifecycleSubcommandsManageState(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "db", "status"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "db", "status"}); code != 0 {
 		t.Fatalf("Run(db status after stop) code = %d, stderr = %q", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "is stopped") || !strings.Contains(stdout.String(), "3307") {

@@ -21,7 +21,7 @@ func TestCLIRejectsLegacyManifest(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "polka.demo.yaml"), []byte("tools:\n  php: '8.4'\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	for _, args := range [][]string{{"status"}, {"--root", filepath.Join(dir, ".polka"), "status"}, {"--root", filepath.Join(dir, ".polka"), "config", "--env", "demo", "tools.php", "8.5"}} {
+	for _, args := range [][]string{{"status"}, {"--dir", dir, "status"}, {"--dir", dir, "config", "--env", "demo", "tools.php", "8.5"}} {
 		var stdout, stderr bytes.Buffer
 		if code := Run(&stdout, &stderr, args); code == 0 {
 			t.Fatalf("%v accepted obsolete config", args)

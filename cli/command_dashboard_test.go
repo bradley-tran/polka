@@ -58,10 +58,9 @@ func writeDashboardTestProject(t *testing.T, projectDir string) {
 
 func TestGatherDashboardSnapshotReportsStoppedAndUnsetServices(t *testing.T) {
 	projectDir := t.TempDir()
-	root := filepath.Join(projectDir, ".polka")
 	writeDashboardTestProject(t, projectDir)
 
-	store, err := resolveStore(root)
+	store, err := resolveStore(projectDir)
 	if err != nil {
 		t.Fatalf("resolveStore() error = %v", err)
 	}
@@ -145,7 +144,7 @@ func TestGatherDashboardSnapshotReportsRunningServices(t *testing.T) {
 	pingDatabaseAddressFunc = func(address string) bool { return address == databaseAddress(3307) }
 	workerPIDIsLiveFunc = func(pid int) bool { return pid == 5001 }
 
-	store, err := resolveStore(root)
+	store, err := resolveStore(projectDir)
 	if err != nil {
 		t.Fatalf("resolveStore() error = %v", err)
 	}
@@ -255,12 +254,11 @@ func TestFormatUptime(t *testing.T) {
 // buffers are not terminals, so dashboard prints the one-shot status output.
 func TestRunDashboardFallsBackToStatusWithoutTerminal(t *testing.T) {
 	projectDir := t.TempDir()
-	root := filepath.Join(projectDir, ".polka")
 	writeDashboardTestProject(t, projectDir)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "dashboard"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "dashboard"}); code != 0 {
 		t.Fatalf("Run(dashboard) code = %d, stderr = %q", code, stderr.String())
 	}
 	output := stdout.String()
@@ -276,7 +274,7 @@ func TestRunDashboardRejectsArguments(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	if code := Run(stdout, stderr, []string{"--root", t.TempDir(), "dashboard", "extra"}); code != 1 {
+	if code := Run(stdout, stderr, []string{"--dir", t.TempDir(), "dashboard", "extra"}); code != 1 {
 		t.Fatalf("Run(dashboard extra) code = %d, want 1", code)
 	}
 	if !strings.Contains(stderr.String(), "dashboard does not take arguments") {

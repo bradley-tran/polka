@@ -17,11 +17,11 @@ func TestRunInstallSecondRunReportsUnchanged(t *testing.T) {
 	stderr := &bytes.Buffer{}
 
 	writeCachedPHP(t, cacheDir, "8.4", fakePHPScript())
-	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.php", "8.4")
+	runTestConfigValue(t, stdout, stderr, projectDir, "demo", "tools.php", "8.4")
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 	if strings.Contains(stdout.String(), "(unchanged)") {
@@ -35,7 +35,7 @@ func TestRunInstallSecondRunReportsUnchanged(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install second) code = %d, stderr = %q", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "php 8.4\t(unchanged)") {
@@ -47,7 +47,7 @@ func TestRunInstallSecondRunReportsUnchanged(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo", "--force"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "install", "--env", "demo", "--force"}); code != 0 {
 		t.Fatalf("Run(install --force) code = %d, stderr = %q", code, stderr.String())
 	}
 	if strings.Contains(stdout.String(), "(unchanged)") {
@@ -88,7 +88,7 @@ func TestRunInstallProvisionsPIEExtensions(t *testing.T) {
 	})
 	writeTestActiveEnvironment(t, root, "demo")
 
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -142,7 +142,7 @@ func TestRunInstallSkipsLoadedPIEExtensions(t *testing.T) {
 	})
 	writeTestActiveEnvironment(t, root, "demo")
 
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -159,16 +159,15 @@ func TestRunInstallSkipsLoadedPIEExtensions(t *testing.T) {
 // an explicit tool:version argument.
 func TestRunInstallRejectsInternalOnlyTool(t *testing.T) {
 	projectDir := t.TempDir()
-	root := filepath.Join(projectDir, ".polka")
 	t.Setenv("POLKA_CACHE_DIR", filepath.Join(projectDir, "global-cache"))
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.php", "8.4")
+	runTestConfigValue(t, stdout, stderr, projectDir, "demo", "tools.php", "8.4")
 	stdout.Reset()
 	stderr.Reset()
 
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "pie:1", "--env", "demo"}); code == 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "install", "pie:1", "--env", "demo"}); code == 0 {
 		t.Fatal("Run(install pie:1) code = 0, want internal-only rejection")
 	}
 	if !strings.Contains(stderr.String(), "managed internally") {
@@ -178,14 +177,13 @@ func TestRunInstallRejectsInternalOnlyTool(t *testing.T) {
 
 func TestRunInstallUnknownToolLeavesConfigUnchanged(t *testing.T) {
 	projectDir := t.TempDir()
-	root := filepath.Join(projectDir, ".polka")
 	cacheDir := filepath.Join(projectDir, "global-cache")
 	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
 	writeCachedPHP(t, cacheDir, "8.4", fakePHPScript())
-	runTestConfigValue(t, stdout, stderr, root, "demo", "tools.php", "8.4")
+	runTestConfigValue(t, stdout, stderr, projectDir, "demo", "tools.php", "8.4")
 
 	configPath := filepath.Join(projectDir, "polka.yaml")
 	configBefore, err := os.ReadFile(configPath)
@@ -195,7 +193,7 @@ func TestRunInstallUnknownToolLeavesConfigUnchanged(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "bogus:1.0", "--env", "demo"}); code == 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "install", "bogus:1.0", "--env", "demo"}); code == 0 {
 		t.Fatal("Run(install bogus:1.0) code = 0, want unsupported tool failure")
 	}
 	if !strings.Contains(stderr.String(), "unsupported tool") {

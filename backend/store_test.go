@@ -2173,7 +2173,7 @@ func TestWindowsDispatchBinarySupportsCopiedShimWithInheritedDispatcher(t *testi
 	fakeDispatcherData := "@echo off\r\n" +
 		"> \"%POLKA_TEST_CAPTURE%\" echo args:%*\r\n" +
 		">> \"%POLKA_TEST_CAPTURE%\" echo dispatcher:%POLKA_TOOL_DISPATCHER%\r\n" +
-		">> \"%POLKA_TEST_CAPTURE%\" echo root:%POLKA_TOOL_ROOT%\r\n" +
+		">> \"%POLKA_TEST_CAPTURE%\" echo project:%POLKA_TOOL_PROJECT_DIR%\r\n" +
 		"exit /b 0\r\n"
 	if err := os.WriteFile(fakeDispatcherPath, []byte(fakeDispatcherData), 0o755); err != nil {
 		t.Fatalf("WriteFile(%s) error = %v", fakeDispatcherPath, err)
@@ -2183,7 +2183,7 @@ func TestWindowsDispatchBinarySupportsCopiedShimWithInheritedDispatcher(t *testi
 	command.Dir = projectDir
 	command.Env = append(os.Environ(),
 		"POLKA_TOOL_DISPATCHER="+fakeDispatcherPath,
-		"POLKA_TOOL_ROOT="+store.RootDir,
+		"POLKA_TOOL_PROJECT_DIR="+store.ProjectDir,
 		"POLKA_TEST_CAPTURE="+capturePath,
 	)
 	output, err := command.CombinedOutput()
@@ -2196,14 +2196,14 @@ func TestWindowsDispatchBinarySupportsCopiedShimWithInheritedDispatcher(t *testi
 		t.Fatalf("ReadFile(%s) error = %v", capturePath, err)
 	}
 	capture := string(captureData)
-	if !strings.Contains(capture, "args:--root \""+store.RootDir+"\" dispatch npx create-vite") {
-		t.Fatalf("capture = %q, want copied shim to dispatch through inherited root", capture)
+	if !strings.Contains(capture, "args:-C \""+store.ProjectDir+"\" dispatch npx create-vite") {
+		t.Fatalf("capture = %q, want copied shim to dispatch through inherited project", capture)
 	}
 	if !strings.Contains(capture, "dispatcher:"+fakeDispatcherPath) {
 		t.Fatalf("capture = %q, want inherited dispatcher path", capture)
 	}
-	if !strings.Contains(capture, "root:"+store.RootDir) {
-		t.Fatalf("capture = %q, want inherited root path", capture)
+	if !strings.Contains(capture, "project:"+store.ProjectDir) {
+		t.Fatalf("capture = %q, want inherited project path", capture)
 	}
 }
 
@@ -3458,7 +3458,9 @@ func TestDefaultStoreUsesConfiguredNestedRootFromProjectConfig(t *testing.T) {
 	}
 }
 
-func TestStoreForRootUsesConfiguredNestedRootFromAncestorConfig(t *testing.T) {
+// TestStoreForProjectDirUsesConfiguredNestedRoot verifies an explicit project
+// directory takes its state directory from the config's root key.
+func TestStoreForProjectDirUsesConfiguredNestedRoot(t *testing.T) {
 	projectDir := t.TempDir()
 	root := filepath.Join(projectDir, "test-site", ".polka")
 	configData := []byte("version: 0.2\nroot: test-site/.polka\n")
@@ -3470,19 +3472,22 @@ func TestStoreForRootUsesConfiguredNestedRootFromAncestorConfig(t *testing.T) {
 		t.Fatalf("WriteFile(demo config) error = %v", err)
 	}
 
-	store, err := StoreForRoot(root)
+	store, err := StoreForProjectDir(projectDir)
 	if err != nil {
-		t.Fatalf("StoreForRoot() error = %v", err)
+		t.Fatalf("StoreForProjectDir() error = %v", err)
 	}
 
 	if store.ProjectDir != projectDir {
-		t.Fatalf("StoreForRoot() ProjectDir = %q, want %q", store.ProjectDir, projectDir)
+		t.Fatalf("StoreForProjectDir() ProjectDir = %q, want %q", store.ProjectDir, projectDir)
 	}
 	if store.RootDir != root {
-		t.Fatalf("StoreForRoot() RootDir = %q, want %q", store.RootDir, root)
+		t.Fatalf("StoreForProjectDir() RootDir = %q, want %q", store.RootDir, root)
+	}
+	if store.BinDir != filepath.Join(root, "bin") || store.EnvsDir != filepath.Join(root, "envs") {
+		t.Fatalf("StoreForProjectDir() BinDir/EnvsDir = %q/%q, want under %q", store.BinDir, store.EnvsDir, root)
 	}
 	if store.ConfigFile != filepath.Join(projectDir, "polka.yaml") {
-		t.Fatalf("StoreForRoot() ConfigFile = %q, want %q", store.ConfigFile, filepath.Join(projectDir, "polka.yaml"))
+		t.Fatalf("StoreForProjectDir() ConfigFile = %q, want %q", store.ConfigFile, filepath.Join(projectDir, "polka.yaml"))
 	}
 	if err := store.writeActiveEnvironmentName("demo"); err != nil {
 		t.Fatalf("writeActiveEnvironmentName() error = %v", err)

@@ -151,10 +151,9 @@ func TestBuildConfigFormFieldsSelectOptionsIncludeUnset(t *testing.T) {
 // catalog.
 func TestBuildConfigFormFieldsRoundTrip(t *testing.T) {
 	projectDir := t.TempDir()
-	root := filepath.Join(projectDir, ".polka")
 	t.Setenv("POLKA_CACHE_DIR", filepath.Join(projectDir, "global-cache"))
 
-	store, err := resolveStore(root)
+	store, err := resolveStore(projectDir)
 	if err != nil {
 		t.Fatalf("resolveStore() error = %v", err)
 	}
@@ -232,12 +231,11 @@ func TestValidateConfigFormPort(t *testing.T) {
 
 func TestApplyConfigFormChangesAppliesAllChanges(t *testing.T) {
 	projectDir := t.TempDir()
-	root := filepath.Join(projectDir, ".polka")
 	t.Setenv("POLKA_CACHE_DIR", filepath.Join(projectDir, "global-cache"))
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	store, err := resolveStore(root)
+	store, err := resolveStore(projectDir)
 	if err != nil {
 		t.Fatalf("resolveStore() error = %v", err)
 	}
@@ -276,12 +274,11 @@ func TestApplyConfigFormChangesAppliesAllChanges(t *testing.T) {
 
 func TestApplyConfigFormChangesContinuesAfterFailure(t *testing.T) {
 	projectDir := t.TempDir()
-	root := filepath.Join(projectDir, ".polka")
 	t.Setenv("POLKA_CACHE_DIR", filepath.Join(projectDir, "global-cache"))
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	store, err := resolveStore(root)
+	store, err := resolveStore(projectDir)
 	if err != nil {
 		t.Fatalf("resolveStore() error = %v", err)
 	}
@@ -334,11 +331,10 @@ func TestApplyConfigFormChangesReportsNoChanges(t *testing.T) {
 // are not terminals, so the interactive form must refuse with guidance.
 func TestRunConfigWithoutArgsRequiresTerminal(t *testing.T) {
 	projectDir := t.TempDir()
-	root := filepath.Join(projectDir, ".polka")
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "config"}); code != 1 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "config"}); code != 1 {
 		t.Fatalf("Run(config) code = %d, want 1", code)
 	}
 	if !strings.Contains(stderr.String(), "interactive config requires a terminal") {
@@ -348,11 +344,10 @@ func TestRunConfigWithoutArgsRequiresTerminal(t *testing.T) {
 
 func TestRunConfigRejectsSingleArgument(t *testing.T) {
 	projectDir := t.TempDir()
-	root := filepath.Join(projectDir, ".polka")
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "config", "tools.php"}); code != 1 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "config", "tools.php"}); code != 1 {
 		t.Fatalf("Run(config tools.php) code = %d, want 1", code)
 	}
 	if !strings.Contains(stderr.String(), "config requires a key and value, or no arguments for the interactive form") {

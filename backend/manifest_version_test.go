@@ -28,7 +28,7 @@ func TestLegacyProjectManifestCannotBeBypassed(t *testing.T) {
 			}{
 				{"default", func() error { _, _, err := store.readEnvironment("default"); return err }},
 				{"named", func() error { _, _, err := store.readEnvironment("demo"); return err }},
-				{"explicit root", func() error { _, err := StoreForRoot(store.RootDir); return err }},
+				{"explicit project dir", func() error { _, err := StoreForProjectDir(store.ProjectDir); return err }},
 				{"named write", func() error { return store.writeEnvironmentConfig("demo", Environment{Name: "demo"}) }},
 			}
 			for _, check := range checks {

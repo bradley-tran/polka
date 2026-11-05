@@ -85,7 +85,7 @@ func setupExtTestProject(t *testing.T, phpScript []byte) (projectDir, root, capt
 
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
-	if code := Run(stdout, stderr, []string{"--root", root, "install", "--env", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "install", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(install) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -100,7 +100,7 @@ func TestRunExtInstallRecordsExplicitVersion(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "ext", "install", "xdebug/xdebug:3.4.1", "--env", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "ext", "install", "xdebug/xdebug:3.4.1", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(ext install) code = %d, stderr = %q", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "Installed xdebug/xdebug 3.4.1 for 'demo' environment") {
@@ -145,11 +145,11 @@ func TestRunExtInstallRecordsExplicitVersion(t *testing.T) {
 // TestRunExtInstallParsesVersionFromPIEOutput verifies the recorded version
 // comes from PIE's install output when no constraint is given.
 func TestRunExtInstallParsesVersionFromPIEOutput(t *testing.T) {
-	projectDir, root, _ := setupExtTestProject(t, fakePIEHostPHPScript([]string{"mbstring"}, []string{"mbstring"}, "Installed xdebug/xdebug:3.4.2"))
+	projectDir, _, _ := setupExtTestProject(t, fakePIEHostPHPScript([]string{"mbstring"}, []string{"mbstring"}, "Installed xdebug/xdebug:3.4.2"))
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "ext", "install", "xdebug/xdebug", "--env", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "ext", "install", "xdebug/xdebug", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(ext install) code = %d, stderr = %q", code, stderr.String())
 	}
 
@@ -162,11 +162,11 @@ func TestRunExtInstallParsesVersionFromPIEOutput(t *testing.T) {
 // TestRunExtInstallFallsBackToWildcardVersion verifies an unparseable PIE
 // output records * with a pinning hint.
 func TestRunExtInstallFallsBackToWildcardVersion(t *testing.T) {
-	projectDir, root, _ := setupExtTestProject(t, fakePIEHostPHPScript([]string{"mbstring"}, []string{"mbstring"}, ""))
+	projectDir, _, _ := setupExtTestProject(t, fakePIEHostPHPScript([]string{"mbstring"}, []string{"mbstring"}, ""))
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "ext", "install", "acme/demo", "--env", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "ext", "install", "acme/demo", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(ext install) code = %d, stderr = %q", code, stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "recording * (latest)") {
@@ -186,13 +186,13 @@ func TestRunExtRemoveDeletesEntry(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	if code := Run(stdout, stderr, []string{"--root", root, "ext", "install", "xdebug/xdebug:3.4.1", "--env", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "ext", "install", "xdebug/xdebug:3.4.1", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(ext install) code = %d, stderr = %q", code, stderr.String())
 	}
 	stdout.Reset()
 	stderr.Reset()
 
-	if code := Run(stdout, stderr, []string{"--root", root, "ext", "remove", "xdebug/xdebug", "--env", "demo"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "ext", "remove", "xdebug/xdebug", "--env", "demo"}); code != 0 {
 		t.Fatalf("Run(ext remove) code = %d, stderr = %q", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "Removed xdebug/xdebug from 'demo' environment") {
@@ -239,7 +239,7 @@ func TestRunExtRequiresStandalonePHP(t *testing.T) {
 	})
 	writeTestActiveEnvironment(t, root, "demo")
 
-	if code := Run(stdout, stderr, []string{"--root", root, "ext", "install", "xdebug/xdebug", "--env", "demo"}); code == 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "ext", "install", "xdebug/xdebug", "--env", "demo"}); code == 0 {
 		t.Fatal("Run(ext install) code = 0, want failure for FrankenPHP-only environment")
 	}
 	if !strings.Contains(stderr.String(), "standalone php") {
@@ -250,7 +250,6 @@ func TestRunExtRequiresStandalonePHP(t *testing.T) {
 // TestRunExtRejectsInvalidSpecs verifies package and action validation.
 func TestRunExtRejectsInvalidSpecs(t *testing.T) {
 	projectDir := t.TempDir()
-	root := filepath.Join(projectDir, ".polka")
 	t.Setenv("POLKA_CACHE_DIR", filepath.Join(projectDir, "global-cache"))
 
 	for _, args := range [][]string{
@@ -261,7 +260,7 @@ func TestRunExtRejectsInvalidSpecs(t *testing.T) {
 	} {
 		stdout := &bytes.Buffer{}
 		stderr := &bytes.Buffer{}
-		if code := Run(stdout, stderr, append([]string{"--root", root}, args...)); code == 0 {
+		if code := Run(stdout, stderr, append([]string{"--dir", projectDir}, args...)); code == 0 {
 			t.Fatalf("Run(%v) code = 0, want validation failure", args)
 		}
 	}

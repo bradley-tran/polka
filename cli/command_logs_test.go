@@ -24,7 +24,7 @@ func TestRunLogsPrintsAllExistingNginxLogs(t *testing.T) {
 	writeTestLogFile(t, filepath.Join(root, "run", "nginx", "demo", "serve.log"), "debug-serve\n")
 	writeTestLogFile(t, filepath.Join(root, "run", "nginx", "demo", "php.log"), "debug-php\n")
 
-	if code := Run(stdout, stderr, []string{"--root", root, "logs", "nginx"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "logs", "nginx"}); code != 0 {
 		t.Fatalf("Run(logs nginx) code = %d, stderr = %q", code, stderr.String())
 	}
 	want := "access\nerror\ndebug-serve\ndebug-php\n"
@@ -73,7 +73,7 @@ func TestRunLogsFollowsAppendedOutput(t *testing.T) {
 
 			commandCtx := &commandContext{stdout: stdout, stderr: stderr}
 			command := newRootCommand(commandCtx)
-			command.SetArgs([]string{"--root", root, "logs", "nginx", flag})
+			command.SetArgs([]string{"--dir", projectDir, "logs", "nginx", flag})
 			command.SetOut(stdout)
 			command.SetErr(stderr)
 			if err := command.ExecuteContext(executeCtx); err != nil {
@@ -102,7 +102,7 @@ func TestRunLogsFiltersByLevel(t *testing.T) {
 	writeTestLogFile(t, filepath.Join(root, "run", "nginx", "demo", "logs", "access.log"), "access\n")
 	writeTestLogFile(t, filepath.Join(root, "run", "nginx", "demo", "logs", "error.log"), "error\n")
 
-	if code := Run(stdout, stderr, []string{"--root", root, "logs", "nginx", "--level", "error"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "logs", "nginx", "--level", "error"}); code != 0 {
 		t.Fatalf("Run(logs nginx --level error) code = %d, stderr = %q", code, stderr.String())
 	}
 	if stdout.String() != "error\n" {
@@ -126,7 +126,7 @@ func TestRunLogsPrintsFrankenPHPServeLog(t *testing.T) {
 	writeTestActiveEnvironment(t, root, "demo")
 	writeTestLogFile(t, filepath.Join(root, "run", "frankenphp", "demo", "serve.log"), "frankenphp-debug\n")
 
-	if code := Run(stdout, stderr, []string{"--root", root, "logs", "frankenphp"}); code != 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "logs", "frankenphp"}); code != 0 {
 		t.Fatalf("Run(logs frankenphp) code = %d, stderr = %q", code, stderr.String())
 	}
 	if stdout.String() != "frankenphp-debug\n" {
@@ -136,13 +136,12 @@ func TestRunLogsPrintsFrankenPHPServeLog(t *testing.T) {
 
 func TestRunLogsErrorsWhenNoMatchingFilesExist(t *testing.T) {
 	projectDir := t.TempDir()
-	root := filepath.Join(projectDir, ".polka")
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
 	writeLogsTestConfig(t, projectDir)
 
-	if code := Run(stdout, stderr, []string{"--root", root, "logs", "nginx"}); code == 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "logs", "nginx"}); code == 0 {
 		t.Fatal("Run(logs nginx) code = 0, want error")
 	}
 	if !strings.Contains(stderr.String(), "no log files found for nginx") {
@@ -152,13 +151,12 @@ func TestRunLogsErrorsWhenNoMatchingFilesExist(t *testing.T) {
 
 func TestRunLogsRejectsInvalidLevel(t *testing.T) {
 	projectDir := t.TempDir()
-	root := filepath.Join(projectDir, ".polka")
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
 	writeLogsTestConfig(t, projectDir)
 
-	if code := Run(stdout, stderr, []string{"--root", root, "logs", "nginx", "--level", "trace"}); code == 0 {
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "logs", "nginx", "--level", "trace"}); code == 0 {
 		t.Fatal("Run(logs nginx --level trace) code = 0, want error")
 	}
 	if !strings.Contains(stderr.String(), "invalid log level") {
