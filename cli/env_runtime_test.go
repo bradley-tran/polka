@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -257,5 +258,37 @@ func TestResolveRuntimeEnvironmentAppliesFrameworkDatabaseCredentialsBeforeEnvVa
 		if _, value, ok := lookupEnvValue("linux", resolved, key); !ok || value != want {
 			t.Fatalf("%s = %q, ok=%v, want %q", key, value, ok, want)
 		}
+	}
+}
+
+// TestResolveRuntimeEnvironmentExportsLeasedServicePorts verifies an unpinned
+// Mailpit SMTP port is leased and exported to a Laravel application, so the
+// app talks to this project's Mailpit rather than the fixed default port.
+func TestResolveRuntimeEnvironmentExportsLeasedServicePorts(t *testing.T) {
+	routerDir := useTestRouterDir(t)
+	projectDir := t.TempDir()
+	store := backend.NewProjectStore(projectDir)
+	writeTestConfigFile(t, projectDir, testConfigFile{
+		Version: "0.2",
+		Root:    ".polka",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {Framework: "laravel", Mailpit: &testMailpitConfig{Version: "1.30"}},
+		},
+	})
+	writeTestActiveEnvironment(t, filepath.Join(projectDir, ".polka"), "demo")
+
+	resolved, err := resolveRuntimeEnvironment("linux", nil, store)
+	if err != nil {
+		t.Fatalf("resolveRuntimeEnvironment() error = %v", err)
+	}
+	port, ok, err := service.NewPortRegistry(routerDir, service.DefaultPortRange()).Lookup(store.RootDir, "demo", service.PortKeyMailpitSMTP)
+	if err != nil || !ok {
+		t.Fatalf("Lookup(mailpit-smtp) = %d %v %v, want a lease", port, ok, err)
+	}
+	if _, value, _ := lookupEnvValue("linux", resolved, "MAIL_PORT"); value != strconv.Itoa(port) {
+		t.Fatalf("MAIL_PORT = %q, want leased %d", value, port)
+	}
+	if _, value, _ := lookupEnvValue("linux", resolved, "MAIL_HOST"); value != service.MailpitListenHost {
+		t.Fatalf("MAIL_HOST = %q, want %s", value, service.MailpitListenHost)
 	}
 }

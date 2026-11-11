@@ -489,20 +489,31 @@ func serveRuntimeLabel(kind string) string {
 }
 
 // serveStateMatches reports whether a recorded serve state matches the
-// requested server kind, endpoint, and docroot.
+// requested server kind, endpoint (including its public router origin), and
+// docroot.
 func serveStateMatches(state serveRuntimeState, endpoint serverEndpoint, docroot, serverType string) bool {
 	stateScheme := strings.TrimSpace(state.ServerScheme)
 	if stateScheme == "" {
 		stateScheme = "http"
 	}
+	publicURL := ""
+	if endpoint.Public != nil {
+		publicURL = endpoint.Public.URL()
+	}
 	return strings.EqualFold(strings.TrimSpace(state.ServerKind), strings.TrimSpace(serverType)) &&
 		strings.EqualFold(stateScheme, strings.TrimSpace(endpoint.Scheme)) &&
 		strings.EqualFold(strings.TrimSpace(state.ServerAddress), strings.TrimSpace(endpoint.Address)) &&
+		strings.EqualFold(strings.TrimSpace(state.PublicURL), publicURL) &&
 		filepath.Clean(state.Docroot) == filepath.Clean(docroot)
 }
 
-// serveStateURL renders the URL recorded in a serve state.
+// serveStateURL renders the URL users reach a recorded server at: its global
+// router URL when routed, else its bound address.
 func serveStateURL(state serveRuntimeState) string {
+	if publicURL := strings.TrimSpace(state.PublicURL); publicURL != "" {
+		return publicURL
+	}
+
 	return serverEndpointURL(serverEndpoint{
 		Scheme:  strings.TrimSpace(state.ServerScheme),
 		Address: strings.TrimSpace(state.ServerAddress),

@@ -87,6 +87,7 @@ func newRootCommand(ctx *commandContext) *cobra.Command {
 		newLogsCommand(ctx),
 		newStatusCommand(ctx),
 		newDashboardCommand(ctx),
+		newRouterCommand(ctx),
 		newDispatchCommand(ctx),
 	)
 	for _, spec := range shortcutSpecs() {

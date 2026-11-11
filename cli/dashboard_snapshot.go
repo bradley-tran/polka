@@ -67,7 +67,12 @@ func gatherDashboardSnapshot(store backend.Store, now time.Time) dashboardSnapsh
 		snapshot.NoEnvironment = true
 		return snapshot
 	}
-	environment := *current
+	// Rows report effective ports, including leased ones.
+	environment, err := runtimeServiceEnvironment(store, *current)
+	if err != nil {
+		snapshot.recordError("ports", err)
+		environment = *current
+	}
 	snapshot.EnvironmentName = environment.Name
 
 	webServerState, err := loadWebServerState(store.RootDir, environment.Name)
@@ -84,7 +89,7 @@ func gatherDashboardSnapshot(store backend.Store, now time.Time) dashboardSnapsh
 		gatherMeilisearchRow(store, environment, &snapshot),
 		gatherRedisRow(store, environment, &snapshot),
 		gatherRabbitMQRow(store, environment, &snapshot),
-		gatherTraefikRow(store, environment, &snapshot),
+		gatherRouterRow(store, environment, &snapshot),
 	}
 
 	if len(environment.Workers) == 0 {
@@ -241,14 +246,17 @@ func gatherRabbitMQRow(store backend.Store, environment backend.Environment, sna
 	return row
 }
 
-func gatherTraefikRow(store backend.Store, environment backend.Environment, snapshot *dashboardSnapshot) dashboardServiceRow {
-	row := dashboardServiceRow{Name: "traefik", Status: dashboardStatusUnset}
-	if strings.TrimSpace(environment.ToolVersion("traefik")) == "" {
+// gatherRouterRow reports the shared global router and, when this
+// environment is routed through it, the environment's public URL.
+func gatherRouterRow(store backend.Store, environment backend.Environment, snapshot *dashboardSnapshot) dashboardServiceRow {
+	row := dashboardServiceRow{Name: "router", Status: dashboardStatusUnset}
+	dir, ok := environmentRouterDir(store, environment)
+	if !ok {
 		return row
 	}
 
 	row.Status = dashboardStatusStopped
-	state, err := loadLiveTraefikState(store.RootDir, environment.Name)
+	state, err := service.LoadLiveRouterState(dir, routerRuntimeHooks())
 	if err != nil {
 		snapshot.recordError(row.Name, err)
 		return row
@@ -258,9 +266,16 @@ func gatherTraefikRow(store backend.Store, environment backend.Environment, snap
 	}
 
 	row.Status = dashboardStatusRunning
-	row.Detail = traefikURL(*state)
 	row.PID = state.PID
 	row.StartedAt = state.StartedAt
+	route, err := service.LookupRoute(dir, store.RootDir, environment.Name)
+	if err != nil {
+		snapshot.recordError(row.Name, err)
+		return row
+	}
+	if route != nil {
+		row.Detail = service.PublicURL(route.Host, route.HTTPS, routerSettingsFromState(*state))
+	}
 	return row
 }
 

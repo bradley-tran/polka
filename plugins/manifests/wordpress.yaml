@@ -9,12 +9,8 @@ defaults:
     nginx: "1.30"
     mariadb: "11.8"
     phpmyadmin: "5.2"
-  settings:
-    phpmyadmin:
-      port: 8082
   database:
     engine: mariadb
-    port: 3306
   opcache-preset: dev
 php-extensions:
   - bcmath

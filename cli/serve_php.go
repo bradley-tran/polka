@@ -157,6 +157,13 @@ func renderPHPRuntimeRouter(layout serveAppLayout) []byte {
 	builder.WriteString("    echo 'Document root does not exist.';\n")
 	builder.WriteString("    return true;\n")
 	builder.WriteString("}\n")
+	// The global router reaches the server over loopback and terminates
+	// HTTPS itself; trust its forwarded scheme only from loopback clients.
+	builder.WriteString("$remoteAddress = $_SERVER['REMOTE_ADDR'] ?? '';\n")
+	builder.WriteString("if (($remoteAddress === '127.0.0.1' || $remoteAddress === '::1') && strtolower((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https') {\n")
+	builder.WriteString("    $_SERVER['HTTPS'] = 'on';\n")
+	builder.WriteString("    $_SERVER['REQUEST_SCHEME'] = 'https';\n")
+	builder.WriteString("}\n")
 	builder.WriteString("$requestUri = $_SERVER['REQUEST_URI'] ?? '/';\n")
 	builder.WriteString("$requestPath = (string) (parse_url($requestUri, PHP_URL_PATH) ?? '/');\n")
 	builder.WriteString("$relativePath = ltrim(str_replace('/', DIRECTORY_SEPARATOR, rawurldecode($requestPath)), DIRECTORY_SEPARATOR);\n")

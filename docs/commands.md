@@ -96,11 +96,11 @@ polka config --env blog tools.redis 8.8.0
 polka config --env blog settings.redis.port 6379
 polka config --env blog tools.rabbitmq 4.3
 polka config --env blog settings.rabbitmq.management-port 15672
-polka config --env blog tools.traefik 3.3
-polka config --env blog settings.traefik.port 8080
+polka config --env blog database.port 0
+polka config server.router false
 ```
 
-Use `--env name` to select a named environment. When `--env` is omitted, Polka updates the current environment, falling back to `default` when no local override is selected. Supported keys are schema-aware dot paths such as `tools.php`, `tools.php-zts`, `settings.php.extension-sdk`, `tools.frankenphp`, `tools.apache`, `database.port`, `server.type`, `env-vars.APP_ENV`, `memory-limit`, `php-extensions.xdebug`, `pecl-extensions.redis`, and `opcache-config.opcache.enable_cli`. `tools.php` and `tools.php-zts` are mutually exclusive. `tools.pie` is rejected because PIE is managed internally. `php-extensions.<vendor>/<name>` holds recommended PIE constraints; `pecl-extensions.<name>` holds exact deprecated PECL releases.
+Use `--env name` to select a named environment. When `--env` is omitted, Polka updates the current environment, falling back to `default` when no local override is selected. Supported keys are schema-aware dot paths such as `tools.php`, `tools.php-zts`, `settings.php.extension-sdk`, `tools.frankenphp`, `tools.apache`, `database.port`, `server.type`, `server.router`, `env-vars.APP_ENV`, `memory-limit`, `php-extensions.xdebug`, `pecl-extensions.redis`, and `opcache-config.opcache.enable_cli`. `tools.php` and `tools.php-zts` are mutually exclusive. `tools.pie` and `tools.traefik` are rejected because PIE and Traefik are managed internally. Service port keys such as `database.port` and `settings.redis.port` pin a fixed port; setting one to `0` unpins it so Polka leases a free port instead (see [Global Router and Service Ports](tools.md#global-router-and-service-ports)). `server.router false` serves the environment directly instead of through the global router. `php-extensions.<vendor>/<name>` holds recommended PIE constraints; `pecl-extensions.<name>` holds exact deprecated PECL releases.
 
 ### `polka install [tool:version] [--env name] [--force] [--build]`
 
@@ -177,11 +177,11 @@ Selects one environment as the local override. Use `default` to clear the overri
 
 Alias: `polka info`
 
-Shows the active environment, prints each configured tool on its own line, includes the resolved web server URL, and reports whether the webserver, background workers, phpMyAdmin, Meilisearch, Redis, RabbitMQ, Traefik, managed database, and Mailpit are running. Configured workers are listed one per line, and the runtime section reports live worker replicas as `workers running <live>/<configured>`.
+Shows the active environment, prints each configured tool on its own line (with effective, possibly leased, ports), includes the web server URL (`server https://blog.localhost:8443 (via router)` when routed), and reports whether the webserver, background workers, phpMyAdmin, Meilisearch, Redis, RabbitMQ, managed database, Mailpit, and the global router are running. When the router is running, it also prints one `route <backend> <url>` line per routed URL of the environment. Configured workers are listed one per line, and the runtime section reports live worker replicas as `workers running <live>/<configured>`.
 
 ### `polka dashboard`
 
-Opens a live status view for the active environment in the terminal. It shows the webserver, managed services (database, Mailpit, phpMyAdmin, Meilisearch, Redis, Traefik), and worker processes with their URLs, PIDs, and uptimes, refreshing every 2 seconds. Press `q` to quit.
+Opens a live status view for the active environment in the terminal. It shows the webserver, managed services (database, Mailpit, phpMyAdmin, Meilisearch, Redis, RabbitMQ, and the global router with the environment's routed URL), and worker processes with their URLs, PIDs, and uptimes, refreshing every 2 seconds. Press `q` to quit.
 
 When stdin or stdout is not a terminal — for example when the output is piped — `polka dashboard` prints the one-shot `polka status` output instead.
 
@@ -230,17 +230,21 @@ Starts the active environment's web server.
 ```bash
 polka serve
 polka serve public
-polka serve public --server blog.localhost:8443
+polka serve public --server localhost:8000
 polka serve --watch
 ```
 
-When `docroot` is omitted, Polka uses `docroot` from the current environment file. A docroot may name either a directory or a PHP front-controller file. For example, `docroot: web/app.php` serves static files from `web` and routes missing requests to `app.php`. When `--server` is omitted, Polka reads `server.hostname`, `server.port`, and the root-level `https` setting from the current environment file, defaulting to `http://localhost:8000`.
+When `docroot` is omitted, Polka uses `docroot` from the current environment file. A docroot may name either a directory or a PHP front-controller file. For example, `docroot: web/app.php` serves static files from `web` and routes missing requests to `app.php`.
+
+By default the site is served through the machine-global router, shared by every project: at `https://<host>:8443` when the root-level `https` setting is on, else `http://<host>:8080`, where `<host>` is `server.hostname` or `<project-dir>.localhost`, prefixed with the environment name for environments other than `default`. The webserver binds an automatically leased `127.0.0.1` port behind the router, so several projects and environments run at once without port conflicts, and HTTPS works with every webserver, including PHP's built-in one. Service UIs are routed on subdomains and printed after start, for example `https://mailpit.blog.localhost:8443` and `https://pma.blog.localhost:8443`. `server.port` is not used while routed. On first use Polka downloads the router's Traefik into the internal tools directory; if the router cannot start, `polka serve` warns and binds the webserver directly instead. See [Global Router and Service Ports](tools.md#global-router-and-service-ports).
+
+Pass `--server HOST:PORT`, or set `server.router: false`, to bind the webserver directly as before: Polka then reads `server.hostname`, `server.port`, and `https` from the current environment file, defaulting to `http://localhost:8000`, and the router is not used for the webserver.
 
 By default, Polka starts the webserver in the background, waits for it to begin listening, and records runtime state so `polka stop` can stop it later. Pass `--watch` to keep the webserver attached to the current terminal.
 
 Set `server.type` to `php`, `nginx`, `apache`, or `frankenphp` to select the webserver explicitly. When it is omitted, Polka preserves the existing behavior of selecting nginx when configured and PHP otherwise; Apache is selected only by `server.type: apache`. Nginx and Apache start `php-cgi` on an internal loopback port with generated FastCGI configs. Apache enables project `.htaccess` files by default. FrankenPHP runs through a generated Caddyfile. PHP's built-in webserver uses a generated router that serves existing static files and forwards missing requests into the app router or front controller.
 
-If the environment defines `mailpit`, `meilisearch`, `redis`, `rabbitmq`, `traefik`, `phpmyadmin`, or a managed database, Polka starts those local services before the webserver. If the environment defines `workers`, Polka starts those background worker processes after the other services, so queue consumers and schedulers see the database, Redis, and RabbitMQ already running:
+If the environment defines `mailpit`, `meilisearch`, `redis`, `rabbitmq`, `phpmyadmin`, or a managed database, Polka starts those local services before the webserver, each on its leased (or pinned) port. If the environment defines `workers`, Polka starts those background worker processes after the other services, so queue consumers and schedulers see the database, Redis, and RabbitMQ already running:
 
 ```yaml
 workers:
@@ -252,15 +256,28 @@ workers:
       QUEUE_TRIES: "3"
 ```
 
-Worker commands run with the same environment as `polka exec`: managed tools such as `php` resolve to the environment's installed binaries, and configured `env-file`/`env-vars` values apply. Each replica logs to `.polka/run/workers/<environment>/<name>-<replica>.log`. A worker that fails to launch (bad command, immediate exit) is reported as a warning and never fails `polka serve`; the remaining workers still start, and failed replicas are retried on the next `polka serve`. Workers are also restarted on the next `polka serve` when their configuration changes; a crashed worker is not restarted automatically. `polka init laravel` and `polka init symfony` preset a `queue` and `messenger` worker respectively. When `traefik` is installed, Polka points it at the webserver and reports the proxy URL (`Reverse proxying through Traefik at ...`). `polka status` prints the full Mailpit, Meilisearch, Redis, Traefik, and phpMyAdmin URLs.
+Worker commands run with the same environment as `polka exec`: managed tools such as `php` resolve to the environment's installed binaries, and configured `env-file`/`env-vars` values apply. Each replica logs to `.polka/run/workers/<environment>/<name>-<replica>.log`. A worker that fails to launch (bad command, immediate exit) is reported as a warning and never fails `polka serve`; the remaining workers still start, and failed replicas are retried on the next `polka serve`. Workers are also restarted on the next `polka serve` when their configuration changes; a crashed worker is not restarted automatically. `polka init laravel` and `polka init symfony` preset a `queue` and `messenger` worker respectively. `polka status` prints the full Mailpit, Meilisearch, Redis, and phpMyAdmin URLs.
 
-HTTPS requires nginx, Apache, or FrankenPHP at start time. They use the generated server certificate from the global Polka cache. The certificate covers `localhost`, `*.localhost`, `127.0.0.1`, and `::1`, and is signed by a generated local Polka CA. Hostnames ending in `.localhost`, such as `blog.localhost`, work without editing the hosts file.
+Behind the router, each route uses its own certificate for the host and `*.host`, signed by the local Polka CA. When binding directly, HTTPS requires nginx, Apache, or FrankenPHP at start time. They use the generated server certificate from the global Polka cache. The certificate covers `localhost`, `*.localhost`, `127.0.0.1`, and `::1`, and is signed by a generated local Polka CA. Hostnames ending in `.localhost`, such as `blog.localhost`, work without editing the hosts file.
 
 When Polka creates new HTTPS certificate material during `serve`, it prefers to encrypt global-cache private keys with random keys stored in the OS keyring. Webserver processes still receive plaintext PEM runtime copies under `.polka/run` because nginx, Apache, FrankenPHP, and Mailpit require key file paths. If the OS keyring is unavailable, `serve` falls back to the legacy plaintext global-cache private-key format with a warning so local HTTPS remains usable. Existing plaintext keys continue to work.
 
 ### `polka stop`
 
-Stops the active environment's background webserver, workers, phpMyAdmin, Meilisearch, Redis, Traefik, managed database, and Mailpit when they are running. Workers stop before the services they depend on.
+Stops the active environment's background webserver, workers, phpMyAdmin, Meilisearch, Redis, RabbitMQ, managed database, and Mailpit when they are running. Workers stop before the services they depend on. It then removes the environment's route from the global router and stops the router when no project routes through it any more. A per-project Traefik left running by an older Polka release is stopped as well.
+
+### `polka router [status|stop|restart|logs]`
+
+Manages the machine-global router. It works from any directory.
+
+```bash
+polka router
+polka router stop
+polka router restart
+polka router logs -f
+```
+
+`status` (the default) shows whether the router is running and on which ports, every registered route with its project, environment, and backend loopback ports, and the current project's leased ports. `stop` stops the router but keeps the routes, which are served again on the next `polka serve`. `restart` applies edits to `router.yaml` (`http-port`, `https-port`, and the lease range). `logs` prints the router log; `-f` follows it.
 
 ### `polka logs <tool> [--level info|error|debug] [-f|--follow]`
 
@@ -279,7 +296,7 @@ polka logs mariadb --level error
 polka logs postgresql --level error
 ```
 
-Manifest log paths are resolved under `.polka/run/<tool>/<environment>`. When `--level` is omitted, Polka prints `info`, `error`, and `debug` logs in that order. Missing log files are skipped. If no matching declared log file exists on disk, the command exits with an error. Built-in log declarations cover `nginx`, `apache`, `frankenphp`, `mailpit`, `meilisearch`, `redis`, `rabbitmq`, `traefik`, `phpmyadmin`, `mysql`, `mariadb`, and `postgresql`.
+Manifest log paths are resolved under `.polka/run/<tool>/<environment>`. When `--level` is omitted, Polka prints `info`, `error`, and `debug` logs in that order. Missing log files are skipped. If no matching declared log file exists on disk, the command exits with an error. Built-in log declarations cover `nginx`, `apache`, `frankenphp`, `mailpit`, `meilisearch`, `redis`, `rabbitmq`, `phpmyadmin`, `mysql`, `mariadb`, and `postgresql`. The global router's log is shown by `polka router logs`.
 
 ### `polka cert-install [--no-encryption]`
 

@@ -33,6 +33,7 @@ Commands:
   use <name>           select the active environment
   status, info         show the active environment status
   dashboard            open a live auto-refreshing status view for the active environment
+  router [status]      manage the global router that serves every project by hostname
   remove <name>        remove an environment
   help                 show this help
 
@@ -74,6 +75,7 @@ Examples:
   polka use api
   polka status
   polka dashboard
+  polka router status
 
 Flags:
   -C, --dir DIR        use the project whose polka.yaml is in DIR instead of
@@ -224,10 +226,16 @@ const startUsage = `Usage:
 Start the active environment's local web server.
 When docroot is omitted, Polka uses docroot from the current environment file.
 Docroot may be a directory or a PHP front-controller file such as web/app.php.
-When --server is omitted, Polka uses the current environment's server.hostname, server.port, and root-level https setting, defaulting to localhost:8000.
+By default the site is served through the machine-global router, shared by every project, at
+https://<host>:8443 (or http://<host>:8080 without https), where <host> is server.hostname or
+<directory>.localhost, prefixed with the environment name for non-default environments. The
+webserver and service UIs bind automatically leased loopback ports, so projects never conflict.
+Service UIs get subdomains such as mailpit.<host> and pma.<host>.
+Pass --server HOST:PORT, or set server.router to false, to bind the webserver directly instead;
+then server.hostname, server.port, and https apply, defaulting to localhost:8000.
 server.type explicitly selects php, nginx, apache, or frankenphp. When omitted, nginx is selected when configured and PHP is used otherwise.
 When the current environment defines a database, mailpit, meilisearch, redis, rabbitmq, or phpmyadmin, Polka starts those managed local services first.
-Set root-level https to true to serve nginx, Apache, or FrankenPHP and applicable managed services over HTTPS with Polka's generated local certificate. PHP's built-in webserver does not support HTTPS.
+Set root-level https to true to serve over HTTPS with Polka's generated local certificate. Behind the router any webserver supports HTTPS; when binding directly, PHP's built-in webserver does not.
 By default, Polka starts the webserver in the background and returns once it is listening.
 Pass --watch to keep the webserver attached to the current terminal with the previous foreground behavior.
 `
@@ -235,7 +243,21 @@ Pass --watch to keep the webserver attached to the current terminal with the pre
 const stopUsage = `Usage:
   polka stop
 
-Stop the active environment's local web server, phpMyAdmin, Meilisearch, Redis, Traefik, managed database, and mailpit when they are running.
+Stop the active environment's local web server, phpMyAdmin, Meilisearch, Redis, RabbitMQ, managed database, and mailpit when they are running.
+Also removes the environment's route from the global router, and stops the router when no project routes through it.
+`
+
+const routerUsage = `Usage:
+  polka router [status]
+  polka router stop
+  polka router restart
+  polka router logs [-f|--follow]
+
+Manage the machine-global router (Traefik) that serves every project by hostname.
+status   show the router, every registered route, and the current project's leased ports
+stop     stop the router; routes are kept and served again on the next polka serve
+restart  restart the router to apply edits to router.yaml (http-port, https-port, lease range)
+logs     print the router log; -f follows it
 `
 
 const execUsage = `Usage:
@@ -297,7 +319,7 @@ const statusUsage = `Usage:
 
 Show the active environment, including one line per configured tool and the resolved server URL.
 The active environment name is stored in .polka/run/current when a local override is selected; otherwise Polka uses default.
-Also shows whether the active environment's webserver, phpMyAdmin, Meilisearch, Redis, Traefik, managed database, and mailpit are currently running.
+Also shows whether the active environment's webserver, phpMyAdmin, Meilisearch, Redis, managed database, mailpit, and the global router are currently running, with the environment's routed URLs.
 `
 
 const dashboardUsage = `Usage:

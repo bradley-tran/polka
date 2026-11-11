@@ -249,6 +249,7 @@ func prepareNginxServeRuntime(cacheDir, runtimeDir string, environment backend.E
 			CertificateKeyPath: keyPath,
 		}
 	}
+	tlsConfig.ForwardedHTTPS = endpointForwardsHTTPS(endpoint)
 
 	configPath := filepath.Join(runtimeDir, "nginx.conf")
 	phpLogPath := filepath.Join(runtimeDir, "php.log")
@@ -385,8 +386,14 @@ func renderNginxServeConfig(host string, port int, layout serveAppLayout, backen
 	builder.WriteString("            fastcgi_param REQUEST_URI $request_uri;\n")
 	builder.WriteString("            fastcgi_param DOCUMENT_URI $document_uri;\n")
 	builder.WriteString("            fastcgi_param SERVER_PROTOCOL $server_protocol;\n")
-	builder.WriteString("            fastcgi_param REQUEST_SCHEME $scheme;\n")
-	builder.WriteString("            fastcgi_param HTTPS $https if_not_empty;\n")
+	if tlsConfig.ForwardedHTTPS {
+		// The global router terminated HTTPS before forwarding plain HTTP.
+		builder.WriteString("            fastcgi_param REQUEST_SCHEME https;\n")
+		builder.WriteString("            fastcgi_param HTTPS on;\n")
+	} else {
+		builder.WriteString("            fastcgi_param REQUEST_SCHEME $scheme;\n")
+		builder.WriteString("            fastcgi_param HTTPS $https if_not_empty;\n")
+	}
 	builder.WriteString("            fastcgi_param GATEWAY_INTERFACE CGI/1.1;\n")
 	builder.WriteString("            fastcgi_param SERVER_SOFTWARE nginx/$nginx_version;\n")
 	builder.WriteString("            fastcgi_param REMOTE_ADDR $remote_addr;\n")

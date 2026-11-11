@@ -1,16 +1,11 @@
 id: traefik
-settings:
-  port: port
+# Traefik runs only as Polka's machine-global router; projects cannot pin it.
+internal-only: true
 install-candidates:
   windows-amd64:
     - traefik.exe
   linux-amd64:
     - traefik
-dispatch-commands:
-  - traefik
-logs:
-  info:
-    - traefik.log
 download:
   github:
     owner: traefik

@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,20 +24,23 @@ const (
 // ServeRuntimeState is the persisted runtime state shape used by web-backed
 // services such as phpMyAdmin.
 type ServeRuntimeState struct {
-	EnvironmentName string    `json:"environment"`
-	Version         string    `json:"version,omitempty"`
-	ServerKind      string    `json:"server_kind"`
-	ServerScheme    string    `json:"server_scheme,omitempty"`
-	ServerAddress   string    `json:"server_address"`
-	Docroot         string    `json:"docroot"`
-	RuntimeDir      string    `json:"runtime_dir,omitempty"`
-	LogPath         string    `json:"log_path,omitempty"`
-	BackendLogPath  string    `json:"backend_log_path,omitempty"`
-	ConfigPath      string    `json:"config_path,omitempty"`
-	RouterPath      string    `json:"router_path,omitempty"`
-	PrimaryPID      int       `json:"primary_pid"`
-	SecondaryPID    int       `json:"secondary_pid,omitempty"`
-	StartedAt       time.Time `json:"started_at"`
+	EnvironmentName string `json:"environment"`
+	Version         string `json:"version,omitempty"`
+	ServerKind      string `json:"server_kind"`
+	ServerScheme    string `json:"server_scheme,omitempty"`
+	ServerAddress   string `json:"server_address"`
+	Docroot         string `json:"docroot"`
+	RuntimeDir      string `json:"runtime_dir,omitempty"`
+	LogPath         string `json:"log_path,omitempty"`
+	BackendLogPath  string `json:"backend_log_path,omitempty"`
+	ConfigPath      string `json:"config_path,omitempty"`
+	RouterPath      string `json:"router_path,omitempty"`
+	PrimaryPID      int    `json:"primary_pid"`
+	SecondaryPID    int    `json:"secondary_pid,omitempty"`
+	// PublicURL is the global router URL users reach the server at; empty
+	// when the server is reached directly at ServerAddress.
+	PublicURL string    `json:"public_url,omitempty"`
+	StartedAt time.Time `json:"started_at"`
 }
 
 type AppLayout struct {
@@ -46,10 +50,25 @@ type AppLayout struct {
 	FrontControllerIndex    string
 }
 
+// Endpoint is where a webserver binds. Public is set when the webserver sits
+// behind the global router, which terminates TLS and forwards plain HTTP.
 type Endpoint struct {
 	Scheme  string
 	Address string
 	HTTPS   bool
+	Public  *PublicOrigin
+}
+
+// PublicOrigin is the browser-facing origin of a routed webserver.
+type PublicOrigin struct {
+	Scheme string
+	Host   string
+	Port   int
+}
+
+// URL renders the public origin as a URL.
+func (origin PublicOrigin) URL() string {
+	return origin.Scheme + "://" + net.JoinHostPort(origin.Host, strconv.Itoa(origin.Port))
 }
 
 type PHPMyAdminRuntimeHooks struct {

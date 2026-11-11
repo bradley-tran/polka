@@ -64,6 +64,19 @@ func stopServicePID(pid int) error {
 	return nil
 }
 
+// ensureAddressesFree fails when any address already accepts connections, so
+// a service never starts on (or mistakes as its own) a port held by another
+// process, such as another project's service on an explicitly pinned port.
+func ensureAddressesFree(serviceName string, ping func(string) bool, addresses ...string) error {
+	for _, address := range addresses {
+		if ping(address) {
+			return fmt.Errorf("%s cannot start because %s is already in use", serviceName, address)
+		}
+	}
+
+	return nil
+}
+
 func stopServiceProcess(process *os.Process) {
 	if process == nil {
 		return

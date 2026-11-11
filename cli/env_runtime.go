@@ -54,7 +54,11 @@ func resolveRuntimeEnvironment(goos string, inherited []string, store backend.St
 		}
 	}
 
-	frameworkValues, err := frameworkRuntimeEnvironmentVariables(store, *current)
+	leased, err := leaseEnvironmentPorts(store, *current)
+	if err != nil {
+		return nil, err
+	}
+	frameworkValues, err := frameworkRuntimeEnvironmentVariables(store, leased)
 	if err != nil {
 		return nil, err
 	}
@@ -97,16 +101,49 @@ func frameworkRuntimeEnvironmentVariables(store backend.Store, environment backe
 	if err != nil {
 		return nil, err
 	}
-	endpoint, err := resolveServerEndpoint(environment.Server, "")
+	// The site URL is the router URL when routed, so tools such as Drush
+	// generate links users can open.
+	serverURL, _, err := environmentServerURL(store, environment)
 	if err != nil {
 		return nil, fmt.Errorf("resolve framework server URL for environment %q: %w", environment.Name, err)
 	}
 
 	return plugin.RuntimeEnv(plugins.RuntimeEnvContext{
-		Environment: environment,
-		Database:    credentials,
-		ServerURL:   serverEndpointURL(endpoint),
+		Environment:   environment,
+		Database:      credentials,
+		ServerURL:     serverURL,
+		ServiceValues: frameworkServiceValues(environment),
 	})
+}
+
+// frameworkServiceValues resolves the connection values of every managed
+// service the environment configures, keyed by framework service reference.
+// The environment should already carry leased ports, so the application is
+// pointed at this project's own services rather than the fixed defaults.
+// Unconfigured services are omitted so their runtime groups are skipped.
+func frameworkServiceValues(environment backend.Environment) map[string]string {
+	values := map[string]string{}
+	if mailpit := environment.Mailpit(); mailpit != nil && strings.TrimSpace(mailpit.Version) != "" {
+		values["mailpit.smtp-host"] = service.MailpitListenHost
+		values["mailpit.smtp-port"] = strconv.Itoa(service.EffectiveMailpitSMTPPort(mailpit))
+	}
+	if redis := environment.Redis(); redis != nil && strings.TrimSpace(redis.Version) != "" {
+		values["redis.host"] = service.RedisListenHost
+		values["redis.port"] = strconv.Itoa(service.EffectiveRedisPort(redis))
+		values["redis.password"] = redis.Password
+	}
+	if meilisearch := environment.Meilisearch(); meilisearch != nil && strings.TrimSpace(meilisearch.Version) != "" {
+		values["meilisearch.url"] = service.MeilisearchURLForConfig(meilisearch)
+		values["meilisearch.key"] = meilisearch.MasterKey
+	}
+	if rabbitMQ := environment.RabbitMQ(); rabbitMQ != nil && strings.TrimSpace(rabbitMQ.Version) != "" {
+		values["rabbitmq.host"] = service.RabbitMQListenHost
+		values["rabbitmq.port"] = strconv.Itoa(service.EffectiveRabbitMQPort(rabbitMQ))
+		values["rabbitmq.user"] = service.EffectiveRabbitMQUsername(rabbitMQ)
+		values["rabbitmq.password"] = service.EffectiveRabbitMQPassword(rabbitMQ)
+	}
+
+	return values
 }
 
 func frameworkDatabaseCredentials(rootDir string, environment backend.Environment) (*plugins.DatabaseCredentials, error) {

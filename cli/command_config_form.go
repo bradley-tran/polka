@@ -159,10 +159,6 @@ func buildConfigFormFields(environment backend.Environment) []*configFormField {
 	if value := environment.RabbitMQ(); value != nil {
 		rabbitMQ = *value
 	}
-	var traefik config.TraefikConfig
-	if value := environment.Traefik(); value != nil {
-		traefik = *value
-	}
 
 	fields := []*configFormField{
 		configInputField(configFormGroupGeneral, "framework", "Framework", "", environment.Framework),
@@ -209,8 +205,6 @@ func buildConfigFormFields(environment backend.Environment) []*configFormField {
 		configPortField(configFormGroupServices, "settings.rabbitmq.management-port", "RabbitMQ management port", "", rabbitMQ.ManagementPort),
 		configInputField(configFormGroupServices, "settings.rabbitmq.username", "RabbitMQ username", "defaults to guest", rabbitMQ.Username),
 		configInputField(configFormGroupServices, "settings.rabbitmq.password", "RabbitMQ password", "defaults to guest", rabbitMQ.Password),
-		configInputField(configFormGroupServices, "tools.traefik", "Traefik version", "", traefik.Version),
-		configPortField(configFormGroupServices, "settings.traefik.port", "Traefik port", "", traefik.Port),
 	}
 
 	for _, name := range sortedMapKeys(environment.EnvVars) {

@@ -48,6 +48,8 @@ const (
 	DefaultComposerVersion = "2.8"
 	DefaultNodeJSVersion   = "24"
 	DefaultPIEVersion      = "1"
+	// DefaultTraefikVersion is the Traefik release the global router uses.
+	DefaultTraefikVersion = "3.3"
 )
 
 // defaultInternalToolVersion returns the version used to provision a tool into
@@ -63,6 +65,8 @@ func defaultInternalToolVersion(tool string) string {
 		return DefaultNodeJSVersion
 	case toolPIE:
 		return DefaultPIEVersion
+	case toolTraefik:
+		return DefaultTraefikVersion
 	default:
 		return ""
 	}
@@ -2339,6 +2343,12 @@ func (s Store) withInitDefaults(environment Environment) Environment {
 	}
 
 	return environment
+}
+
+// ProjectLocalHostname returns the <project-dir>.localhost hostname used as
+// the default server hostname and global router host.
+func ProjectLocalHostname(projectDir string) string {
+	return projectLocalHostname(projectDir)
 }
 
 func projectLocalHostname(projectDir string) string {

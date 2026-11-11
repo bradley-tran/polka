@@ -13,15 +13,8 @@ defaults:
     mariadb: "11.8"
     mailpit: "1.30"
     phpmyadmin: "5.2"
-  settings:
-    mailpit:
-      smtp-port: 1025
-      ui-port: 8025
-    phpmyadmin:
-      port: 8082
   database:
     engine: mariadb
-    port: 3306
   opcache-preset: dev
 php-extensions:
   - intl

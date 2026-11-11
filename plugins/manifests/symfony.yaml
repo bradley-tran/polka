@@ -13,15 +13,8 @@ defaults:
     mariadb: "11.8"
     mailpit: "1.30"
     phpmyadmin: "5.2"
-  settings:
-    mailpit:
-      smtp-port: 1025
-      ui-port: 8025
-    phpmyadmin:
-      port: 8082
   database:
     engine: mariadb
-    port: 3306
   opcache-preset: dev
   workers:
     messenger:
@@ -118,6 +111,24 @@ runtime-env:
             from: "values.charset"
           serverVersion:
             from: "values.server-version"
+  # Point Symfony at this project's own managed services, whose ports are
+  # leased per project, overriding stale recipe .env defaults.
+  service-values:
+    mailpit:
+      MAILER_DSN:
+        format:
+          kind: "url"
+          scheme: "smtp"
+          host:
+            from: "mailpit.smtp-host"
+          port:
+            from: "mailpit.smtp-port"
+          path: ""
+    meilisearch:
+      MEILISEARCH_URL:
+        from: "meilisearch.url"
+      MEILISEARCH_API_KEY:
+        from: "meilisearch.key"
 script:
   file: "scripts/symfony.star"
   hooks:

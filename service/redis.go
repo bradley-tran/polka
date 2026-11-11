@@ -159,6 +159,9 @@ func BuildRedisServerSpec(ctx Context) (RedisServerSpec, error) {
 }
 
 func StartRedisServer(spec RedisServerSpec) (RedisStartResult, error) {
+	if err := ensureAddressesFree("redis", PingRedisAddress, RedisAddress(spec.Port)); err != nil {
+		return RedisStartResult{}, err
+	}
 	if err := os.MkdirAll(spec.DataDir, 0o755); err != nil {
 		return RedisStartResult{}, fmt.Errorf("create redis data directory: %w", err)
 	}

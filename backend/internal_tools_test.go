@@ -26,6 +26,23 @@ func TestInternalToolsDirResolution(t *testing.T) {
 	}
 }
 
+// TestRouterDirResolution verifies the override order for the global router
+// directory: POLKA_ROUTER_DIR wins, then a POLKA_CACHE_DIR-derived directory.
+func TestRouterDirResolution(t *testing.T) {
+	projectDir := t.TempDir()
+
+	t.Setenv("POLKA_ROUTER_DIR", filepath.Join(projectDir, "router-override"))
+	t.Setenv("POLKA_CACHE_DIR", filepath.Join(projectDir, "cache-override"))
+	if got := NewProjectStore(projectDir).RouterDir(); got != filepath.Join(projectDir, "router-override") {
+		t.Fatalf("RouterDir() = %q, want POLKA_ROUTER_DIR override", got)
+	}
+
+	t.Setenv("POLKA_ROUTER_DIR", "")
+	if got := routerDir(projectDir); got != filepath.Join(projectDir, "cache-override", "router") {
+		t.Fatalf("routerDir() = %q, want POLKA_CACHE_DIR-derived directory", got)
+	}
+}
+
 // TestEnsureInternalToolInstallsAndRecords verifies the first install extracts
 // the cached payload into the global tools dir, seeds the _internal
 // environment file with the shared default version, records install state,

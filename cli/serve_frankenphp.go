@@ -140,6 +140,7 @@ func prepareFrankenPHPServeRuntime(cacheDir, runtimeDir string, endpoint serverE
 			CertificateKeyPath: keyPath,
 		}
 	}
+	tlsConfig.ForwardedHTTPS = endpointForwardsHTTPS(endpoint)
 
 	configPath := filepath.Join(runtimeDir, frankenPHPCaddyfileName)
 	configData := renderFrankenPHPCaddyfile(endpoint, layout, tlsConfig)
@@ -150,17 +151,34 @@ func prepareFrankenPHPServeRuntime(cacheDir, runtimeDir string, endpoint serverE
 	return configPath, nil
 }
 
-// renderFrankenPHPCaddyfile renders a self-contained development server configuration.
+// renderFrankenPHPCaddyfile renders a self-contained development server
+// configuration. Behind the global router the site matches every Host on its
+// loopback port, because a host-qualified site address would only answer
+// requests whose Host is the loopback IP, never the routed hostname.
 func renderFrankenPHPCaddyfile(endpoint serverEndpoint, layout serveAppLayout, tlsConfig serveTLSConfig) []byte {
+	routed := endpoint.Public != nil
 	var builder strings.Builder
 	builder.WriteString("{\n")
 	builder.WriteString("\tadmin off\n")
-	builder.WriteString("\tauto_https disable_redirects\n")
+	if routed {
+		builder.WriteString("\tauto_https off\n")
+	} else {
+		builder.WriteString("\tauto_https disable_redirects\n")
+	}
 	builder.WriteString("}\n\n")
-	builder.WriteString(endpoint.Scheme)
-	builder.WriteString("://")
-	builder.WriteString(endpoint.Address)
-	builder.WriteString(" {\n")
+	if host, port, err := net.SplitHostPort(endpoint.Address); routed && err == nil {
+		builder.WriteString("http://:")
+		builder.WriteString(port)
+		builder.WriteString(" {\n")
+		builder.WriteString("\tbind ")
+		builder.WriteString(host)
+		builder.WriteString("\n")
+	} else {
+		builder.WriteString(endpoint.Scheme)
+		builder.WriteString("://")
+		builder.WriteString(endpoint.Address)
+		builder.WriteString(" {\n")
+	}
 	builder.WriteString("\troot * ")
 	builder.WriteString(strconv.Quote(filepath.ToSlash(layout.Docroot)))
 	builder.WriteString("\n")
@@ -172,16 +190,24 @@ func renderFrankenPHPCaddyfile(endpoint serverEndpoint, layout serveAppLayout, t
 		builder.WriteString(strconv.Quote(filepath.ToSlash(tlsConfig.CertificateKeyPath)))
 		builder.WriteString("\n")
 	}
-	if layout.FrontControllerRelative == "" || layout.FrontControllerRelative == "index.php" {
+	phpServerDirectives := []string{}
+	if layout.FrontControllerRelative != "" && layout.FrontControllerRelative != "index.php" {
+		frontController := filepath.ToSlash(layout.FrontControllerRelative)
+		phpServerDirectives = append(phpServerDirectives, "try_files {path} {path}/"+frontController+" "+frontController)
+	}
+	if tlsConfig.ForwardedHTTPS {
+		// The global router terminated HTTPS before forwarding plain HTTP.
+		phpServerDirectives = append(phpServerDirectives, "env HTTPS on", "env REQUEST_SCHEME https")
+	}
+	if len(phpServerDirectives) == 0 {
 		builder.WriteString("\tphp_server\n")
 	} else {
-		frontController := filepath.ToSlash(layout.FrontControllerRelative)
 		builder.WriteString("\tphp_server {\n")
-		builder.WriteString("\t\ttry_files {path} {path}/")
-		builder.WriteString(frontController)
-		builder.WriteString(" ")
-		builder.WriteString(frontController)
-		builder.WriteString("\n")
+		for _, directive := range phpServerDirectives {
+			builder.WriteString("\t\t")
+			builder.WriteString(directive)
+			builder.WriteString("\n")
+		}
 		builder.WriteString("\t}\n")
 	}
 	builder.WriteString("}\n")

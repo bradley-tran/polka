@@ -14,7 +14,6 @@ type RuntimeHooks struct {
 	Meilisearch             MeilisearchRuntimeHooks
 	Redis                   RedisRuntimeHooks
 	RabbitMQ                RabbitMQRuntimeHooks
-	Traefik                 TraefikRuntimeHooks
 	PHPMyAdmin              PHPMyAdminRuntimeHooks
 	Workers                 WorkersRuntimeHooks
 	EnsurePHPMyAdminStorage func(Context, Environment, DatabaseRuntimeHooks) error
@@ -24,7 +23,6 @@ type StartResult struct {
 	Meilisearch *MeilisearchStartSummary
 	Redis       *RedisStartSummary
 	RabbitMQ    *RabbitMQStartSummary
-	Traefik     *TraefikStartSummary
 	PHPMyAdmin  *PHPMyAdminStartResult
 	Workers     *WorkersStartSummary
 }
@@ -44,11 +42,6 @@ type RabbitMQStartSummary struct {
 	AlreadyStarted bool
 }
 
-type TraefikStartSummary struct {
-	State          TraefikRuntimeState
-	AlreadyStarted bool
-}
-
 type PHPMyAdminStartResult struct {
 	State          ServeRuntimeState
 	AlreadyStarted bool
@@ -65,7 +58,6 @@ type StopResult struct {
 	Meilisearch *StopMeilisearchResult
 	Redis       *StopRedisResult
 	RabbitMQ    *StopRabbitMQResult
-	Traefik     *StopTraefikResult
 	Database    *StopDatabaseResult
 	Mailpit     *StopMailpitResult
 }
@@ -97,11 +89,6 @@ type StopRedisResult struct {
 
 type StopRabbitMQResult struct {
 	State          RabbitMQRuntimeState
-	AlreadyStopped bool
-}
-
-type StopTraefikResult struct {
-	State          TraefikRuntimeState
 	AlreadyStopped bool
 }
 
@@ -156,16 +143,6 @@ func (m Manager) Start(ctx Context, hooks RuntimeHooks) (StartResult, error) {
 				return StartResult{}, err
 			}
 			result.RabbitMQ = &RabbitMQStartSummary{State: state, AlreadyStarted: alreadyStarted}
-		}
-	}
-
-	if ctx.Environment.Traefik() != nil && strings.TrimSpace(ctx.Environment.Traefik().Version) != "" {
-		if !ctx.skipMissingTool("traefik", toolTraefik) {
-			state, alreadyStarted, err := EnsureManagedTraefikStarted(ctx, hooks.Traefik)
-			if err != nil {
-				return StartResult{}, err
-			}
-			result.Traefik = &TraefikStartSummary{State: state, AlreadyStarted: alreadyStarted}
 		}
 	}
 
@@ -240,12 +217,6 @@ func (m Manager) Stop(ctx Context, hooks RuntimeHooks) (StopResult, error) {
 	}
 	result.RabbitMQ = &StopRabbitMQResult{State: rabbitMQState, AlreadyStopped: rabbitMQAlreadyStopped}
 
-	traefikState, traefikAlreadyStopped, err := StopManagedTraefik(ctx, hooks.Traefik)
-	if err != nil {
-		return StopResult{}, err
-	}
-	result.Traefik = &StopTraefikResult{State: traefikState, AlreadyStopped: traefikAlreadyStopped}
-
 	databaseState, databaseAlreadyStopped, err := StopManagedDatabaseForEnvironment(ctx, hooks.Database)
 	if err != nil {
 		return StopResult{}, err
@@ -280,8 +251,5 @@ func (m Manager) WarnMissingRuntimeTools(ctx Context) {
 	}
 	if ctx.Environment.RabbitMQ() != nil && strings.TrimSpace(ctx.Environment.RabbitMQ().Version) != "" {
 		_ = ctx.skipMissingTool("rabbitmq", toolRabbitMQ)
-	}
-	if ctx.Environment.Traefik() != nil && strings.TrimSpace(ctx.Environment.Traefik().Version) != "" {
-		_ = ctx.skipMissingTool("traefik", toolTraefik)
 	}
 }

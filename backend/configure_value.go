@@ -308,6 +308,18 @@ func applyServerConfigValue(environment *Environment, path []string, value strin
 			return err
 		}
 		environment.Server.Port = port
+	case "router":
+		// Only an explicit opt-out is stored; true restores the default.
+		enabled, err := parseConfigBoolValue(strings.Join(path, "."), value)
+		if err != nil {
+			return err
+		}
+		if enabled {
+			environment.Server.Router = nil
+		} else {
+			disabled := false
+			environment.Server.Router = &disabled
+		}
 	default:
 		return unsupportedConfigKey(path)
 	}

@@ -1,7 +1,8 @@
 package cli
 
 // This file contains the serve/start command itself: flag and argument
-// resolution, the start workflow, and the optional Traefik front proxy setup.
+// resolution and the start workflow, including routing through the global
+// router (whose project-facing helpers live in router.go).
 // The webserver runtime handling it drives lives in serve_runtime.go and the
 // per-server serve_php.go, serve_nginx.go, serve_apache.go, and
 // serve_frankenphp.go files; TLS assets live in serve_tls.go.
@@ -94,7 +95,14 @@ func runStart(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
-	if endpoint.HTTPS && serverType == config.ServerTypePHP {
+	routing, err := resolveServeRouting(store, *current, input)
+	if err != nil {
+		fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
+	// Behind the router TLS terminates at Traefik, so every webserver,
+	// including PHP's built-in one, serves plain HTTP.
+	if routing == nil && endpoint.HTTPS && serverType == config.ServerTypePHP {
 		fmt.Fprintln(stderr, "error: https is not supported by the PHP webserver; use nginx, apache, or frankenphp")
 		return 1
 	}
@@ -119,6 +127,21 @@ func runStart(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 		return 1
 	}
 
+	if routing != nil {
+		if _, err := ensureRouterRunning(stdout, stderr, store, routing.Dir, routing.Settings); err != nil {
+			// Serving must not depend on the router: fall back to binding
+			// the webserver directly, as an opted-out environment would.
+			fmt.Fprintf(stderr, "warning: the global router is unavailable, serving directly instead: %v\n", err)
+			routing = nil
+			if endpoint.HTTPS && serverType == config.ServerTypePHP {
+				fmt.Fprintln(stderr, "error: https is not supported by the PHP webserver without the global router; use nginx, apache, or frankenphp")
+				return 1
+			}
+		} else {
+			endpoint = routing.bindEndpoint()
+		}
+	}
+
 	liveState, err := loadWebServerState(store.RootDir, current.Name)
 	if err != nil {
 		fmt.Fprintf(stderr, "error: %v\n", err)
@@ -126,6 +149,18 @@ func runStart(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 	}
 	if liveState != nil {
 		if serveStateMatches(*liveState, endpoint, layout.Docroot, serverType) {
+			// Re-publish the route: the router may have been restarted or
+			// its routes removed since the webserver started.
+			if routing != nil {
+				route, err := registerServeRoute(stderr, store, *current, *routing)
+				if err != nil {
+					fmt.Fprintf(stderr, "error: %v\n", err)
+					return 1
+				}
+				fmt.Fprintf(stdout, "Webserver for environment %q is already running at %s.\n", current.Name, serveStateURL(*liveState))
+				writeRouteURLs(stdout, route, routing.Settings)
+				return 0
+			}
 			fmt.Fprintf(stdout, "Webserver for environment %q is already running at %s.\n", current.Name, serveStateURL(*liveState))
 			return 0
 		}
@@ -134,13 +169,25 @@ func runStart(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 		return 1
 	}
 
-	traefikProxy, err := prepareTraefikServeProxy(store, *current, endpoint)
-	if err != nil {
-		fmt.Fprintf(stderr, "error: %v\n", err)
-		return 1
-	}
-	if traefikProxy.Active && input.Watch {
-		fmt.Fprintf(stdout, "Reverse proxying through Traefik at %s.\n", traefikProxy.URL)
+	// Publish the route before the webserver starts so it is reachable as
+	// soon as it listens; Traefik answers 502 until then.
+	var route service.Route
+	if routing != nil {
+		route, err = registerServeRoute(stderr, store, *current, *routing)
+		if err != nil {
+			fmt.Fprintf(stderr, "error: %v\n", err)
+			return 1
+		}
+		if input.Watch {
+			fmt.Fprintf(stdout, "Serving environment %q at %s.\n", current.Name, routing.bindEndpoint().Public.URL())
+			writeRouteURLs(stdout, route, routing.Settings)
+			// A foreground webserver owns its route only while it runs.
+			defer func() {
+				if err := unregisterServeRoute(stdout, store, current.Name); err != nil {
+					fmt.Fprintf(stderr, "warning: remove router route: %v\n", err)
+				}
+			}()
+		}
 	}
 
 	exitCode, err := hooks.StartWebserver(webserverStartHookContext{
@@ -154,68 +201,19 @@ func runStart(stdout, stderr io.Writer, store backend.Store, input serveCommandI
 		Layout:      layout,
 	})
 	if err != nil {
+		if routing != nil && !input.Watch {
+			if unregisterErr := unregisterServeRoute(io.Discard, store, current.Name); unregisterErr != nil {
+				fmt.Fprintf(stderr, "warning: remove router route: %v\n", unregisterErr)
+			}
+		}
 		fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
-	if traefikProxy.Active && !input.Watch {
-		fmt.Fprintf(stdout, "Reverse proxying through Traefik at %s.\n", traefikProxy.URL)
+	if routing != nil && !input.Watch {
+		writeRouteURLs(stdout, route, routing.Settings)
 	}
 
 	return exitCode
-}
-
-// traefikServeProxy captures whether a managed Traefik front proxy is active for
-// the current serve and the URL it is reachable at.
-type traefikServeProxy struct {
-	Active bool
-	URL    string
-}
-
-// prepareTraefikServeProxy points a running managed Traefik at the environment
-// webserver. It is a no-op when the environment does not configure Traefik or
-// when Traefik is not installed and running, so serving still works without it.
-func prepareTraefikServeProxy(store backend.Store, environment backend.Environment, endpoint serverEndpoint) (traefikServeProxy, error) {
-	if strings.TrimSpace(environment.ToolVersion("traefik")) == "" {
-		return traefikServeProxy{}, nil
-	}
-
-	liveState, err := loadLiveTraefikState(store.RootDir, environment.Name)
-	if err != nil {
-		return traefikServeProxy{}, err
-	}
-	if liveState == nil {
-		// Traefik is configured but not installed or not running; serve directly.
-		return traefikServeProxy{}, nil
-	}
-
-	host, _, err := net.SplitHostPort(endpoint.Address)
-	if err != nil || strings.TrimSpace(host) == "" {
-		host = defaultServeHostname
-	}
-
-	// When the project serves HTTPS, terminate TLS at the Traefik entrypoint with
-	// Polka's local certificate so the proxy URL is https and trusted by the
-	// local CA, matching the webserver it fronts.
-	scheme := "http"
-	var tlsConfig *service.TraefikTLSConfig
-	if endpoint.HTTPS {
-		certPath, keyPath, err := ensureGlobalTLSCertificateRuntimeKey(store.CacheDir, service.TraefikRuntimeDir(store.RootDir, environment.Name), host)
-		if err != nil {
-			return traefikServeProxy{}, err
-		}
-		tlsConfig = &service.TraefikTLSConfig{CertificatePath: certPath, KeyPath: keyPath}
-		scheme = "https"
-	}
-
-	upstreamURL := serverEndpointURL(endpoint)
-	if err := service.WriteTraefikDynamicConfig(store.RootDir, environment.Name, upstreamURL, endpoint.HTTPS, tlsConfig); err != nil {
-		return traefikServeProxy{}, err
-	}
-
-	return traefikServeProxy{
-		Active: true,
-		URL:    scheme + "://" + net.JoinHostPort(host, strconv.Itoa(liveState.Port)),
-	}, nil
 }
 
 // resolveEnvironmentServerType returns the configured webserver provider.

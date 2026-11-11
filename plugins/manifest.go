@@ -40,10 +40,16 @@ type frameworkAppRootConfig struct {
 
 // frameworkRuntimeEnvManifest separates general runtime values from values that
 // can only be exported after managed database credentials have been generated.
+//
+// ServiceValues groups variables by managed service (mailpit, redis,
+// meilisearch, rabbitmq). A group is exported only when the environment
+// configures that service, independently of requires-database, so service
+// connection settings reach the application even without a database.
 type frameworkRuntimeEnvManifest struct {
-	RequiresDatabase bool                      `yaml:"requires-database"`
-	Values           map[string]frameworkValue `yaml:"values"`
-	DatabaseValues   map[string]frameworkValue `yaml:"database-values"`
+	RequiresDatabase bool                                 `yaml:"requires-database"`
+	Values           map[string]frameworkValue            `yaml:"values"`
+	DatabaseValues   map[string]frameworkValue            `yaml:"database-values"`
+	ServiceValues    map[string]map[string]frameworkValue `yaml:"service-values"`
 }
 
 type frameworkPostComposerManifest struct {

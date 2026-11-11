@@ -43,6 +43,11 @@ type RuntimeEnvContext struct {
 	Database    *DatabaseCredentials
 	// ServerURL is the resolved webserver URL supplied by the runtime layer.
 	ServerURL string
+	// ServiceValues holds the resolved connection values of the managed
+	// services the environment configures, keyed by service reference such
+	// as "redis.port". The runtime layer supplies it so ports leased per
+	// project reach the application; a missing key resolves to empty.
+	ServiceValues map[string]string
 }
 
 // PostComposerContext is passed to framework plugins after selected Composer workflows finish.
@@ -52,6 +57,8 @@ type PostComposerContext struct {
 	WorkingDir  string
 	Args        []string
 	Database    *DatabaseCredentials
+	// ServiceValues mirrors RuntimeEnvContext.ServiceValues for generated files.
+	ServiceValues map[string]string
 }
 
 // NginxConfigContext is passed to framework plugins before Polka writes its generated nginx config.

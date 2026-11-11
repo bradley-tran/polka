@@ -22,26 +22,28 @@ func TestPostgreSQLToolAndDatabaseRoundTrip(t *testing.T) {
 	}
 }
 
-func TestTraefikToolAndSettingsRoundTrip(t *testing.T) {
+// TestServerRouterOptOutRoundTrip verifies `server.router: false` survives
+// normalization and file conversion on its own, and that only an explicit
+// false opts out of the global router.
+func TestServerRouterOptOutRoundTrip(t *testing.T) {
+	disabled := false
 	environment := NormalizeEnvironment("demo", Environment{
-		Name:     "demo",
-		Tools:    ToolsConfig{"traefik": "3.3"},
-		Settings: SettingsConfig{"traefik": {"port": 8090}},
+		Name:   "demo",
+		Server: &ServerConfig{Router: &disabled},
 	})
-
-	// The version belongs under tools; the port belongs under settings.
-	file := EnvironmentFileFromEnvironment(environment)
-	if file.Tools == nil || file.Tools["traefik"] != "3.3" {
-		t.Fatalf("EnvironmentFileFromEnvironment().Tools = %#v, want traefik 3.3", file.Tools)
-	}
-	if file.Settings == nil || file.Settings["traefik"] == nil || file.Settings["traefik"]["port"] != 8090 {
-		t.Fatalf("EnvironmentFileFromEnvironment().Settings = %#v, want traefik port 8090", file.Settings)
+	if environment.Server == nil || environment.Server.UsesRouter() {
+		t.Fatalf("NormalizeEnvironment().Server = %#v, want router opt-out kept", environment.Server)
 	}
 
-	roundTrip := EnvironmentFileToEnvironment("demo", file)
-	traefik := roundTrip.Traefik()
-	if traefik == nil || traefik.Version != "3.3" || traefik.Port != 8090 {
-		t.Fatalf("EnvironmentFileToEnvironment().Traefik() = %#v, want restored version and port", traefik)
+	roundTrip := EnvironmentFileToEnvironment("demo", EnvironmentFileFromEnvironment(environment))
+	if roundTrip.Server == nil || roundTrip.Server.UsesRouter() {
+		t.Fatalf("round-tripped Server = %#v, want router opt-out kept", roundTrip.Server)
+	}
+
+	var unset *ServerConfig
+	enabled := true
+	if !unset.UsesRouter() || !(&ServerConfig{}).UsesRouter() || !(&ServerConfig{Router: &enabled}).UsesRouter() {
+		t.Fatal("UsesRouter() = false without an explicit opt-out")
 	}
 }
 
@@ -278,7 +280,7 @@ func TestUnknownToolAndSettingsRoundTrip(t *testing.T) {
 // return nil when unconfigured and inherit HTTPS from the environment when set.
 func TestServiceViewsNilAndHTTPSInheritance(t *testing.T) {
 	empty := Environment{HTTPS: true}
-	if empty.Mailpit() != nil || empty.PHPMyAdmin() != nil || empty.Meilisearch() != nil || empty.Redis() != nil || empty.RabbitMQ() != nil || empty.Traefik() != nil {
+	if empty.Mailpit() != nil || empty.PHPMyAdmin() != nil || empty.Meilisearch() != nil || empty.Redis() != nil || empty.RabbitMQ() != nil {
 		t.Fatalf("expected nil service views on unconfigured HTTPS environment")
 	}
 

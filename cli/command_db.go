@@ -108,8 +108,12 @@ func resolveDBEnvironment(store backend.Store) (dbResolvedEnvironment, error) {
 	if current == nil {
 		return dbResolvedEnvironment{}, fmt.Errorf("no active environment selected")
 	}
+	leased, err := leaseEnvironmentPorts(store, *current)
+	if err != nil {
+		return dbResolvedEnvironment{}, err
+	}
 
-	return service.ResolveDatabaseEnvironment(*current)
+	return service.ResolveDatabaseEnvironment(leased)
 }
 
 func runDBClient(stdout, stderr io.Writer, store backend.Store, resolved dbResolvedEnvironment, args []string) int {

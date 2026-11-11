@@ -208,7 +208,12 @@ func newFrameworkValueChecker(m frameworkManifest) (*frameworkValueChecker, erro
 	for key, value := range m.Values {
 		named["values."+key] = value
 	}
-	for _, values := range []map[string]frameworkValue{m.RuntimeEnv.Values, m.RuntimeEnv.DatabaseValues} {
+	for serviceName := range m.RuntimeEnv.ServiceValues {
+		if !slices.Contains(frameworkServiceNames, serviceName) {
+			return nil, fmt.Errorf("unsupported service-values service %q", serviceName)
+		}
+	}
+	for _, values := range frameworkRuntimeEnvGroups(m) {
 		for key, value := range values {
 			if !validFrameworkVariable(key) {
 				return nil, fmt.Errorf("invalid runtime variable name %q", key)
@@ -240,7 +245,7 @@ func (c *frameworkValueChecker) check(v frameworkValue) error {
 			if !slices.Contains([]string{"engine", "version", "host", "port", "name", "user", "password"}, strings.TrimPrefix(v.From, "database.")) {
 				return fmt.Errorf("unknown reference %q", v.From)
 			}
-		} else if v.From != "server.url" && v.From != "mailpit.smtp-port" {
+		} else if v.From != "server.url" && !slices.Contains(frameworkServiceReferences, v.From) {
 			if _, exists := c.named[v.From]; !exists {
 				return fmt.Errorf("unknown reference %q", v.From)
 			}
@@ -316,7 +321,44 @@ type frameworkValueState struct {
 	database  *DatabaseCredentials
 	mailpit   *config.MailpitConfig
 	serverURL string
+	services  map[string]string
 	memo      map[string]any
+}
+
+// frameworkServiceNames lists the managed services a manifest may group
+// runtime variables under in runtime-env.service-values.
+var frameworkServiceNames = []string{"mailpit", "redis", "meilisearch", "rabbitmq"}
+
+// frameworkServiceReferences lists the managed service connection values a
+// binding may reference. The runtime layer resolves them, including leased
+// ports, into RuntimeEnvContext.ServiceValues.
+var frameworkServiceReferences = []string{
+	"mailpit.smtp-host", "mailpit.smtp-port",
+	"redis.host", "redis.port", "redis.password",
+	"meilisearch.url", "meilisearch.key",
+	"rabbitmq.host", "rabbitmq.port", "rabbitmq.user", "rabbitmq.password",
+}
+
+// frameworkRuntimeEnvGroups returns every runtime variable group of a
+// manifest: general values, database values, then service groups in a
+// stable order.
+func frameworkRuntimeEnvGroups(m frameworkManifest) []map[string]frameworkValue {
+	groups := []map[string]frameworkValue{m.RuntimeEnv.Values, m.RuntimeEnv.DatabaseValues}
+	for _, serviceName := range slices.Sorted(maps.Keys(m.RuntimeEnv.ServiceValues)) {
+		groups = append(groups, m.RuntimeEnv.ServiceValues[serviceName])
+	}
+	return groups
+}
+
+// configuresService reports whether the runtime layer supplied any value for
+// the service, which it does only for services the environment configures.
+func (s *frameworkValueState) configuresService(serviceName string) bool {
+	for key := range s.services {
+		if strings.HasPrefix(key, serviceName+".") {
+			return true
+		}
+	}
+	return false
 }
 
 // newFrameworkValueState normalizes a private credential copy for one invocation.
@@ -339,7 +381,7 @@ func newFrameworkValueState(m frameworkManifest, ctx RuntimeEnvContext) *framewo
 			db.Version = version
 		}
 	}
-	return &frameworkValueState{manifest: m, database: db, mailpit: ctx.Environment.Mailpit(), serverURL: ctx.ServerURL, memo: map[string]any{}}
+	return &frameworkValueState{manifest: m, database: db, mailpit: ctx.Environment.Mailpit(), serverURL: ctx.ServerURL, services: ctx.ServiceValues, memo: map[string]any{}}
 }
 
 // reference resolves a validated selector, memoizing named values for this call.
@@ -351,11 +393,24 @@ func (s *frameworkValueState) reference(ref string) (any, error) {
 		return s.serverURL, nil
 	}
 	if ref == "mailpit.smtp-port" {
-		// Leave an omitted port empty so the manifest can supply its default.
+		// Prefer the resolved (possibly leased) port from the runtime layer,
+		// then the configured port. Leave an omitted port empty so the
+		// manifest can supply its default.
+		if value, ok := s.services[ref]; ok && value != "" {
+			return value, nil
+		}
 		if s.mailpit == nil || s.mailpit.SMTPPort == 0 {
 			return nil, nil
 		}
 		return s.mailpit.SMTPPort, nil
+	}
+	if slices.Contains(frameworkServiceReferences, ref) {
+		// A service the environment does not configure resolves to empty so
+		// a binding default can apply.
+		if value, ok := s.services[ref]; ok {
+			return value, nil
+		}
+		return nil, nil
 	}
 	if strings.HasPrefix(ref, "database.") {
 		if s.database == nil {
@@ -375,9 +430,10 @@ func (s *frameworkValueState) reference(ref string) (any, error) {
 		value, ok = s.manifest.Values[strings.TrimPrefix(ref, "values.")]
 	} else if strings.HasPrefix(ref, "runtime-env.") {
 		key := strings.TrimPrefix(ref, "runtime-env.")
-		value, ok = s.manifest.RuntimeEnv.Values[key]
-		if !ok {
-			value, ok = s.manifest.RuntimeEnv.DatabaseValues[key]
+		for _, values := range frameworkRuntimeEnvGroups(s.manifest) {
+			if value, ok = values[key]; ok {
+				break
+			}
 		}
 	}
 	if !ok {
@@ -521,15 +577,25 @@ func orderedFrameworkKeys(values map[string]frameworkValue, order []string) []st
 }
 
 // frameworkManifestRuntimeEnv applies the block guard and resolves general
-// values independently of credential-dependent database values.
+// values independently of credential-dependent database values. Service
+// groups are exported for configured services regardless of the database
+// guard.
 func frameworkManifestRuntimeEnv(ctx RuntimeEnvContext, m frameworkManifest) (map[string]string, error) {
 	state := newFrameworkValueState(m, ctx)
-	if m.RuntimeEnv.RequiresDatabase && state.database == nil {
-		return nil, nil
+	groups := []map[string]frameworkValue{}
+	if !m.RuntimeEnv.RequiresDatabase || state.database != nil {
+		groups = append(groups, m.RuntimeEnv.Values)
 	}
-	groups := []map[string]frameworkValue{m.RuntimeEnv.Values}
 	if state.database != nil {
 		groups = append(groups, m.RuntimeEnv.DatabaseValues)
+	}
+	for _, serviceName := range slices.Sorted(maps.Keys(m.RuntimeEnv.ServiceValues)) {
+		if state.configuresService(serviceName) {
+			groups = append(groups, m.RuntimeEnv.ServiceValues[serviceName])
+		}
+	}
+	if len(groups) == 0 {
+		return nil, nil
 	}
 	result := make(map[string]string)
 	for _, values := range groups {

@@ -138,17 +138,21 @@ type RabbitMQConfig struct {
 	Password       string `yaml:"password,omitempty"`
 }
 
-// TraefikConfig is the read-only typed view of Traefik tool and runtime settings.
-type TraefikConfig struct {
-	Version string `yaml:"version,omitempty"`
-	Port    int    `yaml:"port,omitempty"`
-}
-
 type ServerConfig struct {
 	Type     string `yaml:"type,omitempty"`
 	Hostname string `yaml:"hostname,omitempty"`
 	Port     int    `yaml:"port,omitempty"`
 	HTTPS    bool   `yaml:"https,omitempty"`
+	// Router opts the environment out of the machine-global router when set
+	// to false: the webserver then binds server.port directly and terminates
+	// TLS itself. Nil (the default) and true route through the router.
+	Router *bool `yaml:"router,omitempty"`
+}
+
+// UsesRouter reports whether the server should be reached through the
+// machine-global router; only an explicit `router: false` opts out.
+func (s *ServerConfig) UsesRouter() bool {
+	return s == nil || s.Router == nil || *s.Router
 }
 
 type Config struct {
@@ -434,21 +438,6 @@ func (e Environment) RabbitMQ() *RabbitMQConfig {
 	}
 }
 
-// Traefik returns the typed Traefik view, or nil when neither tools.traefik nor
-// settings.traefik is configured.
-func (e Environment) Traefik() *TraefikConfig {
-	version := e.ToolVersion("traefik")
-	port := e.SettingInt("traefik", "port")
-	if version == "" && port == 0 {
-		return nil
-	}
-
-	return &TraefikConfig{
-		Version: version,
-		Port:    port,
-	}
-}
-
 // PrimaryPHPTool returns the configured PHP runtime tool and version. The
 // caller must validate mutual exclusion when both runtime entries are present.
 func PrimaryPHPTool(environment Environment) (string, string) {
@@ -596,8 +585,9 @@ func ServerConfigFromEnvironment(environment Environment) *ServerConfig {
 		Type:     strings.ToLower(strings.TrimSpace(environment.Server.Type)),
 		Hostname: strings.TrimSpace(environment.Server.Hostname),
 		Port:     environment.Server.Port,
+		Router:   cloneBoolPointer(environment.Server.Router),
 	}
-	if server.Type == "" && server.Hostname == "" && server.Port == 0 {
+	if server.Type == "" && server.Hostname == "" && server.Port == 0 && server.Router == nil {
 		return nil
 	}
 
@@ -946,12 +936,24 @@ func NormalizeServerConfig(server *ServerConfig) *ServerConfig {
 		Hostname: strings.TrimSpace(server.Hostname),
 		Port:     server.Port,
 		HTTPS:    server.HTTPS,
+		Router:   cloneBoolPointer(server.Router),
 	}
-	if normalized.Type == "" && normalized.Hostname == "" && normalized.Port == 0 && !normalized.HTTPS {
+	if normalized.Type == "" && normalized.Hostname == "" && normalized.Port == 0 && !normalized.HTTPS && normalized.Router == nil {
 		return nil
 	}
 
 	return normalized
+}
+
+// cloneBoolPointer copies an optional boolean so normalized configs never
+// share mutable state with their source.
+func cloneBoolPointer(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	copied := *value
+
+	return &copied
 }
 
 func NormalizePHPExtensions(extensions map[string]bool) map[string]bool {

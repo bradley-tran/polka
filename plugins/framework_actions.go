@@ -20,7 +20,7 @@ func frameworkManifestPostComposer(ctx PostComposerContext, plugin builtinFramew
 	if len(m.PostComposer.Actions) == 0 && !scripted {
 		return nil
 	}
-	state := newFrameworkValueState(m, RuntimeEnvContext{Environment: ctx.Environment, Database: ctx.Database})
+	state := newFrameworkValueState(m, RuntimeEnvContext{Environment: ctx.Environment, Database: ctx.Database, ServiceValues: ctx.ServiceValues})
 	if m.PostComposer.RequiresDatabase && state.database == nil {
 		return nil
 	}

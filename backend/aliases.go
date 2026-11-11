@@ -16,7 +16,6 @@ type PHPMyAdminConfig = config.PHPMyAdminConfig
 type MeilisearchConfig = config.MeilisearchConfig
 type RedisConfig = config.RedisConfig
 type RabbitMQConfig = config.RabbitMQConfig
-type TraefikConfig = config.TraefikConfig
 type ServerConfig = config.ServerConfig
 type PECLExtensionConfig = config.PECLExtensionConfig
 

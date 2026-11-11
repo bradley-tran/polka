@@ -50,8 +50,8 @@ The `config` package contains shared YAML schema types and normalization helpers
 - `ToolsConfig` (`map[string]string`)
 - `SettingsConfig` (`map[string]map[string]any`)
 - `DatabaseConfig`
-- read-only service view types (`MailpitConfig`, `PHPMyAdminConfig`, `MeilisearchConfig`, `RedisConfig`, `RabbitMQConfig`, `TraefikConfig`)
-- `ServerConfig`
+- read-only service view types (`MailpitConfig`, `PHPMyAdminConfig`, `MeilisearchConfig`, `RedisConfig`, `RabbitMQConfig`)
+- `ServerConfig`, including the `router` opt-out from the global router
 - `WorkerConfig` under the top-level `workers` map
 - framework IDs stored as `framework` on project and environment files
 
@@ -86,6 +86,7 @@ The `service` package owns long-running managed services:
 - phpMyAdmin service lifecycle, UI endpoint helpers, state, and managed MySQL/MariaDB storage bootstrap
 - background worker lifecycle for the environment's `workers` config: per-replica process launch, PID state, log files, and reconcile-on-config-change behavior (workers start last and stop first relative to the other managed services); worker launch and stop failures are reported through the warning callback and never fail serve or stop
 - service matching against the active `tools.Registry`
+- the machine-global router (one shared Traefik process, per-environment routes, hostname conflict checks) and the machine-global port lease registry
 
 Automatic service startup skips a configured service when its matching managed tool plugin is not registered, and reports that through the caller's warning callback. Explicit service commands still fail when their required tool cannot be resolved.
 
@@ -197,11 +198,30 @@ Runtime services are split between `service` and `cli`:
 - Mailpit startup, shutdown, and status are in `service`, with CLI adapters for command output and test hooks.
 - Meilisearch startup, shutdown, and status are in `service`, with CLI adapters for command output and test hooks.
 - Redis startup, shutdown, and status are in `service`, with CLI adapters for command output and test hooks.
-- Traefik startup, shutdown, and status are in `service`, with CLI adapters for command output and test hooks.
+- The machine-global router and port leases are in `service` (`router.go`, `ports.go`); see [Global Router and Port Leases](#global-router-and-port-leases).
 - Background worker startup, shutdown, and status are in `service`; the CLI injects the managed shell environment and managed-tool target resolution so worker commands such as `php artisan queue:work` run against the real installed binaries.
 - phpMyAdmin startup, shutdown, status, and managed MySQL/MariaDB storage import are in `service`; CLI supplies the PHP/nginx/Apache/FrankenPHP web runtime callbacks.
 - Certificates remain CLI-managed assets and are passed to services through callback adapters.
 - The shell command composes environment variables and `PATH` behavior around the active environment.
+
+### Global Router and Port Leases
+
+Every project shares one router and one port lease registry, kept in the machine-global router directory (`Store.RouterDir()`: `POLKA_ROUTER_DIR`, else `<POLKA_CACHE_DIR>/router`, else `<user cache dir>/polka/router`). Both exist so any number of projects can run at once without fixed default ports colliding.
+
+- **Port leases** (`service/ports.go`). `PortRegistry` hands out a stable loopback port per `(state root, environment, key)` from a dedicated range, recorded in `ports.json`. Allocation runs under a `tools.AcquireDirLock` cross-process lock, and the file is written atomically so lock-free readers never see partial data. `ApplyPortLeases` returns a copy of an environment whose unpinned service ports are filled from leases. `cli` applies it everywhere a runtime environment is built: the service context, `polka db`, the shell/exec runtime environment, post-Composer hooks, status, and the dashboard. Every existing `Effective*Port` helper, state match, credentials file, and framework binding therefore sees the leased ports. The leased copy is never written back to config.
+- **Router** (`service/router.go`). One Traefik process, provisioned as an internal tool, listens on loopback HTTP and HTTPS entrypoints and watches `dynamic/` through its file provider. Each project environment registers a `Route`:
+  - Its hostname plus service subdomains, each mapped to a leased backend port.
+  - A Traefik document under `dynamic/` and a JSON ownership record under `routes/`.
+  - Registration runs under a lock and rejects any hostname that another `(root, environment)` already owns.
+  
+  Router liveness requires both a live PID and a listening port, because the port is shared machine-wide.
+- **CLI wiring** (`cli/router.go`). `runStart` resolves routing (opt-out: `server.router: false` or `--server`), starts the router, and binds the webserver to `127.0.0.1:<web lease>`. The `serverEndpoint` carries a `PublicOrigin`, which webserver config renderers use to pass `HTTPS=on` to PHP behind the TLS-terminating router.
+
+  Before the webserver starts, the cli registers the route and its per-route certificate (`ensureRouteCertificate`, which covers `host` and `*.host` and is signed by the local CA). Routed services run without their own TLS. `polka stop` unregisters the route and stops the router when it was the last one.
+
+  Framework runtime bindings reach leased service ports through `RuntimeEnvContext.ServiceValues` and the `runtime-env.service-values` manifest groups, so `plugins` never needs service defaults.
+
+`service` stays independent of `backend`: the cli resolves the router directory and the Traefik binary (`Store.EnsureInternalTool`) and passes plain paths in.
 
 The database tool plugins install and dispatch database clients, while database server lifecycle logic lives in `service`. PostgreSQL uses `initdb`, `postgres`, `createdb`, `pg_ctl`, `psql`, and `pg_dump`, with client authentication supplied through a project-local `.pgpass` file.
 

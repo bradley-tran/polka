@@ -159,6 +159,9 @@ func BuildMeilisearchServerSpec(ctx Context) (MeilisearchServerSpec, error) {
 }
 
 func StartMeilisearchServer(spec MeilisearchServerSpec) (MeilisearchStartResult, error) {
+	if err := ensureAddressesFree("meilisearch", PingMeilisearchAddress, MeilisearchAddress(spec.Port)); err != nil {
+		return MeilisearchStartResult{}, err
+	}
 	if err := os.MkdirAll(spec.DataDir, 0o755); err != nil {
 		return MeilisearchStartResult{}, fmt.Errorf("create meilisearch data directory: %w", err)
 	}

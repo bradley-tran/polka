@@ -13,15 +13,8 @@ defaults:
     mariadb: "11.8"
     mailpit: "1.30"
     phpmyadmin: "5.2"
-  settings:
-    mailpit:
-      smtp-port: 1025
-      ui-port: 8025
-    phpmyadmin:
-      port: 8082
   database:
     engine: mariadb
-    port: 3306
   opcache-preset: dev
   workers:
     queue:
@@ -73,6 +66,27 @@ runtime-env:
       from: "database.user"
     DB_PASSWORD:
       from: "database.password"
+  # Point Laravel at this project's own managed services, whose ports are
+  # leased per project, overriding stale skeleton .env defaults.
+  service-values:
+    mailpit:
+      MAIL_HOST:
+        from: "mailpit.smtp-host"
+      MAIL_PORT:
+        from: "mailpit.smtp-port"
+    redis:
+      REDIS_HOST:
+        from: "redis.host"
+      REDIS_PORT:
+        from: "redis.port"
+      REDIS_PASSWORD:
+        from: "redis.password"
+        default: "null"
+    meilisearch:
+      MEILISEARCH_HOST:
+        from: "meilisearch.url"
+      MEILISEARCH_KEY:
+        from: "meilisearch.key"
 script:
   file: "scripts/laravel.star"
   hooks:

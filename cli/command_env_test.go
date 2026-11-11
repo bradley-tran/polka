@@ -136,16 +136,17 @@ func TestRunInitWithFrameworkWritesDefaultPreset(t *testing.T) {
 			if environment.PHP != "8.4" || environment.Composer != test.wantComposer || environment.NodeJS != test.wantNodeJS || environment.Nginx != "1.30" || environment.MariaDB != "11.8" {
 				t.Fatalf("environment = %#v, want framework tool preset", environment)
 			}
-			if environment.Database == nil || environment.Database.Engine != "mariadb" || environment.Database.Version != "11.8" || environment.Database.Port != 3306 {
+			// Framework presets leave service ports unpinned so they are leased.
+			if environment.Database == nil || environment.Database.Engine != "mariadb" || environment.Database.Version != "11.8" || environment.Database.Port != 0 {
 				t.Fatalf("database = %#v, want MariaDB preset", environment.Database)
 			}
-			if environment.PHPMyAdmin == nil || environment.PHPMyAdmin.Version != "5.2" || environment.PHPMyAdmin.Port != 8082 {
+			if environment.PHPMyAdmin == nil || environment.PHPMyAdmin.Version != "5.2" || environment.PHPMyAdmin.Port != 0 {
 				t.Fatalf("phpmyadmin = %#v, want phpMyAdmin preset", environment.PHPMyAdmin)
 			}
 			if (environment.Mailpit != nil) != test.wantMailpit {
 				t.Fatalf("mailpit = %#v, want presence %v", environment.Mailpit, test.wantMailpit)
 			}
-			if test.wantMailpit && (environment.Mailpit.Version != "1.30" || environment.Mailpit.SMTPPort != 1025 || environment.Mailpit.UIPort != 8025) {
+			if test.wantMailpit && (environment.Mailpit.Version != "1.30" || environment.Mailpit.SMTPPort != 0 || environment.Mailpit.UIPort != 0) {
 				t.Fatalf("mailpit = %#v, want Mailpit preset", environment.Mailpit)
 			}
 			if environment.OPcachePreset != "dev" {
@@ -1344,6 +1345,44 @@ func TestRunStatusShowsMeilisearchURL(t *testing.T) {
 	}
 	if strings.Contains(output, "local-dev-key") {
 		t.Fatalf("Run(status) stdout = %q, want master key hidden", output)
+	}
+}
+
+// TestRunStatusShowsLeasedServicePort verifies that with leasing enabled an
+// unpinned service reports its leased port, and that the lease is never
+// written back into the project config.
+func TestRunStatusShowsLeasedServicePort(t *testing.T) {
+	routerDir := useTestRouterDir(t)
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	writeTestConfigFile(t, projectDir, testConfigFile{
+		Version: "0.2",
+		Root:    ".polka",
+		Environments: map[string]testEnvironmentConfig{
+			"demo": {
+				Meilisearch: &testMeilisearchConfig{Version: "1.48"},
+			},
+		},
+	})
+	writeTestActiveEnvironment(t, root, "demo")
+
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "status"}); code != 0 {
+		t.Fatalf("Run(status) code = %d, stderr = %q", code, stderr.String())
+	}
+
+	port, ok, err := service.NewPortRegistry(routerDir, service.DefaultPortRange()).Lookup(root, "demo", service.PortKeyMeilisearch)
+	if err != nil || !ok {
+		t.Fatalf("Lookup(meilisearch) = %d %v %v, want a lease after status", port, ok, err)
+	}
+	want := "meilisearch 1.48 http=" + "http://" + service.MeilisearchAddress(port)
+	if !strings.Contains(stdout.String(), want) {
+		t.Fatalf("Run(status) stdout = %q, want leased URL %q", stdout.String(), want)
+	}
+	if environment := readTestEnvironmentConfig(t, projectDir, "demo"); environment.Meilisearch != nil && environment.Meilisearch.Port != 0 {
+		t.Fatalf("config meilisearch port = %d, want lease kept out of config", environment.Meilisearch.Port)
 	}
 }
 

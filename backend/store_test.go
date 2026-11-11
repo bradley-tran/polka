@@ -1978,49 +1978,64 @@ func TestStoreInstallDownloadsConfiguredMeilisearch(t *testing.T) {
 	assertPathExists(t, filepath.Join(store.BinDir, toolMeilisearch+".cmd"))
 }
 
-func TestStoreInstallDownloadsConfiguredTraefik(t *testing.T) {
+// TestStoreConfigureValueRejectsTraefikToolVersion verifies traefik cannot be
+// pinned in a project environment: it only runs as the global router.
+func TestStoreConfigureValueRejectsTraefikToolVersion(t *testing.T) {
+	store := NewProjectStore(t.TempDir())
+
+	_, err := store.ConfigureValue("demo", "tools.traefik", "3.3")
+	if err == nil || !strings.Contains(err.Error(), "managed internally") {
+		t.Fatalf("ConfigureValue(tools.traefik) error = %v, want managed-internally error", err)
+	}
+	if _, err := store.ConfigureValue("demo", "settings.traefik.port", "8080"); err == nil {
+		t.Fatal("ConfigureValue(settings.traefik.port) error = nil, want unsupported setting error")
+	}
+}
+
+// TestEnsureInternalToolProvisionsTraefik verifies the router's Traefik is
+// provisioned into the global tools directory at the default version.
+func TestEnsureInternalToolProvisionsTraefik(t *testing.T) {
 	projectDir := t.TempDir()
+	cacheDir := filepath.Join(projectDir, "global-cache")
+	t.Setenv("POLKA_TOOLS_DIR", filepath.Join(projectDir, "internal-tools"))
+	t.Setenv("POLKA_CACHE_DIR", cacheDir)
 	store := NewProjectStore(projectDir)
-	store.CacheDir = filepath.Join(projectDir, "global-cache")
-	store.Downloader = fakeDownloader(func(cacheDir, tool, version string) error {
-		_ = writeCachedTool(t, cacheDir, tool, version)
-		return nil
-	})
+	store.CacheDir = cacheDir
+	writeCachedTool(t, cacheDir, toolTraefik, DefaultTraefikVersion)
 
-	config := store.defaultConfig()
-	config.Environments["demo"] = Environment{Tools: ToolsConfig{toolTraefik: "3.3"}}
-	if err := store.writeConfig(config); err != nil {
-		t.Fatalf("writeConfig() error = %v", err)
-	}
-
-	results, err := store.Install("demo")
+	targetPath, err := store.EnsureInternalTool(toolTraefik, "", nil)
 	if err != nil {
-		t.Fatalf("Install(demo) error = %v", err)
+		t.Fatalf("EnsureInternalTool(traefik) error = %v", err)
 	}
-	if len(results) != 1 {
-		t.Fatalf("Install(demo) length = %d, want 1", len(results))
-	}
-	result := results[0]
-	if result.Tool != toolTraefik || result.Version != "3.3" {
-		t.Fatalf("Install(demo) result = %#v, want traefik 3.3", result)
-	}
-	if !result.Downloaded {
-		t.Fatalf("Install(demo) Downloaded = false, want true after cache miss")
-	}
-	assertPathExists(t, result.TargetPath)
-
-	if err := store.Use("demo"); err != nil {
-		t.Fatalf("Use(demo) error = %v", err)
-	}
-	resolvedPath, err := store.ResolveTool(toolTraefik)
+	assertPathExists(t, targetPath)
+	environment, err := readInternalEnvironment(filepath.Join(store.InternalToolsDir(), internalConfigFileName))
 	if err != nil {
-		t.Fatalf("ResolveTool(traefik) error = %v", err)
+		t.Fatal(err)
 	}
-	if resolvedPath != result.TargetPath {
-		t.Fatalf("ResolveTool(traefik) = %q, want %q", resolvedPath, result.TargetPath)
+	if environment.ToolVersion(toolTraefik) != DefaultTraefikVersion {
+		t.Fatalf("internal traefik version = %q, want %q", environment.ToolVersion(toolTraefik), DefaultTraefikVersion)
 	}
-	assertPathExists(t, filepath.Join(store.BinDir, toolTraefik))
-	assertPathExists(t, filepath.Join(store.BinDir, toolTraefik+".cmd"))
+}
+
+// TestStoreConfigureValueServerRouterOptOut verifies server.router stores
+// only an explicit opt-out and true restores the default.
+func TestStoreConfigureValueServerRouterOptOut(t *testing.T) {
+	store := NewProjectStore(t.TempDir())
+
+	environment, err := store.ConfigureValue("demo", "server.router", "false")
+	if err != nil {
+		t.Fatalf("ConfigureValue(server.router false) error = %v", err)
+	}
+	if environment.Server == nil || environment.Server.UsesRouter() {
+		t.Fatalf("server = %#v, want router opt-out", environment.Server)
+	}
+	environment, err = store.ConfigureValue("demo", "server.router", "true")
+	if err != nil {
+		t.Fatalf("ConfigureValue(server.router true) error = %v", err)
+	}
+	if !environment.Server.UsesRouter() || (environment.Server != nil && environment.Server.Router != nil) {
+		t.Fatalf("server = %#v, want default routing restored", environment.Server)
+	}
 }
 
 func TestStoreInstallDownloadsConfiguredPHPMyAdmin(t *testing.T) {

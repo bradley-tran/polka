@@ -656,7 +656,16 @@ func runStatus(stdout, stderr io.Writer, store backend.Store) error {
 		_, _ = fmt.Fprintln(stdout, "No active environment selected.")
 		return nil
 	}
-	serverEndpoint, err := resolveServerEndpoint(current.Server, "")
+	serverURL, routed, err := environmentServerURL(store, *current)
+	if err != nil {
+		return err
+	}
+	if routed {
+		serverURL += " (via router)"
+	}
+
+	// Status reports the effective ports, including leased ones.
+	environment, err := runtimeServiceEnvironment(store, *current)
 	if err != nil {
 		return err
 	}
@@ -667,12 +676,12 @@ func runStatus(stdout, stderr io.Writer, store backend.Store) error {
 		Stdout:      stdout,
 		Stderr:      stderr,
 		Store:       store,
-		Environment: *current,
+		Environment: environment,
 	}
 	if err := hooks.WriteConfigStatus(statusContext); err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintf(stdout, "server %s\n", serverEndpointURL(serverEndpoint))
+	_, _ = fmt.Fprintf(stdout, "server %s\n", serverURL)
 
 	return hooks.WriteRuntimeStatus(statusContext)
 }
@@ -797,14 +806,6 @@ func labelRabbitMQ(rabbitMQ *backend.RabbitMQConfig) string {
 		return "unset"
 	}
 	return fmt.Sprintf("%s amqp=%s management=%s auth=enabled", rabbitMQ.Version, rabbitMQURLForConfig(rabbitMQ), rabbitMQManagementURLForConfig(rabbitMQ))
-}
-
-func labelTraefik(traefik *backend.TraefikConfig) string {
-	if traefik == nil {
-		return "unset"
-	}
-
-	return fmt.Sprintf("%s http=%s", traefik.Version, traefikURLForConfig(traefik))
 }
 
 func buildDatabaseInput(engineChanged, versionChanged, portChanged bool, engine, version string, port int) (*backend.DatabaseConfig, error) {

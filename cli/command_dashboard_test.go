@@ -80,7 +80,8 @@ func TestGatherDashboardSnapshotReportsStoppedAndUnsetServices(t *testing.T) {
 	if row := dashboardServiceRowByName(t, snapshot, "database"); row.Status != dashboardStatusStopped {
 		t.Errorf("database row status = %q, want %q", row.Status, dashboardStatusStopped)
 	}
-	for _, name := range []string{"mailpit", "phpmyadmin", "meilisearch", "redis", "traefik"} {
+	// Routing is disabled in the cli test binary, so the router row is unset.
+	for _, name := range []string{"mailpit", "phpmyadmin", "meilisearch", "redis", "router"} {
 		if row := dashboardServiceRowByName(t, snapshot, name); row.Status != dashboardStatusUnset {
 			t.Errorf("%s row status = %q, want %q", name, row.Status, dashboardStatusUnset)
 		}

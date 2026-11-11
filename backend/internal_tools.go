@@ -47,6 +47,32 @@ func (s Store) InternalToolsDir() string {
 	return internalToolsDir(s.ProjectDir)
 }
 
+// routerDir returns the machine-global directory shared by every project for
+// the global router (its config, state, route files, and certificates) and
+// the port lease registry. It follows the same override order as
+// internalToolsDir so tests that isolate the cache never touch the real
+// user profile.
+func routerDir(projectDir string) string {
+	if override := strings.TrimSpace(os.Getenv("POLKA_ROUTER_DIR")); override != "" {
+		return filepath.Clean(filepath.FromSlash(override))
+	}
+	if cacheOverride := strings.TrimSpace(os.Getenv("POLKA_CACHE_DIR")); cacheOverride != "" {
+		return filepath.Join(filepath.Clean(filepath.FromSlash(cacheOverride)), "router")
+	}
+
+	cacheDir, err := os.UserCacheDir()
+	if err == nil {
+		return filepath.Join(cacheDir, "polka", "router")
+	}
+
+	return filepath.Join(projectDir, ".polka-router")
+}
+
+// RouterDir returns the machine-global router and port lease directory.
+func (s Store) RouterDir() string {
+	return routerDir(s.ProjectDir)
+}
+
 // internalStore returns a Store view of the reserved _internal environment:
 // EnvsDir is the global tools dir so the install state, cache extraction, and
 // tool resolution helpers operate on it unchanged. BinDir is intentionally
@@ -97,11 +123,12 @@ func writeInternalEnvironment(path string, environment Environment) error {
 }
 
 // environmentWithInternalToolVersion records a tool version on the reserved
-// _internal environment. PIE is handled here because the project-facing
-// environmentWithInstallRequest deliberately rejects internal-only tools.
+// _internal environment. Internal-only tools such as PIE and Traefik are
+// handled here because the project-facing environmentWithInstallRequest
+// deliberately rejects them.
 func environmentWithInternalToolVersion(environment Environment, tool, version string) Environment {
-	if tool == toolPIE {
-		environment.SetToolVersion(toolPIE, version)
+	if NewDefaultToolRegistry().InternalOnly(tool) {
+		environment.SetToolVersion(tool, version)
 		return environment
 	}
 
@@ -121,6 +148,22 @@ func internalPHPEnvironment(tool, version, installDir string) Environment {
 	environment.SetToolVersion(tool, version)
 
 	return environment
+}
+
+// InternalToolVersion returns the version EnsureInternalTool uses for a tool
+// when no explicit version is requested: the _internal environment's pin,
+// else the shared default.
+func (s Store) InternalToolVersion(tool string) (string, error) {
+	normalizedTool := strings.ToLower(strings.TrimSpace(tool))
+	environment, err := readInternalEnvironment(s.internalStore().ConfigFile)
+	if err != nil {
+		return "", err
+	}
+	if version := s.toolRegistry().InternalVersion(normalizedTool, environment); version != "" {
+		return version, nil
+	}
+
+	return defaultInternalToolVersion(normalizedTool), nil
 }
 
 // EnsureInternalTool provisions a tool into the global internal tools

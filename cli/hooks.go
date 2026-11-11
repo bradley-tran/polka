@@ -79,7 +79,6 @@ func defaultCLIHookRegistry() cliHookRegistry {
 			{id: "meilisearch", run: startMeilisearchServiceHook},
 			{id: "redis", run: startRedisServiceHook},
 			{id: "rabbitmq", run: startRabbitMQServiceHook},
-			{id: "traefik", run: startTraefikServiceHook},
 			{id: "phpmyadmin", run: startPHPMyAdminServiceHook},
 		},
 		webservers: []webserverStartHook{
@@ -92,12 +91,12 @@ func defaultCLIHookRegistry() cliHookRegistry {
 			{id: "webserver", run: stopWebserverHook},
 			{id: "workers", run: stopWorkersServiceHook},
 			{id: "phpmyadmin", run: stopPHPMyAdminServiceHook},
-			{id: "traefik", run: stopTraefikServiceHook},
 			{id: "redis", run: stopRedisServiceHook},
 			{id: "rabbitmq", run: stopRabbitMQServiceHook},
 			{id: "meilisearch", run: stopMeilisearchServiceHook},
 			{id: "database", run: stopDatabaseServiceHook},
 			{id: "mailpit", run: stopMailpitServiceHook},
+			{id: "router", run: stopRouterRouteHook},
 		},
 		configStatusHooks: []statusHook{
 			{id: "php", run: statusPHPConfigHook},
@@ -113,7 +112,6 @@ func defaultCLIHookRegistry() cliHookRegistry {
 			{id: "meilisearch", run: statusMeilisearchConfigHook},
 			{id: "redis", run: statusRedisConfigHook},
 			{id: "rabbitmq", run: statusRabbitMQConfigHook},
-			{id: "traefik", run: statusTraefikConfigHook},
 			{id: "phpmyadmin", run: statusPHPMyAdminConfigHook},
 			{id: "database", run: statusDatabaseConfigHook},
 			{id: "mailpit", run: statusMailpitConfigHook},
@@ -126,7 +124,7 @@ func defaultCLIHookRegistry() cliHookRegistry {
 			{id: "meilisearch", run: statusMeilisearchRuntimeHook},
 			{id: "redis", run: statusRedisRuntimeHook},
 			{id: "rabbitmq", run: statusRabbitMQRuntimeHook},
-			{id: "traefik", run: statusTraefikRuntimeHook},
+			{id: "router", run: statusRouterRuntimeHook},
 			{id: "database", run: statusDatabaseRuntimeHook},
 			{id: "mailpit", run: statusMailpitRuntimeHook},
 		},
@@ -140,7 +138,6 @@ func (r cliHookRegistry) StartServices(ctx startHookContext) error {
 		Meilisearch:             meilisearchRuntimeHooks(),
 		Redis:                   redisRuntimeHooks(),
 		RabbitMQ:                rabbitMQRuntimeHooks(),
-		Traefik:                 traefikRuntimeHooks(),
 		PHPMyAdmin:              phpMyAdminRuntimeHooks(ctx.Store),
 		Workers:                 workersRuntimeHooks(ctx.Store, ctx.Environment),
 		EnsurePHPMyAdminStorage: ensurePHPMyAdminStorageConfiguredFunc,
@@ -194,7 +191,6 @@ func (r cliHookRegistry) Stop(ctx stopHookContext) error {
 		Meilisearch: meilisearchRuntimeHooks(),
 		Redis:       redisRuntimeHooks(),
 		RabbitMQ:    rabbitMQRuntimeHooks(),
-		Traefik:     traefikRuntimeHooks(),
 		PHPMyAdmin:  phpMyAdminRuntimeHooks(ctx.Store),
 		Workers:     workersRuntimeHooks(ctx.Store, ctx.Environment),
 	})
@@ -202,6 +198,17 @@ func (r cliHookRegistry) Stop(ctx stopHookContext) error {
 		return err
 	}
 	writeManagedServiceStopSummary(ctx, result)
+
+	// The route goes last: it fronts the webserver and service UIs stopped
+	// above, and removing the final route also stops the shared router.
+	for _, hook := range r.stopHooks {
+		if hook.id != "router" {
+			continue
+		}
+		if err := hook.run(ctx); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
@@ -277,16 +284,6 @@ func writeManagedServiceStopSummary(ctx stopHookContext, result service.StopResu
 		}
 	}
 
-	if result.Traefik != nil {
-		if result.Traefik.AlreadyStopped {
-			if strings.TrimSpace(ctx.Environment.ToolVersion("traefik")) != "" {
-				fmt.Fprintf(ctx.Stdout, "Traefik for environment %q is already stopped.\n", ctx.Environment.Name)
-			}
-		} else {
-			fmt.Fprintf(ctx.Stdout, "Stopped Traefik for environment %q.\n", ctx.Environment.Name)
-		}
-	}
-
 	if result.Database != nil {
 		if result.Database.AlreadyStopped {
 			if ctx.Environment.Database != nil && strings.TrimSpace(ctx.Environment.Database.Engine) != "" {
@@ -350,15 +347,6 @@ func startRabbitMQServiceHook(ctx startHookContext) error {
 		return nil
 	}
 	_, _, err := ensureManagedRabbitMQStarted(ctx.Store, ctx.Environment)
-	return err
-}
-
-func startTraefikServiceHook(ctx startHookContext) error {
-	if strings.TrimSpace(ctx.Environment.ToolVersion("traefik")) == "" {
-		return nil
-	}
-
-	_, _, err := ensureManagedTraefikStarted(ctx.Store, ctx.Environment)
 	return err
 }
 
@@ -479,6 +467,9 @@ func finishBackgroundWebserverStart(ctx webserverStartHookContext, startedState 
 	if strings.TrimSpace(startedState.Docroot) == "" {
 		startedState.Docroot = ctx.Layout.Docroot
 	}
+	if ctx.Endpoint.Public != nil {
+		startedState.PublicURL = ctx.Endpoint.Public.URL()
+	}
 	if startedState.StartedAt.IsZero() {
 		startedState.StartedAt = serveNowFunc().UTC()
 	}
@@ -592,24 +583,6 @@ func stopRabbitMQServiceHook(ctx stopHookContext) error {
 		return nil
 	}
 	fmt.Fprintf(ctx.Stdout, "Stopped RabbitMQ for environment %q.\n", ctx.Environment.Name)
-	return nil
-}
-
-func stopTraefikServiceHook(ctx stopHookContext) error {
-	if strings.TrimSpace(ctx.Environment.ToolVersion("traefik")) == "" {
-		return nil
-	}
-
-	_, traefikAlreadyStopped, err := stopManagedTraefik(ctx.Store, ctx.Environment.Name)
-	if err != nil {
-		return err
-	}
-	if traefikAlreadyStopped {
-		fmt.Fprintf(ctx.Stdout, "Traefik for environment %q is already stopped.\n", ctx.Environment.Name)
-		return nil
-	}
-
-	fmt.Fprintf(ctx.Stdout, "Stopped Traefik for environment %q.\n", ctx.Environment.Name)
 	return nil
 }
 
@@ -768,11 +741,6 @@ func statusRabbitMQConfigHook(ctx statusHookContext) error {
 	return nil
 }
 
-func statusTraefikConfigHook(ctx statusHookContext) error {
-	_, _ = fmt.Fprintf(ctx.Stdout, "traefik %s\n", labelTraefik(ctx.Environment.Traefik()))
-	return nil
-}
-
 func statusPHPMyAdminConfigHook(ctx statusHookContext) error {
 	_, _ = fmt.Fprintf(ctx.Stdout, "phpmyadmin %s\n", labelPHPMyAdmin(ctx.Environment.PHPMyAdmin()))
 	return nil
@@ -893,25 +861,6 @@ func statusRabbitMQRuntimeHook(ctx statusHookContext) error {
 		return nil
 	}
 	_, _ = fmt.Fprintf(ctx.Stdout, "rabbitmq-server running amqp=%s management=%s\n", rabbitMQURLForConfig(rabbitMQ), rabbitMQManagementURLForConfig(rabbitMQ))
-	return nil
-}
-
-func statusTraefikRuntimeHook(ctx statusHookContext) error {
-	if strings.TrimSpace(ctx.Environment.ToolVersion("traefik")) == "" {
-		_, _ = fmt.Fprintln(ctx.Stdout, "traefik-server unset")
-		return nil
-	}
-
-	liveTraefikState, err := loadLiveTraefikState(ctx.Store.RootDir, ctx.Environment.Name)
-	if err != nil {
-		return err
-	}
-	if liveTraefikState == nil {
-		_, _ = fmt.Fprintln(ctx.Stdout, "traefik-server stopped")
-		return nil
-	}
-
-	_, _ = fmt.Fprintf(ctx.Stdout, "traefik-server running %s\n", traefikURL(*liveTraefikState))
 	return nil
 }
 

@@ -253,6 +253,7 @@ func prepareApacheServeRuntime(cacheDir, runtimeDir, apacheRoot string, endpoint
 			CertificateKeyPath: keyPath,
 		}
 	}
+	tlsConfig.ForwardedHTTPS = endpointForwardsHTTPS(endpoint)
 
 	configPath := filepath.Join(runtimeDir, "httpd.conf")
 	phpLogPath := filepath.Join(runtimeDir, "php.log")
@@ -305,6 +306,9 @@ func renderApacheServeConfig(apacheRoot, runtimeDir, host string, port int, layo
 		writeApacheLoadModule(&builder, modulesDir, "socache_shmcb_module", "mod_socache_shmcb.so")
 		writeApacheLoadModule(&builder, modulesDir, "ssl_module", "mod_ssl.so")
 	}
+	if tlsConfig.ForwardedHTTPS {
+		writeApacheLoadModule(&builder, modulesDir, "env_module", "mod_env.so")
+	}
 	builder.WriteString("\n")
 	builder.WriteString("AddDefaultCharset Off\n")
 	writeServeApacheMIMETypes(&builder, "")
@@ -336,6 +340,13 @@ func renderApacheServeConfig(apacheRoot, runtimeDir, host string, port int, layo
 		builder.WriteString(quoteApachePath(tlsConfig.CertificateKeyPath))
 		builder.WriteString("\n")
 		builder.WriteString("    SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1\n")
+	}
+	if tlsConfig.ForwardedHTTPS {
+		// The global router terminated HTTPS before forwarding plain HTTP;
+		// mod_env reapplies these after internal redirects to the front
+		// controller, and mod_proxy_fcgi passes them to PHP.
+		builder.WriteString("    SetEnv HTTPS on\n")
+		builder.WriteString("    SetEnv REQUEST_SCHEME https\n")
 	}
 	builder.WriteString("    <Directory ")
 	builder.WriteString(quoteApachePath(layout.Docroot))

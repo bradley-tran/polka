@@ -19,6 +19,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"polka/service"
 )
 
 const (
@@ -34,6 +36,16 @@ type serveTLSConfig struct {
 	Enabled            bool
 	CertificatePath    string
 	CertificateKeyPath string
+	// ForwardedHTTPS is set when the server sits behind the global router,
+	// which terminates HTTPS and forwards plain HTTP: the server must still
+	// tell PHP the request is HTTPS so applications build https URLs.
+	ForwardedHTTPS bool
+}
+
+// endpointForwardsHTTPS reports whether the global router terminates HTTPS
+// in front of an endpoint.
+func endpointForwardsHTTPS(endpoint serverEndpoint) bool {
+	return endpoint.Public != nil && strings.EqualFold(endpoint.Public.Scheme, "https")
 }
 
 func ensureGlobalTLSCertificate(cacheDir, host string) (string, string, error) {
@@ -288,6 +300,105 @@ func serverCertificateNames(host string) ([]string, []net.IP) {
 	}
 
 	return append(dnsNames, trimmed), ipAddresses
+}
+
+// routeCertificateRenewWindow re-issues route certificates this long before
+// they expire.
+const routeCertificateRenewWindow = 30 * 24 * time.Hour
+
+// ensureRouteCertificate returns a certificate and plaintext key for one
+// global router route covering host and *.host (service subdomains such as
+// mailpit.blog.localhost), signed by the local Polka CA. Each route gets its
+// own files under the router directory, so routes never re-issue the shared
+// webserver certificate. The certificate is reused until its names change,
+// it nears expiry, or the CA is regenerated.
+func ensureRouteCertificate(cacheDir, routerDir, routeID, host string) (string, string, error) {
+	return ensureRouteCertificateWithOptions(cacheDir, routerDir, routeID, host, defaultTLSCAKeyStorageOptions())
+}
+
+func ensureRouteCertificateWithOptions(cacheDir, routerDir, routeID, host string, storageOptions tlsCAKeyStorageOptions) (string, string, error) {
+	caCertPath, caKeyPath := globalTLSCACertificatePaths(cacheDir)
+	if !certificateFileExists(caCertPath) || !certificateFileExists(caKeyPath) {
+		if _, _, err := ensureGlobalTLSCertificateWithOptions(cacheDir, "", storageOptions); err != nil {
+			return "", "", err
+		}
+	}
+	caCertificate, caPrivateKey, err := loadGlobalTLSCAWithOptions(cacheDir, storageOptions)
+	if err != nil {
+		return "", "", err
+	}
+
+	certPath, keyPath := service.RouteCertificatePaths(routerDir, routeID)
+	names := []string{host, "*." + host}
+	if routeCertificateIsCurrent(certPath, keyPath, names, caCertificate) {
+		return certPath, keyPath, nil
+	}
+
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return "", "", fmt.Errorf("generate route tls private key: %w", err)
+	}
+	serialNumber, err := randomTLSSerialNumber()
+	if err != nil {
+		return "", "", err
+	}
+	now := serveNowFunc().UTC()
+	template := x509.Certificate{
+		SerialNumber:          serialNumber,
+		Subject:               pkix.Name{CommonName: host},
+		NotBefore:             now.Add(-1 * time.Hour),
+		NotAfter:              now.AddDate(2, 0, 0),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		DNSNames:              names,
+	}
+	certificateDER, err := x509.CreateCertificate(rand.Reader, &template, caCertificate, &privateKey.PublicKey, caPrivateKey)
+	if err != nil {
+		return "", "", fmt.Errorf("generate route tls certificate: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(certPath), 0o755); err != nil {
+		return "", "", fmt.Errorf("create route certificate directory: %w", err)
+	}
+	// Write the key first so a reader never pairs a new certificate with a
+	// stale key; Traefik reloads both when the route file is rewritten.
+	if err := writePEMFile(keyPath, 0o600, "RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(privateKey)); err != nil {
+		return "", "", fmt.Errorf("write route tls private key: %w", err)
+	}
+	if err := writePEMFile(certPath, 0o644, "CERTIFICATE", certificateDER); err != nil {
+		return "", "", fmt.Errorf("write route tls certificate: %w", err)
+	}
+
+	return certPath, keyPath, nil
+}
+
+// routeCertificateIsCurrent reports whether an existing route certificate
+// covers exactly the wanted names, is signed by the current CA, and is not
+// close to expiry.
+func routeCertificateIsCurrent(certPath, keyPath string, names []string, caCertificate *x509.Certificate) bool {
+	if !certificateFileExists(keyPath) {
+		return false
+	}
+	certificate, err := readCertificateFile(certPath)
+	if err != nil {
+		return false
+	}
+	if certificate.CheckSignatureFrom(caCertificate) != nil {
+		return false
+	}
+	if serveNowFunc().Add(routeCertificateRenewWindow).After(certificate.NotAfter) {
+		return false
+	}
+	if len(certificate.DNSNames) != len(names) {
+		return false
+	}
+	for index, name := range names {
+		if !strings.EqualFold(certificate.DNSNames[index], name) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // firstServerCertificateCommonName picks a subject common name from the

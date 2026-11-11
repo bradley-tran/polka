@@ -157,6 +157,9 @@ func BuildRabbitMQServerSpec(ctx Context) (RabbitMQServerSpec, error) {
 
 // StartRabbitMQServer writes isolated configuration and launches the broker.
 func StartRabbitMQServer(spec RabbitMQServerSpec) (RabbitMQStartResult, error) {
+	if err := ensureAddressesFree("rabbitmq", PingRabbitMQAddress, RabbitMQAddress(spec.Port), RabbitMQAddress(spec.ManagementPort)); err != nil {
+		return RabbitMQStartResult{}, err
+	}
 	if err := prepareRabbitMQRuntime(spec); err != nil {
 		return RabbitMQStartResult{}, err
 	}

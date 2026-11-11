@@ -18,7 +18,6 @@ type PHPMyAdminConfig = config.PHPMyAdminConfig
 type MeilisearchConfig = config.MeilisearchConfig
 type RedisConfig = config.RedisConfig
 type RabbitMQConfig = config.RabbitMQConfig
-type TraefikConfig = config.TraefikConfig
 
 const (
 	toolPHP         = tools.PHP
@@ -29,7 +28,6 @@ const (
 	toolRedis       = tools.Redis
 	toolRabbitMQ    = tools.RabbitMQ
 	toolErlang      = tools.Erlang
-	toolTraefik     = tools.Traefik
 	toolMySQL       = tools.MySQL
 	toolMariaDB     = tools.MariaDB
 	toolPostgreSQL  = tools.PostgreSQL

@@ -28,17 +28,24 @@ func runPostComposerHook(store backend.Store, tool string, args []string, workin
 		return fmt.Errorf("unsupported framework %q; supported frameworks: %s", current.Framework, strings.Join(store.SupportedFrameworks(), ", "))
 	}
 
-	credentials, err := ensurePostComposerDatabaseCredentials(store, *current)
+	// Generated framework files must carry the same leased service ports the
+	// runtime uses, such as the database and Mailpit SMTP ports.
+	environment, err := leaseEnvironmentPorts(store, *current)
+	if err != nil {
+		return err
+	}
+	credentials, err := ensurePostComposerDatabaseCredentials(store, environment)
 	if err != nil {
 		return err
 	}
 
 	return plugin.PostComposer(plugins.PostComposerContext{
-		Environment: *current,
-		ProjectDir:  store.ProjectDir,
-		WorkingDir:  workingDir,
-		Args:        append([]string(nil), args...),
-		Database:    credentials,
+		Environment:   environment,
+		ProjectDir:    store.ProjectDir,
+		WorkingDir:    workingDir,
+		Args:          append([]string(nil), args...),
+		Database:      credentials,
+		ServiceValues: frameworkServiceValues(environment),
 	})
 }
 

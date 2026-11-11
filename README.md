@@ -30,6 +30,8 @@ polka status
 polka stop
 ```
 
+Every project is served through one machine-global router at `https://<directory>.localhost:8443` (or `http://…:8080` without HTTPS), with service UIs on subdomains such as `https://mailpit.<directory>.localhost:8443`. Webservers, databases, Redis, and the other managed services bind ports that Polka leases automatically, so any number of projects can run side by side without port conflicts. `polka router status` lists every routed project and the leased ports.
+
 For an interactive shell with `.polka/bin` and `vendor/bin` first on `PATH`, use:
 
 ```bash
@@ -69,37 +71,25 @@ tools:
   meilisearch: "1.48"
   redis: "8.8.0"
   rabbitmq: "4.3"
-  traefik: "3.3"
+# Service ports are leased automatically; set settings.<tool>.port (or
+# database.port) only to pin a fixed port.
 settings:
-  phpmyadmin:
-    port: 8082
-  mailpit:
-    smtp-port: 1025
-    ui-port: 8025
   meilisearch:
-    port: 7700
     master-key: local-dev-key
   redis:
-    port: 6379
     password: local-dev-password
   rabbitmq:
-    port: 5672
-    management-port: 15672
     username: guest
     password: guest
-  traefik:
-    port: 8080
 docroot: public
 database:
   engine: mariadb
-  port: 3306
 env-file: .env.local
 env-vars:
   APP_ENV: development
   APP_DEBUG: "1"
 server:
-  hostname: blog.localhost
-  port: 8443
+  hostname: blog.localhost # served at https://blog.localhost:8443 by the global router
 memory-limit: 512M
 php-extensions:
   openssl: true
