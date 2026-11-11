@@ -1,0 +1,15 @@
+name "polka"
+description "Project-local PHP development environment manager"
+authors "Polka Contributors"
+license "MIT"
+targetType "executable"
+targetName "polka"
+sourcePaths "source"
+importPaths "source"
+stringImportPaths \
+    "tools/manifests" \
+    "plugins/manifests" \
+    "plugins/manifests/templates" \
+    "plugins/manifests/presets" \
+    "plugins/manifests/presets/templates"
+libs "yaml" "lzma" "crypto" "curl" platform="posix"

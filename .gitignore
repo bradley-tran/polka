@@ -1,11 +1,19 @@
-# Binaries
+# Binaries and D/DUB build artifacts
 /polka
+/polka-test-application
 /.polka/
+/.dub/
 polka.yaml
 /dist/
 /build/
 *.exe
 *.exe~
+*.o
+*.obj
+*.a
+*.so
+*.dll
+dub.selections.json
 
 # Test artifacts
 *.test
@@ -23,6 +31,5 @@ coverage.txt
 Thumbs.db
 
 # Local test folder
-.polka-go-build/
 /test-site
 /test-ext

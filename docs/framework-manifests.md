@@ -109,4 +109,4 @@ PHP arrays and constants preserve unrelated source, comments, and line endings. 
 
 Targets are staged before replacement. Secret files use mode `0600`; include files use `0644`. Cross-file updates are ordered rather than transactional: an earlier successful action remains applied if a later action fails.
 
-Unknown fields, old selectors, invalid references, cycles, missing template assets, unknown placeholders, conflicting expression/action fields, and duplicate or unknown `order` keys fail during loading. Keep regression tests beside the plugin code and run `go test ./...` after adding or changing a manifest.
+Unknown fields, old selectors, invalid references, cycles, missing template assets, unknown placeholders, conflicting expression/action fields, and duplicate or unknown `order` keys fail during loading. Keep regression tests beside the plugin code and run `dub test` after adding or changing a manifest.

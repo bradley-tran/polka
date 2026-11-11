@@ -22,25 +22,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: 'go.mod'
-          cache: true
-
-      - name: Verify dependencies
-        run: go mod verify
-
-      - name: Run go vet
-        run: go vet ./...
-
-      - name: Run tests (Linux)
+      - name: Install system libraries (Linux)
         if: runner.os != 'Windows'
-        run: go test -v -race "-coverprofile=coverage.txt" ./...
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libyaml-dev liblzma-dev libssl-dev libcurl4-openssl-dev pkg-config
 
-      - name: Run tests (Windows)
-        if: runner.os == 'Windows'
-        run: go test -v "-coverprofile=coverage.txt" ./...
+      - name: Set up D toolchain
+        uses: dlang-community/setup-dlang@v1
+        with:
+          compiler: ldc-latest
+
+      - name: Run tests
+        run: dub test
 
       - name: Build
-        run: go build -v ./...
+        run: dub build

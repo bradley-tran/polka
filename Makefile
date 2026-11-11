@@ -1,26 +1,21 @@
-APP_NAME   := polka
-VERSION    := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-COMMIT     := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-BUILD_DATE := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
-
-LDFLAGS := -ldflags "\
-  -X github.com/git@github.com/cmd.AppVersion=$(VERSION) \
-  -X github.com/git@github.com/cmd.CommitHash=$(COMMIT) \
-  -X github.com/git@github.com/cmd.BuildDate=$(BUILD_DATE)"
+APP_NAME := polka
+DUB      := dub
+COMPILER ?= ldc2
 
 .PHONY: build run test lint clean
 
 build:
-	go build $(LDFLAGS) -o $(APP_NAME) .
+	$(DUB) build --compiler=$(COMPILER)
 
 run:
-	go run $(LDFLAGS) . $(ARGS)
+	$(DUB) run --compiler=$(COMPILER) -- $(ARGS)
 
 test:
-	go test ./... -v -race -coverprofile=coverage.txt
+	$(DUB) test --compiler=$(COMPILER)
 
 lint:
-	golangci-lint run ./...
+	$(DUB) build --compiler=$(COMPILER) --build=unittest --force
 
 clean:
-	rm -f $(APP_NAME) coverage.txt
+	rm -f $(APP_NAME) $(APP_NAME).exe $(APP_NAME)-test-application $(APP_NAME)-test-application.exe coverage.txt *.o *.obj
+	rm -rf .dub

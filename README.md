@@ -113,7 +113,7 @@ For per-tool behavior, command shims, Node.js/Yarn support, PostgreSQL notes, PH
 During development you can override the state directory while keeping the config file next to it:
 
 ```bash
-go run . --root ./.polka-dev init
+dub run -- --root ./.polka-dev init
 ```
 
 The current schema is not yet stable, so expect breaking changes to config file structure and field names until version 1.0.
