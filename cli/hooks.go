@@ -89,6 +89,7 @@ func defaultCLIHookRegistry() cliHookRegistry {
 		},
 		stopHooks: []stopHook{
 			{id: "webserver", run: stopWebserverHook},
+			{id: "cron", run: stopCronServiceHook},
 			{id: "workers", run: stopWorkersServiceHook},
 			{id: "phpmyadmin", run: stopPHPMyAdminServiceHook},
 			{id: "redis", run: stopRedisServiceHook},
@@ -116,10 +117,12 @@ func defaultCLIHookRegistry() cliHookRegistry {
 			{id: "database", run: statusDatabaseConfigHook},
 			{id: "mailpit", run: statusMailpitConfigHook},
 			{id: "workers", run: statusWorkersConfigHook},
+			{id: "cron", run: statusCronConfigHook},
 		},
 		runtimeStatusHooks: []statusHook{
 			{id: "webserver", run: statusWebserverRuntimeHook},
 			{id: "workers", run: statusWorkersRuntimeHook},
+			{id: "cron", run: statusCronRuntimeHook},
 			{id: "phpmyadmin", run: statusPHPMyAdminRuntimeHook},
 			{id: "meilisearch", run: statusMeilisearchRuntimeHook},
 			{id: "redis", run: statusRedisRuntimeHook},
@@ -140,6 +143,7 @@ func (r cliHookRegistry) StartServices(ctx startHookContext) error {
 		RabbitMQ:                rabbitMQRuntimeHooks(),
 		PHPMyAdmin:              phpMyAdminRuntimeHooks(ctx.Store),
 		Workers:                 workersRuntimeHooks(ctx.Store, ctx.Environment),
+		Cron:                    cronRuntimeHooks(ctx.Store, ctx.Environment),
 		EnsurePHPMyAdminStorage: ensurePHPMyAdminStorageConfiguredFunc,
 	})
 	if err != nil {
@@ -159,6 +163,13 @@ func (r cliHookRegistry) StartServices(ctx startHookContext) error {
 			// When every replica failed to launch, the failures were already
 			// reported as warnings; there is nothing to summarize.
 			fmt.Fprintf(ctx.Stdout, "Started %d worker process(es) for environment %q (%s).\n", len(result.Workers.State.Processes), ctx.Environment.Name, workerProcessSummary(result.Workers.State))
+		}
+	}
+	if result.Cron != nil {
+		if result.Cron.AlreadyStarted {
+			fmt.Fprintf(ctx.Stdout, "Cron runner for environment %q is already running.\n", ctx.Environment.Name)
+		} else {
+			fmt.Fprintf(ctx.Stdout, "Started the cron runner for environment %q (%d job(s): %s).\n", ctx.Environment.Name, len(result.Cron.State.Jobs), strings.Join(result.Cron.State.Jobs, ", "))
 		}
 	}
 
@@ -193,6 +204,7 @@ func (r cliHookRegistry) Stop(ctx stopHookContext) error {
 		RabbitMQ:    rabbitMQRuntimeHooks(),
 		PHPMyAdmin:  phpMyAdminRuntimeHooks(ctx.Store),
 		Workers:     workersRuntimeHooks(ctx.Store, ctx.Environment),
+		Cron:        cronRuntimeHooks(ctx.Store, ctx.Environment),
 	})
 	if err != nil {
 		return err
@@ -235,6 +247,16 @@ func (r cliHookRegistry) WriteRuntimeStatus(ctx statusHookContext) error {
 }
 
 func writeManagedServiceStopSummary(ctx stopHookContext, result service.StopResult) {
+	if result.Cron != nil {
+		if result.Cron.AlreadyStopped {
+			if len(ctx.Environment.Cron) > 0 {
+				fmt.Fprintf(ctx.Stdout, "Cron runner for environment %q is already stopped.\n", ctx.Environment.Name)
+			}
+		} else {
+			fmt.Fprintf(ctx.Stdout, "Stopped the cron runner for environment %q.\n", ctx.Environment.Name)
+		}
+	}
+
 	if result.Workers != nil {
 		if result.Workers.AlreadyStopped {
 			if len(ctx.Environment.Workers) > 0 {
@@ -622,6 +644,62 @@ func stopWorkersServiceHook(ctx stopHookContext) error {
 	}
 
 	fmt.Fprintf(ctx.Stdout, "Stopped %d worker process(es) for environment %q.\n", len(state.Processes), ctx.Environment.Name)
+	return nil
+}
+
+// stopCronServiceHook stops the environment's cron runner. It is registered
+// for lifecycle symmetry with the other managed services; the combined Stop
+// path handles the runner through the service manager.
+func stopCronServiceHook(ctx stopHookContext) error {
+	if len(ctx.Environment.Cron) == 0 {
+		return nil
+	}
+
+	_, alreadyStopped, err := stopManagedCron(ctx.Store, ctx.Environment)
+	if err != nil {
+		return err
+	}
+	if alreadyStopped {
+		fmt.Fprintf(ctx.Stdout, "Cron runner for environment %q is already stopped.\n", ctx.Environment.Name)
+		return nil
+	}
+
+	fmt.Fprintf(ctx.Stdout, "Stopped the cron runner for environment %q.\n", ctx.Environment.Name)
+	return nil
+}
+
+// statusCronConfigHook prints one line per configured cron job.
+func statusCronConfigHook(ctx statusHookContext) error {
+	if len(ctx.Environment.Cron) == 0 {
+		_, _ = fmt.Fprintln(ctx.Stdout, "cron unset")
+		return nil
+	}
+
+	for _, name := range config.SortedCronJobNames(ctx.Environment.Cron) {
+		job := ctx.Environment.Cron[name]
+		_, _ = fmt.Fprintf(ctx.Stdout, "cron %s %s: %s\n", name, job.Schedule, job.Command)
+	}
+
+	return nil
+}
+
+// statusCronRuntimeHook reports whether the environment's cron runner is up.
+func statusCronRuntimeHook(ctx statusHookContext) error {
+	if len(ctx.Environment.Cron) == 0 {
+		_, _ = fmt.Fprintln(ctx.Stdout, "cron unset")
+		return nil
+	}
+
+	state, err := loadLiveCronState(ctx.Store.RootDir, ctx.Environment.Name)
+	if err != nil {
+		return err
+	}
+	if state == nil {
+		_, _ = fmt.Fprintln(ctx.Stdout, "cron stopped")
+		return nil
+	}
+
+	_, _ = fmt.Fprintf(ctx.Stdout, "cron running (pid %d, %d job(s))\n", state.PID, len(state.Jobs))
 	return nil
 }
 

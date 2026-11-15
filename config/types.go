@@ -25,42 +25,44 @@ type SettingsConfig map[string]map[string]any
 
 // ProjectFile is the YAML shape of polka.yaml, which also defines the default environment.
 type ProjectFile struct {
-	Version        ManifestVersion         `yaml:"version"`
-	Root           string                  `yaml:"root"`
-	Framework      string                  `yaml:"framework,omitempty"`
-	Tools          ToolsConfig             `yaml:"tools,omitempty"`
-	Settings       SettingsConfig          `yaml:"settings,omitempty"`
-	Docroot        string                  `yaml:"docroot,omitempty"`
-	HTTPS          bool                    `yaml:"https,omitempty"`
-	EnvFile        string                  `yaml:"env-file,omitempty"`
-	EnvVars        map[string]string       `yaml:"env-vars,omitempty"`
-	Database       *DatabaseConfig         `yaml:"database,omitempty"`
-	MemoryLimit    any                     `yaml:"memory-limit,omitempty"`
-	PHPExtensions  map[string]any          `yaml:"php-extensions,omitempty"`
-	PECLExtensions map[string]any          `yaml:"pecl-extensions,omitempty"`
-	OPcachePreset  string                  `yaml:"opcache-preset,omitempty"`
-	OPcacheConfig  map[string]any          `yaml:"opcache-config,omitempty"`
-	Server         *ServerConfig           `yaml:"server,omitempty"`
-	Workers        map[string]WorkerConfig `yaml:"workers,omitempty"`
+	Version        ManifestVersion          `yaml:"version"`
+	Root           string                   `yaml:"root"`
+	Framework      string                   `yaml:"framework,omitempty"`
+	Tools          ToolsConfig              `yaml:"tools,omitempty"`
+	Settings       SettingsConfig           `yaml:"settings,omitempty"`
+	Docroot        string                   `yaml:"docroot,omitempty"`
+	HTTPS          bool                     `yaml:"https,omitempty"`
+	EnvFile        string                   `yaml:"env-file,omitempty"`
+	EnvVars        map[string]string        `yaml:"env-vars,omitempty"`
+	Database       *DatabaseConfig          `yaml:"database,omitempty"`
+	MemoryLimit    any                      `yaml:"memory-limit,omitempty"`
+	PHPExtensions  map[string]any           `yaml:"php-extensions,omitempty"`
+	PECLExtensions map[string]any           `yaml:"pecl-extensions,omitempty"`
+	OPcachePreset  string                   `yaml:"opcache-preset,omitempty"`
+	OPcacheConfig  map[string]any           `yaml:"opcache-config,omitempty"`
+	Server         *ServerConfig            `yaml:"server,omitempty"`
+	Workers        map[string]WorkerConfig  `yaml:"workers,omitempty"`
+	Cron           map[string]CronJobConfig `yaml:"cron,omitempty"`
 }
 
 // EnvironmentFile is the YAML shape of polka.<name>.yaml.
 type EnvironmentFile struct {
-	Framework      string                  `yaml:"framework,omitempty"`
-	Tools          ToolsConfig             `yaml:"tools,omitempty"`
-	Settings       SettingsConfig          `yaml:"settings,omitempty"`
-	Docroot        string                  `yaml:"docroot,omitempty"`
-	HTTPS          bool                    `yaml:"https,omitempty"`
-	EnvFile        string                  `yaml:"env-file,omitempty"`
-	EnvVars        map[string]string       `yaml:"env-vars,omitempty"`
-	Database       *DatabaseConfig         `yaml:"database,omitempty"`
-	MemoryLimit    any                     `yaml:"memory-limit,omitempty"`
-	PHPExtensions  map[string]any          `yaml:"php-extensions,omitempty"`
-	PECLExtensions map[string]any          `yaml:"pecl-extensions,omitempty"`
-	OPcachePreset  string                  `yaml:"opcache-preset,omitempty"`
-	OPcacheConfig  map[string]any          `yaml:"opcache-config,omitempty"`
-	Server         *ServerConfig           `yaml:"server,omitempty"`
-	Workers        map[string]WorkerConfig `yaml:"workers,omitempty"`
+	Framework      string                   `yaml:"framework,omitempty"`
+	Tools          ToolsConfig              `yaml:"tools,omitempty"`
+	Settings       SettingsConfig           `yaml:"settings,omitempty"`
+	Docroot        string                   `yaml:"docroot,omitempty"`
+	HTTPS          bool                     `yaml:"https,omitempty"`
+	EnvFile        string                   `yaml:"env-file,omitempty"`
+	EnvVars        map[string]string        `yaml:"env-vars,omitempty"`
+	Database       *DatabaseConfig          `yaml:"database,omitempty"`
+	MemoryLimit    any                      `yaml:"memory-limit,omitempty"`
+	PHPExtensions  map[string]any           `yaml:"php-extensions,omitempty"`
+	PECLExtensions map[string]any           `yaml:"pecl-extensions,omitempty"`
+	OPcachePreset  string                   `yaml:"opcache-preset,omitempty"`
+	OPcacheConfig  map[string]any           `yaml:"opcache-config,omitempty"`
+	Server         *ServerConfig            `yaml:"server,omitempty"`
+	Workers        map[string]WorkerConfig  `yaml:"workers,omitempty"`
+	Cron           map[string]CronJobConfig `yaml:"cron,omitempty"`
 }
 
 // Environment is the normalized in-memory model for a Polka environment.
@@ -85,6 +87,7 @@ type Environment struct {
 	OPcacheConfig  map[string]string              `yaml:"opcache-config,omitempty"`
 	Server         *ServerConfig                  `yaml:"server,omitempty"`
 	Workers        map[string]WorkerConfig        `yaml:"workers,omitempty"`
+	Cron           map[string]CronJobConfig       `yaml:"cron,omitempty"`
 }
 
 // PECLExtensionConfig describes one legacy PECL package. ConfigureOptions
@@ -495,6 +498,7 @@ func ProjectFileToEnvironment(name string, file ProjectFile) Environment {
 		file.OPcacheConfig,
 		file.Server,
 		file.Workers,
+		file.Cron,
 	)
 }
 
@@ -518,6 +522,7 @@ func ProjectFileFromEnvironment(version ManifestVersion, root string, environmen
 		OPcacheConfig:  OPcacheFileConfigFromEnvironment(environment),
 		Server:         ServerConfigFromEnvironment(environment),
 		Workers:        NormalizeWorkersConfig(environment.Workers),
+		Cron:           NormalizeCronConfig(environment.Cron),
 	}
 }
 
@@ -540,6 +545,7 @@ func EnvironmentFileToEnvironment(name string, file EnvironmentFile) Environment
 		file.OPcacheConfig,
 		file.Server,
 		file.Workers,
+		file.Cron,
 	)
 }
 
@@ -561,6 +567,7 @@ func EnvironmentFileFromEnvironment(environment Environment) EnvironmentFile {
 		OPcacheConfig:  OPcacheFileConfigFromEnvironment(environment),
 		Server:         ServerConfigFromEnvironment(environment),
 		Workers:        NormalizeWorkersConfig(environment.Workers),
+		Cron:           NormalizeCronConfig(environment.Cron),
 	}
 }
 
@@ -715,7 +722,7 @@ func settingIntValue(value any) (int, bool) {
 	}
 }
 
-func environmentFromFileParts(name string, framework string, tools ToolsConfig, settings SettingsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *DatabaseConfig, memoryLimit any, phpExtensions map[string]any, peclExtensions map[string]any, opcachePreset string, opcacheConfig map[string]any, server *ServerConfig, workers map[string]WorkerConfig) Environment {
+func environmentFromFileParts(name string, framework string, tools ToolsConfig, settings SettingsConfig, docroot string, https bool, envFile string, envVars map[string]string, database *DatabaseConfig, memoryLimit any, phpExtensions map[string]any, peclExtensions map[string]any, opcachePreset string, opcacheConfig map[string]any, server *ServerConfig, workers map[string]WorkerConfig, cron map[string]CronJobConfig) Environment {
 	bundledExtensions, pieExtensions := SplitPHPExtensionsFromYAML(phpExtensions)
 	normalizedTools := NormalizeToolsConfig(tools)
 	environment := Environment{
@@ -736,6 +743,7 @@ func environmentFromFileParts(name string, framework string, tools ToolsConfig, 
 		OPcacheConfig:  NormalizeOPcacheConfigFromYAML(opcacheConfig),
 		Server:         server,
 		Workers:        NormalizeWorkersConfig(workers),
+		Cron:           NormalizeCronConfig(cron),
 	}
 	if len(normalizedTools) > 0 {
 		environment.Database = PrimaryDatabaseConfigFromTools(normalizedTools, database)
@@ -854,6 +862,7 @@ func NormalizeEnvironment(name string, environment Environment) Environment {
 		OPcacheConfig:  NormalizeOPcacheConfig(environment.OPcacheConfig),
 		Server:         NormalizeServerConfig(environment.Server),
 		Workers:        NormalizeWorkersConfig(environment.Workers),
+		Cron:           NormalizeCronConfig(environment.Cron),
 	}
 
 	return populateDatabaseToolVersion(inheritEnvironmentHTTPS(normalized))

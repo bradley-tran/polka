@@ -76,6 +76,65 @@ defaults:
 	}
 }
 
+// TestBuiltinFrameworkManifestCronDefaults checks the shipped cron presets
+// and that they survive the plugin conversion used by init.
+func TestBuiltinFrameworkManifestCronDefaults(t *testing.T) {
+	for _, test := range []struct {
+		framework    string
+		job          string
+		wantSchedule string
+		wantCommand  string
+	}{
+		{framework: Laravel, job: "scheduler", wantSchedule: "* * * * *", wantCommand: "php artisan schedule:run"},
+		{framework: Drupal, job: "drupal", wantSchedule: "@hourly", wantCommand: "php vendor/bin/drush cron"},
+	} {
+		t.Run(test.framework, func(t *testing.T) {
+			manifest, err := loadBuiltinFrameworkManifest(test.framework)
+			if err != nil {
+				t.Fatalf("loadBuiltinFrameworkManifest(%s) error = %v", test.framework, err)
+			}
+			job := manifest.Defaults.Cron[test.job]
+			if job.Schedule != test.wantSchedule || job.Command != test.wantCommand {
+				t.Fatalf("%s cron.%s = %#v, want %q %q", test.framework, test.job, job, test.wantSchedule, test.wantCommand)
+			}
+
+			plugin := newManifestFrameworkPlugin(test.framework)
+			if got := plugin.Defaults().Cron[test.job].Command; got != test.wantCommand {
+				t.Fatalf("%s plugin Defaults().Cron[%s].Command = %q, want %q", test.framework, test.job, got, test.wantCommand)
+			}
+		})
+	}
+}
+
+// TestParseFrameworkManifestRejectsInvalidCron checks that manifests with
+// broken cron definitions fail to load.
+func TestParseFrameworkManifestRejectsInvalidCron(t *testing.T) {
+	_, err := parseFrameworkManifest([]byte(`
+id: demo
+defaults:
+  docroot: public
+  cron:
+    tick:
+      schedule: "61 * * * *"
+      command: php run
+`))
+	if err == nil || !strings.Contains(err.Error(), "outside 0-59") {
+		t.Fatalf("parseFrameworkManifest(invalid schedule) error = %v, want schedule error", err)
+	}
+
+	_, err = parseFrameworkManifest([]byte(`
+id: demo
+defaults:
+  docroot: public
+  cron:
+    tick:
+      command: php run
+`))
+	if err == nil || !strings.Contains(err.Error(), "requires a schedule") {
+		t.Fatalf("parseFrameworkManifest(missing schedule) error = %v, want schedule error", err)
+	}
+}
+
 func TestParseFrameworkManifestRequiresID(t *testing.T) {
 	_, err := parseFrameworkManifest([]byte(`
 defaults:

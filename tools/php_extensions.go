@@ -2,6 +2,8 @@ package tools
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -276,6 +278,11 @@ func writePHPConfigFile(phpPath, extensionDir, phpIniPath string, phpConfig PHPI
 		}
 		phpConfig.Extensions = skipBuiltInPHPExtensions(phpConfig.Extensions, builtInExtensions)
 	}
+	cacheIDConfig, err := withOPcacheCacheID(runtime.GOOS, phpIniPath, phpConfig.OPcacheConfig)
+	if err != nil {
+		return err
+	}
+	phpConfig.OPcacheConfig = cacheIDConfig
 
 	configData, err := renderPHPConfig(filepath.ToSlash(extensionDir), phpConfig)
 	if err != nil {
@@ -287,6 +294,50 @@ func writePHPConfigFile(phpPath, extensionDir, phpIniPath string, phpConfig PHPI
 	}
 
 	return nil
+}
+
+// opcacheCacheIDDirective names the Windows-only OPcache directive that
+// namespaces the shared memory segment.
+const opcacheCacheIDDirective = "opcache.cache_id"
+
+// withOPcacheCacheID returns the OPcache directives with a cache_id unique to
+// the PHP install that owns phpIniPath, on Windows only. Windows OPcache
+// names its shared memory after the PHP build, not the install path, so a
+// second project running the same PHP version attaches to the first
+// project's segment and dies with "Opcode handlers are unusable due to
+// ASLR", because its separately loaded binary sits at another base address.
+// Processes of one install load the same image and can safely share a
+// segment, so the install directory is the right key. An explicit
+// opcache.cache_id from the user is kept. The input map is never modified.
+func withOPcacheCacheID(goos, phpIniPath string, directives map[string]string) (map[string]string, error) {
+	if goos != "windows" {
+		return directives, nil
+	}
+	for name := range directives {
+		if strings.EqualFold(strings.TrimSpace(name), opcacheCacheIDDirective) {
+			return directives, nil
+		}
+	}
+	installDir, err := filepath.Abs(filepath.Dir(phpIniPath))
+	if err != nil {
+		return nil, fmt.Errorf("resolve php install directory for %s: %w", phpIniPath, err)
+	}
+
+	result := make(map[string]string, len(directives)+1)
+	for name, value := range directives {
+		result[name] = value
+	}
+	result[opcacheCacheIDDirective] = opcacheCacheID(installDir)
+
+	return result, nil
+}
+
+// opcacheCacheID derives a short, stable cache_id from a PHP install
+// directory. Windows paths are case-insensitive, so the path is lowercased.
+func opcacheCacheID(installDir string) string {
+	digest := sha256.Sum256([]byte(strings.ToLower(filepath.Clean(installDir))))
+
+	return "polka-" + hex.EncodeToString(digest[:6])
 }
 
 func renderPHPExtensionConfig(extensionDir string, extensions map[string]bool) ([]byte, error) {

@@ -86,6 +86,9 @@ func (m projectPresetManifest) validate() error {
 	if err := config.ValidateWorkersConfig(m.Defaults.Workers); err != nil {
 		return fmt.Errorf("project preset manifest %q: %w", id, err)
 	}
+	if err := config.ValidateCronConfig(m.Defaults.Cron); err != nil {
+		return fmt.Errorf("project preset manifest %q: %w", id, err)
+	}
 
 	for _, scaffold := range m.Scaffold {
 		if err := validateProjectPresetScaffoldPath(scaffold.Path); err != nil {

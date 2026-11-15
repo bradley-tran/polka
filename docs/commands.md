@@ -42,7 +42,7 @@ When `framework` is `cakephp`, `codeigniter`, `drupal`, `wordpress`, `laravel`, 
 
 The `php-extension` project preset is not a framework. It configures PHP, Composer, unlimited PHP memory, extension-test environment variables, and `settings.php.extension-sdk: true`, with no webserver, docroot, or database. It also writes a PIE-compatible `composer.json` using the directory name for `vendor/<name>` and the PHP module name. `--package VENDOR/NAME` overrides the derived Composer name. An existing `composer.json` is kept byte-for-byte, and preset init never installs tools or starts services. Like framework init, it fails if `polka.yaml` already exists.
 
-CakePHP uses the `webroot` docroot. CodeIgniter, Laravel, and Symfony use `public`. Drupal uses `web`. These presets include PHP, Composer, Node.js, nginx, MariaDB, phpMyAdmin, and Mailpit. The WordPress preset uses the project root as docroot and includes PHP, nginx, MariaDB, and phpMyAdmin. With a framework, `--docroot PATH` overrides the preset docroot in the generated config.
+CakePHP uses the `webroot` docroot. CodeIgniter, Laravel, and Symfony use `public`. Drupal uses `web`. These presets include PHP, Composer, Node.js, nginx, MariaDB, phpMyAdmin, and Mailpit. The Laravel preset also defines a `queue` worker and a `scheduler` cron job, Symfony a `messenger` worker, and Drupal an hourly `drush cron` job; see [`polka cron`](#polka-cron-listrun-joblogs-job). The WordPress preset uses the project root as docroot and includes PHP, nginx, MariaDB, and phpMyAdmin. With a framework, `--docroot PATH` overrides the preset docroot in the generated config.
 
 ### `polka new <name>`
 
@@ -177,11 +177,11 @@ Selects one environment as the local override. Use `default` to clear the overri
 
 Alias: `polka info`
 
-Shows the active environment, prints each configured tool on its own line (with effective, possibly leased, ports), includes the web server URL (`server https://blog.localhost:8443 (via router)` when routed), and reports whether the webserver, background workers, phpMyAdmin, Meilisearch, Redis, RabbitMQ, managed database, Mailpit, and the global router are running. When the router is running, it also prints one `route <backend> <url>` line per routed URL of the environment. Configured workers are listed one per line, and the runtime section reports live worker replicas as `workers running <live>/<configured>`.
+Shows the active environment, prints each configured tool on its own line (with effective, possibly leased, ports), includes the web server URL (`server https://blog.localhost:8443 (via router)` when routed), and reports whether the webserver, background workers, phpMyAdmin, Meilisearch, Redis, RabbitMQ, managed database, Mailpit, and the global router are running. When the router is running, it also prints one `route <backend> <url>` line per routed URL of the environment. Configured workers are listed one per line, and the runtime section reports live worker replicas as `workers running <live>/<configured>`. Configured cron jobs are listed as `cron <job> <schedule>: <command>`, and the runtime section reports `cron running (pid <pid>, <n> job(s))` or `cron stopped`.
 
 ### `polka dashboard`
 
-Opens a live status view for the active environment in the terminal. It shows the webserver, managed services (database, Mailpit, phpMyAdmin, Meilisearch, Redis, RabbitMQ, and the global router with the environment's routed URL), and worker processes with their URLs, PIDs, and uptimes, refreshing every 2 seconds. Press `q` to quit.
+Opens a live status view for the active environment in the terminal. It shows the webserver, managed services (database, Mailpit, phpMyAdmin, Meilisearch, Redis, RabbitMQ, and the global router with the environment's routed URL), and worker processes with their URLs, PIDs, and uptimes, plus the cron runner and each cron job's next run and last result, refreshing every 2 seconds. Press `q` to quit.
 
 When stdin or stdout is not a terminal — for example when the output is piped — `polka dashboard` prints the one-shot `polka status` output instead.
 
@@ -258,13 +258,57 @@ workers:
 
 Worker commands run with the same environment as `polka exec`: managed tools such as `php` resolve to the environment's installed binaries, and configured `env-file`/`env-vars` values apply. Each replica logs to `.polka/run/workers/<environment>/<name>-<replica>.log`. A worker that fails to launch (bad command, immediate exit) is reported as a warning and never fails `polka serve`; the remaining workers still start, and failed replicas are retried on the next `polka serve`. Workers are also restarted on the next `polka serve` when their configuration changes; a crashed worker is not restarted automatically. `polka init laravel` and `polka init symfony` preset a `queue` and `messenger` worker respectively. `polka status` prints the full Mailpit, Meilisearch, Redis, and phpMyAdmin URLs.
 
+If the environment defines `cron` jobs, `polka serve` starts the environment's cron runner last, after the workers. See [`polka cron`](#polka-cron-listrun-joblogs-job).
+
 Behind the router, each route uses its own certificate for the host and `*.host`, signed by the local Polka CA. When binding directly, HTTPS requires nginx, Apache, or FrankenPHP at start time. They use the generated server certificate from the global Polka cache. The certificate covers `localhost`, `*.localhost`, `127.0.0.1`, and `::1`, and is signed by a generated local Polka CA. Hostnames ending in `.localhost`, such as `blog.localhost`, work without editing the hosts file.
 
 When Polka creates new HTTPS certificate material during `serve`, it prefers to encrypt global-cache private keys with random keys stored in the OS keyring. Webserver processes still receive plaintext PEM runtime copies under `.polka/run` because nginx, Apache, FrankenPHP, and Mailpit require key file paths. If the OS keyring is unavailable, `serve` falls back to the legacy plaintext global-cache private-key format with a warning so local HTTPS remains usable. Existing plaintext keys continue to work.
 
 ### `polka stop`
 
-Stops the active environment's background webserver, workers, phpMyAdmin, Meilisearch, Redis, RabbitMQ, managed database, and Mailpit when they are running. Workers stop before the services they depend on. It then removes the environment's route from the global router and stops the router when no project routes through it any more. A per-project Traefik left running by an older Polka release is stopped as well.
+Stops the active environment's background webserver, cron runner, workers, phpMyAdmin, Meilisearch, Redis, RabbitMQ, managed database, and Mailpit when they are running. The cron runner stops first, together with any job it is running, so no scheduled job queues new work while workers shut down. Workers then stop before the services they depend on. It then removes the environment's route from the global router and stops the router when no project routes through it any more. A per-project Traefik left running by an older Polka release is stopped as well.
+
+### `polka cron [list|run <job>|logs [job]]`
+
+Runs scheduled jobs without the system crontab, on every platform including Windows. Define jobs under `cron` in the environment config:
+
+```yaml
+cron:
+  scheduler:
+    schedule: "* * * * *"
+    command: php artisan schedule:run
+  report:
+    schedule: "30 6 * * MON-FRI"
+    command: php bin/console app:report --send
+    dir: .               # optional working directory, relative to the project
+    env:                 # optional per-job environment variables
+      REPORT_TO: team@example.test
+```
+
+`schedule` takes the five standard cron fields (minute, hour, day of month, month, day of week). Fields accept `*`, values, ranges (`1-5`), steps (`*/15`, `0-30/10`), lists, and `JAN`-`DEC` and `SUN`-`SAT` names; `0` and `7` both mean Sunday. When both day fields are restricted, a day matches if either one does, as in cron. The `@hourly`, `@daily`, `@midnight`, `@weekly`, `@monthly`, `@yearly`, and `@annually` shortcuts are also accepted. `@reboot` and seconds are not. Schedules use the machine's local time, and a schedule that can never run, such as `0 0 30 2 *`, is rejected.
+
+`polka serve` starts one background cron runner per environment, after the workers. The runner is Polka itself, so nothing is installed into the system crontab. At each minute boundary it starts every job that is due, with the same environment as `polka exec`, plus `POLKA_CRON_JOB` set to the job name. Like cron:
+
+- The minute the runner starts in is not run.
+- Minutes missed while the machine was asleep are not caught up.
+- If a job is still running when it is next due, that run is skipped and the skip is logged.
+
+The runner restarts on the next `polka serve` when the `cron` config changes, and stops when the `cron` config is removed. `polka stop` stops the runner and any job it is running.
+
+```bash
+polka cron
+polka cron run scheduler
+polka cron logs
+polka cron logs scheduler -f
+```
+
+- `list` (the default) shows whether the runner is running, then one row per job with its schedule, next run, last run, and exit code. It also notes when the config changed since the runner started.
+- `run <job>` runs one job now in the foreground, with the same environment the runner uses, and exits with the job's exit code. It doesn't change the runner's history.
+- `logs` prints the runner log and every job log, or one job's log when you name it. `-f` follows them.
+
+Job output is appended to `.polka/run/cron/<environment>/jobs/<job>.log`, between start and finish lines that record the exit code and duration. A job log over 5 MiB moves to `<job>.log.1` before the next run. The runner logs to `.polka/run/cron/<environment>/runner.log` and keeps each job's latest result in `runs.json` next to it.
+
+`polka init laravel` presets a `scheduler` job that runs `php artisan schedule:run` every minute. `polka init drupal` presets a `drupal` job that runs `php vendor/bin/drush cron` hourly.
 
 ### `polka router [status|stop|restart|logs]`
 

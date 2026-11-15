@@ -19,6 +19,10 @@ defaults:
   workers:
     queue:
       command: php artisan queue:work
+  cron:
+    scheduler:
+      schedule: "* * * * *"
+      command: php artisan schedule:run
 php-extensions:
   - bcmath
   - curl

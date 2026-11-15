@@ -16,6 +16,10 @@ defaults:
   database:
     engine: mariadb
   opcache-preset: dev
+  cron:
+    drupal:
+      schedule: "@hourly"
+      command: php vendor/bin/drush cron
 php-extensions:
   - curl
   - dom

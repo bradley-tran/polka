@@ -39,9 +39,20 @@ type dashboardSnapshot struct {
 	WebServer         *serveRuntimeState
 	Services          []dashboardServiceRow
 	Workers           *workersRuntimeState
-	WorkersConfigured int  // total configured replicas
-	WorkersUnset      bool // no workers configured at all
+	WorkersConfigured int                      // total configured replicas
+	WorkersUnset      bool                     // no workers configured at all
+	Cron              *service.CronRunnerState // nil when the runner is stopped
+	CronJobs          []dashboardCronRow
+	CronUnset         bool // no cron jobs configured at all
 	Errors            []string
+}
+
+// dashboardCronRow is the display state of one configured cron job.
+type dashboardCronRow struct {
+	Name     string
+	Schedule string
+	Next     time.Time // zero when the schedule cannot be evaluated
+	Last     service.CronJobRunState
 }
 
 // recordError keeps a loader failure visible in the dashboard footer instead
@@ -92,9 +103,17 @@ func gatherDashboardSnapshot(store backend.Store, now time.Time) dashboardSnapsh
 		gatherRouterRow(store, environment, &snapshot),
 	}
 
+	gatherDashboardWorkers(store, environment, &snapshot)
+	gatherDashboardCron(store, environment, &snapshot)
+
+	return snapshot
+}
+
+// gatherDashboardWorkers fills the workers section of the snapshot.
+func gatherDashboardWorkers(store backend.Store, environment backend.Environment, snapshot *dashboardSnapshot) {
 	if len(environment.Workers) == 0 {
 		snapshot.WorkersUnset = true
-		return snapshot
+		return
 	}
 	for _, worker := range environment.Workers {
 		snapshot.WorkersConfigured += config.EffectiveWorkerReplicas(worker)
@@ -102,11 +121,38 @@ func gatherDashboardSnapshot(store backend.Store, now time.Time) dashboardSnapsh
 	workersState, err := loadLiveWorkersState(store.RootDir, environment.Name)
 	if err != nil {
 		snapshot.recordError("workers", err)
-		return snapshot
+		return
 	}
 	snapshot.Workers = workersState
+}
 
-	return snapshot
+// gatherDashboardCron fills the cron section of the snapshot: the runner's
+// state and one row per configured job with its next run and last result.
+func gatherDashboardCron(store backend.Store, environment backend.Environment, snapshot *dashboardSnapshot) {
+	if len(environment.Cron) == 0 {
+		snapshot.CronUnset = true
+		return
+	}
+
+	runner, err := loadLiveCronState(store.RootDir, environment.Name)
+	if err != nil {
+		snapshot.recordError("cron", err)
+	} else {
+		snapshot.Cron = runner
+	}
+	history, err := service.LoadCronRunsState(service.CronRunsPath(store.RootDir, environment.Name))
+	if err != nil {
+		snapshot.recordError("cron history", err)
+	}
+
+	for _, name := range config.SortedCronJobNames(environment.Cron) {
+		job := environment.Cron[name]
+		row := dashboardCronRow{Name: name, Schedule: job.Schedule, Last: history.Jobs[name]}
+		if schedule, err := config.ParseCronSchedule(job.Schedule); err == nil {
+			row.Next = schedule.Next(snapshot.TakenAt)
+		}
+		snapshot.CronJobs = append(snapshot.CronJobs, row)
+	}
 }
 
 func gatherDatabaseRow(store backend.Store, environment backend.Environment, snapshot *dashboardSnapshot) dashboardServiceRow {
@@ -348,6 +394,7 @@ func renderDashboard(snapshot dashboardSnapshot) string {
 	b.WriteString("\n")
 
 	renderDashboardWorkers(&b, snapshot)
+	renderDashboardCron(&b, snapshot)
 
 	for _, message := range snapshot.Errors {
 		b.WriteString(dashboardErrorStyle.Render(fmt.Sprintf("error: %s", message)))
@@ -393,6 +440,52 @@ func renderDashboardWorkers(b *strings.Builder, snapshot dashboardSnapshot) {
 			formatUptime(snapshot.TakenAt, process.StartedAt)))
 	}
 	b.WriteString("\n")
+}
+
+// renderDashboardCron renders the cron section: the runner's state plus one
+// row per configured job with its schedule, next run, and last result.
+func renderDashboardCron(b *strings.Builder, snapshot dashboardSnapshot) {
+	if snapshot.CronUnset {
+		b.WriteString(dashboardSectionStyle.Render("Cron"))
+		b.WriteString("\n  ")
+		b.WriteString(dashboardDimStyle.Render(dashboardStatusUnset))
+		b.WriteString("\n\n")
+		return
+	}
+
+	if snapshot.Cron == nil {
+		b.WriteString(dashboardSectionStyle.Render("Cron"))
+		b.WriteString(" ")
+		b.WriteString(dashboardStoppedStyle.Render(dashboardStatusStopped))
+	} else {
+		b.WriteString(dashboardSectionStyle.Render("Cron"))
+		b.WriteString(" ")
+		b.WriteString(dashboardRunningStyle.Render(dashboardStatusRunning))
+		b.WriteString(fmt.Sprintf("  pid %d  up %s", snapshot.Cron.PID, formatUptime(snapshot.TakenAt, snapshot.Cron.StartedAt)))
+	}
+	b.WriteString("\n")
+	for _, row := range snapshot.CronJobs {
+		next := "-"
+		if !row.Next.IsZero() {
+			next = row.Next.Format("01-02 15:04")
+		}
+		b.WriteString(fmt.Sprintf("  %-12s %-14s next %s  last %s\n", row.Name, row.Schedule, next, dashboardCronLastRun(row.Last)))
+	}
+	b.WriteString("\n")
+}
+
+// dashboardCronLastRun renders a job's latest result compactly.
+func dashboardCronLastRun(run service.CronJobRunState) string {
+	switch {
+	case run.Running:
+		return run.LastStart.Local().Format("01-02 15:04") + " running"
+	case run.LastStart.IsZero():
+		return "never"
+	case run.LastError != "":
+		return run.LastStart.Local().Format("01-02 15:04") + " failed to start"
+	default:
+		return fmt.Sprintf("%s exit %d", run.LastStart.Local().Format("01-02 15:04"), run.LastExitCode)
+	}
 }
 
 // formatUptime renders the elapsed time since startedAt in a compact form

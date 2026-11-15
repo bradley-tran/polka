@@ -18,7 +18,7 @@ Polka is a Go CLI for managing project-local PHP development environments. The p
 
 ### `cli`
 
-The `cli` package owns command parsing, user-facing command output, and command-specific workflows. It uses Cobra to expose commands such as `init`, `new`, `install`, `build`, `serve`, `stop`, `exec`, `sh`, `db`, and `status`.
+The `cli` package owns command parsing, user-facing command output, and command-specific workflows. It uses Cobra to expose commands such as `init`, `new`, `install`, `build`, `serve`, `stop`, `exec`, `sh`, `db`, `cron`, and `status`, plus hidden commands that Polka runs itself, such as `dispatch` for command shims and `cron runner` for the background cron runner.
 
 The CLI should stay thin. It resolves flags and arguments, asks `backend.Store` for stateful operations, and handles process execution or runtime command flows where those are command-specific.
 
@@ -53,6 +53,7 @@ The `config` package contains shared YAML schema types and normalization helpers
 - read-only service view types (`MailpitConfig`, `PHPMyAdminConfig`, `MeilisearchConfig`, `RedisConfig`, `RabbitMQConfig`)
 - `ServerConfig`, including the `router` opt-out from the global router
 - `WorkerConfig` under the top-level `workers` map
+- `CronJobConfig` under the top-level `cron` map, and `CronSchedule`, the in-house five-field cron expression parser (`ParseCronSchedule`, `Matches`, `Next`) shared by config validation, the runner, and listings
 - framework IDs stored as `framework` on project and environment files
 
 This package exists to avoid import cycles. Both `backend` and `tools` can depend on config types without either package importing the other.
@@ -85,6 +86,7 @@ The `service` package owns long-running managed services:
 - Mailpit server lifecycle, state, ports, and logs
 - phpMyAdmin service lifecycle, UI endpoint helpers, state, and managed MySQL/MariaDB storage bootstrap
 - background worker lifecycle for the environment's `workers` config: per-replica process launch, PID state, log files, and reconcile-on-config-change behavior (workers start last and stop first relative to the other managed services); worker launch and stop failures are reported through the warning callback and never fail serve or stop
+- the cron runner for the environment's `cron` config (`service/cron.go`); see [Cron Runner](#cron-runner)
 - service matching against the active `tools.Registry`
 - the machine-global router (one shared Traefik process, per-environment routes, hostname conflict checks) and the machine-global port lease registry
 
@@ -200,6 +202,7 @@ Runtime services are split between `service` and `cli`:
 - Redis startup, shutdown, and status are in `service`, with CLI adapters for command output and test hooks.
 - The machine-global router and port leases are in `service` (`router.go`, `ports.go`); see [Global Router and Port Leases](#global-router-and-port-leases).
 - Background worker startup, shutdown, and status are in `service`; the CLI injects the managed shell environment and managed-tool target resolution so worker commands such as `php artisan queue:work` run against the real installed binaries.
+- Cron runner startup, shutdown, and scheduling are in `service`; the CLI supplies how to launch Polka as the runner and the same environment and target resolution as workers. See [Cron Runner](#cron-runner).
 - phpMyAdmin startup, shutdown, status, and managed MySQL/MariaDB storage import are in `service`; CLI supplies the PHP/nginx/Apache/FrankenPHP web runtime callbacks.
 - Certificates remain CLI-managed assets and are passed to services through callback adapters.
 - The shell command composes environment variables and `PATH` behavior around the active environment.
@@ -222,6 +225,27 @@ Every project shares one router and one port lease registry, kept in the machine
   Framework runtime bindings reach leased service ports through `RuntimeEnvContext.ServiceValues` and the `runtime-env.service-values` manifest groups, so `plugins` never needs service defaults.
 
 `service` stays independent of `backend`: the cli resolves the router directory and the Traefik binary (`Store.EnsureInternalTool`) and passes plain paths in.
+
+### Cron Runner
+
+Scheduled jobs run without the system crontab. The runner is a background Polka process, so it works the same on every platform:
+
+- **Lifecycle** (`service/cron.go`).
+  - `Manager.Start` calls `EnsureManagedCronStarted` after the workers start, and `Manager.Stop` calls `StopManagedCron` before they stop, so no scheduled job queues work while consumers shut down.
+  - The runner's state (`.polka/run/cron/<environment>.json`) records its PID and a SHA-256 fingerprint of the normalized `cron` map. A live runner with a matching fingerprint is reported as already running; otherwise it is replaced.
+  - Serving after the `cron` config was removed stops a leftover runner.
+  - Like worker failures, a runner that fails to start is a warning and never fails serve.
+- **Launch.** The cli supplies `CronRuntimeHooks.BuildRunnerSpec`, which runs `os.Executable()` as the hidden `polka -C <project> cron runner --env <name>`, so `service` never knows CLI syntax.
+  - `StartCronRunnerProcess` starts it in its own process group (`Setpgid` on Unix, `CREATE_NEW_PROCESS_GROUP` on Windows). Signals from the terminal that ran serve therefore do not reach it, and the runner also ignores `SIGHUP`.
+  - `stopProcessGroup` (`service/process_group_*.go`) stops the runner and every job it started. On Unix it sends `SIGTERM` to the group, waits up to five seconds, then sends `SIGKILL`. On Windows it relies on `taskkill /T`.
+- **Scheduling.** The hidden command (`cli/command_cron.go`) resolves jobs once with `service.BuildCronJobSpecs`, using the same environment and managed-tool target resolution as workers.
+  - It refuses to run unless its environment is the active one, because managed tools resolve against the active environment.
+  - `service.RunCronScheduler` sleeps to each minute boundary and starts every matching job in its own goroutine, skipping a job whose previous run is still going.
+  - It tracks the last minute it evaluated. A forward clock jump evaluates only the current minute (no catch-up), a small step back never repeats a minute, and a step back of more than five minutes resumes from the new time.
+  - The clock, timer, job execution, and history writes are hooks, so tests drive the scheduler with a fake clock.
+- **Jobs and history.**
+  - `RunCronJobProcess` appends each run's output to `.polka/run/cron/<environment>/jobs/<job>.log` between start and finish lines, and rotates a log over 5 MiB to `<job>.log.1`.
+  - The runner is the only writer of `runs.json`, the per-job latest result, which it rewrites atomically after each start and finish. `polka cron`, `polka status`, and the dashboard read it.
 
 The database tool plugins install and dispatch database clients, while database server lifecycle logic lives in `service`. PostgreSQL uses `initdb`, `postgres`, `createdb`, `pg_ctl`, `psql`, and `pg_dump`, with client authentication supplied through a project-local `.pgpass` file.
 

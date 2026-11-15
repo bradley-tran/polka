@@ -338,3 +338,84 @@ func phpIniHasLine(phpIni, line string) bool {
 
 	return false
 }
+
+// TestWithOPcacheCacheIDAddsPerInstallIDOnWindows checks that each Windows
+// PHP install gets a distinct, stable OPcache cache_id so two projects on the
+// same PHP version never share an OPcache shared memory segment.
+func TestWithOPcacheCacheIDAddsPerInstallIDOnWindows(t *testing.T) {
+	root := t.TempDir()
+	firstIni := filepath.Join(root, "first", "envs", "php", "8.4", "php.ini")
+	secondIni := filepath.Join(root, "second", "envs", "php", "8.4", "php.ini")
+	directives := map[string]string{"opcache.enable": "1"}
+
+	first, err := withOPcacheCacheID("windows", firstIni, directives)
+	if err != nil {
+		t.Fatalf("withOPcacheCacheID() error = %v", err)
+	}
+	second, err := withOPcacheCacheID("windows", secondIni, directives)
+	if err != nil {
+		t.Fatalf("withOPcacheCacheID() error = %v", err)
+	}
+	again, err := withOPcacheCacheID("windows", strings.ToUpper(firstIni[:1])+firstIni[1:], nil)
+	if err != nil {
+		t.Fatalf("withOPcacheCacheID() error = %v", err)
+	}
+
+	firstID := first[opcacheCacheIDDirective]
+	if !strings.HasPrefix(firstID, "polka-") {
+		t.Fatalf("cache_id = %q, want polka- prefix", firstID)
+	}
+	if firstID == second[opcacheCacheIDDirective] {
+		t.Fatalf("cache_id = %q for both installs, want distinct IDs", firstID)
+	}
+	if again[opcacheCacheIDDirective] != firstID {
+		t.Fatalf("cache_id = %q, want stable %q for the same install", again[opcacheCacheIDDirective], firstID)
+	}
+	if first["opcache.enable"] != "1" {
+		t.Fatalf("directives = %v, want existing directives kept", first)
+	}
+	if _, mutated := directives[opcacheCacheIDDirective]; mutated {
+		t.Fatalf("input directives = %v, want input map left unchanged", directives)
+	}
+}
+
+// TestWithOPcacheCacheIDKeepsExplicitValueAndSkipsOtherPlatforms checks that a
+// user-provided cache_id wins and that non-Windows platforms are untouched.
+func TestWithOPcacheCacheIDKeepsExplicitValueAndSkipsOtherPlatforms(t *testing.T) {
+	iniPath := filepath.Join(t.TempDir(), "php.ini")
+
+	explicit, err := withOPcacheCacheID("windows", iniPath, map[string]string{"OPcache.Cache_ID": "mine"})
+	if err != nil {
+		t.Fatalf("withOPcacheCacheID() error = %v", err)
+	}
+	if len(explicit) != 1 || explicit["OPcache.Cache_ID"] != "mine" {
+		t.Fatalf("directives = %v, want only the explicit cache_id", explicit)
+	}
+
+	linux, err := withOPcacheCacheID("linux", iniPath, nil)
+	if err != nil {
+		t.Fatalf("withOPcacheCacheID() error = %v", err)
+	}
+	if linux != nil {
+		t.Fatalf("directives = %v, want nil on linux", linux)
+	}
+}
+
+// TestWritePHPConfigFileAddsOPcacheCacheIDOnWindows checks the generated
+// php.ini on disk carries the cache_id on Windows hosts.
+func TestWritePHPConfigFileAddsOPcacheCacheIDOnWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("opcache.cache_id is only generated on Windows")
+	}
+	iniPath := filepath.Join(t.TempDir(), "php.ini")
+	if err := writePHPConfigFile("php", "ext", iniPath, PHPInstallConfig{OPcacheConfig: map[string]string{"opcache.enable": "1"}}); err != nil {
+		t.Fatalf("writePHPConfigFile() error = %v", err)
+	}
+	data, err := os.ReadFile(iniPath)
+	if err != nil {
+		t.Fatalf("read php.ini: %v", err)
+	}
+	if !strings.Contains(string(data), "opcache.cache_id=polka-") {
+		t.Fatalf("php.ini = %q, want a generated opcache.cache_id", data)
+	}
+}

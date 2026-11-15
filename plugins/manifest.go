@@ -175,6 +175,9 @@ func (m frameworkManifest) validate(files fs.FS) error {
 	if err := config.ValidateWorkersConfig(m.Defaults.Workers); err != nil {
 		return err
 	}
+	if err := config.ValidateCronConfig(m.Defaults.Cron); err != nil {
+		return err
+	}
 	if err := m.Detection.validate(); err != nil {
 		return err
 	}

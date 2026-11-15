@@ -16,6 +16,7 @@ type RuntimeHooks struct {
 	RabbitMQ                RabbitMQRuntimeHooks
 	PHPMyAdmin              PHPMyAdminRuntimeHooks
 	Workers                 WorkersRuntimeHooks
+	Cron                    CronRuntimeHooks
 	EnsurePHPMyAdminStorage func(Context, Environment, DatabaseRuntimeHooks) error
 }
 
@@ -25,6 +26,7 @@ type StartResult struct {
 	RabbitMQ    *RabbitMQStartSummary
 	PHPMyAdmin  *PHPMyAdminStartResult
 	Workers     *WorkersStartSummary
+	Cron        *CronStartSummary
 }
 
 type MeilisearchStartSummary struct {
@@ -52,7 +54,14 @@ type WorkersStartSummary struct {
 	AlreadyStarted bool
 }
 
+// CronStartSummary reports the cron runner started (or found running) by serve.
+type CronStartSummary struct {
+	State          CronRunnerState
+	AlreadyStarted bool
+}
+
 type StopResult struct {
+	Cron        *StopCronResult
 	Workers     *StopWorkersResult
 	PHPMyAdmin  *StopServeResult
 	Meilisearch *StopMeilisearchResult
@@ -94,6 +103,12 @@ type StopRabbitMQResult struct {
 
 type StopWorkersResult struct {
 	State          WorkersRuntimeState
+	AlreadyStopped bool
+}
+
+// StopCronResult reports the cron runner stopped by stop.
+type StopCronResult struct {
+	State          CronRunnerState
 	AlreadyStopped bool
 }
 
@@ -177,13 +192,38 @@ func (m Manager) Start(ctx Context, hooks RuntimeHooks) (StartResult, error) {
 		}
 	}
 
+	// The cron runner starts after workers, so scheduled jobs that enqueue
+	// work find their consumers running. Like workers, a runner that fails to
+	// start is a warning only.
+	if len(ctx.Environment.Cron) > 0 {
+		state, alreadyStarted, err := EnsureManagedCronStarted(ctx, hooks.Cron)
+		if err != nil {
+			ctx.warnf("Skipping the cron runner for environment %q: %v.\n", ctx.Environment.Name, err)
+		} else {
+			result.Cron = &CronStartSummary{State: state, AlreadyStarted: alreadyStarted}
+		}
+	} else if _, _, err := StopManagedCron(ctx, hooks.Cron); err != nil {
+		// The cron config was removed since the last serve: stop the runner
+		// left from then so its old jobs stop firing.
+		ctx.warnf("Failed to stop the cron runner for environment %q: %v.\n", ctx.Environment.Name, err)
+	}
+
 	return result, nil
 }
 
 func (m Manager) Stop(ctx Context, hooks RuntimeHooks) (StopResult, error) {
 	result := StopResult{}
 
-	// Workers stop first so queue consumers wind down before the services
+	// The cron runner stops before workers, so no scheduled job enqueues new
+	// work while consumers shut down. Failures are warnings only.
+	cronState, cronAlreadyStopped, err := StopManagedCron(ctx, hooks.Cron)
+	if err != nil {
+		ctx.warnf("Failed to stop the cron runner for environment %q: %v.\n", ctx.Environment.Name, err)
+	} else {
+		result.Cron = &StopCronResult{State: cronState, AlreadyStopped: cronAlreadyStopped}
+	}
+
+	// Workers stop next so queue consumers wind down before the services
 	// they depend on (database, redis, ...) go away. Worker failures are
 	// warnings only: they must not block stopping the other services.
 	workersState, workersAlreadyStopped, err := StopManagedWorkers(ctx, hooks.Workers)

@@ -1945,6 +1945,16 @@ func validateEnvironmentFileSchema(data []byte, registry *ToolRegistry) error {
 		}
 	}
 
+	cron, hasCron, err := rawMapForKey(raw, "cron")
+	if err != nil {
+		return err
+	}
+	if hasCron {
+		if err := validateCronSchema(cron); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -2126,6 +2136,66 @@ func validateWorkersSchema(workers map[string]any) error {
 		}
 		if _, ok := workerMap["command"]; !ok {
 			return fmt.Errorf("workers.%s.command must be a non-empty string", name)
+		}
+	}
+
+	return nil
+}
+
+// validateCronSchema checks the raw cron map from an environment file: each
+// job needs a valid name and a mapping with a parsable schedule and a
+// non-empty command, plus optional dir and env keys.
+func validateCronSchema(jobs map[string]any) error {
+	for name, value := range jobs {
+		if !validName.MatchString(name) {
+			return fmt.Errorf("invalid cron.%s key: use letters, numbers, dots, dashes, or underscores", name)
+		}
+		jobMap, ok := asYAMLStringMap(value)
+		if !ok {
+			return fmt.Errorf("cron.%s must be a mapping", name)
+		}
+		for key, entry := range jobMap {
+			switch key {
+			case "schedule":
+				schedule, ok := entry.(string)
+				if !ok || strings.TrimSpace(schedule) == "" {
+					return fmt.Errorf("cron.%s.schedule must be a non-empty string", name)
+				}
+				if _, err := config.ParseCronSchedule(schedule); err != nil {
+					return fmt.Errorf("cron.%s.schedule is invalid: %w", name, err)
+				}
+			case "command":
+				command, ok := entry.(string)
+				if !ok || strings.TrimSpace(command) == "" {
+					return fmt.Errorf("cron.%s.command must be a non-empty string", name)
+				}
+				if _, err := config.SplitWorkerCommand(command); err != nil {
+					return fmt.Errorf("cron.%s.command is invalid: %w", name, err)
+				}
+			case "dir":
+				dir, ok := entry.(string)
+				if !ok || strings.TrimSpace(dir) == "" || strings.ContainsAny(dir, "\r\n") {
+					return fmt.Errorf("cron.%s.dir must be a non-empty single-line string", name)
+				}
+			case "env":
+				envMap, ok := asYAMLStringMap(entry)
+				if !ok {
+					return fmt.Errorf("cron.%s.env must be a mapping", name)
+				}
+				for envKey, envValue := range envMap {
+					if !isYAMLSettingScalar(envValue) {
+						return fmt.Errorf("cron.%s.env.%s must be a scalar value", name, envKey)
+					}
+				}
+			default:
+				return fmt.Errorf("unsupported cron.%s.%s key", name, key)
+			}
+		}
+		if _, ok := jobMap["schedule"]; !ok {
+			return fmt.Errorf("cron.%s.schedule must be a non-empty string", name)
+		}
+		if _, ok := jobMap["command"]; !ok {
+			return fmt.Errorf("cron.%s.command must be a non-empty string", name)
 		}
 	}
 

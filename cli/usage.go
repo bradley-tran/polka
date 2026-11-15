@@ -34,6 +34,7 @@ Commands:
   status, info         show the active environment status
   dashboard            open a live auto-refreshing status view for the active environment
   router [status]      manage the global router that serves every project by hostname
+  cron [list|run|logs] list, run, or read the logs of the active environment's cron jobs
   remove <name>        remove an environment
   help                 show this help
 
@@ -235,6 +236,7 @@ Pass --server HOST:PORT, or set server.router to false, to bind the webserver di
 then server.hostname, server.port, and https apply, defaulting to localhost:8000.
 server.type explicitly selects php, nginx, apache, or frankenphp. When omitted, nginx is selected when configured and PHP is used otherwise.
 When the current environment defines a database, mailpit, meilisearch, redis, rabbitmq, or phpmyadmin, Polka starts those managed local services first.
+Background workers start after those services, and the cron runner starts last; see polka cron.
 Set root-level https to true to serve over HTTPS with Polka's generated local certificate. Behind the router any webserver supports HTTPS; when binding directly, PHP's built-in webserver does not.
 By default, Polka starts the webserver in the background and returns once it is listening.
 Pass --watch to keep the webserver attached to the current terminal with the previous foreground behavior.
@@ -243,7 +245,7 @@ Pass --watch to keep the webserver attached to the current terminal with the pre
 const stopUsage = `Usage:
   polka stop
 
-Stop the active environment's local web server, phpMyAdmin, Meilisearch, Redis, RabbitMQ, managed database, and mailpit when they are running.
+Stop the active environment's local web server, cron runner and its running jobs, workers, phpMyAdmin, Meilisearch, Redis, RabbitMQ, managed database, and mailpit when they are running.
 Also removes the environment's route from the global router, and stops the router when no project routes through it.
 `
 
@@ -258,6 +260,28 @@ status   show the router, every registered route, and the current project's leas
 stop     stop the router; routes are kept and served again on the next polka serve
 restart  restart the router to apply edits to router.yaml (http-port, https-port, lease range)
 logs     print the router log; -f follows it
+`
+
+const cronUsage = `Usage:
+  polka cron [list]
+  polka cron run <job>
+  polka cron logs [job] [-f|--follow]
+
+Manage the active environment's cron jobs, defined under cron in the environment config:
+
+  cron:
+    scheduler:
+      schedule: "* * * * *"
+      command: php artisan schedule:run
+
+Schedules use the five cron fields (minute hour day-of-month month day-of-week) in local time,
+or @hourly, @daily, @midnight, @weekly, @monthly, @yearly, or @annually.
+polka serve starts a background cron runner and polka stop stops it, along with running jobs.
+A job still running when it is next due is skipped, and missed minutes are not caught up.
+
+list   show the runner and each job's schedule, next run, last result, and command
+run    run one job now in the foreground, with the same environment the runner uses
+logs   print the runner log and every job log, or one job's log; -f follows them
 `
 
 const execUsage = `Usage:
@@ -319,13 +343,13 @@ const statusUsage = `Usage:
 
 Show the active environment, including one line per configured tool and the resolved server URL.
 The active environment name is stored in .polka/run/current when a local override is selected; otherwise Polka uses default.
-Also shows whether the active environment's webserver, phpMyAdmin, Meilisearch, Redis, managed database, mailpit, and the global router are currently running, with the environment's routed URLs.
+Also shows whether the active environment's webserver, workers, cron runner, phpMyAdmin, Meilisearch, Redis, managed database, mailpit, and the global router are currently running, with the environment's routed URLs.
 `
 
 const dashboardUsage = `Usage:
   polka dashboard
 
-Open a live status view for the active environment in the terminal, showing the webserver, managed services, and workers with their URLs, PIDs, and uptimes.
+Open a live status view for the active environment in the terminal, showing the webserver, managed services, workers, and cron jobs with their URLs, PIDs, uptimes, and next runs.
 The view refreshes every 2 seconds; press q to quit.
 When stdin or stdout is not a terminal, dashboard prints the one-shot status output instead.
 `
