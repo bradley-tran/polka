@@ -23,7 +23,8 @@ version (Posix)
 }
 version (Windows)
 {
-    import core.sys.windows.winbase : GetFileAttributesW, GetLastError, SetFileAttributesW, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_READONLY, INVALID_FILE_ATTRIBUTES;
+    import core.sys.windows.winbase : GetFileAttributesW, GetLastError, SetFileAttributesW;
+    import core.sys.windows.winnt : FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_READONLY, INVALID_FILE_ATTRIBUTES;
     import core.sys.windows.winerror : ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND;
     import std.utf : toUTF16z;
 }

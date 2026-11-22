@@ -189,8 +189,8 @@ version (OSX)
 else version (Windows)
 {
     import core.stdc.string : memcpy;
-    import core.sys.windows.windef : BOOL, BYTE, DWORD, FILETIME, LPWSTR;
-    import core.sys.windows.winbase : GetLastError;
+    import core.sys.windows.windef : BOOL, BYTE, DWORD, LPWSTR;
+    import core.sys.windows.winbase : FILETIME, GetLastError;
     import std.utf : toUTF16, toUTF16z, toUTF8;
 
     private enum DWORD CRED_TYPE_GENERIC = 1;

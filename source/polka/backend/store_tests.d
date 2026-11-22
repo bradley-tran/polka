@@ -12,7 +12,7 @@ import std.file : chdir, exists, getcwd, isDir, mkdirRecurse, read, readText, re
 import std.format : format;
 import std.json : JSONType, JSONValue, parseJSON;
 import std.path : baseName, buildPath, dirName, extension, relativePath;
-import std.process : environment, execute;
+import std.process : Config_ = Config, environment, execute;
 import std.string : indexOf, replace, strip, toLower;
 
 import polka.backend.aliases;
@@ -1452,32 +1452,34 @@ unittest
     }
 
     // TestStoreInstallDownloadsApacheLoungeLayout (Windows-only)
-    version (Windows)
     {
-        auto projectDir = createTempDir("polka-st-apwin-");
-        scope (exit) rmdirRecurseQuiet(projectDir);
-        auto store = newProjectStore(projectDir);
-        store.cacheDir = buildPath(projectDir, "global-cache");
-        store.downloader = new FakeDownloader((string cdir, string tool, string ver) {
-            const(ubyte)[][string] files = [
-                "ReadMe.txt": cast(const(ubyte)[]) "apache lounge readme\n",
-                "Apache24/bin/httpd.exe": cast(const(ubyte)[]) "placeholder\n",
-                "Apache24/modules/mod_ssl.so": cast(const(ubyte)[]) "placeholder\n",
-            ];
-            writeCachedArchivePayload(cdir, tool, ver, files);
-        });
-        auto cfg = store.defaultConfig();
-        Environment demo;
-        demo.tools = [toolApache: "2.4"];
-        cfg.environments["demo"] = demo;
-        store.writeConfig(cfg);
+        version (Windows)
+        {
+            auto projectDir = createTempDir("polka-st-apwin-");
+            scope (exit) rmdirRecurseQuiet(projectDir);
+            auto store = newProjectStore(projectDir);
+            store.cacheDir = buildPath(projectDir, "global-cache");
+            store.downloader = new FakeDownloader((string cdir, string tool, string ver) {
+                const(ubyte)[][string] files = [
+                    "ReadMe.txt": cast(const(ubyte)[]) "apache lounge readme\n",
+                    "Apache24/bin/httpd.exe": cast(const(ubyte)[]) "placeholder\n",
+                    "Apache24/modules/mod_ssl.so": cast(const(ubyte)[]) "placeholder\n",
+                ];
+                writeCachedArchivePayload(cdir, tool, ver, files);
+            });
+            auto cfg = store.defaultConfig();
+            Environment demo;
+            demo.tools = [toolApache: "2.4"];
+            cfg.environments["demo"] = demo;
+            store.writeConfig(cfg);
 
-        auto results = store.install("demo");
-        auto wantTarget = buildPath(store.envsDir, toolApache, "2.4", "Apache24", "bin", "httpd.exe");
-        assert(results.length == 1 && results[0].targetPath == wantTarget);
-        store.use("demo");
-        assert(store.resolveTool(toolApache) == wantTarget);
-        assert(store.resolveTool("httpd") == wantTarget);
+            auto results = store.install("demo");
+            auto wantTarget = buildPath(store.envsDir, toolApache, "2.4", "Apache24", "bin", "httpd.exe");
+            assert(results.length == 1 && results[0].targetPath == wantTarget);
+            store.use("demo");
+            assert(store.resolveTool(toolApache) == wantTarget);
+            assert(store.resolveTool("httpd") == wantTarget);
+        }
     }
 
     // TestStoreInstallDownloadsConfiguredMago
@@ -1635,47 +1637,49 @@ unittest
     }
 
     // TestWindowsDispatchBinarySupportsCopiedShimWithInheritedDispatcher (Windows-only)
-    version (Windows)
     {
-        auto projectDir = createTempDir("polka-st-winshim-");
-        scope (exit) rmdirRecurseQuiet(projectDir);
-        auto store = newProjectStore(projectDir);
-        store.cacheDir = buildPath(projectDir, "global-cache");
-        store.configure("demo", "", "", "24");
-        store.use("demo");
+        version (Windows)
+        {
+            auto projectDir = createTempDir("polka-st-winshim-");
+            scope (exit) rmdirRecurseQuiet(projectDir);
+            auto store = newProjectStore(projectDir);
+            store.cacheDir = buildPath(projectDir, "global-cache");
+            store.configure("demo", "", "", "24");
+            store.use("demo");
 
-        auto origData = readText(buildPath(store.binDir, toolNPX ~ ".cmd"));
-        auto copiedDir = buildPath(projectDir, "copied-shims");
-        mkdirRecurse(copiedDir);
-        auto copiedPath = buildPath(copiedDir, toolNPX ~ ".cmd");
-        write(copiedPath, origData);
-        setFileMode(copiedPath, octal!755);
+            auto origData = readText(buildPath(store.binDir, toolNPX ~ ".cmd"));
+            auto copiedDir = buildPath(projectDir, "copied-shims");
+            mkdirRecurse(copiedDir);
+            auto copiedPath = buildPath(copiedDir, toolNPX ~ ".cmd");
+            write(copiedPath, origData);
+            setFileMode(copiedPath, octal!755);
 
-        auto capturePath = buildPath(projectDir, "dispatch-capture.txt");
-        auto fakeDisp = buildPath(projectDir, "fake-dispatcher.cmd");
-        write(fakeDisp,
-            "@echo off\r\n" ~
-            "> \"%POLKA_TEST_CAPTURE%\" echo args:%*\r\n" ~
-            ">> \"%POLKA_TEST_CAPTURE%\" echo dispatcher:%POLKA_TOOL_DISPATCHER%\r\n" ~
-            ">> \"%POLKA_TEST_CAPTURE%\" echo root:%POLKA_TOOL_ROOT%\r\n" ~
-            "exit /b 0\r\n");
+            auto capturePath = buildPath(projectDir, "dispatch-capture.txt");
+            auto fakeDisp = buildPath(projectDir, "fake-dispatcher.cmd");
+            write(fakeDisp,
+                "@echo off\r\n" ~
+                "> \"%POLKA_TEST_CAPTURE%\" echo args:%*\r\n" ~
+                ">> \"%POLKA_TEST_CAPTURE%\" echo dispatcher:%POLKA_TOOL_DISPATCHER%\r\n" ~
+                ">> \"%POLKA_TEST_CAPTURE%\" echo root:%POLKA_TOOL_ROOT%\r\n" ~
+                "exit /b 0\r\n");
 
-        auto res = execute(
-            ["cmd.exe", "/c", copiedPath, "create-vite"],
-            [
-                "POLKA_TOOL_DISPATCHER": fakeDisp,
-                "POLKA_TOOL_ROOT": store.rootDir,
-                "POLKA_TEST_CAPTURE": capturePath,
-            ],
-            std.process.Config.none,
-            size_t.max,
-            projectDir
-        );
-        assert(res.status == 0);
-        auto capture = readText(capturePath);
-        assert(capture.canFind(`args:--root "` ~ store.rootDir ~ `" dispatch npx create-vite`));
-        assert(capture.canFind("dispatcher:" ~ fakeDisp));
-        assert(capture.canFind("root:" ~ store.rootDir));
+            auto res = execute(
+                ["cmd.exe", "/c", copiedPath, "create-vite"],
+                [
+                    "POLKA_TOOL_DISPATCHER": fakeDisp,
+                    "POLKA_TOOL_ROOT": store.rootDir,
+                    "POLKA_TEST_CAPTURE": capturePath,
+                ],
+                Config_.none,
+                size_t.max,
+                projectDir
+            );
+            assert(res.status == 0);
+            auto capture = readText(capturePath);
+            assert(capture.canFind(`args:--root "` ~ store.rootDir ~ `" dispatch npx create-vite`));
+            assert(capture.canFind("dispatcher:" ~ fakeDisp));
+            assert(capture.canFind("root:" ~ store.rootDir));
+        }
     }
 }
 
@@ -2652,94 +2656,98 @@ unittest
     }
 
     // TestResolvePECLPackageOffline exercises REST XML metadata resolution & PHP compatibility via Store
-    version (Posix)
     {
-        auto projectDir = createTempDir("polka-pecl-res-");
-        scope (exit) rmdirRecurseQuiet(projectDir);
-        auto store = newProjectStore(projectDir);
-        auto installRoot = buildPath(store.envsDir, toolPHP, "8.4", "bin");
-        mkdirRecurse(installRoot);
-        auto phpPath = buildPath(installRoot, "php");
-        write(phpPath, "#!/bin/sh\nif [ \"$1\" = \"-n\" ]; then echo \"8.4.1~8.4~0~x64\"; exit 0; fi\nexit 0\n");
-        setFileMode(phpPath, octal!755);
+        version (Posix)
+        {
+            auto projectDir = createTempDir("polka-pecl-res-");
+            scope (exit) rmdirRecurseQuiet(projectDir);
+            auto store = newProjectStore(projectDir);
+            auto installRoot = buildPath(store.envsDir, toolPHP, "8.4", "bin");
+            mkdirRecurse(installRoot);
+            auto phpPath = buildPath(installRoot, "php");
+            write(phpPath, "#!/bin/sh\nif [ \"$1\" = \"-n\" ]; then echo \"8.4.1~8.4~0~x64\"; exit 0; fi\nexit 0\n");
+            setFileMode(phpPath, octal!755);
 
-        auto origREST = peclRESTBaseURL;
-        scope (exit) peclRESTBaseURL = origREST;
-        peclRESTBaseURL = "https://mock.pecl/rest";
+            auto origREST = peclRESTBaseURL;
+            scope (exit) peclRESTBaseURL = origREST;
+            peclRESTBaseURL = "https://mock.pecl/rest";
 
-        auto client = new MockHTTPClient((string url, string[string]) {
-            if (url == "https://mock.pecl/rest/r/redis/6.2.0.xml")
-                return HTTPResponse(200, null, cast(ubyte[]) `<r><v>6.2.0</v><st>stable</st><g>https://mock.pecl/get/redis-6.2.0.tgz</g></r>`);
-            if (url == "https://mock.pecl/rest/r/redis/package.6.2.0.xml")
-                return HTTPResponse(200, null, cast(ubyte[]) `<package><name>redis</name><version><release>6.2.0</release></version><dependencies><required><php><min>8.0.0</min><max>8.4.99</max></php></required></dependencies><providesextension>redis</providesextension><extsrcrelease><configureoption name="enable-redis-igbinary" default="no" prompt="enable igbinary"/></extsrcrelease></package>`);
-            return HTTPResponse(404, null, null);
-        });
-        store.downloader = new HTTPToolDownloader(client);
+            auto client = new MockHTTPClient((string url, string[string]) {
+                if (url == "https://mock.pecl/rest/r/redis/6.2.0.xml")
+                    return HTTPResponse(200, null, cast(ubyte[]) `<r><v>6.2.0</v><st>stable</st><g>https://mock.pecl/get/redis-6.2.0.tgz</g></r>`);
+                if (url == "https://mock.pecl/rest/r/redis/package.6.2.0.xml")
+                    return HTTPResponse(200, null, cast(ubyte[]) `<package><name>redis</name><version><release>6.2.0</release></version><dependencies><required><php><min>8.0.0</min><max>8.4.99</max></php></required></dependencies><providesextension>redis</providesextension><extsrcrelease><configureoption name="enable-redis-igbinary" default="no" prompt="enable igbinary"/></extsrcrelease></package>`);
+                return HTTPResponse(404, null, null);
+            });
+            store.downloader = new HTTPToolDownloader(client);
 
-        auto resolution = store.resolvePECLPackage(phpPath, "redis", "6.2.0");
-        assert(resolution.packageName == "redis" && resolution.version_ == "6.2.0" && resolution.module_ == "redis");
-        assert(resolution.downloadURL == "https://mock.pecl/get/redis-6.2.0.tgz");
-        assert("enable-redis-igbinary" in resolution.configure);
+            auto resolution = store.resolvePECLPackage(phpPath, "redis", "6.2.0");
+            assert(resolution.packageName == "redis" && resolution.version_ == "6.2.0" && resolution.module_ == "redis");
+            assert(resolution.downloadURL == "https://mock.pecl/get/redis-6.2.0.tgz");
+            assert("enable-redis-igbinary" in resolution.configure);
+        }
     }
 
     // TestInstallAndRemovePECLExtensionWindows (Windows-only full DLL install/remove integration)
-    version (Windows)
     {
-        auto archiveData = buildZipBytes([
-            ArchiveEntrySpec("php_redis.dll", cast(const(ubyte)[]) "redis-dll"),
-            ArchiveEntrySpec("redis_dependency.dll", cast(const(ubyte)[]) "dependency-dll"),
-        ]);
-
-        auto client = new MockHTTPClient((string url, string[string]) {
-            switch (url)
-            {
-                case "https://mock.pecl/rest/r/redis/6.2.0.xml":
-                    return HTTPResponse(200, null, cast(ubyte[]) `<r><v>6.2.0</v><st>stable</st><g>ignored-on-windows</g></r>`);
-                case "https://mock.pecl/rest/r/redis/package.6.2.0.xml":
-                    return HTTPResponse(200, null, cast(ubyte[]) `<package><name>redis</name><version><release>6.2.0</release></version><dependencies><required><php><min>8.0.0</min><max>8.4.99</max></php></required></dependencies><providesextension>redis</providesextension><extsrcrelease/></package>`);
-                case "https://mock.pecl/windows/redis/6.2.0/":
-                    return HTTPResponse(200, null, cast(ubyte[]) `<a href="php_redis-6.2.0-8.4-nts-vs17-x64.zip">DLL</a>`);
-                case "https://mock.pecl/windows/redis/6.2.0/php_redis-6.2.0-8.4-nts-vs17-x64.zip":
-                    return HTTPResponse(200, null, archiveData.dup);
-                default:
-                    return HTTPResponse(404, null, null);
-            }
-        });
-
-        auto origREST = peclRESTBaseURL;
-        auto origWin = peclWindowsBaseURL;
-        scope (exit)
+        version (Windows)
         {
-            peclRESTBaseURL = origREST;
-            peclWindowsBaseURL = origWin;
+            auto archiveData = buildZipBytes([
+                ArchiveEntrySpec("php_redis.dll", cast(const(ubyte)[]) "redis-dll"),
+                ArchiveEntrySpec("redis_dependency.dll", cast(const(ubyte)[]) "dependency-dll"),
+            ]);
+
+            auto client = new MockHTTPClient((string url, string[string]) {
+                switch (url)
+                {
+                    case "https://mock.pecl/rest/r/redis/6.2.0.xml":
+                        return HTTPResponse(200, null, cast(ubyte[]) `<r><v>6.2.0</v><st>stable</st><g>ignored-on-windows</g></r>`);
+                    case "https://mock.pecl/rest/r/redis/package.6.2.0.xml":
+                        return HTTPResponse(200, null, cast(ubyte[]) `<package><name>redis</name><version><release>6.2.0</release></version><dependencies><required><php><min>8.0.0</min><max>8.4.99</max></php></required></dependencies><providesextension>redis</providesextension><extsrcrelease/></package>`);
+                    case "https://mock.pecl/windows/redis/6.2.0/":
+                        return HTTPResponse(200, null, cast(ubyte[]) `<a href="php_redis-6.2.0-8.4-nts-vs17-x64.zip">DLL</a>`);
+                    case "https://mock.pecl/windows/redis/6.2.0/php_redis-6.2.0-8.4-nts-vs17-x64.zip":
+                        return HTTPResponse(200, null, archiveData.dup);
+                    default:
+                        return HTTPResponse(404, null, null);
+                }
+            });
+
+            auto origREST = peclRESTBaseURL;
+            auto origWin = peclWindowsBaseURL;
+            scope (exit)
+            {
+                peclRESTBaseURL = origREST;
+                peclWindowsBaseURL = origWin;
+            }
+            peclRESTBaseURL = "https://mock.pecl/rest";
+            peclWindowsBaseURL = "https://mock.pecl/windows";
+
+            auto projectDir = createTempDir("polka-pecl-win-");
+            scope (exit) rmdirRecurseQuiet(projectDir);
+            auto root = buildPath(projectDir, ".polka");
+            auto store = newStore(root);
+            store.downloader = new HTTPToolDownloader(client);
+
+            Environment env;
+            env.name = defaultEnvironmentName;
+            env.tools = [toolPHP: "8.4"];
+            writeYAML(store.configFile, projectFileFromEnvironment("0.2", ".polka", env));
+
+            auto installRoot = buildPath(store.envsDir, toolPHP, "8.4");
+            mkdirRecurse(installRoot);
+            auto phpPath = buildPath(installRoot, "php.cmd");
+            write(phpPath, "@echo off\r\nif \"%1\"==\"-n\" echo 8.4.1~8.4~0~x64& exit /b 0\r\nif \"%1\"==\"-m\" echo Core& exit /b 0\r\nexit /b 0\r\n");
+
+            auto outBuf = new BufferTextWriter();
+            auto errBuf = new BufferTextWriter();
+            auto res = store.installPECLExtension(outBuf, errBuf, "default", "redis", "6.2.0", null);
+            assert(res.version_ == "6.2.0" && res.module_ == "redis");
+
+            auto modulePath = buildPath(installRoot, "ext", "php_redis.dll");
+            assertPathExists(modulePath);
+            store.removePECLExtension(errBuf, "default", "redis");
+            assertPathMissing(modulePath);
         }
-        peclRESTBaseURL = "https://mock.pecl/rest";
-        peclWindowsBaseURL = "https://mock.pecl/windows";
-
-        auto projectDir = createTempDir("polka-pecl-win-");
-        scope (exit) rmdirRecurseQuiet(projectDir);
-        auto root = buildPath(projectDir, ".polka");
-        auto store = newStore(root);
-        store.downloader = new HTTPToolDownloader(client);
-
-        Environment env;
-        env.name = defaultEnvironmentName;
-        env.tools = [toolPHP: "8.4"];
-        writeYAML(store.configFile, projectFileFromEnvironment("0.2", ".polka", env));
-
-        auto installRoot = buildPath(store.envsDir, toolPHP, "8.4");
-        mkdirRecurse(installRoot);
-        auto phpPath = buildPath(installRoot, "php.cmd");
-        write(phpPath, "@echo off\r\nif \"%1\"==\"-n\" echo 8.4.1~8.4~0~x64& exit /b 0\r\nif \"%1\"==\"-m\" echo Core& exit /b 0\r\nexit /b 0\r\n");
-
-        auto outBuf = new BufferTextWriter();
-        auto errBuf = new BufferTextWriter();
-        auto res = store.installPECLExtension(outBuf, errBuf, "default", "redis", "6.2.0", null);
-        assert(res.version_ == "6.2.0" && res.module_ == "redis");
-
-        auto modulePath = buildPath(installRoot, "ext", "php_redis.dll");
-        assertPathExists(modulePath);
-        store.removePECLExtension(errBuf, "default", "redis");
-        assertPathMissing(modulePath);
     }
 }

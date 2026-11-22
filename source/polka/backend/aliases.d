@@ -86,14 +86,15 @@ else version (Windows)
         CloseHandle,
         CREATE_NEW,
         CreateFileW,
+        GetFileAttributesW,
+        GetLastError,
+        INVALID_HANDLE_VALUE,
+        WriteFile;
+    import core.sys.windows.winnt :
         FILE_ATTRIBUTE_DIRECTORY,
         FILE_ATTRIBUTE_NORMAL,
         GENERIC_WRITE,
-        GetFileAttributesW,
-        GetLastError,
-        INVALID_FILE_ATTRIBUTES,
-        INVALID_HANDLE_VALUE,
-        WriteFile;
+        INVALID_FILE_ATTRIBUTES;
     import core.sys.windows.winerror :
         ERROR_ALREADY_EXISTS,
         ERROR_FILE_EXISTS,

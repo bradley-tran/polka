@@ -17,7 +17,8 @@ version (Posix)
 }
 version (Windows)
 {
-    import core.sys.windows.winbase : GetCurrentProcessId, GetFileAttributesW, SetFileAttributesW, FILE_ATTRIBUTE_READONLY;
+    import core.sys.windows.winbase : GetCurrentProcessId, GetFileAttributesW, SetFileAttributesW;
+    import core.sys.windows.winnt : FILE_ATTRIBUTE_READONLY;
     import std.utf : toUTF16z;
 }
 

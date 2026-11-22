@@ -41,10 +41,6 @@ version (Posix)
     import core.sys.posix.fcntl : O_RDONLY, open;
     import core.sys.posix.unistd : close, read_ = read;
 }
-version (Windows)
-{
-    import std.stdio : _fileno;
-}
 
 /// Bundled OpenSSL configuration path relative to a managed PHP installation.
 enum string managedOpenSSLConfig = "extras/ssl/openssl.cnf";
