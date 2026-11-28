@@ -2,47 +2,65 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"regexp"
 	"strings"
 
-	"github.com/spf13/cobra"
+	ucli "github.com/urfave/cli/v3"
 
 	"polka/backend"
 	"polka/config"
 )
 
-func newExtCommand(ctx *commandContext) *cobra.Command {
+func newExtCommand(ctx *commandContext) *ucli.Command {
 	var envName string
-	var configureOptions []string
 	var clearConfigureOptions bool
 
-	cmd := &cobra.Command{
-		Use:  "ext <install|remove> <vendor/name[:version]|name[:version]>",
-		Args: exactArgsError("ext requires an action and one extension package", 2),
-		RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &ucli.Command{
+		Name:                      "ext",
+		DisableSliceFlagSeparator: true,
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{
+				Name:        "env",
+				Destination: &envName,
+				Usage:       "environment name",
+			},
+			&ucli.StringSliceFlag{
+				Name:  "configure-option",
+				Usage: "legacy PECL configure option NAME=VALUE (repeatable)",
+			},
+			&ucli.BoolFlag{
+				Name:        "clear-configure-options",
+				Destination: &clearConfigureOptions,
+				Usage:       "clear persisted legacy PECL configure options",
+			},
+		},
+		Action: func(_ context.Context, cmd *ucli.Command) error {
+			if err := requireExactArgs(cmd, 2, "ext requires an action and one extension package"); err != nil {
+				return err
+			}
 			store, err := ctx.store()
 			if err != nil {
 				return &statusError{code: 1, err: err}
 			}
 
+			args := cmd.Args().Slice()
+			configureOptions := cmd.StringSlice("configure-option")
 			switch strings.ToLower(strings.TrimSpace(args[0])) {
 			case "install":
-				return runExtInstall(cmd.OutOrStdout(), cmd.ErrOrStderr(), store, envName, args[1], configureOptions, clearConfigureOptions)
+				return runExtInstall(ctx.stdout, ctx.stderr, store, envName, args[1], configureOptions, clearConfigureOptions)
 			case "remove", "uninstall":
 				if len(configureOptions) > 0 || clearConfigureOptions {
 					return &statusError{code: 1, err: fmt.Errorf("configure options are only valid with ext install")}
 				}
-				return runExtRemove(cmd.OutOrStdout(), cmd.ErrOrStderr(), store, envName, args[1])
+				return runExtRemove(ctx.stdout, ctx.stderr, store, envName, args[1])
 			default:
 				return &statusError{code: 1, err: fmt.Errorf("unsupported ext action %q: use install or remove", args[0])}
 			}
 		},
 	}
-	cmd.Flags().StringVar(&envName, "env", "", "environment name")
-	cmd.Flags().StringArrayVar(&configureOptions, "configure-option", nil, "legacy PECL configure option NAME=VALUE (repeatable)")
-	cmd.Flags().BoolVar(&clearConfigureOptions, "clear-configure-options", false, "clear persisted legacy PECL configure options")
 	configureCommand(cmd, extUsage)
 
 	return cmd

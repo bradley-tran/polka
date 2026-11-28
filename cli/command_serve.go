@@ -8,6 +8,7 @@ package cli
 // serve_frankenphp.go files; TLS assets live in serve_tls.go.
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -16,7 +17,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/spf13/cobra"
+	ucli "github.com/urfave/cli/v3"
 
 	"polka/backend"
 	"polka/config"
@@ -36,34 +37,46 @@ type serveCommandInput struct {
 }
 
 // newServeCommand builds the serve/start command.
-func newServeCommand(ctx *commandContext) *cobra.Command {
+func newServeCommand(ctx *commandContext) *ucli.Command {
 	var input serveCommandInput
 
-	cmd := &cobra.Command{
-		Use:     "serve [docroot]",
+	cmd := &ucli.Command{
+		Name:    "serve",
 		Aliases: []string{"start"},
-		Args:    maximumArgsError("start/serve accepts at most one docroot", 1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{
+				Name:        "server",
+				Destination: &input.Server,
+				Usage:       "server address override in HOST:PORT form",
+			},
+			&ucli.BoolFlag{
+				Name:        "watch",
+				Destination: &input.Watch,
+				Usage:       "keep the webserver attached to the current terminal",
+			},
+		},
+		Action: func(_ context.Context, cmd *ucli.Command) error {
+			if err := requireMaximumArgs(cmd, 1, "start/serve accepts at most one docroot"); err != nil {
+				return err
+			}
 			store, err := ctx.store()
 			if err != nil {
 				return &statusError{code: 1, err: err}
 			}
 
 			input.Docroot = ""
-			if len(args) > 0 {
-				input.Docroot = strings.TrimSpace(args[0])
+			if cmd.Args().Len() > 0 {
+				input.Docroot = strings.TrimSpace(cmd.Args().First())
 			}
 			input.Server = strings.TrimSpace(input.Server)
-			if cmd.Flags().Changed("server") && input.Server == "" {
+			if cmd.IsSet("server") && input.Server == "" {
 				return &statusError{code: 1, err: fmt.Errorf("--server requires a non-empty value")}
 			}
 
-			ctx.exitCode = runStart(cmd.OutOrStdout(), cmd.ErrOrStderr(), store, input)
+			ctx.exitCode = runStart(ctx.stdout, ctx.stderr, store, input)
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&input.Server, "server", "", "server address override in HOST:PORT form")
-	cmd.Flags().BoolVar(&input.Watch, "watch", false, "keep the webserver attached to the current terminal")
 	configureCommand(cmd, startUsage)
 
 	return cmd

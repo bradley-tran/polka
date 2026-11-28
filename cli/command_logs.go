@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spf13/cobra"
+	ucli "github.com/urfave/cli/v3"
 
 	"polka/backend"
 )
@@ -21,23 +21,36 @@ type logsCommandInput struct {
 
 const logFollowPollInterval = 100 * time.Millisecond
 
-func newLogsCommand(ctx *commandContext) *cobra.Command {
+func newLogsCommand(ctx *commandContext) *ucli.Command {
 	input := logsCommandInput{}
-	cmd := &cobra.Command{
-		Use:  "logs <tool>",
-		Args: exactArgsError("logs requires exactly one tool name", 1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &ucli.Command{
+		Name: "logs",
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{
+				Name:        "level",
+				Destination: &input.Level,
+				Usage:       "filter logs by level (info, error, debug)",
+			},
+			&ucli.BoolFlag{
+				Name:        "follow",
+				Aliases:     []string{"f"},
+				Destination: &input.Follow,
+				Usage:       "follow log output as files grow",
+			},
+		},
+		Action: func(runCtx context.Context, cmd *ucli.Command) error {
+			if err := requireExactArgs(cmd, 1, "logs requires exactly one tool name"); err != nil {
+				return err
+			}
 			store, err := ctx.store()
 			if err != nil {
 				return &statusError{code: 1, err: err}
 			}
 
-			ctx.exitCode = runLogs(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), store, args[0], input.Level, input.Follow)
+			ctx.exitCode = runLogs(runCtx, ctx.stdout, ctx.stderr, store, cmd.Args().First(), input.Level, input.Follow)
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&input.Level, "level", "", "filter logs by level (info, error, debug)")
-	cmd.Flags().BoolVarP(&input.Follow, "follow", "f", false, "follow log output as files grow")
 	configureCommand(cmd, logsUsage)
 
 	return cmd

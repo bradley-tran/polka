@@ -159,3 +159,45 @@ func TestEnvCommandWithoutSubcommandPrintsUsage(t *testing.T) {
 		t.Fatalf("Run(env bogus) stderr = %q, want unknown command error", stderr.String())
 	}
 }
+
+// TestHelpAndShortcutFlagForwarding verifies that `polka help <cmd>` and
+// shortcut `--help` render the expected static usage, while tool shortcuts
+// forward `--help` through to the underlying binary.
+func TestHelpAndShortcutFlagForwarding(t *testing.T) {
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+
+	for _, args := range [][]string{
+		{"help", "install"},
+		{"install", "--help"},
+		{"env", "install", "--help"},
+	} {
+		stdout.Reset()
+		stderr.Reset()
+		if code := Run(stdout, stderr, args); code != 0 {
+			t.Fatalf("Run(%v) code = %d, stderr = %q", args, code, stderr.String())
+		}
+		if !strings.Contains(stdout.String(), "polka install [tool:version]") {
+			t.Fatalf("Run(%v) stdout = %q, want install usage", args, stdout.String())
+		}
+	}
+
+	projectDir := t.TempDir()
+	root := filepath.Join(projectDir, ".polka")
+	writeTestConfigFile(t, projectDir, testConfigFile{
+		Version:      "0.2",
+		Root:         ".polka",
+		Environments: map[string]testEnvironmentConfig{"demo": {}},
+	})
+	writeTestActiveEnvironment(t, root, "demo")
+	writeFakePHPInRoot(t, root)
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run(stdout, stderr, []string{"--dir", projectDir, "php", "--help"}); code != 0 {
+		t.Fatalf("Run(php --help) code = %d, stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "fake-php") || !strings.Contains(stdout.String(), "--help") {
+		t.Fatalf("Run(php --help) stdout = %q, want --help forwarded to php", stdout.String())
+	}
+}

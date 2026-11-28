@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"crypto/sha1"
 	"crypto/x509"
 	"encoding/hex"
@@ -12,7 +13,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/spf13/cobra"
+	ucli "github.com/urfave/cli/v3"
 
 	"polka/backend"
 )
@@ -31,23 +32,31 @@ type certInstallInput struct {
 	NoEncryption bool
 }
 
-func newCertInstallCommand(ctx *commandContext) *cobra.Command {
+func newCertInstallCommand(ctx *commandContext) *ucli.Command {
 	var input certInstallInput
 
-	cmd := &cobra.Command{
-		Use:  "cert-install",
-		Args: exactArgsError("cert-install accepts no arguments", 0),
-		RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &ucli.Command{
+		Name: "cert-install",
+		Flags: []ucli.Flag{
+			&ucli.BoolFlag{
+				Name:        "no-encryption",
+				Destination: &input.NoEncryption,
+				Usage:       "write plaintext local HTTPS private keys instead of encrypting them with the OS keyring",
+			},
+		},
+		Action: func(_ context.Context, cmd *ucli.Command) error {
+			if err := requireExactArgs(cmd, 0, "cert-install accepts no arguments"); err != nil {
+				return err
+			}
 			store, err := ctx.store()
 			if err != nil {
 				return &statusError{code: 1, err: err}
 			}
 
-			ctx.exitCode = runCertInstall(cmd.OutOrStdout(), cmd.ErrOrStderr(), store, input)
+			ctx.exitCode = runCertInstall(ctx.stdout, ctx.stderr, store, input)
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&input.NoEncryption, "no-encryption", false, "write plaintext local HTTPS private keys instead of encrypting them with the OS keyring")
 	configureCommand(cmd, certInstallUsage)
 
 	return cmd

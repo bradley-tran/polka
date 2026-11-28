@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -9,21 +10,22 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/spf13/cobra"
+	ucli "github.com/urfave/cli/v3"
 
 	"polka/backend"
 	"polka/plugins"
 	"polka/tools"
 )
 
-func newCreateProjectCommand(ctx *commandContext) *cobra.Command {
-	cmd := &cobra.Command{
-		Use: "create-project <package> [directory] [composer-args...]",
+func newCreateProjectCommand(ctx *commandContext) *ucli.Command {
+	cmd := &ucli.Command{
+		Name: "create-project",
 		// Composer options such as --stability pass through untouched.
-		DisableFlagParsing: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		SkipFlagParsing: true,
+		Action: func(_ context.Context, cmd *ucli.Command) error {
+			args := cmd.Args().Slice()
 			if wantsCreateProjectHelp(args) {
-				_, _ = fmt.Fprint(cmd.OutOrStdout(), createProjectUsage)
+				_, _ = fmt.Fprint(ctx.stdout, createProjectUsage)
 				return nil
 			}
 
@@ -32,7 +34,7 @@ func newCreateProjectCommand(ctx *commandContext) *cobra.Command {
 				return &statusError{code: 1, err: err}
 			}
 
-			return runCreateProject(cmd.OutOrStdout(), cmd.ErrOrStderr(), store, args)
+			return runCreateProject(ctx.stdout, ctx.stderr, store, args)
 		},
 	}
 	configureCommand(cmd, createProjectUsage)

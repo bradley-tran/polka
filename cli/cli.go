@@ -1,12 +1,13 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"strings"
 
-	"github.com/spf13/cobra"
+	ucli "github.com/urfave/cli/v3"
 
 	"polka/backend"
 )
@@ -18,6 +19,9 @@ type commandContext struct {
 	// empty, commands discover the project from the working directory.
 	projectDir string
 	exitCode   int
+	// err captures errors from void callbacks such as CommandNotFound so
+	// runWithContext can route every failure through handleRunError.
+	err error
 }
 
 type statusError struct {
@@ -35,44 +39,81 @@ func (e *statusError) Error() string {
 	return e.err.Error()
 }
 
+// Run executes the Polka CLI with a background context and returns the process exit code.
 func Run(stdout, stderr io.Writer, args []string) int {
+	return runWithContext(context.Background(), stdout, stderr, args)
+}
+
+// runWithContext executes the Polka CLI with the given context and returns the process exit code.
+func runWithContext(runCtx context.Context, stdout, stderr io.Writer, args []string) int {
 	ctx := &commandContext{stdout: stdout, stderr: stderr}
 	root := newRootCommand(ctx)
-	root.SetArgs(args)
-	root.SetOut(stdout)
-	root.SetErr(stderr)
 
-	if err := root.Execute(); err != nil {
+	// urfave/cli expects argv[0] to be the program name.
+	runArgs := append([]string{"polka"}, args...)
+	err := root.Run(runCtx, runArgs)
+	if err == nil && ctx.err != nil {
+		err = ctx.err
+	}
+	if err != nil {
 		return handleRunError(stderr, err)
 	}
 
 	return ctx.exitCode
 }
 
-func newRootCommand(ctx *commandContext) *cobra.Command {
-	root := &cobra.Command{
-		Use:              "polka",
-		Short:            "Polka manages isolated PHP virtual environments.",
-		SilenceErrors:    true,
-		SilenceUsage:     true,
-		TraverseChildren: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) > 0 {
-				return &statusError{code: 2, err: fmt.Errorf("unknown command %q", strings.TrimSpace(args[0])), showUsage: true, usage: rootUsage}
+func newRootCommand(ctx *commandContext) *ucli.Command {
+	root := &ucli.Command{
+		Name:                          "polka",
+		Usage:                         "Polka manages isolated PHP virtual environments.",
+		Writer:                        ctx.stdout,
+		ErrWriter:                     ctx.stderr,
+		HideVersion:                   true,
+		DisableSliceFlagSeparator:     true,
+		CustomRootCommandHelpTemplate: rootUsage,
+		CustomHelpTemplate:            rootUsage,
+		// Suppress urfave/cli's default ExitErrHandler so handleRunError owns all error output.
+		ExitErrHandler: func(context.Context, *ucli.Command, error) {},
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{
+				Name:        "dir",
+				Aliases:     []string{"C"},
+				Value:       ctx.projectDir,
+				Destination: &ctx.projectDir,
+				Usage:       "use the project whose polka.yaml is in DIR",
+			},
+		},
+		OnUsageError: func(_ context.Context, _ *ucli.Command, err error, isSubcommand bool) error {
+			if isSubcommand {
+				return &statusError{code: 1, err: err}
 			}
 
-			writeRootUsage(cmd.OutOrStdout())
+			return &statusError{code: 2, err: err, showUsage: true, usage: rootUsage}
+		},
+		CommandNotFound: func(_ context.Context, _ *ucli.Command, command string) {
+			ctx.err = &statusError{
+				code:      2,
+				err:       fmt.Errorf("unknown command %q", strings.TrimSpace(command)),
+				showUsage: true,
+				usage:     rootUsage,
+			}
+		},
+		Action: func(_ context.Context, cmd *ucli.Command) error {
+			if cmd.Args().Len() > 0 {
+				return &statusError{
+					code:      2,
+					err:       fmt.Errorf("unknown command %q", strings.TrimSpace(cmd.Args().First())),
+					showUsage: true,
+					usage:     rootUsage,
+				}
+			}
+
+			writeRootUsage(ctx.stdout)
 			return nil
 		},
 	}
 
-	root.CompletionOptions.DisableDefaultCmd = true
-	configureHelp(root, rootUsage)
-	root.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
-		return &statusError{code: 2, err: err, showUsage: true, usage: rootUsage}
-	})
-	root.PersistentFlags().StringVarP(&ctx.projectDir, "dir", "C", "", "use the project whose polka.yaml is in DIR")
-	root.AddCommand(
+	root.Commands = []*ucli.Command{
 		newInitCommand(ctx),
 		newEnvCommand(ctx),
 		newCreateProjectCommand(ctx),
@@ -90,9 +131,9 @@ func newRootCommand(ctx *commandContext) *cobra.Command {
 		newRouterCommand(ctx),
 		newCronCommand(ctx),
 		newDispatchCommand(ctx),
-	)
+	}
 	for _, spec := range shortcutSpecs() {
-		root.AddCommand(newShortcutCommand(spec))
+		root.Commands = append(root.Commands, newShortcutCommand(ctx, spec))
 	}
 
 	return root
@@ -126,17 +167,17 @@ func (ctx *commandContext) initStore() (backend.Store, error) {
 	return resolveInitStore(ctx.projectDir)
 }
 
-func configureHelp(cmd *cobra.Command, usage string) {
-	cmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
-		_, _ = fmt.Fprint(cmd.OutOrStdout(), usage)
-	})
+// configureHelp attaches static usage text for --help, -h, and `polka help <cmd>`.
+func configureHelp(cmd *ucli.Command, usage string) {
+	cmd.CustomHelpTemplate = usage
 }
 
-func configureCommand(cmd *cobra.Command, usage string) {
+// configureCommand attaches static usage text and maps flag/usage errors to exit code 1.
+func configureCommand(cmd *ucli.Command, usage string) {
 	configureHelp(cmd, usage)
-	cmd.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
+	cmd.OnUsageError = func(_ context.Context, _ *ucli.Command, err error, _ bool) error {
 		return &statusError{code: 1, err: err}
-	})
+	}
 }
 
 func handleRunError(stderr io.Writer, err error) int {
@@ -167,24 +208,22 @@ func isUnknownCommandError(err error) bool {
 	return err != nil && strings.HasPrefix(err.Error(), "unknown command ")
 }
 
-func exactArgsError(message string, count int) cobra.PositionalArgs {
-	return func(cmd *cobra.Command, args []string) error {
-		if len(args) != count {
-			return &statusError{code: 1, err: fmt.Errorf("%s", message)}
-		}
-
-		return nil
+// requireExactArgs returns a statusError with exit code 1 when positional args do not match count.
+func requireExactArgs(cmd *ucli.Command, count int, message string) error {
+	if cmd.Args().Len() != count {
+		return &statusError{code: 1, err: fmt.Errorf("%s", message)}
 	}
+
+	return nil
 }
 
-func maximumArgsError(message string, count int) cobra.PositionalArgs {
-	return func(cmd *cobra.Command, args []string) error {
-		if len(args) > count {
-			return &statusError{code: 1, err: fmt.Errorf("%s", message)}
-		}
-
-		return nil
+// requireMaximumArgs returns a statusError with exit code 1 when positional args exceed count.
+func requireMaximumArgs(cmd *ucli.Command, count int, message string) error {
+	if cmd.Args().Len() > count {
+		return &statusError{code: 1, err: fmt.Errorf("%s", message)}
 	}
+
+	return nil
 }
 
 func writeRootUsage(w io.Writer) {

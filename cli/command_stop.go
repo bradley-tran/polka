@@ -1,25 +1,28 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 
-	"github.com/spf13/cobra"
+	ucli "github.com/urfave/cli/v3"
 
 	"polka/backend"
 )
 
-func newStopCommand(ctx *commandContext) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:  "stop",
-		Args: exactArgsError("stop does not take arguments", 0),
-		RunE: func(cmd *cobra.Command, args []string) error {
+func newStopCommand(ctx *commandContext) *ucli.Command {
+	cmd := &ucli.Command{
+		Name: "stop",
+		Action: func(_ context.Context, cmd *ucli.Command) error {
+			if err := requireExactArgs(cmd, 0, "stop does not take arguments"); err != nil {
+				return err
+			}
 			store, err := ctx.store()
 			if err != nil {
 				return &statusError{code: 1, err: err}
 			}
 
-			ctx.exitCode = runStop(cmd.OutOrStdout(), cmd.ErrOrStderr(), store)
+			ctx.exitCode = runStop(ctx.stdout, ctx.stderr, store)
 			return nil
 		},
 	}

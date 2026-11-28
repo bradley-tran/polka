@@ -2,6 +2,7 @@ package cli
 
 import (
 	"compress/gzip"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -12,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spf13/cobra"
+	ucli "github.com/urfave/cli/v3"
 
 	"polka/backend"
 	"polka/service"
@@ -48,24 +49,26 @@ type dbManagedCredentials = service.ManagedDatabaseCredentials
 
 type dbRuntimeState = service.ManagedDatabaseRuntimeState
 
-func newDBCommand(ctx *commandContext) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:                "db [args...]",
-		DisableFlagParsing: true,
-		Run: func(cmd *cobra.Command, args []string) {
+func newDBCommand(ctx *commandContext) *ucli.Command {
+	cmd := &ucli.Command{
+		Name:            "db",
+		SkipFlagParsing: true,
+		Action: func(_ context.Context, cmd *ucli.Command) error {
+			args := cmd.Args().Slice()
 			if len(args) == 1 && (args[0] == "-h" || args[0] == "--help" || args[0] == "help") {
-				_, _ = fmt.Fprint(cmd.OutOrStdout(), dbUsage)
-				return
+				_, _ = fmt.Fprint(ctx.stdout, dbUsage)
+				return nil
 			}
 
 			store, err := ctx.store()
 			if err != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "error: %v\n", err)
+				fmt.Fprintf(ctx.stderr, "error: %v\n", err)
 				ctx.exitCode = 1
-				return
+				return nil
 			}
 
-			ctx.exitCode = runDB(cmd.OutOrStdout(), cmd.ErrOrStderr(), store, args)
+			ctx.exitCode = runDB(ctx.stdout, ctx.stderr, store, args)
+			return nil
 		},
 	}
 	configureHelp(cmd, dbUsage)

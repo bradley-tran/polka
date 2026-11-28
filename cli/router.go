@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spf13/cobra"
+	ucli "github.com/urfave/cli/v3"
 
 	"polka/backend"
 	"polka/service"
@@ -439,25 +439,34 @@ func routeBackendStatusName(name string) string {
 }
 
 // newRouterCommand builds `polka router [status|stop|restart|logs]`.
-func newRouterCommand(ctx *commandContext) *cobra.Command {
+func newRouterCommand(ctx *commandContext) *ucli.Command {
 	var follow bool
-	cmd := &cobra.Command{
-		Use:  "router [status|stop|restart|logs]",
-		Args: maximumArgsError("router accepts at most one subcommand", 1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &ucli.Command{
+		Name: "router",
+		Flags: []ucli.Flag{
+			&ucli.BoolFlag{
+				Name:        "follow",
+				Aliases:     []string{"f"},
+				Destination: &follow,
+				Usage:       "follow the router log (logs only)",
+			},
+		},
+		Action: func(runCtx context.Context, cmd *ucli.Command) error {
+			if err := requireMaximumArgs(cmd, 1, "router accepts at most one subcommand"); err != nil {
+				return err
+			}
 			store, err := ctx.initStore()
 			if err != nil {
 				return &statusError{code: 1, err: err}
 			}
 			action := "status"
-			if len(args) > 0 {
-				action = strings.ToLower(strings.TrimSpace(args[0]))
+			if cmd.Args().Len() > 0 {
+				action = strings.ToLower(strings.TrimSpace(cmd.Args().First()))
 			}
-			ctx.exitCode = runRouter(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), store, action, follow)
+			ctx.exitCode = runRouter(runCtx, ctx.stdout, ctx.stderr, store, action, follow)
 			return nil
 		},
 	}
-	cmd.Flags().BoolVarP(&follow, "follow", "f", false, "follow the router log (logs only)")
 	configureCommand(cmd, routerUsage)
 
 	return cmd

@@ -700,7 +700,7 @@ func TestRunConfigRejectsRemovedFlags(t *testing.T) {
 	if code := Run(stdout, stderr, []string{"--dir", projectDir, "config", "--php", "8.4"}); code == 0 {
 		t.Fatal("Run(config --php) code = 0, want removed flag error")
 	}
-	if !strings.Contains(stderr.String(), "unknown flag: --php") {
+	if !strings.Contains(stderr.String(), "flag provided but not defined: -php") {
 		t.Fatalf("Run(config --php) stderr = %q, want unknown flag error", stderr.String())
 	}
 }

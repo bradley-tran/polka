@@ -13,7 +13,7 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/spf13/cobra"
+	ucli "github.com/urfave/cli/v3"
 
 	"polka/backend"
 	"polka/config"
@@ -45,32 +45,83 @@ type cronCommandInput struct {
 
 // newCronCommand builds `polka cron [list|run <job>|logs [job]]` and its
 // hidden `runner` subcommand, which is the background process serve starts.
-func newCronCommand(ctx *commandContext) *cobra.Command {
+func newCronCommand(ctx *commandContext) *ucli.Command {
 	input := cronCommandInput{}
-	cmd := &cobra.Command{
-		Use:  "cron [list|run <job>|logs [job]]",
-		Args: maximumArgsError("cron accepts a subcommand and at most one job name", 2),
-		RunE: func(cmd *cobra.Command, args []string) error {
+	runAction := func(action string) func(context.Context, *ucli.Command) error {
+		return func(runCtx context.Context, cmd *ucli.Command) error {
+			if err := requireMaximumArgs(cmd, 1, "cron accepts a subcommand and at most one job name"); err != nil {
+				return err
+			}
 			store, err := ctx.store()
 			if err != nil {
 				return &statusError{code: 1, err: err}
 			}
-			action := "list"
-			if len(args) > 0 {
-				action = strings.ToLower(strings.TrimSpace(args[0]))
-			}
 			job := ""
-			if len(args) > 1 {
-				job = strings.ToLower(strings.TrimSpace(args[1]))
+			if cmd.Args().Len() > 0 {
+				job = strings.ToLower(strings.TrimSpace(cmd.Args().First()))
 			}
 
-			ctx.exitCode = runCron(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), store, action, job, input.Follow)
+			ctx.exitCode = runCron(runCtx, ctx.stdout, ctx.stderr, store, action, job, input.Follow)
+			return nil
+		}
+	}
+
+	cmd := &ucli.Command{
+		Name: "cron",
+		Flags: []ucli.Flag{
+			&ucli.BoolFlag{
+				Name:        "follow",
+				Aliases:     []string{"f"},
+				Destination: &input.Follow,
+				Usage:       "follow cron logs (logs only)",
+			},
+		},
+		CommandNotFound: func(_ context.Context, _ *ucli.Command, command string) {
+			ctx.err = &statusError{
+				code: 2,
+				err:  fmt.Errorf("unknown cron subcommand %q; use list, run, or logs", strings.TrimSpace(command)),
+			}
+		},
+		Action: func(runCtx context.Context, cmd *ucli.Command) error {
+			if cmd.Args().Len() > 0 {
+				if cmd.Args().Len() > 2 {
+					return &statusError{code: 1, err: fmt.Errorf("cron accepts a subcommand and at most one job name")}
+				}
+				return &statusError{
+					code: 2,
+					err:  fmt.Errorf("unknown cron subcommand %q; use list, run, or logs", strings.TrimSpace(cmd.Args().First())),
+				}
+			}
+			store, err := ctx.store()
+			if err != nil {
+				return &statusError{code: 1, err: err}
+			}
+
+			ctx.exitCode = runCron(runCtx, ctx.stdout, ctx.stderr, store, "list", "", input.Follow)
 			return nil
 		},
+		Commands: []*ucli.Command{
+			{
+				Name:   "list",
+				Action: runAction("list"),
+			},
+			{
+				Name:   "run",
+				Action: runAction("run"),
+			},
+			{
+				Name:   "logs",
+				Action: runAction("logs"),
+			},
+			newCronRunnerCommand(ctx),
+		},
 	}
-	cmd.Flags().BoolVarP(&input.Follow, "follow", "f", false, "follow cron logs (logs only)")
 	configureCommand(cmd, cronUsage)
-	cmd.AddCommand(newCronRunnerCommand(ctx))
+	for _, sub := range cmd.Commands {
+		if !sub.Hidden {
+			configureCommand(sub, cronUsage)
+		}
+	}
 
 	return cmd
 }
@@ -78,13 +129,22 @@ func newCronCommand(ctx *commandContext) *cobra.Command {
 // newCronRunnerCommand builds the hidden `polka cron runner --env <name>`
 // command that serve launches in the background. It runs until SIGTERM or
 // Ctrl+C.
-func newCronRunnerCommand(ctx *commandContext) *cobra.Command {
+func newCronRunnerCommand(ctx *commandContext) *ucli.Command {
 	var environmentName string
-	cmd := &cobra.Command{
-		Use:    "runner --env <name>",
+	cmd := &ucli.Command{
+		Name:   "runner",
 		Hidden: true,
-		Args:   cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{
+				Name:        "env",
+				Destination: &environmentName,
+				Usage:       "environment whose cron jobs to run",
+			},
+		},
+		Action: func(_ context.Context, cmd *ucli.Command) error {
+			if err := requireExactArgs(cmd, 0, "runner accepts no arguments"); err != nil {
+				return err
+			}
 			store, err := ctx.store()
 			if err != nil {
 				return &statusError{code: 1, err: err}
@@ -96,11 +156,10 @@ func newCronRunnerCommand(ctx *commandContext) *cobra.Command {
 			signalContext, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
-			ctx.exitCode = runCronRunner(signalContext, cmd.ErrOrStderr(), store, environmentName)
+			ctx.exitCode = runCronRunner(signalContext, ctx.stderr, store, environmentName)
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&environmentName, "env", "", "environment whose cron jobs to run")
 
 	return cmd
 }

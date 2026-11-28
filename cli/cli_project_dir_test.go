@@ -71,10 +71,10 @@ func TestRunRejectsRemovedRootFlag(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 
-	if code := Run(stdout, stderr, []string{"--root", t.TempDir(), "status"}); code == 0 {
-		t.Fatal("Run(--root status) code = 0, want failure")
+	if code := Run(stdout, stderr, []string{"--root", t.TempDir(), "status"}); code != 2 {
+		t.Fatalf("Run(--root status) code = %d, want 2", code)
 	}
-	if !strings.Contains(stderr.String(), "unknown flag: --root") {
+	if !strings.Contains(stderr.String(), "flag provided but not defined: -root") {
 		t.Fatalf("Run(--root status) stderr = %q, want unknown flag error", stderr.String())
 	}
 }

@@ -1,12 +1,13 @@
 package cli
 
 import (
+	"context"
 	"io"
 	"os"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/spf13/cobra"
+	ucli "github.com/urfave/cli/v3"
 
 	"polka/backend"
 )
@@ -14,17 +15,19 @@ import (
 // dashboardPollInterval is how often the dashboard refreshes its snapshot.
 const dashboardPollInterval = 2 * time.Second
 
-func newDashboardCommand(ctx *commandContext) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:  "dashboard",
-		Args: exactArgsError("dashboard does not take arguments", 0),
-		RunE: func(cmd *cobra.Command, args []string) error {
+func newDashboardCommand(ctx *commandContext) *ucli.Command {
+	cmd := &ucli.Command{
+		Name: "dashboard",
+		Action: func(_ context.Context, cmd *ucli.Command) error {
+			if err := requireExactArgs(cmd, 0, "dashboard does not take arguments"); err != nil {
+				return err
+			}
 			store, err := ctx.store()
 			if err != nil {
 				return &statusError{code: 1, err: err}
 			}
 
-			return runDashboard(cmd.OutOrStdout(), cmd.ErrOrStderr(), store)
+			return runDashboard(ctx.stdout, ctx.stderr, store)
 		},
 	}
 	configureCommand(cmd, dashboardUsage)

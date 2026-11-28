@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/spf13/cobra"
+	ucli "github.com/urfave/cli/v3"
 
 	"polka/backend"
 	"polka/config"
@@ -26,45 +26,72 @@ const (
 // newEnvCommand groups the environment-definition commands under "env". The real
 // implementations live here; the familiar top-level names (new, config, install,
 // list, use) are registered on the root as shortcuts that expand to these.
-func newEnvCommand(ctx *commandContext) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "env <command> [options]",
-		Short: "Manage environment definitions.",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) > 0 {
-				return &statusError{code: 2, err: fmt.Errorf("unknown command %q", strings.TrimSpace(args[0])), showUsage: true, usage: envUsage}
+func newEnvCommand(ctx *commandContext) *ucli.Command {
+	cmd := &ucli.Command{
+		Name:  "env",
+		Usage: "Manage environment definitions.",
+		CommandNotFound: func(_ context.Context, _ *ucli.Command, command string) {
+			ctx.err = &statusError{
+				code:      2,
+				err:       fmt.Errorf("unknown command %q", strings.TrimSpace(command)),
+				showUsage: true,
+				usage:     envUsage,
+			}
+		},
+		Action: func(_ context.Context, cmd *ucli.Command) error {
+			if cmd.Args().Len() > 0 {
+				return &statusError{
+					code:      2,
+					err:       fmt.Errorf("unknown command %q", strings.TrimSpace(cmd.Args().First())),
+					showUsage: true,
+					usage:     envUsage,
+				}
 			}
 
-			_, _ = fmt.Fprint(cmd.OutOrStdout(), envUsage)
+			_, _ = fmt.Fprint(ctx.stdout, envUsage)
 			return nil
+		},
+		Commands: []*ucli.Command{
+			newNewCommand(ctx),
+			newConfigCommand(ctx),
+			newInstallCommand(ctx),
+			newListCommand(ctx),
+			newUseCommand(ctx),
+			newRemoveCommand(ctx),
 		},
 	}
 	configureHelp(cmd, envUsage)
-	cmd.AddCommand(
-		newNewCommand(ctx),
-		newConfigCommand(ctx),
-		newInstallCommand(ctx),
-		newListCommand(ctx),
-		newUseCommand(ctx),
-		newRemoveCommand(ctx),
-	)
 
 	return cmd
 }
 
-func newInitCommand(ctx *commandContext) *cobra.Command {
+func newInitCommand(ctx *commandContext) *ucli.Command {
 	var input initCommandInput
 
-	cmd := &cobra.Command{
-		Use:  "init [framework|preset]",
-		Args: maximumArgsError("init accepts at most one framework or preset argument", 1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			input.Preset = ""
-			if len(args) > 0 {
-				input.Preset = strings.TrimSpace(args[0])
+	cmd := &ucli.Command{
+		Name: "init",
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{
+				Name:        "docroot",
+				Destination: &input.Docroot,
+				Usage:       "set docroot",
+			},
+			&ucli.StringFlag{
+				Name:        "package",
+				Destination: &input.Package,
+				Usage:       "set preset Composer package name (vendor/name)",
+			},
+		},
+		Action: func(_ context.Context, cmd *ucli.Command) error {
+			if err := requireMaximumArgs(cmd, 1, "init accepts at most one framework or preset argument"); err != nil {
+				return err
 			}
-			input.DocrootChanged = cmd.Flags().Changed("docroot")
-			input.PackageChanged = cmd.Flags().Changed("package")
+			input.Preset = ""
+			if cmd.Args().Len() > 0 {
+				input.Preset = strings.TrimSpace(cmd.Args().First())
+			}
+			input.DocrootChanged = cmd.IsSet("docroot")
+			input.PackageChanged = cmd.IsSet("package")
 			normalizedInput, err := normalizeInitCommandInput(input)
 			if err != nil {
 				return &statusError{code: 1, err: err}
@@ -75,46 +102,81 @@ func newInitCommand(ctx *commandContext) *cobra.Command {
 				return &statusError{code: 1, err: err}
 			}
 
-			return runInit(cmd.OutOrStdout(), store, normalizedInput)
+			return runInit(ctx.stdout, store, normalizedInput)
 		},
 	}
-	cmd.Flags().StringVar(&input.Docroot, "docroot", "", "set docroot")
-	cmd.Flags().StringVar(&input.Package, "package", "", "set preset Composer package name (vendor/name)")
 	configureCommand(cmd, initUsage)
 
 	return cmd
 }
 
-func newNewCommand(ctx *commandContext) *cobra.Command {
+func newNewCommand(ctx *commandContext) *ucli.Command {
 	input := newCommandInput{
 		PHPVersion:      defaultNewPHPVersion,
 		ComposerVersion: defaultNewComposerVersion,
 		NodeJSVersion:   defaultNewNodeJSVersion,
 	}
 
-	cmd := &cobra.Command{
-		Use:  "new <name>",
-		Args: exactArgsError("new requires exactly one environment name", 1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &ucli.Command{
+		Name: "new",
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{
+				Name:        "php",
+				Value:       defaultNewPHPVersion,
+				Destination: &input.PHPVersion,
+				Usage:       "PHP version",
+			},
+			&ucli.StringFlag{
+				Name:        "composer",
+				Value:       defaultNewComposerVersion,
+				Destination: &input.ComposerVersion,
+				Usage:       "Composer version",
+			},
+			&ucli.StringFlag{
+				Name:        "nodejs",
+				Value:       defaultNewNodeJSVersion,
+				Destination: &input.NodeJSVersion,
+				Usage:       "Node.js version",
+			},
+			&ucli.StringFlag{
+				Name:        "db-engine",
+				Destination: &input.DatabaseEngine,
+				Usage:       "database engine (mysql, mariadb, or postgresql)",
+			},
+			&ucli.StringFlag{
+				Name:        "db-version",
+				Destination: &input.DatabaseVersion,
+				Usage:       "database version",
+			},
+			&ucli.IntFlag{
+				Name:        "db-port",
+				Destination: &input.DatabasePort,
+				Usage:       "database port",
+			},
+		},
+		Action: func(_ context.Context, cmd *ucli.Command) error {
+			if err := requireExactArgs(cmd, 1, "new requires exactly one environment name"); err != nil {
+				return err
+			}
 			store, err := ctx.store()
 			if err != nil {
 				return &statusError{code: 1, err: err}
 			}
 
-			input.Name = strings.TrimSpace(args[0])
+			input.Name = strings.TrimSpace(cmd.Args().First())
 			if strings.TrimSpace(input.PHPVersion) == "" {
 				return &statusError{code: 1, err: fmt.Errorf("--php requires a non-empty value")}
 			}
 			if strings.TrimSpace(input.ComposerVersion) == "" {
 				return &statusError{code: 1, err: fmt.Errorf("--composer requires a non-empty value")}
 			}
-			if cmd.Flags().Changed("nodejs") && strings.TrimSpace(input.NodeJSVersion) == "" {
+			if cmd.IsSet("nodejs") && strings.TrimSpace(input.NodeJSVersion) == "" {
 				return &statusError{code: 1, err: fmt.Errorf("--nodejs requires a non-empty value")}
 			}
 			input.Database, err = buildDatabaseInput(
-				cmd.Flags().Changed("db-engine"),
-				cmd.Flags().Changed("db-version"),
-				cmd.Flags().Changed("db-port"),
+				cmd.IsSet("db-engine"),
+				cmd.IsSet("db-version"),
+				cmd.IsSet("db-port"),
 				input.DatabaseEngine,
 				input.DatabaseVersion,
 				input.DatabasePort,
@@ -123,63 +185,80 @@ func newNewCommand(ctx *commandContext) *cobra.Command {
 				return &statusError{code: 1, err: err}
 			}
 
-			return runNew(cmd.OutOrStdout(), store, input)
+			return runNew(ctx.stdout, store, input)
 		},
 	}
-	cmd.Flags().StringVar(&input.PHPVersion, "php", defaultNewPHPVersion, "PHP version")
-	cmd.Flags().StringVar(&input.ComposerVersion, "composer", defaultNewComposerVersion, "Composer version")
-	cmd.Flags().StringVar(&input.NodeJSVersion, "nodejs", defaultNewNodeJSVersion, "Node.js version")
-	cmd.Flags().StringVar(&input.DatabaseEngine, "db-engine", "", "database engine (mysql, mariadb, or postgresql)")
-	cmd.Flags().StringVar(&input.DatabaseVersion, "db-version", "", "database version")
-	cmd.Flags().IntVar(&input.DatabasePort, "db-port", 0, "database port")
 	configureCommand(cmd, newUsage)
 
 	return cmd
 }
 
-func newConfigCommand(ctx *commandContext) *cobra.Command {
+func newConfigCommand(ctx *commandContext) *ucli.Command {
 	var input configCommandInput
 
-	cmd := &cobra.Command{
-		Use: "config [--env NAME] [<key> <value>]",
+	cmd := &ucli.Command{
+		Name: "config",
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{
+				Name:        "env",
+				Destination: &input.Name,
+				Usage:       "environment name",
+			},
+		},
 		// No arguments opens the interactive settings form; a key and value
 		// set one config value directly.
-		Args: func(cmd *cobra.Command, args []string) error {
+		Action: func(_ context.Context, cmd *ucli.Command) error {
+			args := cmd.Args().Slice()
 			if len(args) != 0 && len(args) != 2 {
 				return &statusError{code: 1, err: fmt.Errorf("config requires a key and value, or no arguments for the interactive form")}
 			}
 
-			return nil
-		},
-		RunE: func(cmd *cobra.Command, args []string) error {
 			store, err := ctx.store()
 			if err != nil {
 				return &statusError{code: 1, err: err}
 			}
 
 			if len(args) == 0 {
-				return runConfigForm(cmd.OutOrStdout(), cmd.ErrOrStderr(), store, input.Name)
+				return runConfigForm(ctx.stdout, ctx.stderr, store, input.Name)
 			}
 
 			input.Key = args[0]
 			input.Value = args[1]
 
-			return runConfig(cmd.OutOrStdout(), cmd.ErrOrStderr(), store, input)
+			return runConfig(ctx.stdout, ctx.stderr, store, input)
 		},
 	}
-	cmd.Flags().StringVar(&input.Name, "env", "", "environment name")
 	configureCommand(cmd, configUsage)
 
 	return cmd
 }
 
-func newInstallCommand(ctx *commandContext) *cobra.Command {
+func newInstallCommand(ctx *commandContext) *ucli.Command {
 	var input installCommandInput
 
-	cmd := &cobra.Command{
-		Use:  "install [tool:version]",
-		Args: maximumArgsError("install accepts at most one tool:version argument", 1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &ucli.Command{
+		Name: "install",
+		Flags: []ucli.Flag{
+			&ucli.StringFlag{
+				Name:        "env",
+				Destination: &input.Name,
+				Usage:       "environment name",
+			},
+			&ucli.BoolFlag{
+				Name:        "force",
+				Destination: &input.Force,
+				Usage:       "reinstall tools even if already installed",
+			},
+			&ucli.BoolFlag{
+				Name:        "build",
+				Destination: &input.Build,
+				Usage:       "compile tools that have a build recipe but no cached payload",
+			},
+		},
+		Action: func(_ context.Context, cmd *ucli.Command) error {
+			if err := requireMaximumArgs(cmd, 1, "install accepts at most one tool:version argument"); err != nil {
+				return err
+			}
 			store, err := ctx.store()
 			if err != nil {
 				return &statusError{code: 1, err: err}
@@ -187,8 +266,8 @@ func newInstallCommand(ctx *commandContext) *cobra.Command {
 
 			input.Tool = ""
 			input.Version = ""
-			if len(args) > 0 {
-				tool, version, err := parseInstallToolVersion(args[0])
+			if cmd.Args().Len() > 0 {
+				tool, version, err := parseInstallToolVersion(cmd.Args().First())
 				if err != nil {
 					return &statusError{code: 1, err: err}
 				}
@@ -196,28 +275,27 @@ func newInstallCommand(ctx *commandContext) *cobra.Command {
 				input.Version = version
 			}
 
-			return runInstall(cmd.OutOrStdout(), cmd.ErrOrStderr(), store, input)
+			return runInstall(ctx.stdout, ctx.stderr, store, input)
 		},
 	}
-	cmd.Flags().StringVar(&input.Name, "env", "", "environment name")
-	cmd.Flags().BoolVar(&input.Force, "force", false, "reinstall tools even if already installed")
-	cmd.Flags().BoolVar(&input.Build, "build", false, "compile tools that have a build recipe but no cached payload")
 	configureCommand(cmd, installUsage)
 
 	return cmd
 }
 
-func newListCommand(ctx *commandContext) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:  "list",
-		Args: exactArgsError("list does not take arguments", 0),
-		RunE: func(cmd *cobra.Command, args []string) error {
+func newListCommand(ctx *commandContext) *ucli.Command {
+	cmd := &ucli.Command{
+		Name: "list",
+		Action: func(_ context.Context, cmd *ucli.Command) error {
+			if err := requireExactArgs(cmd, 0, "list does not take arguments"); err != nil {
+				return err
+			}
 			store, err := ctx.store()
 			if err != nil {
 				return &statusError{code: 1, err: err}
 			}
 
-			return runList(cmd.OutOrStdout(), store)
+			return runList(ctx.stdout, store)
 		},
 	}
 	configureCommand(cmd, listUsage)
@@ -225,17 +303,19 @@ func newListCommand(ctx *commandContext) *cobra.Command {
 	return cmd
 }
 
-func newUseCommand(ctx *commandContext) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:  "use <name>",
-		Args: exactArgsError("use requires exactly one environment name", 1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+func newUseCommand(ctx *commandContext) *ucli.Command {
+	cmd := &ucli.Command{
+		Name: "use",
+		Action: func(_ context.Context, cmd *ucli.Command) error {
+			if err := requireExactArgs(cmd, 1, "use requires exactly one environment name"); err != nil {
+				return err
+			}
 			store, err := ctx.store()
 			if err != nil {
 				return &statusError{code: 1, err: err}
 			}
 
-			return runUse(cmd.OutOrStdout(), cmd.ErrOrStderr(), store, strings.TrimSpace(args[0]))
+			return runUse(ctx.stdout, ctx.stderr, store, strings.TrimSpace(cmd.Args().First()))
 		},
 	}
 	configureCommand(cmd, useUsage)
@@ -243,18 +323,20 @@ func newUseCommand(ctx *commandContext) *cobra.Command {
 	return cmd
 }
 
-func newStatusCommand(ctx *commandContext) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:     "status",
+func newStatusCommand(ctx *commandContext) *ucli.Command {
+	cmd := &ucli.Command{
+		Name:    "status",
 		Aliases: []string{"info"},
-		Args:    exactArgsError("status/info does not take arguments", 0),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Action: func(_ context.Context, cmd *ucli.Command) error {
+			if err := requireExactArgs(cmd, 0, "status/info does not take arguments"); err != nil {
+				return err
+			}
 			store, err := ctx.store()
 			if err != nil {
 				return &statusError{code: 1, err: err}
 			}
 
-			return runStatus(cmd.OutOrStdout(), cmd.ErrOrStderr(), store)
+			return runStatus(ctx.stdout, ctx.stderr, store)
 		},
 	}
 	configureCommand(cmd, statusUsage)
@@ -262,17 +344,19 @@ func newStatusCommand(ctx *commandContext) *cobra.Command {
 	return cmd
 }
 
-func newRemoveCommand(ctx *commandContext) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:  "remove <name>",
-		Args: exactArgsError("remove requires exactly one environment name", 1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+func newRemoveCommand(ctx *commandContext) *ucli.Command {
+	cmd := &ucli.Command{
+		Name: "remove",
+		Action: func(_ context.Context, cmd *ucli.Command) error {
+			if err := requireExactArgs(cmd, 1, "remove requires exactly one environment name"); err != nil {
+				return err
+			}
 			store, err := ctx.store()
 			if err != nil {
 				return &statusError{code: 1, err: err}
 			}
 
-			return runRemove(cmd.OutOrStdout(), store, strings.TrimSpace(args[0]))
+			return runRemove(ctx.stdout, store, strings.TrimSpace(cmd.Args().First()))
 		},
 	}
 	configureCommand(cmd, removeUsage)

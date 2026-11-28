@@ -68,7 +68,7 @@ func TestBuildCommandValidatesArguments(t *testing.T) {
 		{name: "empty version", args: []string{"php:"}, want: "must be TOOL:VERSION"},
 		{name: "extra colon", args: []string{"php:8:4"}, want: "must be TOOL:VERSION"},
 		{name: "zero jobs", args: []string{"php:8.4", "--jobs", "0"}, want: "--jobs must be at least 1"},
-		{name: "unknown flag", args: []string{"php:8.4", "--nope"}, want: "unknown flag"},
+		{name: "unknown flag", args: []string{"php:8.4", "--nope"}, want: "flag provided but not defined: -nope"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -89,7 +89,7 @@ func TestBuildCommandValidatesArguments(t *testing.T) {
 func TestBuildCommandPassesOptions(t *testing.T) {
 	requests := setBuildCommandSeams(t, "linux", tools.BuildResult{Tool: "php", RequestedVersion: "8.4", ResolvedVersion: "8.4.27", PayloadPath: "/cache/php.tar.gz"}, nil)
 
-	code, stdout, stderr := runBuildForTest(t, "PHP:8.4", "--configure-arg=--without-tidy", "--configure-arg=--with-x", "--jobs", "4", "--force")
+	code, stdout, stderr := runBuildForTest(t, "PHP:8.4", "--configure-arg=--without-tidy", "--configure-arg=--with-x", "--configure-arg=LDFLAGS=-Wl,-rpath,/opt/lib", "--jobs", "4", "--force")
 	if code != 0 {
 		t.Fatalf("code = %d, stderr = %q", code, stderr)
 	}
@@ -97,7 +97,7 @@ func TestBuildCommandPassesOptions(t *testing.T) {
 	if request.Tool != "php" || request.Version != "8.4" || request.Jobs != 4 || !request.Force {
 		t.Fatalf("request = %+v", request)
 	}
-	if !slices.Equal(request.ConfigureArgs, []string{"--without-tidy", "--with-x"}) {
+	if !slices.Equal(request.ConfigureArgs, []string{"--without-tidy", "--with-x", "LDFLAGS=-Wl,-rpath,/opt/lib"}) {
 		t.Fatalf("ConfigureArgs = %v", request.ConfigureArgs)
 	}
 	for _, want := range []string{"Built php 8.4 (8.4.27)", "/cache/php.tar.gz", "tools.php to 8.4"} {

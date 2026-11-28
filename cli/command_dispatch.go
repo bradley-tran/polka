@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -10,26 +11,28 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/spf13/cobra"
+	ucli "github.com/urfave/cli/v3"
 
 	"polka/backend"
 	"polka/service"
 )
 
-func newDispatchCommand(ctx *commandContext) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:                "dispatch <tool> [args...]",
-		Hidden:             true,
-		DisableFlagParsing: true,
-		Run: func(cmd *cobra.Command, args []string) {
+func newDispatchCommand(ctx *commandContext) *ucli.Command {
+	cmd := &ucli.Command{
+		Name:            "dispatch",
+		Hidden:          true,
+		SkipFlagParsing: true,
+		HideHelp:        true,
+		Action: func(_ context.Context, cmd *ucli.Command) error {
 			store, err := ctx.store()
 			if err != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "error: %v\n", err)
+				fmt.Fprintf(ctx.stderr, "error: %v\n", err)
 				ctx.exitCode = 1
-				return
+				return nil
 			}
 
-			ctx.exitCode = runDispatch(cmd.OutOrStdout(), cmd.ErrOrStderr(), args, store)
+			ctx.exitCode = runDispatch(ctx.stdout, ctx.stderr, cmd.Args().Slice(), store)
+			return nil
 		},
 	}
 

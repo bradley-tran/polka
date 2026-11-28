@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/spf13/cobra"
+	ucli "github.com/urfave/cli/v3"
 
 	"polka/backend"
 	"polka/tools"
@@ -33,23 +33,44 @@ var buildToolFunc = backend.Store.BuildTool
 
 // newBuildCommand creates `polka build`. It is registered on every platform, so
 // Windows users get an explanation instead of an unknown-command error.
-func newBuildCommand(ctx *commandContext) *cobra.Command {
+func newBuildCommand(ctx *commandContext) *ucli.Command {
 	var input buildCommandInput
 
-	cmd := &cobra.Command{
-		Use:  "build <tool:version>",
-		Args: exactArgsError("build requires one tool:version argument, for example php:8.4", 1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &ucli.Command{
+		Name:                      "build",
+		DisableSliceFlagSeparator: true,
+		Flags: []ucli.Flag{
+			&ucli.StringSliceFlag{
+				Name:  "configure-arg",
+				Usage: "extra ./configure option; repeatable",
+			},
+			&ucli.IntFlag{
+				Name:        "jobs",
+				Destination: &input.Jobs,
+				Usage:       "parallel compile jobs (default: every CPU)",
+			},
+			&ucli.BoolFlag{
+				Name:        "force",
+				Destination: &input.Force,
+				Usage:       "rebuild a label that is already cached",
+			},
+		},
+		Action: func(_ context.Context, cmd *ucli.Command) error {
+			if err := requireExactArgs(cmd, 1, "build requires one tool:version argument, for example php:8.4"); err != nil {
+				return err
+			}
 			if buildCommandGOOS != "linux" {
 				return &statusError{code: 1, err: fmt.Errorf("polka build is only supported on Linux")}
 			}
-			tool, version, err := parseBuildToolVersion(args[0])
+			tool, version, err := parseBuildToolVersion(cmd.Args().First())
 			if err != nil {
 				return &statusError{code: 1, err: err}
 			}
-			if cmd.Flags().Changed("jobs") && input.Jobs < 1 {
+			if cmd.IsSet("jobs") && input.Jobs < 1 {
 				return &statusError{code: 1, err: fmt.Errorf("--jobs must be at least 1")}
 			}
+			input.ConfigureArgs = cmd.StringSlice("configure-arg")
+
 			// Building needs only the cache and registry, so a directory with no
 			// polka.yaml, or with one that does not parse, must not block it.
 			store, err := ctx.initStore()
@@ -60,12 +81,9 @@ func newBuildCommand(ctx *commandContext) *cobra.Command {
 			signalContext, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt)
 			defer stopSignals()
 
-			return runBuildCommand(signalContext, cmd.OutOrStdout(), cmd.ErrOrStderr(), store, tool, version, input)
+			return runBuildCommand(signalContext, ctx.stdout, ctx.stderr, store, tool, version, input)
 		},
 	}
-	cmd.Flags().StringArrayVar(&input.ConfigureArgs, "configure-arg", nil, "extra ./configure option; repeatable")
-	cmd.Flags().IntVar(&input.Jobs, "jobs", 0, "parallel compile jobs (default: every CPU)")
-	cmd.Flags().BoolVar(&input.Force, "force", false, "rebuild a label that is already cached")
 	configureCommand(cmd, buildUsage)
 
 	return cmd

@@ -34,7 +34,7 @@ func TestRunLogsPrintsAllExistingNginxLogs(t *testing.T) {
 }
 
 // TestRunLogsFollowsAppendedOutput verifies both spellings of the follow flag
-// through Cobra parsing and the full log-resolution workflow.
+// through urfave/cli parsing and the full log-resolution workflow.
 func TestRunLogsFollowsAppendedOutput(t *testing.T) {
 	for _, flag := range []string{"-f", "--follow"} {
 		t.Run(flag, func(t *testing.T) {
@@ -71,22 +71,15 @@ func TestRunLogsFollowsAppendedOutput(t *testing.T) {
 				appendResult <- file.Close()
 			}()
 
-			commandCtx := &commandContext{stdout: stdout, stderr: stderr}
-			command := newRootCommand(commandCtx)
-			command.SetArgs([]string{"--dir", projectDir, "logs", "nginx", flag})
-			command.SetOut(stdout)
-			command.SetErr(stderr)
-			if err := command.ExecuteContext(executeCtx); err != nil {
-				t.Fatalf("ExecuteContext(logs nginx %s) error = %v", flag, err)
-			}
+			code := runWithContext(executeCtx, stdout, stderr, []string{"--dir", projectDir, "logs", "nginx", flag})
 			if err := <-appendResult; err != nil {
 				t.Fatalf("append followed log error = %v", err)
 			}
-			if commandCtx.exitCode != 0 {
-				t.Fatalf("ExecuteContext(logs nginx %s) code = %d, stderr = %q", flag, commandCtx.exitCode, stderr.String())
+			if code != 0 {
+				t.Fatalf("runWithContext(logs nginx %s) code = %d, stderr = %q", flag, code, stderr.String())
 			}
 			if got := stdout.String(); got != "initial\nappended\n" {
-				t.Fatalf("ExecuteContext(logs nginx %s) stdout = %q, want initial and appended output", flag, got)
+				t.Fatalf("runWithContext(logs nginx %s) stdout = %q, want initial and appended output", flag, got)
 			}
 		})
 	}

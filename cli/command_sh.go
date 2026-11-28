@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -11,7 +12,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/spf13/cobra"
+	ucli "github.com/urfave/cli/v3"
 
 	"polka/backend"
 )
@@ -48,18 +49,20 @@ type shellSessionContext struct {
 	PHPPrefix string
 }
 
-func newShCommand(ctx *commandContext) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:     "sh",
+func newShCommand(ctx *commandContext) *ucli.Command {
+	cmd := &ucli.Command{
+		Name:    "sh",
 		Aliases: []string{"shell"},
-		Args:    exactArgsError("sh/shell does not take arguments", 0),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Action: func(_ context.Context, cmd *ucli.Command) error {
+			if err := requireExactArgs(cmd, 0, "sh/shell does not take arguments"); err != nil {
+				return err
+			}
 			store, err := ctx.store()
 			if err != nil {
 				return &statusError{code: 1, err: err}
 			}
 
-			ctx.exitCode = runSh(cmd.OutOrStdout(), cmd.ErrOrStderr(), store)
+			ctx.exitCode = runSh(ctx.stdout, ctx.stderr, store)
 			return nil
 		},
 	}

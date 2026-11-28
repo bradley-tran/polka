@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -8,24 +9,25 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/spf13/cobra"
+	ucli "github.com/urfave/cli/v3"
 
 	"polka/backend"
 )
 
-func newExecCommand(ctx *commandContext) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:                "exec <command> [args...]",
-		DisableFlagParsing: true,
-		Run: func(cmd *cobra.Command, args []string) {
+func newExecCommand(ctx *commandContext) *ucli.Command {
+	cmd := &ucli.Command{
+		Name:            "exec",
+		SkipFlagParsing: true,
+		Action: func(_ context.Context, cmd *ucli.Command) error {
 			store, err := ctx.store()
 			if err != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "error: %v\n", err)
+				fmt.Fprintf(ctx.stderr, "error: %v\n", err)
 				ctx.exitCode = 1
-				return
+				return nil
 			}
 
-			ctx.exitCode = runExec(cmd.OutOrStdout(), cmd.ErrOrStderr(), store, args)
+			ctx.exitCode = runExec(ctx.stdout, ctx.stderr, store, cmd.Args().Slice())
+			return nil
 		},
 	}
 	configureHelp(cmd, execUsage)

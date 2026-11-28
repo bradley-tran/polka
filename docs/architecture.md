@@ -18,7 +18,7 @@ Polka is a Go CLI for managing project-local PHP development environments. The p
 
 ### `cli`
 
-The `cli` package owns command parsing, user-facing command output, and command-specific workflows. It uses Cobra to expose commands such as `init`, `new`, `install`, `build`, `serve`, `stop`, `exec`, `sh`, `db`, `cron`, and `status`, plus hidden commands that Polka runs itself, such as `dispatch` for command shims and `cron runner` for the background cron runner.
+The `cli` package owns command parsing, user-facing command output, and command-specific workflows. It uses `urfave/cli` to expose commands such as `init`, `new`, `install`, `build`, `serve`, `stop`, `exec`, `sh`, `db`, `cron`, and `status`, plus hidden commands that Polka runs itself, such as `dispatch` for command shims and `cron runner` for the background cron runner.
 
 The CLI should stay thin. It resolves flags and arguments, asks `backend.Store` for stateful operations, and handles process execution or runtime command flows where those are command-specific.
 
